@@ -542,8 +542,42 @@ Unix usa un grupo de procesos; no impide escapar con setsid y no confirma cierre
 de todo el árbol. Las pruebas de procesos de esta etapa se ejecutaron en Windows.
 
 No tiene aún paridad con Node: no migra configuración de verificadores personalizados,
-lenguajes distintos de Rust/Go ni diagnósticos Rust estructurados. Node usaba Cargo check con
+lenguajes distintos de Rust/Go/Python ni diagnósticos Rust estructurados. Node usaba Cargo check con
 scope de paquete; esta versión usa build/test con scope de ruta explícito.
+
+## Verificación Python nativa (parcial)
+
+`harness_verify` acepta language="python" con scope explícito relativo al workspace:
+build requiere un archivo .py y ejecuta `python -I -S -m py_compile <archivo>`.
+Solo comprueba sintaxis, sin importar/ejecutar ese archivo; no es type checking ni
+lint. Escribe bytecode normal en __pycache__ y puede cambiar la huella local.
+test requiere un directorio y ejecuta `python -I -S -B -m unittest discover -s
+<directorio> -t <directorio> -p test*.py`. El patrón es fijo, sin flags del usuario.
+Discovery puede importar paquetes, ejecutar load_tests y recorrer subpaquetes:
+el alcance autorizado es el directorio completo, no un archivo individual.
+
+Requiere Python 3 instalado como `python`/python.exe en una entrada absoluta de
+PATH; no usa py.exe, python3 ni instala un intérprete o paquetes. -I evita el
+directorio actual y user site-packages en el arranque e ignora variables PYTHON*;
+-S omite site y sus hooks. No se cargan automáticamente dependencias de terceros,
+pytest ni configuración de proyectos. unittest añade después su directorio de
+descubrimiento al import path. -B evita escribir bytecode en imports de tests,
+pero no evita escrituras explícitas de los tests. No es un sandbox ni bloqueo de red.
+
+Comparte límites de 30 s/2 MiB, cancelación, gate de sesión y resultados del
+ejecutor Rust. verificationMode distingue py_compile_syntax_only y
+unittest_discovery. passed indica código de salida cero, no cantidad de tests:
+unittest puede devolver éxito con cero tests; testCountVerified=false lo explicita.
+verificationFreshness permanece not_tracked; no ejecuta permisos externos.
+La salida puede contener fuente/secretos del proyecto; no equivale a config redactada.
+
+Prueba real opt-in (no obliga a instalar Python para correr la suite estándar):
+`cargo test --locked --lib real_python_compilation_unittest_and_failures -- --ignored --nocapture`.
+Se comprobaron compilación sin ejecutar fuente, rechazo de sintaxis inválida,
+tests aprobados/fallidos y que un py_compile.py local no sustituye la stdlib.
+Referencias: [opciones del intérprete](https://docs.python.org/3/using/cmdline.html),
+[py_compile](https://docs.python.org/3/library/py_compile.html) y
+[unittest](https://docs.python.org/3/library/unittest.html).
 
 ## Verificación Go nativa (parcial)
 

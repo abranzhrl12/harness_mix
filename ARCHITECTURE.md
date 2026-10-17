@@ -49,6 +49,15 @@ sin convertir entradas de herramientas en comandos de shell.
 
 ### Procesos y verificación (0.4.0)
 
+Python añade solo un plan de proceso y un Program cerrado al mismo puerto.
+Build exige archivo .py y usa py_compile; test exige directorio y usa unittest
+discover con patrón fijo. Los argumentos -I/-S impiden hooks de arranque/config
+Python heredada; no se ejecutan scripts ad-hoc ni intérpretes aportados por el
+request. Discovery sí importa el directorio autorizado: no es un sandbox.
+Se conserva la normalización de fallos y la observación local no certificada.
+verificationMode y testCountVerified=false evitan presentar compilación o cero
+tests como una garantía de corrección. Las pruebas reales son opt-in por runtime.
+
 Go usa el mismo puerto ProcessRunner y el mismo caso de uso que Rust: no hay
 segundo ejecutor ni bypass del gate de sesión. go_plan solo admite un módulo
 local y construye argumentos cerrados (-C, build/test, paquete .). Program::Go

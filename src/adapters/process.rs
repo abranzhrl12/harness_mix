@@ -39,6 +39,7 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
         Program::Rustc => "rustc",
         Program::Git => "git",
         Program::Go => "go",
+        Program::Python => "python",
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")

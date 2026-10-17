@@ -9,6 +9,7 @@ pub enum Program {
     Rustc,
     Git,
     Go,
+    Python,
 }
 
 #[derive(Debug)]

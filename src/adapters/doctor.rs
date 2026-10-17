@@ -25,6 +25,7 @@ fn numeric_version(program: Program, output: &[u8]) -> Option<String> {
         Program::Rustc => "rustc ",
         Program::Git => "git version ",
         Program::Go => "go version go",
+        Program::Python => "Python ",
     };
     let candidate = text.strip_prefix(prefix)?.split_whitespace().next()?;
     let numeric: String = candidate
@@ -63,14 +64,11 @@ fn tool_check(
     if let Some(runner) = runner {
         let spec = ProcessSpec::new(
             program,
-            vec![
-                if program == Program::Go {
-                    "version"
-                } else {
-                    "--version"
-                }
-                .into(),
-            ],
+            match program {
+                Program::Go => vec!["version".into()],
+                Program::Python => vec!["-I".into(), "-S".into(), "--version".into()],
+                _ => vec!["--version".into()],
+            },
             Duration::from_secs(2),
             4096,
         )?;
@@ -170,6 +168,7 @@ pub(super) fn doctor(
         (Program::Rustc, "rustc"),
         (Program::Git, "git"),
         (Program::Go, "go"),
+        (Program::Python, "python"),
     ] {
         checks.push(tool_check(program, name, runner.as_ref(), context)?);
     }
@@ -220,6 +219,11 @@ mod tests {
     use super::*;
     #[test]
     fn version_output_never_forwards_raw_text() {
+        assert_eq!(
+            numeric_version(Program::Python, b"Python 3.12.10 private-suffix"),
+            Some("3.12.10".into())
+        );
+        assert!(numeric_version(Program::Python, b"Python private-token").is_none());
         assert_eq!(
             numeric_version(
                 Program::Go,

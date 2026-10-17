@@ -32,7 +32,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
-| `harness_verify` | Parcial | Rust/Go build/test; Go solo paquete raíz, toolchain local sin descargas/cgo |
+| `harness_verify` | Parcial | Rust/Go/Python; Python py_compile de archivo o unittest de directorio, sin pytest |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
 | `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
@@ -60,6 +60,16 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Verificador Python nativo por comandos stdlib cerrados, con -I/-S: compilación
+sintáctica de archivo explícito o unittest discovery de directorio explícito.
+No instala paquetes ni evalúa fuente en build; test sí ejecuta código del proyecto.
+Reutiliza ejecutor, gate, huella local y límites existentes. Doctor y bootstrap
+detectan python por la política de PATH absoluto. No hay nuevos crates/herramientas.
+Siguen pendientes pytest, entornos/dependencias configurables, lint/type checking
+y paridad completa. Una salida cero de unittest no certifica que existan tests.
+
+### Bloque anterior: verificación Go
 
 Verificador Go nativo con argumentos cerrados, módulo/ruta local validada y
 política de entorno del hijo sin GOFLAGS/hook de caché, descargas, cgo o go.work.
@@ -191,7 +201,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 127 pruebas Rust cubren configuración, alcances, búsqueda y política del verificador Go.
+- 130 pruebas Rust cubren configuración, alcances, búsqueda y planes de verificación Rust/Go/Python.
+- Prueba Python opt-in pasó con intérprete real: compilación, unittest y fallos esperados.
 - Prueba real Go opt-in: build/test/fallo de compilación pasaron en Windows con caché preparada.
 - La primera compilación de tests Go agotó 30 s; no se amplió el límite ni se marcó éxito.
 - Clippy de todo el workspace y todos los targets: sin warnings.
@@ -239,7 +250,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [ ] Patrones AST generales/multilenguaje y equivalencia completa de límites/cobertura.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.
 - [x] Verificación Go parcial del paquete raíz de módulo, sin descargas/cgo/workspaces.
-- [ ] Verificación de .NET, Python, JavaScript y paridad completa de Go/otros adaptadores.
+- [x] Verificación Python parcial: py_compile de archivo y unittest de directorio.
+- [ ] Verificación de .NET, JavaScript y paridad completa de Python/Go/otros adaptadores.
 
 ### 3. Relaciones e integraciones
 

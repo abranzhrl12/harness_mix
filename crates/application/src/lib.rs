@@ -488,7 +488,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "Navegación sintáctica: sin locales, expansión de macros ni relaciones CodeGraph",
             "Búsqueda text/files/file_size y syntax de declaraciones Rust (kind[:nombre]); sin patrones AST generales. Scopes Windows solo lectura",
             "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
-            "Verificación Rust/Go (Go: paquete raíz de módulo, sin descargas/cgo/workspaces); ejecuta código del proyecto, no es sandbox",
+            "Verificación Rust/Go/Python parcial (Python: py_compile de archivo o unittest de directorio); ejecuta código del proyecto, no es sandbox",
             "Git solo lectura; requiere git instalado y raíz con .git directorio, sin linked worktrees",
             "No sustituye el servidor actual"
         ]);

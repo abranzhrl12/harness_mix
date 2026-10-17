@@ -203,7 +203,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Verificar Rust (crate/Cargo.toml) o Go (directorio raíz de módulo/go.mod, paquete .) con build/test. Go usa toolchain local, sin descargas, workspaces ni cgo. Scope relativo al workspace; no ejecuta rutas externas. Ejecuta código del proyecto, no es sandbox. Plazo 30 s, salida 2 MiB."
+        description = "Verificar Rust (crate/Cargo.toml), Go (módulo/go.mod, paquete .) o Python (build: archivo .py con py_compile; test: directorio explícito con unittest discover test*.py). Python usa -I -S, sin instalar paquetes; Go sin descargas/workspaces/cgo. Scope relativo local; no ejecuta scopes externos. No es sandbox. Plazo 30 s, salida 2 MiB."
     )]
     async fn harness_verify(
         &self,

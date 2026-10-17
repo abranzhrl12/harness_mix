@@ -100,6 +100,24 @@ fn syntax_search_round_trip_without_node() {
 }
 
 #[test]
+fn python_verification_reports_missing_interpreter_without_node() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("example.py"), "pass\n").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let result = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_verify","arguments":{
+            "language":"python","scope":"example.py","action":"build"
+        }}),
+    );
+    let result = &result["result"]["structuredContent"];
+    assert_eq!(result["state"], "error", "{result}");
+    assert_eq!(result["diagnostics"][0]["code"], "PROCESS_EXECUTABLE");
+}
+
+#[test]
 fn go_verification_reports_missing_toolchain_without_node() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -522,8 +540,14 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let diagnosis = &doctor["result"]["structuredContent"];
     assert_eq!(diagnosis["state"], "ok", "{doctor}");
     assert_eq!(diagnosis["data"]["versionsRequested"], false);
-    assert_eq!(diagnosis["data"]["counts"]["warning"], 4);
-    for name in ["tool:cargo", "tool:rustc", "tool:git", "tool:go"] {
+    assert_eq!(diagnosis["data"]["counts"]["warning"], 5);
+    for name in [
+        "tool:cargo",
+        "tool:rustc",
+        "tool:git",
+        "tool:go",
+        "tool:python",
+    ] {
         let tool = diagnosis["data"]["checks"]
             .as_array()
             .unwrap()
@@ -550,7 +574,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let unsupported = server.request(
         20,
         "tools/call",
-        json!({"name":"harness_verify","arguments":{"language":"python"}}),
+        json!({"name":"harness_verify","arguments":{"language":"javascript"}}),
     );
     assert_eq!(unsupported["result"]["structuredContent"]["state"], "error");
     assert_eq!(

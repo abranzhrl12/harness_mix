@@ -24,7 +24,13 @@ fn diagnosis_does_not_create_state_or_claim_remote_connections() {
             "skipped"
         );
     }
-    for id in ["tool:git", "tool:cargo", "tool:rustc", "tool:go"] {
+    for id in [
+        "tool:git",
+        "tool:cargo",
+        "tool:rustc",
+        "tool:go",
+        "tool:python",
+    ] {
         assert_eq!(
             checks.iter().find(|c| c["id"] == id).unwrap()["versionChecked"],
             false

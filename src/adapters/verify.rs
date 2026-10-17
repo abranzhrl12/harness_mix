@@ -11,11 +11,17 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    if args.language.eq_ignore_ascii_case("python") {
+        return python_plan(project, args);
+    }
     if args.language.eq_ignore_ascii_case("go") {
         return go_plan(project, args);
     }
     if !args.language.eq_ignore_ascii_case("rust") {
-        return Err(("UNSUPPORTED", "Only Rust and Go verification are migrated"));
+        return Err((
+            "UNSUPPORTED",
+            "Only Rust, Go and Python verification are migrated",
+        ));
     }
     let scope = args.scope.as_deref().unwrap_or(".");
     if scope.len() > 4096 {
@@ -55,6 +61,59 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
             "--color".into(),
             "never".into(),
         ],
+        Duration::from_secs(30),
+        2 * 1024 * 1024,
+    )
+}
+
+fn python_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    let scope = args.scope.as_deref().ok_or((
+        "VERIFY_SCOPE",
+        "Python requires explicit file (build) or test directory (test)",
+    ))?;
+    if scope.len() > 4096 {
+        return Err(("PATH", "Scope too long"));
+    }
+    let target = project.target(scope)?;
+    let path = target
+        .to_str()
+        .ok_or(("PATH", "Python scope must be UTF-8"))?;
+    let arguments = if matches!(args.action, Some(VerifyAction::Test)) {
+        if !target.is_dir() {
+            return Err((
+                "VERIFY_SCOPE",
+                "Python test requires a directory for unittest discovery",
+            ));
+        }
+        vec![
+            "-I".into(),
+            "-S".into(),
+            "-B".into(),
+            "-m".into(),
+            "unittest".into(),
+            "discover".into(),
+            "-s".into(),
+            path.into(),
+            "-t".into(),
+            path.into(),
+            "-p".into(),
+            "test*.py".into(),
+        ]
+    } else {
+        if !target.is_file() || target.extension().and_then(|e| e.to_str()) != Some("py") {
+            return Err(("VERIFY_SCOPE", "Python build requires a .py file"));
+        }
+        vec![
+            "-I".into(),
+            "-S".into(),
+            "-m".into(),
+            "py_compile".into(),
+            path.into(),
+        ]
+    };
+    ProcessSpec::new(
+        Program::Python,
+        arguments,
         Duration::from_secs(30),
         2 * 1024 * 1024,
     )
@@ -140,7 +199,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":if spec.program() == Program::Go { "go" } else { "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":match spec.program() { Program::Go => "go", Program::Python => "python", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -154,6 +213,14 @@ pub(super) fn verify(
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });
+    if spec.program() == Program::Python {
+        result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
+            "unittest_discovery"
+        } else {
+            "py_compile_syntax_only"
+        });
+        result["testCountVerified"] = json!(false);
+    }
     if outcome.reason == StopReason::Exited && outcome.exit_code != Some(0) {
         result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Verification tool returned a nonzero exit status; inspect output"}]);
     } else if limited {
@@ -170,6 +237,123 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn python_plans_use_isolated_stdlib_commands_and_validated_scopes() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("file with spaces.py"), "x=1\n").unwrap();
+        std::fs::create_dir(root.path().join("tests with spaces")).unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let mut args = VerifyArgs {
+            language: "PYTHON".into(),
+            scope: Some("file with spaces.py".into()),
+            action: None,
+            session: None,
+        };
+        let spec = plan(&project, &args).unwrap();
+        assert_eq!(spec.program(), Program::Python);
+        assert_eq!(&spec.arguments()[..4], ["-I", "-S", "-m", "py_compile"]);
+        assert!(spec.arguments()[4].ends_with("file with spaces.py"));
+        args.scope = Some("tests with spaces".into());
+        args.action = Some(VerifyAction::Test);
+        let spec = plan(&project, &args).unwrap();
+        assert_eq!(
+            &spec.arguments()[..6],
+            ["-I", "-S", "-B", "-m", "unittest", "discover"]
+        );
+        assert_eq!(spec.arguments()[6], "-s");
+        assert_eq!(spec.arguments()[8], "-t");
+        assert_eq!(spec.arguments()[7], spec.arguments()[9]);
+        assert_eq!(&spec.arguments()[10..], ["-p", "test*.py"]);
+    }
+
+    #[test]
+    fn python_rejects_implicit_scope_wrong_types_and_traversal() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.py"), "pass").unwrap();
+        std::fs::write(root.path().join("a.txt"), "pass").unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for scope in [
+            None,
+            Some("."),
+            Some("a.txt"),
+            Some("../a.py"),
+            Some("--help"),
+            Some("C:/a.py"),
+        ] {
+            let args = VerifyArgs {
+                language: "python".into(),
+                scope: scope.map(String::from),
+                action: None,
+                session: None,
+            };
+            assert!(plan(&project, &args).is_err());
+        }
+        let args = VerifyArgs {
+            language: "python".into(),
+            scope: Some("a.py".into()),
+            action: Some(VerifyAction::Test),
+            session: None,
+        };
+        assert_eq!(plan(&project, &args).unwrap_err().0, "VERIFY_SCOPE");
+    }
+
+    #[test]
+    #[ignore = "requires installed Python 3; run explicitly"]
+    fn real_python_compilation_unittest_and_failures() {
+        super::super::process::executable(Program::Python)
+            .expect("Python unavailable in absolute PATH");
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("file with spaces.py"),
+            "raise RuntimeError('compile must not execute source')\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("py_compile.py"),
+            "raise RuntimeError('local py_compile must not load')\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("sitecustomize.py"),
+            "open('startup-marker.txt','w').write('bad')\n",
+        )
+        .unwrap();
+        std::fs::create_dir(root.path().join("tests with spaces")).unwrap();
+        std::fs::write(root.path().join("tests with spaces/test_fixture.py"), "import unittest\nclass Fixture(unittest.TestCase):\n def test_ok(self): self.assertEqual(2+2,4)\n").unwrap();
+        let app = super::super::application(root.path()).unwrap();
+        let call = |scope: &str, action| {
+            app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                language: "python".into(),
+                scope: Some(scope.into()),
+                action: Some(action),
+                session: None,
+            }))
+        };
+        let build = call("file with spaces.py", VerifyAction::Build);
+        assert_eq!(build["state"], "ok", "{build}");
+        assert_eq!(build["scope"]["language"], "python");
+        assert_eq!(build["data"]["verificationMode"], "py_compile_syntax_only");
+        assert!(!root.path().join("startup-marker.txt").exists());
+        let test = call("tests with spaces", VerifyAction::Test);
+        assert_eq!(test["state"], "ok", "{test}");
+        assert!(
+            test["data"]["output"]
+                .as_str()
+                .unwrap()
+                .contains("Ran 1 test")
+        );
+        assert_eq!(test["data"]["testCountVerified"], false);
+        std::fs::write(root.path().join("tests with spaces/test_fixture.py"), "import unittest\nclass Fixture(unittest.TestCase):\n def test_bad(self): self.fail('expected fixture failure')\n").unwrap();
+        let failed = call("tests with spaces", VerifyAction::Test);
+        assert_eq!(failed["state"], "error", "{failed}");
+        assert_eq!(failed["diagnostics"][0]["code"], "VERIFY_FAILED");
+        std::fs::write(root.path().join("file with spaces.py"), "def broken(:\n").unwrap();
+        assert_eq!(
+            call("file with spaces.py", VerifyAction::Build)["state"],
+            "error"
+        );
+    }
 
     #[test]
     fn go_plan_has_closed_arguments_and_accepts_module_with_spaces() {
