@@ -51,6 +51,8 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_xlsx_*` | Implementado | Inspección (`harness_xlsx_inspect`) y lectura paginada/acotada (`harness_xlsx_read`) nativa con calamine y SHA-256 |
 | harness_svg | Implementado | Modos inspect y preview (rasterizacion PNG con resvg), seguridad y cuotas |
 | harness_handover | Implementado | Renderizado puro en dominio de resumen/ADR/PR, preview acotado a 1600 caracteres o publicacion atomica con control SHA-256 |
+| `harness_process_status` | Implementado | Inspección de estado PID, sondeo seguro de puertos TCP y healthcheck loopback HTTP(S) sin shell ni leaks |
+| `harness_diagnostics` | Implementado | Diagnóstico sintáctico rápido por lotes en Rust (syn), JS/TS (oxc) y JSON, con soporte de cambios Git tracked |
 | `harness_logs` | Parcial | 512 eventos, requestId y snapshots Windows opt-in; sin configuración/trazas completas |
 | Métricas | Parcial | Operaciones, resultados, rechazos y tiempos por instancia/herramienta; no histórico por sesión |
 | Sesiones en disco | Implementado | Formato v1 compatible con Node; histórico no equivale a vigencia |
