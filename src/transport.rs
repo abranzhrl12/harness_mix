@@ -203,7 +203,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Verificar Rust (crate), Go (paquete raíz de módulo), Python (build: .py; test: directorio unittest) o JavaScript/js (archivo .js/.cjs/.mjs: build usa node --check; test usa node --test). JS sin npm/scripts ni glob; Python -I -S; Go sin descargas/cgo/workspaces. Scope local validado; no scopes externos. No es sandbox. Plazo 30 s/2 MiB."
+        description = "Verificar Rust (crate), Go (módulo), Python (.py build/directorio unittest), JS (.js/.cjs/.mjs check/test), dotnet/csharp (.csproj/.sln explícito con SDK, build/test --no-restore y servidores desactivados). No MSBuild clásico. Rutas locales validadas, sin scopes externos ni comandos/flags libres. Ejecuta código del proyecto, no es sandbox. Plazo 30 s/2 MiB."
     )]
     async fn harness_verify(
         &self,

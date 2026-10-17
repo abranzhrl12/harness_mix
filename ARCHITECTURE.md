@@ -49,6 +49,14 @@ sin convertir entradas de herramientas en comandos de shell.
 
 ### Procesos y verificación (0.4.0)
 
+.NET SDK agrega Program::Dotnet y un plan de .csproj/.sln explícito al mismo
+puerto. No hay selección de MSBuild clásico ni descubrimiento libre de soluciones.
+--no-restore controla solo el restore implícito; servidores de build/reutilización
+se desactivan por argumentos y entorno del hijo. No hay build-server shutdown
+global. Targets e imports del proyecto conservan sus permisos normales.
+Las fixtures reales preparan assets propios sin fuentes NuGet y distinguen
+compilación C# de prueba de despacho VSTest, sin atribuir cobertura de frameworks.
+
 JavaScript añade un Program::Node opcional y un plan cerrado, no un runtime del
 harness ni un segundo servidor. Check/test aceptan un archivo validado y usan
 el mismo ejecutor/gate. NODE_OPTIONS/NODE_PATH se vacían solo en el hijo; la ruta

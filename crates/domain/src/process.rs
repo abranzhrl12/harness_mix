@@ -11,6 +11,7 @@ pub enum Program {
     Go,
     Python,
     Node,
+    Dotnet,
 }
 
 #[derive(Debug)]

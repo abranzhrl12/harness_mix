@@ -41,6 +41,7 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
         Program::Go => "go",
         Program::Python => "python",
         Program::Node => "node",
+        Program::Dotnet => "dotnet",
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")
@@ -95,6 +96,20 @@ fn go_environment(command: &mut Command) {
         .env_remove("GOEXPERIMENT");
 }
 
+fn dotnet_environment(command: &mut Command) {
+    command
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
+        .env("DOTNET_NOLOGO", "1")
+        .env("DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE", "1")
+        .env("MSBUILDDISABLENODEREUSE", "1")
+        .env("CORECLR_ENABLE_PROFILING", "0")
+        .env("COR_ENABLE_PROFILING", "0")
+        .env_remove("DOTNET_STARTUP_HOOKS")
+        .env_remove("MSBUILD_EXE_PATH")
+        .env_remove("MSBuildSDKsPath");
+}
+
 fn node_environment(command: &mut Command) {
     command
         .env("NODE_OPTIONS", "")
@@ -111,6 +126,9 @@ impl ProcessRunner for NativeProcessRunner {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
+        if spec.program() == Program::Dotnet {
+            dotnet_environment(&mut command);
+        }
         if spec.program() == Program::Node {
             node_environment(&mut command);
         }
@@ -326,6 +344,34 @@ fn run_command(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dotnet_policy_disables_startup_hooks_profilers_and_node_reuse() {
+        let mut command = std::process::Command::new("unused-fixture");
+        command
+            .env("DOTNET_STARTUP_HOOKS", "private-hook")
+            .env("MSBUILD_EXE_PATH", "private-exe")
+            .env("MSBuildSDKsPath", "private-sdk");
+        super::dotnet_environment(&mut command);
+        let env: std::collections::BTreeMap<_, _> = command.get_envs().collect();
+        for key in [
+            "DOTNET_STARTUP_HOOKS",
+            "MSBUILD_EXE_PATH",
+            "MSBuildSDKsPath",
+        ] {
+            assert_eq!(env[std::ffi::OsStr::new(key)], None);
+        }
+        for (key, value) in [
+            ("DOTNET_CLI_TELEMETRY_OPTOUT", "1"),
+            ("MSBUILDDISABLENODEREUSE", "1"),
+            ("CORECLR_ENABLE_PROFILING", "0"),
+            ("COR_ENABLE_PROFILING", "0"),
+        ] {
+            assert_eq!(
+                env[std::ffi::OsStr::new(key)],
+                Some(std::ffi::OsStr::new(value))
+            );
+        }
+    }
     #[test]
     fn node_policy_clears_preloads_and_inherited_module_paths() {
         let mut command = std::process::Command::new("unused-fixture");

@@ -542,8 +542,43 @@ Unix usa un grupo de procesos; no impide escapar con setsid y no confirma cierre
 de todo el árbol. Las pruebas de procesos de esta etapa se ejecutaron en Windows.
 
 No tiene aún paridad con Node: no migra configuración de verificadores personalizados,
-lenguajes distintos de Rust/Go/Python/JavaScript ni diagnósticos Rust estructurados. Node usaba Cargo check con
+lenguajes distintos de Rust/Go/Python/JavaScript/.NET SDK ni diagnósticos Rust estructurados. Node usaba Cargo check con
 scope de paquete; esta versión usa build/test con scope de ruta explícito.
+
+## Verificación .NET SDK nativa (parcial)
+
+`harness_verify` admite language="dotnet" o "csharp", scope explícito de un
+.csproj o .sln y action="build"|"test". No acepta directorios, .slnx, archivos .cs
+sueltos ni flags libres. Usa el dotnet instalado en PATH absoluto; requiere SDK
+compatible con --disable-build-servers (7+), no basta el runtime de aplicaciones.
+No instala SDKs/paquetes ni busca MSBuild de Visual Studio para proyectos legacy.
+
+Invoca build/test con --no-restore, --nologo, verbosity minimal,
+--disable-build-servers, -nodeReuse:false, -maxCpuCount:1 y
+-p:UseSharedCompilation=false. El proyecto debe tener previamente sus assets de
+restore y targeting packs. implicitRestoreEnabled=false indica esa opción del
+comando: no demuestra que un target personalizado no ejecute su propio restore
+o acceda a red. Proyectos/soluciones pueden referenciar archivos externos.
+
+El hijo desactiva telemetría CLI, notificaciones de workloads, reutilización de
+nodos y profiling COR/CORECLR; elimina DOTNET_STARTUP_HOOKS, MSBUILD_EXE_PATH y
+MSBuildSDKsPath heredados. No cambia el entorno del harness ni cierra servidores
+globales de otros proyectos. Estas medidas no auditan todas las variables .NET
+ni convierten MSBuild, targets o tests en un sandbox. La salida puede incluir
+secretos/fuente del proyecto. Mantiene límites 30 s/2 MiB y el gate de sesión.
+
+verificationMode distingue dotnet_build/dotnet_test; testCountVerified=false:
+exit code cero no demuestra cantidad/cobertura ni que exista un test SDK instalado.
+verificationFreshness sigue not_tracked. MSBuild clásico/.NET Framework y paridad
+de VSTest/Microsoft.Testing.Platform quedan pendientes; no hay fallback a Node.
+Referencias: [dotnet build](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-build)
+y [dotnet test](https://learn.microsoft.com/dotnet/core/tools/dotnet-test-vstest).
+
+Prueba real opt-in: `cargo test --locked --lib real_dotnet_build_and_test_dispatch -- --ignored --nocapture`.
+La fixture prepara su propio restore sin fuentes NuGet, compila C# con el SDK
+instalado y comprueba errores. Para test valida despacho/propagación de fallos
+mediante un target VSTest controlado, no mediante un framework NuGet descargado.
+El verificador publicado no incluye la preparación de restore de esa fixture.
 
 ## Verificación JavaScript nativa (parcial)
 

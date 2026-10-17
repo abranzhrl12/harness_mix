@@ -27,6 +27,7 @@ fn numeric_version(program: Program, output: &[u8]) -> Option<String> {
         Program::Go => "go version go",
         Program::Python => "Python ",
         Program::Node => "v",
+        Program::Dotnet => "",
     };
     let candidate = text.strip_prefix(prefix)?.split_whitespace().next()?;
     let numeric: String = candidate
@@ -171,6 +172,7 @@ pub(super) fn doctor(
         (Program::Go, "go"),
         (Program::Python, "python"),
         (Program::Node, "node"),
+        (Program::Dotnet, "dotnet"),
     ] {
         checks.push(tool_check(program, name, runner.as_ref(), context)?);
     }
@@ -221,6 +223,11 @@ mod tests {
     use super::*;
     #[test]
     fn version_output_never_forwards_raw_text() {
+        assert_eq!(
+            numeric_version(Program::Dotnet, b"9.0.302\n"),
+            Some("9.0.302".into())
+        );
+        assert!(numeric_version(Program::Dotnet, b"private-token").is_none());
         assert_eq!(
             numeric_version(Program::Node, b"v22.16.0\n"),
             Some("22.16.0".into())

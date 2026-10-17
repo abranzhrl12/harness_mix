@@ -31,6 +31,7 @@ fn diagnosis_does_not_create_state_or_claim_remote_connections() {
         "tool:go",
         "tool:python",
         "tool:node",
+        "tool:dotnet",
     ] {
         assert_eq!(
             checks.iter().find(|c| c["id"] == id).unwrap()["versionChecked"],

@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    if args.language.eq_ignore_ascii_case("dotnet") || args.language.eq_ignore_ascii_case("csharp")
+    {
+        return dotnet_plan(project, args);
+    }
     if args.language.eq_ignore_ascii_case("javascript") || args.language.eq_ignore_ascii_case("js")
     {
         return javascript_plan(project, args);
@@ -24,7 +28,7 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if !args.language.eq_ignore_ascii_case("rust") {
         return Err((
             "UNSUPPORTED",
-            "Only Rust, Go, Python and JavaScript verification are migrated",
+            "Only Rust, Go, Python, JavaScript and dotnet verification are migrated",
         ));
     }
     let scope = args.scope.as_deref().unwrap_or(".");
@@ -64,6 +68,59 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
                 .into(),
             "--color".into(),
             "never".into(),
+        ],
+        Duration::from_secs(30),
+        2 * 1024 * 1024,
+    )
+}
+
+fn dotnet_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    let scope = args
+        .scope
+        .as_deref()
+        .ok_or(("VERIFY_SCOPE", ".NET requires an explicit .csproj or .sln"))?;
+    if scope.len() > 4096 {
+        return Err(("PATH", "Scope too long"));
+    }
+    let target = project.target(scope)?;
+    if !target.is_file()
+        || !target
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("csproj") || ext.eq_ignore_ascii_case("sln")
+            })
+    {
+        return Err((
+            "VERIFY_SCOPE",
+            ".NET scope must be a .csproj or .sln file, not a directory",
+        ));
+    }
+    let relative = target
+        .strip_prefix(&project.root)
+        .ok()
+        .and_then(|p| p.to_str())
+        .ok_or(("PATH", ".NET scope must be relative UTF-8"))?;
+    #[cfg(windows)]
+    let relative = relative.replace('\\', "/");
+    // No auto-discovery of neighboring projects, free MSBuild flags, restore or servers.
+    ProcessSpec::new(
+        Program::Dotnet,
+        vec![
+            if matches!(args.action, Some(VerifyAction::Test)) {
+                "test".into()
+            } else {
+                "build".into()
+            },
+            format!("./{relative}"),
+            "--no-restore".into(),
+            "--nologo".into(),
+            "--verbosity".into(),
+            "minimal".into(),
+            "--disable-build-servers".into(),
+            "-nodeReuse:false".into(),
+            "-maxCpuCount:1".into(),
+            "-p:UseSharedCompilation=false".into(),
         ],
         Duration::from_secs(30),
         2 * 1024 * 1024,
@@ -256,7 +313,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":match spec.program() { Program::Go => "go", Program::Python => "python", Program::Node => "javascript", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":match spec.program() { Program::Go => "go", Program::Python => "python", Program::Node => "javascript", Program::Dotnet => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -270,6 +327,15 @@ pub(super) fn verify(
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });
+    if spec.program() == Program::Dotnet {
+        result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
+            "dotnet_test"
+        } else {
+            "dotnet_build"
+        });
+        result["testCountVerified"] = json!(false);
+        result["implicitRestoreEnabled"] = json!(false);
+    }
     if spec.program() == Program::Node {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "node_test_file"
@@ -302,6 +368,173 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dotnet_plan_requires_explicit_project_and_disables_restore_servers() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for scope in ["project with spaces.csproj", "solution with spaces.sln"] {
+            std::fs::write(root.path().join(scope), "fixture").unwrap();
+            for action in [VerifyAction::Build, VerifyAction::Test] {
+                let test = matches!(action, VerifyAction::Test);
+                let spec = plan(
+                    &project,
+                    &VerifyArgs {
+                        language: "csharp".into(),
+                        scope: Some(scope.into()),
+                        action: Some(action),
+                        session: None,
+                    },
+                )
+                .unwrap();
+                assert_eq!(spec.program(), Program::Dotnet);
+                assert_eq!(spec.arguments()[0], if test { "test" } else { "build" });
+                assert_eq!(spec.arguments()[1], format!("./{scope}"));
+                for flag in [
+                    "--no-restore",
+                    "--disable-build-servers",
+                    "-nodeReuse:false",
+                    "-maxCpuCount:1",
+                    "-p:UseSharedCompilation=false",
+                ] {
+                    assert!(spec.arguments().contains(&flag.into()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dotnet_rejects_implicit_directories_and_unapproved_project_types() {
+        let root = tempfile::tempdir().unwrap();
+        for file in ["a.cs", "a.vbproj", "a.slnx"] {
+            std::fs::write(root.path().join(file), "fixture").unwrap();
+        }
+        let project = Project::new(root.path()).unwrap();
+        for scope in [
+            None,
+            Some("."),
+            Some("a.cs"),
+            Some("a.vbproj"),
+            Some("a.slnx"),
+            Some("../a.csproj"),
+            Some("--help"),
+            Some("C:/a.sln"),
+        ] {
+            let args = VerifyArgs {
+                language: "dotnet".into(),
+                scope: scope.map(String::from),
+                action: None,
+                session: None,
+            };
+            assert!(plan(&project, &args).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires installed .NET SDK; run explicitly"]
+    fn real_dotnet_build_and_test_dispatch() {
+        let root = tempfile::tempdir().unwrap();
+        let runner = NativeProcessRunner::new(root.path()).unwrap();
+        let version = runner
+            .run(
+                &ProcessSpec::new(
+                    Program::Dotnet,
+                    vec!["--version".into()],
+                    Duration::from_secs(10),
+                    4096,
+                )
+                .unwrap(),
+                &OperationContext::default(),
+            )
+            .unwrap();
+        assert_eq!(version.exit_code, Some(0));
+        let major: u32 = std::str::from_utf8(&version.stdout)
+            .unwrap()
+            .trim()
+            .split('.')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            major >= 7,
+            "fixture requires SDK supporting --disable-build-servers"
+        );
+        let csproj = format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net{major}.0</TargetFramework></PropertyGroup></Project>"
+        );
+        std::fs::write(root.path().join("fixture with spaces.csproj"), csproj).unwrap();
+        std::fs::write(
+            root.path().join("Fixture.cs"),
+            "public static class Fixture { public static int Value => 4; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("NuGet.Config"),
+            "<configuration><packageSources><clear/></packageSources></configuration>",
+        )
+        .unwrap();
+        // Only fixture setup restores, from installed SDK packs, with no NuGet sources.
+        // The published verifier never invokes restore.
+        let restore = runner
+            .run(
+                &ProcessSpec::new(
+                    Program::Dotnet,
+                    vec![
+                        "restore".into(),
+                        "./fixture with spaces.csproj".into(),
+                        "--configfile".into(),
+                        "./NuGet.Config".into(),
+                        "--disable-build-servers".into(),
+                        "-p:NuGetAudit=false".into(),
+                    ],
+                    Duration::from_secs(30),
+                    2 * 1024 * 1024,
+                )
+                .unwrap(),
+                &OperationContext::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            restore.exit_code,
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&restore.stderr)
+        );
+        let app = super::super::application(root.path()).unwrap();
+        let call = |scope: &str, action| {
+            app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                language: "dotnet".into(),
+                scope: Some(scope.into()),
+                action: Some(action),
+                session: None,
+            }))
+        };
+        let built = call("fixture with spaces.csproj", VerifyAction::Build);
+        assert_eq!(built["state"], "ok", "{built}");
+        assert_eq!(built["scope"]["language"], "dotnet");
+        assert_eq!(built["data"]["implicitRestoreEnabled"], false);
+        std::fs::write(root.path().join("Fixture.cs"), "invalid C sharp fixture").unwrap();
+        assert_eq!(
+            call("fixture with spaces.csproj", VerifyAction::Build)["state"],
+            "error"
+        );
+        // Audit command dispatch and failure propagation without downloading a test framework.
+        std::fs::write(root.path().join("dispatch.csproj"), "<Project><Target Name=\"VSTest\"><Message Importance=\"high\" Text=\"NATIVE_TEST_DISPATCH\"/></Target></Project>").unwrap();
+        let tested = call("dispatch.csproj", VerifyAction::Test);
+        assert_eq!(tested["state"], "ok", "{tested}");
+        assert!(
+            tested["data"]["output"]
+                .as_str()
+                .unwrap()
+                .contains("NATIVE_TEST_DISPATCH")
+        );
+        assert_eq!(tested["data"]["testCountVerified"], false);
+        std::fs::write(root.path().join("dispatch.csproj"), "<Project><Target Name=\"VSTest\"><Error Text=\"expected test dispatch failure\"/></Target></Project>").unwrap();
+        let failed = call("dispatch.csproj", VerifyAction::Test);
+        assert_eq!(failed["state"], "error", "{failed}");
+        assert_eq!(failed["diagnostics"][0]["code"], "VERIFY_FAILED");
+    }
 
     #[test]
     fn javascript_plan_uses_closed_commands_for_explicit_files() {

@@ -32,7 +32,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
-| `harness_verify` | Parcial | Rust/Go/Python/JS; JS archivo check/test sin npm; faltan .NET y paridad completa |
+| `harness_verify` | Parcial | Rust/Go/Python/JS/.NET SDK; .NET .csproj/.sln sin restore; falta legacy y paridad |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
 | `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
@@ -60,6 +60,15 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Verificación .NET SDK por dotnet/csharp, .csproj/.sln explícitos y argumentos
+cerrados de build/test, sin restore implícito ni servidores de build compartidos.
+Reutiliza ejecutor, gate, Job Objects, límites y observación local existentes.
+Doctor/bootstrap descubren dotnet opcionalmente, sin hacerlo dependencia del
+harness. Falta MSBuild legacy/.NET Framework y paridad real de frameworks de test.
+No hay instalación de SDK/paquetes ni cambios de conexión MCP.
+
+### Bloque anterior: verificación JavaScript
 
 Verificador JavaScript por argumentos cerrados, archivo .js/.cjs/.mjs y Node
 opcional: --check o --test, sin npm ni instalación. Entorno del hijo sin preloads
@@ -209,7 +218,9 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 134 pruebas Rust cubren configuración, alcances, búsqueda y planes de verificación Rust/Go/Python/JS.
+- 138 pruebas Rust cubren configuración, alcances, búsqueda y planes de verificación incluyendo .NET SDK.
+- Prueba .NET opt-in pasó: C# real y fallos; despacho test con target VSTest controlado, sin NuGet test framework.
+- Las cuatro pruebas opt-in (.NET, Go, Python y JavaScript) pasaron juntas con runtimes instalados.
 - Prueba JavaScript opt-in pasó con Node real: check, tests y fallos, sin paquetes adicionales.
 - Prueba Python opt-in pasó con intérprete real: compilación, unittest y fallos esperados.
 - Prueba real Go opt-in: build/test/fallo de compilación pasaron en Windows con caché preparada.
@@ -261,7 +272,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [x] Verificación Go parcial del paquete raíz de módulo, sin descargas/cgo/workspaces.
 - [x] Verificación Python parcial: py_compile de archivo y unittest de directorio.
 - [x] Verificación JavaScript parcial con node --check/--test de archivo explícito.
-- [ ] Verificación de .NET y paridad completa de JavaScript/Python/Go/otros adaptadores.
+- [x] Verificación .NET SDK parcial por .csproj/.sln, sin restore automático.
+- [ ] MSBuild clásico/.NET Framework y paridad de runners .NET/JavaScript/Python/Go.
 
 ### 3. Relaciones e integraciones
 
