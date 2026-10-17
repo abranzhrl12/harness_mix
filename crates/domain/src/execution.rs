@@ -10,6 +10,13 @@ use std::{
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+pub fn new_request_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+pub fn valid_request_id(value: &str) -> bool {
+    uuid::Uuid::parse_str(value).is_ok_and(|id| id.hyphenated().to_string() == value)
+}
+
 #[derive(Clone)]
 pub struct OperationContext {
     cancelled: Arc<AtomicBool>,

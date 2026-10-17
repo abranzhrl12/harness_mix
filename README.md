@@ -1,5 +1,27 @@
 # Núcleo Rust experimental
 
+## Repositorio independiente
+
+Este repositorio publica únicamente el núcleo Rust; la migración completa todavía
+no termina. No incluye el servidor Node, configuraciones locales ni binarios.
+
+```powershell
+git clone https://github.com/abranzhrl12/harness_mix.git
+cd harness_mix
+cargo test --locked --workspace -- --test-threads=1
+cargo build --release --locked
+target/release/agent-harness.exe --root E:\ruta\a\tu\proyecto
+```
+
+Para logs persistidos en Windows, añadir `--persist-logs`. Las pruebas Rust no
+requieren Node. La prueba opcional `tests/node-compat.test.cjs` requiere el checkout
+del arnés Node original y su SDK; no forma parte de `cargo test` ni del runtime.
+
+Los comandos con `.agents/harness/native/core` de las secciones siguientes son
+para el workspace original. En este checkout independiente se ejecuta Cargo desde
+la raíz, sin ese `--manifest-path`, y se usa `target/release` como ruta del binario.
+Ver [MIGRATION-STATUS.md](MIGRATION-STATUS.md) para capacidades, límites y pendientes.
+
 Ejecutable MCP por stdio, sin Node/npm en ejecución.
 No cambiar todavía la conexión MCP del harness actual.
 
@@ -22,9 +44,233 @@ el ejecutable no depende del directorio donde fue compilado. Los fallos de arran
 se escriben en stderr y stdout queda reservado al protocolo.
 
 Herramientas disponibles: `harness_bootstrap`, `harness_read`, `harness_detail`
-y `harness_search` (`text` y `files`), además de `harness_verify` para Rust
+y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` para Rust
 y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbol`
-para declaraciones Rust, más `harness_tasks` y `harness_checkpoint`.
+para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
+`harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
+y `harness_logs` (15 herramientas).
+
+## Tamaño de archivos sin devolver código
+
+`harness_search` con kind=file_size acepta minLines=0..10000000 (500), scope y
+limit=1..100 (30). No pasar query; text/files siguen requiriendo query no vacía.
+El filtro es estrictamente mayor: minLines=500 devuelve más de 500 líneas.
+Cuenta LF/CRLF totales, incluidos comentarios/tests: vacío=0 y LF final no añade
+una línea extra; una última línea sin LF sí cuenta. Ordena por líneas, bytes y ruta.
+Devuelve files con path/lines/bytes, nunca texto del archivo; el resto va a detail.
+También funciona como hijo search de harness_batch.
+
+Reutiliza las lecturas seguras con validación de metadata antes/después. Omite
+NUL/UTF-8 inválido y respeta ignore/ocultos/secretos; excluye además vendor, dist,
+build, coverage, *.min.js y *.map. Los límites nativos son más estrictos que Node:
+2 MiB por archivo, reserva de 64 MiB, 10000 archivos, 4 MiB de metadata de resultados
+y 5 s cooperativos (Node permite 8 MiB/archivo y 10 s). reservedBytes contabiliza
+reservas incluso si falla una lectura; bytesRead cuenta buffers obtenidos, no
+todos los bytes internos descartados por lecturas fallidas. Puede leerse un byte
+de guarda por archivo para detectar cambios. No es un plazo duro de filesystem.
+
+Archivos inaccesibles, cambiantes o demasiado grandes y límites alcanzados producen
+complete=false con diagnósticos; no se presentan como ausencia concluyente de
+archivos grandes. scanned cuenta textos estables, visited entradas candidatas y
+binarySkipped binarios omitidos. No hay análisis AST ni detección completa de
+código generado. Los demás kinds conservan sus límites anteriores.
+
+## Logs nativos y persistencia opcional
+
+`harness_logs` consulta hasta 512 eventos en memoria de la instancia, compartidos
+entre clones/sesiones. Por defecto no escribe archivos y nunca lee logs Node. Bootstrap y doctor
+incluyen el estado del buffer (retained/discarded/capacity/lastSequence).
+La persistencia Windows opt-in usa su propio formato, no el formato de Node.
+
+Eventos terminales, rechazos de admisión y abandonos incluyen secuencia, uptime,
+herramienta, nivel, estado, código de una lista fija y duración si fue medida.
+No hay argumentos, rutas, IDs de sesión, mensajes, SQL ni stdout/stderr. Los códigos
+no reconocidos se sustituyen por TOOL_ERROR. No observa fallos del SDK/stdio
+previos a la aplicación ni garantiza entrega RPC. La lectura actual se registra
+después de su snapshot; métricas y buffer se consultan por separado, no atómicamente.
+
+Filtros: limit=1..50 (20), level=info/warn/error, tool y slowOnly (umbral fijo 1 s).
+Sin after devuelve los eventos coincidentes más recientes, en orden cronológico.
+Con after devuelve la primera página posterior y nextAfter para continuar; avanza
+también cuando no coinciden eventos. historyPruned indica pérdida por capacidad.
+En memoria, reiniciar el proceso reinicia los cursores. En modo persistido continúan
+desde el último snapshot restaurado; ante recuperación incompleta revisar el
+estado y reiniciar el cursor si queda por delante de lastSequence. requestId
+permite filtrar un UUID canónico en minúsculas. Faltan configuración dinámica y
+trazas completas de transporte.
+
+La aplicación genera un requestId UUID v4 antes de admitir cada operación y lo
+devuelve en el nivel superior del envelope, también para rechazos. Es propio del
+núcleo: no es el id JSON-RPC ni el sessionId. El mismo UUID aparece en su evento
+terminal/rechazado/abandonado. Cada hijo de batch tiene uno distinto, conservado
+en el resultado compacto y completo; el lote tiene su propio ID.
+
+El transporte conserva el ID en cancelaciones/timeouts y errores de worker.
+Eso no prueba que se entregara una respuesta ni que una edición quedara cancelada:
+el evento refleja el worker real y puede llegar después del rechazo al cliente.
+Un filtro sin eventos tampoco prueba que no ocurrió la operación: puede seguir
+activa, haberse expulsado del buffer o pertenecer a una instancia anterior.
+Errores del SDK antes de prepare y desconexiones sin respuesta quedan fuera de
+esta correlación. No hay trazas completas ni relación parentId persistida.
+
+### Archivo rotativo en Windows
+
+Activar explícitamente al iniciar el ejecutable experimental:
+
+```powershell
+.agents/harness/native/core/target/release/agent-harness.exe --root E:\harnermix --persist-logs
+```
+
+No cambia la conexión MCP activa. La API nativa ofrece application_with_logging
+con persist_logs=true; application(root) conserva el modo en memoria. En otras
+plataformas se informa UNSUPPORTED y se conserva el resultado de la herramienta.
+
+Directorio separado `.agents/harness/native-logs`, excluido de Git y de las huellas
+del workspace. Mantiene current.json y previous.json, hasta 256 KiB cada uno y
+512 eventos por snapshot. previous es recuperación, no 512 eventos adicionales
+consultables. next.json es staging fijo, también limitado a 256 KiB; writer.lock
+es de cero bytes. No hay temporales de nombre aleatorio que se acumulen tras crashes.
+La rotación elimina deliberadamente el backup anterior validado, sin papelera.
+No se eliminan archivos ajenos ni se sobrescriben formatos no reconocidos.
+
+Directorios Windows fijados contra renombre, reparse points y hardlinks rechazados,
+un escritor mediante handle exclusivo liberado por el OS al morir el proceso.
+El staging conserva la DACL del snapshot anterior cuando existe; el primer archivo
+hereda la del directorio. Formato y campos estrictos, UUID y códigos permitidos,
+secuencias contiguas y tamaño limitado antes de publicar o restaurar. Esto valida
+estructura, no autenticidad: los archivos no están firmados y no son un registro
+forense resistente a un usuario hostil con acceso a la cuenta.
+
+Después de cada operación completada se intenta guardar un snapshot fuera de los
+locks de sesiones/logs. Un mutex serializa publicaciones y descarta snapshots
+obsoletos. logPersistence.saved/savedThrough indican aceptación o sustitución por
+un snapshot más nuevo dentro de la política de retención; no retención ilimitada.
+Los fallos añaden loggingWarning con toolOutcomeUnchanged=true, sin cambiar
+state/data de la operación. Bootstrap/doctor/logs informan persistenceError,
+lastSavedSequence y writeErrors; doctor advierte degradación de persistencia.
+El snapshot de esas consultas es previo a su propio intento de archivo.
+
+La escritura es síncrona y opt-in: puede añadir latencia; sus costes no forman parte
+del tiempo de ejecución medido antes del flush. No hay garantía de plazo duro de
+I/O, fsync de directorio, entrega RPC o supervivencia ante pérdida de energía.
+Rechazos/abandonos se registran primero en memoria y se guardan con la siguiente
+operación completada, no mediante I/O en Drop. Un crash puede perder esos eventos.
+Al reiniciar, los eventos restaurados llevan historical=true, los nuevos false;
+las métricas y el estado de operaciones activas NO se restauran. uptimeMs corresponde
+al proceso que generó cada evento, no a un reloj global entre reinicios.
+
+Se recupera un next.json completo y válido tras publicación interrumpida; si falta
+current se puede cargar previous. Un staging corrupto/obsoleto, archivo ajeno o
+bloqueo de otro escritor produce aviso y requiere revisión/reinicio, sin borrar
+automáticamente evidencia desconocida. No se garantiza CAS frente a procesos
+hostiles de la misma cuenta, igual que en el resto de las operaciones del núcleo.
+
+## Lecturas independientes en batch
+
+`harness_batch` recibe jobs (1..4, cada uno con tool y arguments) y session opcional.
+Admite read, search, outline, read_symbol, detail, git_status y git_diff con sus
+nombres harness_ completos. Una session en el lote reemplaza la de cada hijo.
+No admite verify, edición, checkpoint/tareas, diagnóstico, SQL ni batch anidado.
+Se decodifican todos los argumentos antes de iniciar cualquier hijo; comprobaciones
+de rutas/rangos siguen ejecutándose por hijo. No resuelve dependencias ni ofrece
+un snapshot consistente del workspace: atomic=false.
+
+Conserva el orden y el estado/error de cada índice, aunque otro hijo falle. Hay
+dos coordinadores como máximo y dos hijos concurrentes por lote. El coordinador
+no consume uno de los cuatro cupos de trabajo normales; cada hijo conserva su
+admisión, lease, métricas, límite de búsquedas y el plazo/cancelación del lote.
+Puede haber seis operaciones activas en métricas al contar coordinadores e hijos;
+los trabajos normales siguen limitados a cuatro. La saturación rechaza, no encola.
+
+Si la respuesta agregada supera 20000 unidades UTF-16, devuelve estados compactos
+y guarda los resultados completos en el detail del lote. Los refs propios de los
+hijos siguen siendo locales, acotados y sujetos a la política de caché existente.
+Las métricas cuentan tanto lote como hijos: no sumar ambas como si fueran RPC
+independientes entregadas al cliente. No se agregan herramientas Node pendientes.
+
+## Métricas de ejecución
+
+Doctor devuelve `metrics`; checkpoint devuelve `stats` con la misma cobertura
+tanto en el resumen como en detail. Son contadores de la instancia Application,
+compartidos entre clones y sesiones: `sessionSpecific=false`, `persistent=false`.
+Se reinician al crear la instancia; no se restauran del histórico de sesión.
+
+Incluyen intentos, admitidas, rechazadas, completadas, abandonadas, activas,
+pico de activas y resultados ok/error/cancelled/timeout, totales y por herramienta.
+Los rechazos distinguen saturación, cancelación y timeout previos a admisión.
+Las duraciones total/máxima usan microsegundos de reloj monotónico desde la
+reserva hasta el resultado terminal o abandono; incluyen espera del worker,
+no son tiempo de CPU ni una medición separada de cola. Las sumas de operaciones
+concurrentes pueden superar el uptime. No se publican percentiles estimados.
+
+La consulta actual figura como activa y no completada en su propio snapshot.
+Una operación reservada y descartada, o que termina por unwind sin envelope,
+cuenta como abandoned: eso no demuestra que no haya ejecutado código. El guard
+retiene la medición hasta el resultado real del worker, incluso si el cliente
+ya recibió una cancelación. No cuenta errores de protocolo/deserialización
+rechazados por el SDK antes de entrar a la aplicación ni entrega/facturación RPC.
+Con --persist-logs la fase de archivo ocurre después: los permisos pueden seguir
+ocupados mientras el contador ya muestra la herramienta como completada.
+El estado medido es el del envelope: un doctor completado que diagnostica un
+problema local no equivale a un fallo de ejecución del propio doctor.
+
+Sin rutas, argumentos, IDs de sesión, mensajes ni contenidos en los contadores;
+el número de claves por herramienta queda limitado por el catálogo compilado.
+Aún faltan métricas Node de bytes, lecturas/repeticiones y desglose por sesión.
+
+## Diagnóstico nativo
+
+`harness_doctor` es de solo lectura: comprueba el runtime, localización de
+Cargo/Rustc/Git, la existencia de la raíz y las rutas de sesión/índice. El diagnóstico no crea
+directorios, prueba escritura, ejecuta builds/tests, sincroniza índices ni repara
+conexiones. Con --persist-logs, la instrumentación común puede guardar el evento
+después del diagnóstico; sin esa opción no hay escritura de logs.
+La presencia de .codegraph se informa como warning: no demuestra
+integridad ni vigencia. CodeGraph y SQL quedan skipped; connection=true registra
+la solicitud pero no inventa una conexión comprobada.
+
+versions=false por defecto (diferencia deliberada con Node): no ejecuta procesos.
+versions=true permite exclusivamente --version de Cargo/Rustc/Git, con 2 segundos
+y 4 KiB combinados por proceso. Solo devuelve componentes numéricos de versión;
+ni stdout/stderr bruto, rutas de ejecutables ni valores de configuración. Los
+shims instalados de toolchain pueden consultar su gestor o selección de proyecto;
+el diagnóstico no es un sandbox de red. Un timeout/fallo de sonda es warning y
+versionChecked=false, no una versión válida. Cancelación/plazo global detienen
+la operación. Herramientas opcionales ausentes son warnings, no fallos del MCP.
+health resume únicamente los checks locales realizados, no las conexiones skipped.
+
+La detección nativa comparte la resolución del ejecutor: entradas absolutas de
+PATH y ejecutable directo, sin .cmd/.bat ni búsqueda en el directorio actual.
+La detección del bootstrap aplica esa misma regla a Cargo/Rustc/Git.
+
+## Git de solo lectura
+
+Requiere Git instalado en una entrada absoluta de PATH, no Node. La raíz debe
+contener un directorio .git real; linked worktrees con .git archivo no se soportan
+todavía. Comprueba que core.worktree no redirija la consulta fuera del workspace.
+No hace fetch, stage, commit ni push. No es un sandbox para repositorios hostiles.
+
+`harness_git_status`: includeUntracked (true por defecto), offset=0..1000000 y
+limit=1..100 (30 por defecto). Porcelain v2 con registros NUL, estado de rama,
+HEAD/unborn/detached, upstream y ahead/behind locales, entradas, contadores y
+nextOffset. Omite submódulos y agrupa directorios untracked. Hasta 6000 unidades
+UTF-16 en entradas por página; páginas omitidas quedan en detail. Una entrada
+individual que no cabe produce GIT_SIZE, sin cursor estancado.
+
+`harness_git_diff`: archivo relativo concreto (también eliminado), staged=false
+(index:worktree) o true (HEAD:index), maxLines=1..500 (120), maxChars=500..12000
+(6000). Devuelve preview, hunks, indicador binario y patch completo en detail
+cuando hay recorte. No muestra contenido untracked, metadatos .git, rutas
+restringidas ni configuraciones de conexión reconocidas. No es un diff semántico.
+
+Usa procesos nativos acotados, sin shell: 15 segundos y 2 MiB combinados por
+subproceso, con plazo global de operación de 30 segundos. No devuelve stdout
+parcial como resultado completo ni expone stderr/configuración. Elimina GIT_*
+heredados, impide prompts/lazy fetch mediante entorno, evita locks opcionales,
+desactiva fsmonitor/untrackedCache, diff externo y textconv. Enumera solo nombres
+de filtros y anula clean/process/required; nombres no seguros o más de 12 filtros
+rechazan la consulta antes de status/diff. Las rutas se pasan literalmente tras
+--. Se mantienen las limitaciones TOCTOU de lectura documentadas en el núcleo.
 
 ## Observación del workspace durante Cargo
 
@@ -39,7 +285,7 @@ resultado de Cargo. La creación inicial de Cargo.lock puede producir changed.
 Esto NO certifica vigencia: no observa dependencias externas, entorno, toolchain,
 cambios revertidos entre lecturas ni cambios posteriores. `verificationFreshness`
 sigue not_tracked y los checks del checkpoint mantienen current=null. Aún falta
-conectar estas huellas al seguimiento de versiones y refreshFreshness.
+completar el seguimiento de todos los inputs de verificación.
 La observación se conserva en checks observados de la sesión viva; la persistencia
 v1 compatible con Node la elimina, igual que otros datos de versión.
 
@@ -69,8 +315,19 @@ Las ediciones confirmadas y verificaciones que devuelven resultado se registran
 cuando llevan session. Hasta 50 archivos editados y 20 checks por sesión; tras
 restaurar son historical, no nuevos hechos observados. La persistencia elimina
 versiones/flags de vigencia. Los checks observados llevan current=null: no hay
-certificación de vigencia del código ni métricas todavía. refreshFreshness=true
-falla con UNSUPPORTED antes de actualizar los campos declarados. El checkpoint
+certificación de vigencia total del código todavía. Las métricas de ejecución
+son de la instancia, no de la sesión. refreshFreshness=true
+compara la huella local actual con los checks de la sesión viva: localFreshness
+indica matches_local_workspace, local_workspace_changed, no_stable_baseline o
+unknown. Solo compara baselines estables con idéntica cobertura. La comparación
+se deriva para esa respuesta y su detail; no se guarda como vigencia permanente.
+freshness.localObservation incluye hora, hash/código de error y cobertura.
+available sigue false para vigencia total y current nunca se vuelve true.
+Los checks restaurados no se revalidan. El escaneo usa el mismo presupuesto que
+las huellas de Cargo, fuera del mutex global y dentro del gate de sesión; un
+escritor concurrente recibe SESSION_BUSY. Una lectura sin refresh no reutiliza
+evaluaciones antiguas. Los límites o archivos restringidos devuelven unknown,
+sin impedir actualizaciones declaradas válidas. El checkpoint
 no compacta el historial del cliente. Los fallos previos a un resultado de tool
 y las publicaciones inciertas no se convierten en hechos confirmados.
 
@@ -198,7 +455,8 @@ ediciones y verificaciones históricas; descarta flags de vigencia y objetos ext
 Las sesiones con operaciones activas tienen leases en memoria y no se descartan
 para admitir otras sesiones; si todas están ocupadas se devuelve `SESSION_LIMIT`.
 Las tareas/checkpoints y hechos históricos se actualizan con el flujo descrito arriba;
-no implementa aún métricas ni refresco de vigencia. Evicta sesiones antiguas de la caché, sin
+Las métricas son volátiles de la instancia y el refresh solo de cobertura local.
+Evicta sesiones antiguas de la caché, sin
 borrar sus archivos. No ejecutar servidores concurrentes que escriban la misma sesión.
 
 Read devuelve rango, texto UTF-8 y hash SHA-256 del archivo entero;
@@ -271,9 +529,9 @@ La cobertura aún no equivale a paridad completa de todas las herramientas Node.
 
 ## Plan de continuación
 
-1. Completar tareas/checkpoint, métricas, anchors y contratos compartidos con Node.
-2. Completar búsquedas (file_size/syntax/scopes) y migrar procesos: presupuestos, admisión por capacidad, UTF-8 y finalización del árbol.
-3. Migrar edición con hash, escritura atómica y validación sintáctica antes de guardar.
+1. Completar paridad de métricas por sesión, logs y vigencia de todos los inputs.
+2. Completar búsquedas AST/scopes, paridad de límites, batch SQL y configuración.
+3. Extender navegación, edición y verificadores a otros lenguajes/plataformas.
 4. Prototipar AST/gramáticas y SVG con bibliotecas nativas, verificando compatibilidad y licencias.
 5. Reutilizar los motores XLSX y SQL existentes mientras se migran sus adaptadores.
 6. Auditar CodeGraph, navegador, launcher y hooks para identificar dependencias Node residuales.

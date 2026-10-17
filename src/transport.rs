@@ -58,8 +58,9 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
         Ok(operation) => operation,
         Err(envelope) => return response(envelope),
     };
+    let request_id = operation.request_id().to_owned();
     let mut worker = tokio::task::spawn_blocking(move || operation.run());
-    let envelope = tokio::select! {
+    let mut envelope = tokio::select! {
         result = &mut worker => match result { Ok(envelope) => envelope, Err(_) => application.failure(name, &args, ("INTERNAL", "operación no completada; si era edición, releer antes de reintentar")) },
         () = cancelled => {
             context.cancel();
@@ -73,11 +74,62 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
         },
     };
     // A detached worker retains its admission/session guards until it really stops.
+    envelope["requestId"] = serde_json::json!(request_id);
     response(envelope)
 }
 
 #[tool_router]
 impl McpHarness {
+    #[tool(
+        description = "Logs nativos acotados, sin argumentos/rutas/contenido. Filtros limit 1..50, level, tool, slowOnly, requestId y after. Persistencia Windows opt-in con --persist-logs, histórico marcado; no lee logs Node."
+    )]
+    async fn harness_logs(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::LogsArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Logs(args), context).await
+    }
+    #[tool(
+        description = "1–4 lecturas independientes de archivos, símbolos o Git. Máximo 2 hijos concurrentes; admisión y plazo compartidos. No mutaciones, verify, SQL ni batches anidados. Valida todos los tipos antes de iniciar; resultados por índice, no transacción."
+    )]
+    async fn harness_batch(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::BatchArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Batch(args), context).await
+    }
+    #[tool(
+        description = "Diagnóstico nativo de solo lectura. versions=false por defecto solo localiza ejecutables; true ejecuta --version con límites. No builds ni reparaciones. CodeGraph/conexión y SQL aún no se diagnostican."
+    )]
+    async fn harness_doctor(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::DoctorArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Doctor(args), context).await
+    }
+    #[tool(
+        description = "Estado Git de solo lectura, paginado y acotado. No fetch ni stage. Raíz Git con .git directorio; excluye submódulos."
+    )]
+    async fn harness_git_status(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::GitStatusArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::GitStatus(args), context).await
+    }
+    #[tool(
+        description = "Diff Git textual de un archivo relativo, incluidas eliminaciones. Solo lectura; staged selecciona HEAD:index. Sin textconv/diff externo, archivos secretos ni metadatos Git. No incluye untracked."
+    )]
+    async fn harness_git_diff(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::GitDiffArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::GitDiff(args), context).await
+    }
     #[tool(
         description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."
     )]
@@ -90,7 +142,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Resumen de sesión y actualización de objetivo/decisiones/pendientes. Hechos observados e históricos separados. No certifica vigencia ni métricas: refreshFreshness=true aún se rechaza sin actualizar estado."
+        description = "Resumen de sesión y actualización de objetivo/decisiones/pendientes. refreshFreshness=true compara checks de la sesión viva con una huella local acotada. No certifica entorno, dependencias externas ni vigencia total; histórico no se revalida."
     )]
     async fn harness_checkpoint(
         &self,
@@ -175,7 +227,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Búsqueda nativa Rust de texto literal o archivos (text/files). Respeta ignore, excluye secretos/node_modules/target, con presupuestos explícitos y detalles paginados. Sin AST ni file_size en esta etapa."
+        description = "Búsqueda nativa text/files/file_size. file_size no recibe query: minLines=500 cuenta archivos con más de 500 líneas totales sin devolver contenido. Límites 2 MiB/archivo y 5 s cooperativos; ignora binarios/archivos generados reconocidos y señala resultados parciales. Sin AST ni scopes externos."
     )]
     async fn harness_search(
         &self,
@@ -190,13 +242,19 @@ impl McpHarness {
 impl ServerHandler for McpHarness {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Experimental Rust harness: bootstrap, bounded reads, details and text/files search. Do not replace production configuration yet.")
+            .with_instructions("Experimental Rust harness with bounded reads/search, Git, workflow and diagnostics. Migration incomplete; do not replace production configuration yet.")
     }
 }
 
 pub async fn serve(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    serve_with_logging(root, false).await
+}
+pub async fn serve_with_logging(
+    root: &Path,
+    persist_logs: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let service = McpHarness {
-        application: adapters::application(root)?,
+        application: adapters::application_with_logging(root, persist_logs)?,
     }
     .serve((
         input::BoundedLines::new(tokio::io::stdin(), input::MAX_MESSAGE_BYTES),

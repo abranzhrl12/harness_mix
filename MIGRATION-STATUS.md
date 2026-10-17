@@ -29,13 +29,19 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_bootstrap` | Implementado | Sesión, reglas, capacidades y guía de uso |
 | `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 100 líneas por fragmento |
 | `harness_detail` | Implementado | Caché acotada, paginado UTF-16, referencias locales al proceso |
-| `harness_search` | Parcial | Texto literal y archivos; faltan syntax y file_size |
+| `harness_search` | Parcial | Text/files/file_size; faltan syntax y scopes externos |
 | `harness_verify` | Parcial | Rust build/test mediante Cargo; faltan otros lenguajes |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
 | `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
 | `harness_tasks` | Implementado | Fases, transiciones y timeline acotado en memoria |
-| `harness_checkpoint` | Parcial | Objetivo, decisiones, pendientes e histórico; sin refreshFreshness |
+| `harness_checkpoint` | Parcial | Objetivo, decisiones, pendientes e histórico; refresh local acotado |
+| `harness_git_status` | Implementado | Solo lectura, paginado; requiere Git, sin linked worktrees |
+| `harness_git_diff` | Implementado | Archivo concreto, staged/worktree y eliminados; sin filtros externos |
+| `harness_doctor` | Parcial | Diagnóstico local; versiones opcionales; no CodeGraph/SQL/conexiones |
+| `harness_batch` | Parcial | 1..4 lecturas, 2 hijos concurrentes; sin SQL ni herramientas pendientes |
+| `harness_logs` | Parcial | 512 eventos, requestId y snapshots Windows opt-in; sin configuración/trazas completas |
+| Métricas | Parcial | Operaciones, resultados, rechazos y tiempos por instancia/herramienta; no histórico por sesión |
 | Sesiones en disco | Implementado | Formato v1 compatible con Node; histórico no equivale a vigencia |
 | Procesos nativos | Implementado | Windows Job Objects, cancelación y límites; Unix con garantías menores |
 | Huella antes/después de Cargo | Parcial | Detecta cambios locales observados; no certifica vigencia completa |
@@ -53,6 +59,80 @@ microservicios para escalar las capacidades de este ejecutable.
 
 ### Último bloque implementado
 
+file_size nativo dentro de search, también usable por batch, sin Node/ripgrep ni
+CodeGraph. Cuenta LF/CRLF, vacío y última línea; filtra >minLines y devuelve solo
+metadata ordenada. Reutiliza validación de rutas/lecturas estables, presupuestos,
+ignores y resultados parciales. Límites explícitos más estrictos que Node:
+2 MiB/archivo, 64 MiB de reservas, 10000 archivos, 4 MiB de metadata y 5 segundos.
+Se mantiene el total de 15 herramientas, ampliando una existente.
+
+### Bloque anterior: persistencia de logs
+
+Persistencia y rotación Windows con --persist-logs (apagada por defecto). Archivo
+nativo separado de Node: current/previous y staging fijo, 256 KiB por snapshot,
+512 eventos. Directorios fijados, hardlinks/reparse points rechazados, escritor
+exclusivo y formato estricto. Recupera staging válido y marca eventos restaurados
+como históricos. Un fallo de archivo no modifica el resultado de la herramienta;
+se publica loggingWarning y el estado de persistencia. No se restauran métricas.
+Se probaron reinicio del ejecutable sin Node, rotación, locks, archivos ajenos,
+hardlinks, recuperación y rechazo de staging obsoleto. No hay garantías de energía
+ni de I/O con plazo duro. La conexión activa sigue sin cambios.
+
+### Bloque anterior: correlación
+
+Correlación requestId UUID v4 generada por la aplicación antes de admisión.
+El envelope y su evento comparten ID, también para rechazo/cancelación/abandono;
+el transporte conserva el identificador cuando responde antes que el worker.
+Batch conserva IDs propios de hijos, también en salida recortada. Logs acepta
+filtro UUID canónico. No es el ID JSON-RPC ni una garantía de entrega; faltan
+trazas completas de transporte previas a prepare.
+
+### Bloque anterior: logs volátiles
+
+Logs de metadatos nativos con cursor, niveles, herramienta y lentitud: 15
+herramientas publicadas. Eventos de resultado/rechazo/abandono enlazados al guard
+de medición. Buffer acotado de 512 entradas, códigos permitidos, sin contenidos,
+argumentos ni rutas. Doctor/bootstrap muestran su estado. No se leen logs Node;
+el modo por defecto no escribe en disco y las trazas completas siguen sin soporte.
+
+### Bloque anterior: batch
+
+Batch integra las lecturas migradas (14 herramientas publicadas). Tipos de todos
+los argumentos validados antes de ejecutar, resultados ordenados por índice,
+errores parciales y detalle agregado acotado. Máximo dos coordinadores fuera de
+los cuatro cupos normales; hijos sujetos a admisión, cancelación, plazo, leases y
+métricas comunes. No mutaciones, recursión, verify ni SQL. No es transacción.
+
+### Bloque anterior: métricas
+
+Métricas acotadas de ejecución en doctor.metrics y checkpoint.stats (también en
+detail). Compartidas entre clones, no persistidas ni específicas de una sesión.
+Contabilizan admisión/rechazo, resultados terminales, abandono, actividad/picos y
+duración total/máxima. Un guard RAII evita dobles conteos y fugas al descartar
+operaciones. No retienen argumentos ni rutas. No equivalen a RPC entregadas,
+facturación o estadísticas de lectura de Node; esas coberturas siguen pendientes.
+
+### Bloque anterior: diagnóstico
+
+Diagnóstico nativo de runtime, ejecutables y rutas, sin cambios en disco. Hay 13
+herramientas publicadas. Por defecto solo localiza; versions=true ejecuta --version
+con 2 segundos/4 KiB por herramienta y publica solo versión numérica sanitizada.
+La presencia del índice no valida su contenido. CodeGraph/SQL siguen skipped.
+La detección de herramientas nativas comparte la política real del ejecutor.
+
+### Bloque anterior: Git
+
+Git nativo añade dos herramientas (12 publicadas). Status usa porcelain v2/NUL,
+paginación y contadores. Diff admite archivos eliminados y conserva recortes en
+detail. Ambos usan el ejecutor nativo, no Node ni shell; anulan filtros,
+fsmonitor, diff externo y textconv. Comprueban que Git no cambie de workspace,
+rechazan rutas sensibles y no hacen mutaciones. Falta linked worktrees (.git
+archivo). Las pruebas usan repositorios temporales, índices sin cambios, nombres
+Unicode, binarios, límites de salida y configuraciones que detectarían ejecución
+accidental de filtros. El Git del sistema sigue siendo requisito externo.
+
+### Bloque anterior: huellas y refresh local
+
 `workspaceObservation` compara rutas/contenido SHA-256 antes y después de Cargo:
 `unchanged`, `changed` o `unknown`. Incluye ocultos/ignorados, salvo salidas y
 directorios excluidos documentados en README. Límites: 10000 entradas, 64 MiB,
@@ -61,11 +141,16 @@ directorios excluidos documentados en README. Límites: 10000 entradas, 64 MiB,
 No rastrea dependencias externas, entorno ni toolchain. Tampoco detecta todos los
 cambios intermedios revertidos. `verificationFreshness` sigue `not_tracked` y los
 checks mantienen `current=null`. Las observaciones se conservan en la sesión viva,
-no en el formato persistido v1. `refreshFreshness=true` sigue sin soportarse.
+no en el formato persistido v1. `refreshFreshness=true` compara esas huellas con
+una observación nueva: matches_local_workspace, local_workspace_changed,
+no_stable_baseline o unknown. La evaluación solo existe en la respuesta y su
+detail; no se reutiliza como vigencia permanente. No revalida checks restaurados
+ni convierte current en true. Se serializa con verificaciones/escrituras de la
+misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 66 pruebas Rust pasan en la ejecución final secuencial.
+- 104 pruebas Rust pasan en la ejecución secuencial con persistencia y file_size.
 - Clippy de todo el workspace y todos los targets: sin warnings.
 - Formato Cargo comprobado.
 - Compilación release completada con las últimas modificaciones.
@@ -83,19 +168,28 @@ no en el formato persistido v1. `refreshFreshness=true` sigue sin soportarse.
 
 - [ ] Seguimiento de versiones del workspace y cobertura explícita por verificación.
 - [ ] Invalidación de checks por cambios posteriores y tratamiento del estado restaurado.
-- [ ] `refreshFreshness`, incluida coordinación con verificaciones activas.
-- [ ] Métricas y estadísticas reales, sin valores simulados.
-- [ ] Diagnóstico nativo equivalente a `harness_doctor`.
-- [ ] Logs acotados y consulta equivalente a `harness_logs`.
+- [x] Refresh de cobertura local, serializado con verificaciones de la sesión.
+- [ ] Completar vigencia total (inputs externos, entorno y toolchain).
+- [x] Métricas reales de ejecución por instancia y herramienta, sin valores simulados.
+- [ ] Paridad de estadísticas por sesión, bytes y lecturas/repeticiones de Node.
+- [x] Diagnóstico nativo local (runtime, herramientas y rutas).
+- [ ] Completar diagnóstico de índice/conexiones CodeGraph, SQL y logs/métricas.
+- [x] Logs acotados en memoria y consulta nativa con filtros/cursor.
+- [x] Correlación por requestId de operaciones preparadas, resultados y eventos.
+- [x] Logging persistido/rotado Windows opt-in, con recuperación y validación estricta.
+- [ ] Persistencia Unix, configuración dinámica y trazas completas de transporte.
 - [ ] Estabilizar pruebas temporizadas de procesos bajo carga.
 
 ### 2. Herramientas de repositorio
 
-- [ ] `harness_git_status` y `harness_git_diff` nativos de solo lectura.
-- [ ] `harness_batch` con límites y cancelación coherentes.
+- [x] `harness_git_status` y `harness_git_diff` nativos de solo lectura.
+- [ ] Soporte Git para linked worktrees con .git archivo.
+- [x] `harness_batch` para lecturas nativas con admisión y cancelación compartidas.
+- [ ] Extender batch a SQL y otras lecturas cuando sus adaptadores estén migrados.
 - [ ] Configuración nativa y redacción de secretos.
 - [ ] Alcances externos autorizados y su validación.
-- [ ] Búsqueda AST (`syntax`) y tamaño (`file_size`).
+- [x] Búsqueda de tamaño (`file_size`) nativa con límites explícitos.
+- [ ] Búsqueda AST (`syntax`) y equivalencia completa de límites/cobertura.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.
 - [ ] Verificación de .NET, Go, Python, JavaScript y otros adaptadores usados.
 

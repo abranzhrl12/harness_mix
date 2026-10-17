@@ -1,0 +1,8 @@
+**/target/
+**/node_modules/
+.codegraph/
+.agents/harness/.state/
+.agents/harness/logs/
+.agents/harness/native-logs/
+.env
+.env.*

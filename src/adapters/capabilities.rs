@@ -4,7 +4,7 @@ pub(super) fn capabilities() -> Value {
     let paths: Vec<_> = std::env::var_os("PATH")
         .map(|path| {
             std::env::split_paths(&path)
-                .filter(|p| !p.as_os_str().is_empty())
+                .filter(|p| p.is_absolute())
                 .collect()
         })
         .unwrap_or_default();
@@ -24,6 +24,7 @@ pub(super) fn capabilities() -> Value {
         "ast-grep",
         "sd",
         "cargo",
+        "git",
         "go",
         "python",
         "node",
@@ -48,6 +49,14 @@ pub(super) fn capabilities() -> Value {
             }
             true
         })));
+    }
+    // Native execution never uses PATHEXT wrappers or relative PATH entries.
+    for (name, program) in [
+        ("cargo", harness_domain::process::Program::Cargo),
+        ("rustc", harness_domain::process::Program::Rustc),
+        ("git", harness_domain::process::Program::Git),
+    ] {
+        available[name] = json!(super::process::executable(program).is_ok());
     }
     available
 }

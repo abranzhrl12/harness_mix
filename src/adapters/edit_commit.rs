@@ -37,15 +37,27 @@ pub(super) fn target(project: &Project, relative: &str) -> Result<PathBuf, Failu
 
 #[cfg(windows)]
 pub(super) fn pin_parents(project: &Project, target: &Path) -> Result<Vec<File>, Failure> {
-    use std::os::windows::{
-        fs::{MetadataExt, OpenOptionsExt},
-        io::AsRawHandle,
-    };
+    let pins = pin_directory(project, target.parent().ok_or(("PATH", "Missing parent"))?)?;
+    use std::os::windows::io::AsRawHandle;
     use windows::Win32::{
         Foundation::HANDLE,
         Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle},
     };
-    let parent = target.parent().ok_or(("PATH", "Missing parent"))?;
+    let file = File::open(target).map_err(|_| ("PATH", "File unavailable"))?;
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe {
+        GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut information)
+            .map_err(|_| ("IO", "Cannot inspect file identity"))?;
+    }
+    if information.nNumberOfLinks != 1 {
+        return Err(("PATH", "Hard-linked files cannot be edited"));
+    }
+    Ok(pins)
+}
+
+#[cfg(windows)]
+pub(super) fn pin_directory(project: &Project, parent: &Path) -> Result<Vec<File>, Failure> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     parent
         .strip_prefix(&project.root)
         .map_err(|_| ("PATH", "Outside workspace"))?;
@@ -64,17 +76,6 @@ pub(super) fn pin_parents(project: &Project, target: &Path) -> Result<Vec<File>,
             return Err(("PATH", "Reparse or non-directory ancestor"));
         }
         pins.push(file);
-    }
-    // Refuse hard-linked originals as an additional conservative write policy.
-    let file = File::open(target).map_err(|_| ("PATH", "File unavailable"))?;
-    let mut information = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: live borrowed handle and correctly sized writable output structure.
-    unsafe {
-        GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut information)
-            .map_err(|_| ("IO", "Cannot inspect file identity"))?;
-    }
-    if information.nNumberOfLinks != 1 {
-        return Err(("PATH", "Hard-linked files cannot be edited"));
     }
     Ok(pins)
 }

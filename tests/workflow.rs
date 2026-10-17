@@ -56,8 +56,8 @@ fn phase_updates_checkpoint_and_history_survive_restart_without_certifying_fresh
     let declared = checkpoint(&app, &id, Some("migrar 🙂"), false);
     assert_eq!(declared["data"]["persisted"], true, "{declared}");
     assert_eq!(
-        checkpoint(&app, &id, Some("must not apply"), true)["diagnostics"][0]["code"],
-        "UNSUPPORTED"
+        checkpoint(&app, &id, None, true)["data"]["freshness"]["localObservation"]["status"],
+        "captured"
     );
     assert_eq!(
         checkpoint(&app, &id, None, false)["data"]["declaredByAgent"]["goal"],
@@ -198,4 +198,73 @@ fn invalid_updates_do_not_poison_a_session_and_persistence_failure_is_explicit()
     assert_eq!(update["data"]["persisted"], false);
     assert_eq!(update["data"]["persistenceWarning"]["memoryUpdated"], true);
     assert_eq!(task(&app, &id, None, None, None)["data"]["completed"], 1);
+}
+
+#[test]
+fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
+    use harness_domain::contracts::{VerifyAction, VerifyArgs};
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname='freshness-fixture'\nversion='0.1.0'\nedition='2024'\n[workspace]\n",
+    )
+    .unwrap();
+    std::fs::write(root.path().join("src/lib.rs"), "pub fn sample() {}\n").unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let id = bootstrap(&app);
+    // Warm up Cargo.lock, then establish a stable before/after baseline.
+    for _ in 0..2 {
+        let result = app.execute(Request::Verify(VerifyArgs {
+            language: "rust".into(),
+            scope: None,
+            action: Some(VerifyAction::Build),
+            session: Some(id.clone()),
+        }));
+        assert_eq!(result["state"], "ok", "{result}");
+    }
+    let fresh = checkpoint(&app, &id, None, true);
+    assert_eq!(fresh["state"], "ok", "{fresh}");
+    let check = &fresh["data"]["observedByHarness"]["checks"][1];
+    assert_eq!(
+        check["localFreshness"]["status"], "matches_local_workspace",
+        "{fresh}"
+    );
+    assert!(check["current"].is_null());
+    assert!(fresh["data"].get("persisted").is_none());
+    std::fs::write(root.path().join("src/lib.rs"), "pub fn changed() {}\n").unwrap();
+    let changed = checkpoint(&app, &id, None, true);
+    assert_eq!(
+        changed["data"]["observedByHarness"]["checks"][1]["localFreshness"]["status"],
+        "local_workspace_changed",
+        "{changed}"
+    );
+    // Refresh is response-only, not a stored claim that can silently become stale.
+    let plain = checkpoint(&app, &id, None, false);
+    assert!(
+        plain["data"]["observedByHarness"]["checks"][1]
+            .get("localFreshness")
+            .is_none()
+    );
+    std::fs::write(root.path().join(".env"), "restricted fixture").unwrap();
+    let unknown = checkpoint(&app, &id, Some("goal can still be saved"), true);
+    assert_eq!(unknown["state"], "ok", "{unknown}");
+    assert_eq!(unknown["data"]["persisted"], true);
+    assert_eq!(
+        unknown["data"]["observedByHarness"]["checks"][1]["localFreshness"]["status"],
+        "unknown"
+    );
+    drop(app);
+    let app = adapters::application(root.path()).unwrap();
+    let restored = checkpoint(&app, &id, None, true);
+    assert_eq!(restored["state"], "ok", "{restored}");
+    assert_eq!(
+        restored["data"]["freshness"]["historicalChecksRevalidated"],
+        false
+    );
+    assert!(
+        restored["data"]["historical"]["checks"][1]
+            .get("localFreshness")
+            .is_none()
+    );
 }

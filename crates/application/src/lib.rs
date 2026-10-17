@@ -1,5 +1,8 @@
 //! Use-case orchestration. Depends on domain and ports, never on MCP or OS adapters.
 mod admission;
+mod batch;
+mod logging;
+mod metrics;
 pub mod ports;
 
 use harness_domain::{
@@ -18,6 +21,7 @@ pub struct Application<W, S> {
     sessions: Arc<Mutex<S>>,
     results: Arc<Mutex<Results>>,
     admission: Arc<admission::Admission>,
+    metrics: Arc<metrics::Metrics>,
 }
 
 /// Owns admission before it is submitted to any worker pool; drop always frees it.
@@ -25,12 +29,33 @@ pub struct Operation<W, S> {
     application: Application<W, S>,
     request: Request,
     context: OperationContext,
+    measurement: metrics::Measurement,
     _permit: admission::Permit,
 }
 impl<W: Workspace, S: SessionRepository> Operation<W, S> {
-    pub fn run(self) -> Value {
-        self.application
-            .execute_admitted(self.request, &self.context)
+    pub fn request_id(&self) -> &str {
+        self.measurement.request_id()
+    }
+    pub fn run(mut self) -> Value {
+        let mut output = self
+            .application
+            .execute_admitted(self.request, &self.context);
+        output["requestId"] = json!(self.measurement.request_id());
+        self.measurement.finish_envelope(&output);
+        if let Some(archive) = self.application.metrics.logs.archive() {
+            let sequence = archive["lastSequence"].as_u64().unwrap_or(0);
+            let saved = self.application.workspace.persist_log_archive(&archive);
+            let saved_through = saved.as_ref().ok().copied();
+            self.application.metrics.logs.saved(
+                saved_through.unwrap_or(sequence),
+                saved.as_ref().err().map(|f| f.0),
+            );
+            output["logPersistence"] = json!({"saved":saved.is_ok(),"requestedSequence":sequence,"savedThrough":saved_through});
+            if let Err((code, _)) = saved {
+                output["loggingWarning"] = json!({"code":code,"toolOutcomeUnchanged":true});
+            }
+        }
+        output
     }
 }
 
@@ -52,16 +77,25 @@ impl<W, S> Clone for Application<W, S> {
             sessions: self.sessions.clone(),
             results: self.results.clone(),
             admission: self.admission.clone(),
+            metrics: self.metrics.clone(),
         }
     }
 }
 impl<W: Workspace, S: SessionRepository> Application<W, S> {
     pub fn new(workspace: W, sessions: S) -> Self {
+        let enabled = workspace.log_persistence_enabled();
+        let history = if enabled {
+            workspace.load_log_archive()
+        } else {
+            Ok(None)
+        };
+        let logs = logging::Log::configured(enabled, history);
         Self {
             workspace: Arc::new(workspace),
             sessions: Arc::new(Mutex::new(sessions)),
             results: Arc::default(),
             admission: Arc::default(),
+            metrics: Arc::new(metrics::Metrics::with_logs(logs)),
         }
     }
 
@@ -82,18 +116,31 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         request: Request,
         context: OperationContext,
     ) -> Result<Operation<W, S>, Value> {
+        let request_id = harness_domain::execution::new_request_id();
         let permit = context
             .check()
             .and_then(|()| {
-                self.admission
-                    .acquire(matches!(&request, Request::Search(_)))
+                if matches!(&request, Request::Batch(_)) {
+                    self.admission.acquire_batch()
+                } else {
+                    self.admission
+                        .acquire(matches!(&request, Request::Search(_)))
+                }
             })
-            .map_err(|failure| self.failure(request.name(), &request.arguments(), failure))?;
+            .map_err(|failure| {
+                self.metrics
+                    .rejected_with_id(request.name(), failure.0, &request_id);
+                let mut output = self.failure(request.name(), &request.arguments(), failure);
+                output["requestId"] = json!(request_id);
+                output
+            })?;
+        let measurement = self.metrics.admitted_with_id(request.name(), &request_id);
         Ok(Operation {
             application: self.clone(),
             request,
             context,
             _permit: permit,
+            measurement,
         })
     }
 
@@ -109,6 +156,21 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
             Request::Bootstrap(args) => self.bootstrap(args, context, &mut lease),
+            Request::Logs(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.metrics.logs.read(&args)),
+            Request::Batch(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.batch(args, context)),
+            Request::Doctor(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.doctor(&args, context)),
+            Request::GitStatus(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.git_status(&args, context)),
+            Request::GitDiff(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.git_diff(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),
@@ -169,13 +231,27 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 }
             }
             Request::Checkpoint(args) => {
-                if args.has_updates() {
+                if args.has_updates() || args.refresh_freshness == Some(true) {
                     self.with_session_write(Some(&args.session), &mut lease, context, || {
-                        let update = self
+                        // Observe before declaring changes, without the global session lock.
+                        // The per-session gate prevents checks being appended during the scan.
+                        let observation = if args.refresh_freshness == Some(true) {
+                            Some(self.workspace.observe_workspace(context)?)
+                        } else {
+                            None
+                        };
+                        context.check()?;
+                        let mut update = self
                             .sessions
                             .lock()
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
                             .checkpoint(&args)?;
+                        if let Some(observation) = observation {
+                            harness_domain::freshness::refresh_checkpoint(
+                                &mut update.data,
+                                &observation,
+                            );
+                        }
                         Ok(self.persist_update(&args.session, update))
                     })
                 } else {
@@ -211,6 +287,24 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 context.check()?;
             }
             Ok(value)
+        });
+        let result = result.map(|mut value| {
+            if name == "harness_doctor" {
+                value["metrics"] = self.metrics.snapshot();
+                value["logging"] = self.metrics.logs.status();
+                if !value["logging"]["persistenceError"].is_null() {
+                    if let Some(checks)=value["checks"].as_array_mut() {checks.push(json!({"id":"logging:persistence","status":"warning","message":"Native log archive unavailable; memory logging remains active"}));}
+                    value["counts"]["warning"]=json!(value["counts"]["warning"].as_u64().unwrap_or(0)+1);
+                    if value["health"]=="ok" {value["health"]=json!("warning");}
+                }
+            } else if name == "harness_checkpoint" {
+                let stats = self.metrics.snapshot();
+                value["stats"] = stats.clone();
+                if let Some(full) = value.get_mut("_detail") {
+                    full["stats"] = stats;
+                }
+            }
+            value
         });
         let output = self.output(name, &args, result);
         drop(lease);
@@ -353,6 +447,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         result["capabilitiesHash"] = json!(capabilities_hash);
         result["sessionRestored"] = json!(session.restored);
         result["implementation"] = json!("rust-experimental");
+        result["logging"] = self.metrics.logs.status();
         result["supportedTools"] = json!([
             "harness_bootstrap",
             "harness_read",
@@ -363,17 +458,23 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "harness_outline",
             "harness_read_symbol",
             "harness_tasks",
-            "harness_checkpoint"
+            "harness_checkpoint",
+            "harness_git_status",
+            "harness_git_diff",
+            "harness_doctor",
+            "harness_batch",
+            "harness_logs"
         ]);
         result["limitations"] = json!([
             "Edición Windows solo Rust/JSON/texto; navegación de símbolos solo Rust, sin SQL ni otros parsers",
             "Navegación sintáctica: sin locales, expansión de macros ni relaciones CodeGraph",
-            "Búsqueda solo text/files; sin syntax/file_size ni scopes externos",
-            "Sin refresh de vigencia ni métricas; timeline solo en memoria del proceso",
+            "Búsqueda text/files/file_size; sin syntax ni scopes externos",
+            "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
             "Verificación solo Rust; ejecuta código del proyecto, no es un sandbox",
+            "Git solo lectura; requiere git instalado y raíz con .git directorio, sin linked worktrees",
             "No sustituye el servidor actual"
         ]);
-        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"queue":"reject_when_full","timeoutMs":30000,"cancellation":"cooperative"});
+        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":2,"queue":"reject_when_full","timeoutMs":30000,"cancellation":"cooperative"});
         if is_new {
             result["tasks"] = session.task_summary;
         }
@@ -383,11 +484,16 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if is_new || args.include_rules.unwrap_or(false) {
             result["routing"] = json!([
                 {"need":"plan declarado y timeline observado de sesión","tool":"harness_tasks"},
+                {"need":"eventos recientes sin argumentos ni contenido","tool":"harness_logs"},
+                {"need":"1–4 lecturas independientes, nunca pasos dependientes","tool":"harness_batch"},
+                {"need":"diagnóstico local sin builds; versiones opcionales","tool":"harness_doctor"},
+                {"need":"estado Git paginado sin mutaciones","tool":"harness_git_status"},
+                {"need":"diff textual de un archivo sin filtros externos","tool":"harness_git_diff"},
                 {"need":"objetivo, decisiones y resumen histórico sin certificar vigencia","tool":"harness_checkpoint"},
                 {"need":"firmas de declaraciones Rust por nombre","tool":"harness_outline"},
                 {"need":"cuerpo exacto de símbolo Rust con hash","tool":"harness_read_symbol","chooseView":"full | signature"},
                 {"need":"fragmento de hasta 100 líneas con hash SHA-256","tool":"harness_read"},
-                {"need":"texto literal o nombres de archivos","tool":"harness_search","chooseKind":"text | files"},
+                {"need":"texto literal, nombres de archivos o conteo de líneas sin contenido","tool":"harness_search","chooseKind":"text | files | file_size"},
                 {"need":"recuperar detalles paginados sin repetir la operación","tool":"harness_detail"}]);
         }
         if same_capabilities {

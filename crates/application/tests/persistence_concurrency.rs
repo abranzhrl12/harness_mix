@@ -4,7 +4,7 @@ use harness_application::{
 };
 use harness_domain::{
     Failure,
-    contracts::{ReadArgs, Request, SearchArgs, TasksAction, TasksArgs},
+    contracts::{CheckpointArgs, ReadArgs, Request, SearchArgs, TasksAction, TasksArgs},
     execution::OperationContext,
 };
 use serde_json::{Value, json};
@@ -15,6 +15,12 @@ struct Store {
     gate: Arc<Mutex<()>>,
 }
 impl SessionRepository for Store {
+    fn checkpoint(&mut self, _: &CheckpointArgs) -> Result<SessionMutation, Failure> {
+        Ok(SessionMutation {
+            data: json!({"observedByHarness":{"checks":[]}}),
+            snapshot: None,
+        })
+    }
     fn workflow_gate(&mut self, _: &str) -> Result<Arc<Mutex<()>>, Failure> {
         Ok(self.gate.clone())
     }
@@ -40,6 +46,11 @@ struct Disk {
     release: Mutex<mpsc::Receiver<()>>,
 }
 impl Workspace for Disk {
+    fn observe_workspace(&self, _: &OperationContext) -> Result<Value, Failure> {
+        self.started.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(json!({"status":"captured","hash":"fixture"}))
+    }
     fn info(&self) -> Value {
         json!({})
     }
@@ -105,6 +116,46 @@ fn slow_persistence_keeps_global_repository_readable_but_serializes_session_writ
     reader.join().unwrap();
     let (readable, busy) =
         before_release.expect("Persistence must not retain the repository mutex");
+    assert_eq!(readable["state"], "ok");
+    assert_eq!(busy["diagnostics"][0]["code"], "SESSION_BUSY");
+}
+
+#[test]
+fn workspace_refresh_keeps_global_repository_readable_and_holds_session_gate() {
+    let (started_tx, started_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let app = Application::new(
+        Disk {
+            started: started_tx,
+            release: Mutex::new(release_rx),
+        },
+        Store {
+            gate: Arc::default(),
+        },
+    );
+    let observer = app.clone();
+    let worker = std::thread::spawn(move || {
+        observer.execute(Request::Checkpoint(CheckpointArgs {
+            session: "session".into(),
+            goal: None,
+            decisions: None,
+            pending: None,
+            refresh_freshness: Some(true),
+        }))
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (send, receive) = mpsc::sync_channel(1);
+    let reader = std::thread::spawn(move || {
+        let readable = app.execute(request(false));
+        let busy = app.execute(request(true));
+        send.send((readable, busy)).unwrap();
+    });
+    let before_release = receive.recv_timeout(Duration::from_secs(2));
+    release_tx.send(()).unwrap();
+    assert_eq!(worker.join().unwrap()["state"], "ok");
+    reader.join().unwrap();
+    let (readable, busy) =
+        before_release.expect("Observation must not retain the repository mutex");
     assert_eq!(readable["state"], "ok");
     assert_eq!(busy["diagnostics"][0]["code"], "SESSION_BUSY");
 }

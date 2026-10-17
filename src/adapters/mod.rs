@@ -1,9 +1,12 @@
 //! Native implementations of application ports. No MCP handlers or schemas here.
 mod capabilities;
+mod disk_logs;
+mod doctor;
 mod edit;
 mod edit_commit;
 mod edit_security;
 mod fingerprint;
+mod git;
 pub mod process;
 mod process_tree;
 mod project;
@@ -29,16 +32,25 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 pub struct NativeWorkspace {
+    log_store: Option<Result<disk_logs::DiskLogs, Failure>>,
     project: Project,
     edit_lock: std::sync::Mutex<()>,
 }
 pub type NativeApplication = Application<NativeWorkspace, sessions::Sessions>;
 
 pub fn application(root: &Path) -> std::io::Result<NativeApplication> {
+    application_with_logging(root, false)
+}
+pub fn application_with_logging(
+    root: &Path,
+    persist_logs: bool,
+) -> std::io::Result<NativeApplication> {
     let project = Project::new(root)?;
     let sessions = sessions::Sessions::new(project.clone());
+    let log_store = persist_logs.then(|| disk_logs::DiskLogs::new(project.clone()));
     Ok(Application::new(
         NativeWorkspace {
+            log_store,
             project,
             edit_lock: std::sync::Mutex::new(()),
         },
@@ -47,6 +59,55 @@ pub fn application(root: &Path) -> std::io::Result<NativeApplication> {
 }
 
 impl Workspace for NativeWorkspace {
+    fn log_persistence_enabled(&self) -> bool {
+        self.log_store.is_some()
+    }
+    fn load_log_archive(&self) -> Result<Option<Value>, Failure> {
+        match &self.log_store {
+            Some(Ok(store)) => store.load(),
+            Some(Err(error)) => Err(*error),
+            None => Ok(None),
+        }
+    }
+    fn persist_log_archive(&self, archive: &Value) -> Result<u64, Failure> {
+        match &self.log_store {
+            Some(Ok(store)) => store.save(archive),
+            Some(Err(error)) => Err(*error),
+            None => Err(("UNSUPPORTED", "Disk logging disabled")),
+        }
+    }
+    fn doctor(
+        &self,
+        args: &harness_domain::contracts::DoctorArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        doctor::doctor(&self.project, args, context)
+    }
+    fn git_status(
+        &self,
+        args: &harness_domain::contracts::GitStatusArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        git::status(&self.project, args, context)
+    }
+    fn git_diff(
+        &self,
+        args: &harness_domain::contracts::GitDiffArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        git::diff(&self.project, args, context)
+    }
+    fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {
+        let captured = fingerprint::capture(&self.project, context);
+        context.check()?;
+        let time = sessions::now();
+        Ok(match captured {
+            Ok(hash) => json!({"status":"captured","hash":hash,"capturedAt":time,
+                "coverage":fingerprint::coverage()}),
+            Err((code, _)) => json!({"status":"unknown","error":code,"capturedAt":time,
+                "coverage":fingerprint::coverage()}),
+        })
+    }
     fn persist_session(
         &self,
         id: &str,

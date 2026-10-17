@@ -7,6 +7,7 @@ use std::time::Duration;
 pub enum Program {
     Cargo,
     Rustc,
+    Git,
 }
 
 #[derive(Debug)]

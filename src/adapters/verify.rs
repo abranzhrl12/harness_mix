@@ -78,13 +78,7 @@ pub(super) fn verify(
             json!({"status":"unknown","beforeError":before.as_ref().err().map(|e| e.0),"afterError":after.as_ref().err().map(|e| e.0)})
         }
     };
-    observation["coverage"] = json!({
-        "kind":"local_workspace_before_after",
-        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs"],
-        "externalDependenciesTracked":false,
-        "environmentTracked":false,
-        "current":null
-    });
+    observation["coverage"] = super::fingerprint::coverage();
     let stdout = String::from_utf8_lossy(&outcome.stdout);
     let stderr = String::from_utf8_lossy(&outcome.stderr);
     let output = format!("{stdout}\n{stderr}");

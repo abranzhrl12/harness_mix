@@ -50,7 +50,7 @@ sin convertir entradas de herramientas en comandos de shell.
 ### Procesos y verificación (0.4.0)
 
 `domain::process::ProcessSpec` es interno, no deserializable desde MCP, con campos
-privados y constructor validado. Identifica Cargo/Rustc mediante enum; no acepta
+privados y constructor validado. Identifica Cargo/Rustc/Git mediante enum; no acepta
 un ejecutable arbitrario. Limita cada ejecución a 30 s, 2 MiB de salida combinada,
 128 argumentos y 16 KiB de argumentos UTF-8; rechaza NUL. Esto no sustituye la
 validación de acciones, rutas y argumentos por la futura herramienta de verificación.
@@ -82,6 +82,97 @@ si no finaliza se informa PROCESS_CLEANUP. Los errores conservan limpieza RAII.
 No se implementan todavía verificadores personalizados, otros lenguajes, diagnósticos
 estructurados ni registro de vigencia. Cargo build/test puede ejecutar código y
 descargar dependencias: esto no es aislamiento de proyectos hostiles.
+
+### Batch de lecturas
+
+Domain define un catálogo cerrado de hijos y decodifica los argumentos antes de
+arrancar. Application coordina pares de threads con scope; cada hijo vuelve a
+la entrada execute_with_context con el mismo plazo/cancelación y conserva la
+admisión/lease/medición normal. No se expone ejecución genérica ni batch recursivo.
+Hay dos permisos de coordinación separados de los cuatro permisos de trabajo,
+evitando que los padres agoten todos los cupos necesarios para sus propios hijos.
+Los errores de hijos se conservan por índice y la salida grande usa detalle común.
+
+### Conteo file_size
+
+SearchArgs permite query ausente solo para el modo file_size, validado por el
+adaptador. Comparte walker/ignores y lecturas sin enlaces. Project expone una
+lectura interna con límite reducido por reserva, sin ampliar el límite público
+de 2 MiB; la metadata previa reserva presupuesto incluso ante errores. El
+adaptador devuelve únicamente ruta/líneas/bytes y recorta resultados con la
+política de detalle común. No necesita CodeGraph ni un proceso externo.
+
+### Buffer de logs
+
+prepare genera un UUID de operación antes de admisión; Measurement lo conserva
+en terminal/rechazo/abandono y Operation lo adjunta al envelope. El transporte
+retiene ese ID antes de ceder el worker y lo reutiliza en salidas tempranas o
+fallos de join. Los hijos de batch se preparan antes de spawn para conservar su
+ID incluso si falla el arranque/join; cada hijo mantiene su medición normal.
+El filtro valida el UUID canónico, sin retener valores arbitrarios. No es un
+identificador de sesión ni el id JSON-RPC, y no certifica entrega al cliente.
+
+Application consulta el log propio sin un puerto de filesystem. El guard de
+medición emite eventos terminales/rechazos/abandonos con esquema fijo; los códigos
+se mapean a una lista permitida. El buffer contiene como máximo 512 entradas,
+independiente de persistencia y del repositorio de sesiones. Métricas y eventos
+usan locks separados y sus snapshots no pretenden ser una transacción conjunta.
+La instrumentación completa del transporte MCP sigue pendiente.
+
+Workspace ofrece puertos de carga/guardado de archivos de log. La aplicación
+los invoca solo si el adaptador declara persistencia habilitada; el constructor
+restaura un snapshot validado sin restaurar métricas. Operation termina la medición
+y luego intenta guardar fuera de locks de sesiones/logs, conservando el permiso
+hasta terminar. No se hace I/O en Drop ni al rechazar admisión en el hilo async.
+Los rechazos/abandonos pendientes entran en el siguiente snapshot completado.
+
+Domain valida un formato cerrado de metadatos. DiskLogs Windows mantiene los
+ancestros fijados y un lock de escritor OS; serializa snapshots, rechaza regresión
+de secuencia y usa nombres fijos current/previous/next. El staging se sincroniza,
+conserva DACL y se publica sin sobrescribir un destino inesperado. Hay recuperación
+de staging válido; corrupción o archivos desconocidos no se borran automáticamente.
+No es una transacción durable ante energía ni un sandbox contra otro proceso
+hostil de la misma cuenta. El modo es opt-in; --persist-logs no cambia el MCP activo.
+
+### Métricas de aplicación
+
+Application comparte un almacén acotado por catálogo de herramientas entre sus
+clones. prepare registra rechazo o crea un guard de medición junto al permiso.
+Operation finaliza el guard con el estado del envelope real del worker; Drop
+registra abandono si no hubo resultado. La medición se libera antes del permiso
+para no inflar actividad al admitir el siguiente worker. No almacena argumentos,
+sesiones ni mensajes; el mutex solo protege contadores y snapshots en memoria.
+
+La frontera de aplicación adjunta snapshots a doctor/checkpoint, incluido el
+detail, después del caso de uso y fuera del mutex del repositorio de sesiones.
+Los snapshots no entran en la persistencia. Se mide tiempo monotónico desde la
+reserva, no CPU ni entrega RPC, y no se cuenta la consulta actual como completada
+en su propio snapshot. No es todavía paridad de SessionStats/ReadStats de Node.
+
+### Diagnóstico nativo
+
+Doctor usa un puerto tipado Workspace y la misma admisión/lease que las lecturas.
+El adaptador inspecciona metadatos locales; no escribe ni expone configuración.
+Comparte resolución de ejecutables con NativeProcessRunner. Las sondas opt-in
+crean ProcessSpec fijo --version (2 s, 4 KiB), no comandos definidos por el agente.
+Solo serializa versiones numéricas, nunca salida bruta ni stderr. Estado skipped
+es cobertura no comprobada, no una conexión sana. CodeGraph/SQL no se diagnostican
+todavía. El modo por defecto no inicia procesos ni gestores de toolchain.
+
+### Git nativo de solo lectura
+
+`Workspace` publica puertos tipados git_status/git_diff. La aplicación conserva
+admisión y lease; el transporte no ejecuta procesos. `adapters::git` valida
+argumentos, raíz efectiva de Git y rutas, anula filtros y configura argumentos
+fijos. Comparte `NativeProcessRunner`, contención de procesos y presupuestos.
+El runner elimina variables GIT_* heredadas solo para Program::Git, sin cambiar
+el entorno de Cargo. No hay shell ni herramienta de comandos genéricos.
+
+Status usa registros NUL de porcelain v2 y no hace fetch para actualizar upstream.
+Diff no usa textconv ni diff externo. Se rechazan linked worktrees por ahora y
+salidas parciales/errores no se presentan como datos completos. stderr nunca se
+publica porque puede contener configuración sensible. Las pruebas usan repositorios
+temporales e inyección de filtros para verificar que no se ejecuten programas.
 
 ### Edición (0.5.0)
 
@@ -135,7 +226,11 @@ TaskBoard vive en domain: transiciones declaradas, notas, secuencia y timeline
 acotado; recibe timestamps como datos, sin reloj ni filesystem. Native genera
 timestamps UTC y mantiene las observaciones de esta instancia separadas del
 histórico restaurado. Se persiste v1 compatible con Node; nunca se restauran
-checks como vigentes. Métricas y refreshFreshness aún no están implementados.
+checks como vigentes. La vigencia total aún no está implementada.
+refreshFreshness obtiene una huella acotada mediante Workspace fuera del mutex
+global, reteniendo el gate por sesión. Domain deriva la comparación local en la
+respuesta y su detail, sin guardarla como vigencia permanente ni revalidar
+checks históricos; current permanece null.
 
 Los casos de uso obtienen un gate estable por sesión a través de SessionRepository,
 mantienen el lease y rechazan otro escritor/verificador con SESSION_BUSY. El

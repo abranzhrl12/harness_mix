@@ -24,6 +24,15 @@ impl Project {
     }
 
     pub(crate) fn target(&self, relative: &str) -> Result<PathBuf, Failure> {
+        self.resolve_target(relative, false)
+    }
+
+    /// Read-only Git may address deleted files; validate every existing ancestor.
+    pub(crate) fn target_optional(&self, relative: &str) -> Result<PathBuf, Failure> {
+        self.resolve_target(relative, true)
+    }
+
+    fn resolve_target(&self, relative: &str, allow_missing: bool) -> Result<PathBuf, Failure> {
         if relative.is_empty()
             || relative.contains([':', '\0'])
             || relative.starts_with(['/', '\\'])
@@ -63,8 +72,15 @@ impl Project {
                         return Err(("PATH", "ruta restringida"));
                     }
                     target.push(part);
-                    let meta = fs::symlink_metadata(&target)
-                        .map_err(|_| ("PATH", "archivo no accesible"))?;
+                    let meta = match fs::symlink_metadata(&target) {
+                        Ok(meta) => meta,
+                        Err(error)
+                            if allow_missing && error.kind() == std::io::ErrorKind::NotFound =>
+                        {
+                            continue;
+                        }
+                        Err(_) => return Err(("PATH", "archivo no accesible")),
+                    };
                     if meta.file_type().is_symlink() {
                         return Err(("PATH", "no se admiten enlaces en la ruta"));
                     }
@@ -79,7 +95,16 @@ impl Project {
                 _ => return Err(("PATH", "ruta restringida o fuera del proyecto")),
             }
         }
-        let real = target
+        let existing = if allow_missing && !target.exists() {
+            target
+                .ancestors()
+                .skip(1)
+                .find(|path| path.exists())
+                .ok_or(("PATH", "directorio no accesible"))?
+        } else {
+            target.as_path()
+        };
+        let real = existing
             .canonicalize()
             .map_err(|_| ("PATH", "archivo no accesible"))?;
         if !real.starts_with(&self.root) {
@@ -96,6 +121,15 @@ impl Project {
         relative: &str,
         context: &OperationContext,
     ) -> Result<Vec<u8>, Failure> {
+        self.bytes_with_limit(relative, context, MAX_FILE)
+    }
+    pub(crate) fn bytes_with_limit(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Vec<u8>, Failure> {
+        let limit = limit.min(MAX_FILE);
         context.check()?;
         let path = self.target(relative)?;
         let mut options = File::options();
@@ -117,8 +151,8 @@ impl Project {
         let before = file
             .metadata()
             .map_err(|_| ("IO", "no se pudo leer metadata"))?;
-        if !before.is_file() || before.len() > MAX_FILE {
-            return Err(("SIZE", "archivo no admitido o supera 2 MiB"));
+        if !before.is_file() || before.len() > limit {
+            return Err(("SIZE", "archivo no admitido o supera límite de lectura"));
         }
         #[cfg(windows)]
         {
@@ -128,7 +162,7 @@ impl Project {
             }
         }
         let mut bytes = Vec::new();
-        let mut reader = (&file).take(MAX_FILE + 1);
+        let mut reader = (&file).take(limit + 1);
         let mut chunk = [0_u8; 32768];
         loop {
             context.check()?;

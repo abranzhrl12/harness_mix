@@ -7,6 +7,40 @@ use serde_json::Value;
 
 /// Platform-dependent I/O. Implementations enforce filesystem safety and scan budgets.
 pub trait Workspace: Send + Sync {
+    fn log_persistence_enabled(&self) -> bool {
+        false
+    }
+    fn load_log_archive(&self) -> Result<Option<Value>, Failure> {
+        Ok(None)
+    }
+    fn persist_log_archive(&self, _archive: &Value) -> Result<u64, Failure> {
+        Err(("UNSUPPORTED", "Log persistence unavailable"))
+    }
+    fn doctor(
+        &self,
+        _args: &harness_domain::contracts::DoctorArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Doctor adapter unavailable"))
+    }
+    fn git_status(
+        &self,
+        _args: &harness_domain::contracts::GitStatusArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Git status adapter unavailable"))
+    }
+    fn git_diff(
+        &self,
+        _args: &harness_domain::contracts::GitDiffArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Git diff adapter unavailable"))
+    }
+    /// Bounded filesystem observation; called outside the session repository mutex.
+    fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Workspace observation adapter unavailable"))
+    }
     fn persist_session(
         &self,
         _id: &str,

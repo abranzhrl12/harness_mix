@@ -13,10 +13,15 @@ struct Server {
 
 impl Server {
     fn start(root: &std::path::Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_agent-harness"))
-            .env("PATH", "")
-            .arg("--root")
-            .arg(root)
+        Self::start_with_logging(root, false)
+    }
+    fn start_with_logging(root: &std::path::Path, persist: bool) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-harness"));
+        command.env("PATH", "").arg("--root").arg(root);
+        if persist {
+            command.arg("--persist-logs");
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -57,6 +62,35 @@ impl Server {
             }
         }
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn persistent_cli_logs_survive_server_restart_without_node() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("fixture.txt"), "persistent CLI").unwrap();
+    let mut server = Server::start_with_logging(root.path(), true);
+    server.initialize();
+    let read = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_read","arguments":{"path":"fixture.txt","start":1,"end":1}}),
+    );
+    let envelope = &read["result"]["structuredContent"];
+    assert_eq!(envelope["logPersistence"]["saved"], true, "{read}");
+    let id = envelope["requestId"].as_str().unwrap().to_owned();
+    drop(server);
+    let mut restarted = Server::start_with_logging(root.path(), true);
+    restarted.initialize();
+    let logs = restarted.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_logs","arguments":{"requestId":id}}),
+    );
+    assert_eq!(
+        logs["result"]["structuredContent"]["data"]["events"][0]["historical"], true,
+        "{logs}"
+    );
 }
 
 #[test]
@@ -342,11 +376,63 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 10);
+    assert_eq!(names.len(), 15);
+    assert!(names.contains(&"harness_logs"));
+    let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));
+    assert_eq!(
+        sizes["result"]["structuredContent"]["state"], "ok",
+        "{sizes}"
+    );
+    assert_eq!(
+        sizes["result"]["structuredContent"]["data"]["files"][0]["lines"],
+        2
+    );
+    let logs = server.request(
+        25,
+        "tools/call",
+        json!({"name":"harness_logs","arguments":{"limit":5}}),
+    );
+    assert_eq!(logs["result"]["structuredContent"]["state"], "ok", "{logs}");
+    assert!(names.contains(&"harness_batch"));
+    let batch = server.request(24,"tools/call",json!({"name":"harness_batch","arguments":{"jobs":[{"tool":"harness_read","arguments":{"path":"example.txt","start":1,"end":1}}]}}));
+    assert_eq!(
+        batch["result"]["structuredContent"]["state"], "ok",
+        "{batch}"
+    );
+    assert!(names.contains(&"harness_doctor"));
+    let doctor = server.request(
+        23,
+        "tools/call",
+        json!({"name":"harness_doctor","arguments":{"connection":true}}),
+    );
+    let diagnosis = &doctor["result"]["structuredContent"];
+    assert_eq!(diagnosis["state"], "ok", "{doctor}");
+    assert_eq!(diagnosis["data"]["versionsRequested"], false);
+    assert_eq!(diagnosis["data"]["counts"]["warning"], 3);
+    for name in ["tool:cargo", "tool:rustc", "tool:git"] {
+        let tool = diagnosis["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == name)
+            .unwrap();
+        assert_eq!(tool["located"], false, "{doctor}");
+        assert_eq!(tool["versionChecked"], false);
+    }
+    assert!(names.contains(&"harness_git_status") && names.contains(&"harness_git_diff"));
     assert!(names.contains(&"harness_tasks") && names.contains(&"harness_checkpoint"));
     assert!(names.contains(&"harness_outline") && names.contains(&"harness_read_symbol"));
     assert!(names.contains(&"harness_replace"));
     assert!(names.contains(&"harness_verify"));
+    let nonrepo = server.request(
+        22,
+        "tools/call",
+        json!({"name":"harness_git_status","arguments":{}}),
+    );
+    assert_eq!(
+        nonrepo["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "GIT_REPO"
+    );
     let unsupported = server.request(
         20,
         "tools/call",
@@ -393,6 +479,18 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     );
     let envelope: Value =
         serde_json::from_str(read["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let id = read["result"]["structuredContent"]["requestId"]
+        .as_str()
+        .unwrap();
+    let traced = server.request(
+        26,
+        "tools/call",
+        json!({"name":"harness_logs","arguments":{"requestId":id}}),
+    );
+    assert_eq!(
+        traced["result"]["structuredContent"]["data"]["events"][0]["requestId"],
+        id
+    );
     assert_eq!(envelope, read["result"]["structuredContent"]);
     let repeated = server.request(
         5,

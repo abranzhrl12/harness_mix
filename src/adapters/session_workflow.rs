@@ -38,7 +38,7 @@ impl Session {
         let full = json!({"sessionId":id,"restored":self.restored,"historical":historical,
             "persistenceScope":"objetivo, decisiones, fases y hechos históricos; timeline solo del proceso actual",
             "declaredByAgent":self.state.declared,"tasks":self.summary(),
-            "stats":{"available":false,"reason":"metrics_not_migrated"},
+            "stats":{"available":false,"reason":"attached_by_application_boundary"},
             "observedByHarness":{"modifiedFiles":self.observed_edits,"checks":self.observed_checks,"omittedFiles":0,"omittedChecks":0},
             "coverage":"solo operaciones de esta sesión realizadas a través del arnés",
             "compaction":"el cliente controla el historial; este checkpoint no lo poda",
@@ -96,12 +96,6 @@ impl Sessions {
         &mut self,
         args: &CheckpointArgs,
     ) -> Result<SessionMutation, Failure> {
-        if args.refresh_freshness == Some(true) {
-            return Err((
-                "UNSUPPORTED",
-                "Freshness refresh is not migrated; no declared state was changed",
-            ));
-        }
         let valid = |list: &Option<Vec<String>>| {
             list.as_ref()
                 .is_none_or(|items| items.len() <= 20 && items.iter().all(|s| utf16_len(s) <= 500))

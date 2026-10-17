@@ -12,6 +12,14 @@ const LIMIT: Failure = (
     "Workspace fingerprint exceeded its scan budget",
 );
 
+pub(super) fn coverage() -> serde_json::Value {
+    serde_json::json!({
+        "kind":"local_workspace_content_v2",
+        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs",".agents/harness/native-logs"],
+        "externalDependenciesTracked":false,"environmentTracked":false,"current":null
+    })
+}
+
 pub(super) fn capture(project: &Project, context: &OperationContext) -> Result<String, Failure> {
     let started = Instant::now();
     let mut pending = vec![PathBuf::new()];
@@ -56,8 +64,12 @@ pub(super) fn capture(project: &Project, context: &OperationContext) -> Result<S
             if kind.is_dir()
                 && (["target", "node_modules", ".git", ".hg", ".svn"]
                     .contains(&name.to_ascii_lowercase().as_str())
-                    || [".agents/harness/.state", ".agents/harness/logs"]
-                        .contains(&normalized.as_str()))
+                    || [
+                        ".agents/harness/.state",
+                        ".agents/harness/logs",
+                        ".agents/harness/native-logs",
+                    ]
+                    .contains(&normalized.as_str()))
             {
                 continue;
             }

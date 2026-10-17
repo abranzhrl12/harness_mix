@@ -166,6 +166,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
     assert_eq!(read["scope"], json!({"tool":"harness_read","path":"a.txt"}));
     let search = app.execute(Request::Search(SearchArgs {
+        min_lines: None,
         kind: Kind::Text,
         query: "a".into(),
         scope: None,
@@ -222,6 +223,7 @@ fn read_request() -> Request {
 }
 fn search_request() -> Request {
     Request::Search(SearchArgs {
+        min_lines: None,
         kind: Kind::Text,
         query: "a".into(),
         scope: None,

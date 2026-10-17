@@ -2,6 +2,8 @@
 pub mod contracts;
 pub mod editing;
 pub mod execution;
+pub mod freshness;
+pub mod log_archive;
 pub mod navigation;
 pub mod process;
 pub mod process_output;

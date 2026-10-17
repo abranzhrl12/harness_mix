@@ -27,18 +27,37 @@ pub fn search_with_context(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     context.check()?;
-    if args.query.is_empty()
-        || utf16_len(&args.query) > 16000
-        || args.query.contains(['\n', '\r', '\0'])
+    let file_size = matches!(args.kind, Kind::FileSize);
+    let min_lines = args.min_lines.unwrap_or(500);
+    if min_lines > 10000000
+        || (!file_size && args.min_lines.is_some())
+        || (file_size && !args.query.is_empty())
+    {
+        return Err((
+            "ARGUMENT",
+            "file_size requires minLines 0..10000000 and no query; minLines is invalid for other kinds",
+        ));
+    }
+    if !file_size
+        && (args.query.is_empty()
+            || utf16_len(&args.query) > 16000
+            || args.query.contains(['\n', '\r', '\0']))
     {
         return Err((
             "ARGUMENT",
             "query literal no vacía, sin saltos de línea ni NUL, máximo 16000 caracteres",
         ));
     }
-    let limit = args.limit.unwrap_or(40);
-    if !(1..=200).contains(&limit) {
-        return Err(("ARGUMENT", "limit debe estar entre 1 y 200"));
+    let limit = args.limit.unwrap_or(if file_size { 30 } else { 40 });
+    if !(1..=if file_size { 100 } else { 200 }).contains(&limit) {
+        return Err((
+            "ARGUMENT",
+            if file_size {
+                "file_size limit debe estar entre 1 y 100"
+            } else {
+                "limit debe estar entre 1 y 200"
+            },
+        ));
     }
     let root = project.target(args.scope.as_deref().unwrap_or("."))?;
     if root
@@ -58,11 +77,24 @@ pub fn search_with_context(
         .git_global(false)
         .require_git(false)
         .sort_by_file_path(|a, b| a.cmp(b))
-        .filter_entry(|entry| !entry.file_name().to_str().is_none_or(excluded));
+        .filter_entry(move |entry| {
+            !entry.file_name().to_str().is_none_or(|name| {
+                excluded(name)
+                    || (file_size
+                        && (["vendor", "dist", "build", "coverage"]
+                            .contains(&name.to_ascii_lowercase().as_str())
+                            || name.ends_with(".min.js")
+                            || name.ends_with(".map")))
+            })
+        });
     let mut all = Vec::new();
     let mut visited = 0;
     let mut bytes = 0;
+    let mut reserved_bytes = 0_u64;
     let mut skipped = 0;
+    let mut binary_skipped = 0;
+    let mut stable_files = 0;
+    let mut metadata_bytes = 0;
     let mut bounded = false;
     let mut timed_out = false;
     let mut cancelled = false;
@@ -117,8 +149,29 @@ pub fn search_with_context(
                     all.push(json!(relative));
                 }
             }
-            Kind::Text => {
-                let file = match project.bytes_with_context(relative, context) {
+            Kind::Text | Kind::FileSize => {
+                let cap = if file_size {
+                    let metadata = match entry.metadata() {
+                        Ok(metadata) => metadata,
+                        Err(_) => {
+                            skipped += 1;
+                            continue;
+                        }
+                    };
+                    if metadata.len() > 2 * 1024 * 1024 {
+                        skipped += 1;
+                        continue;
+                    }
+                    if reserved_bytes + metadata.len() > 64 * 1024 * 1024 {
+                        bounded = true;
+                        break 'scan;
+                    }
+                    reserved_bytes += metadata.len();
+                    metadata.len()
+                } else {
+                    2 * 1024 * 1024
+                };
+                let file = match project.bytes_with_limit(relative, context, cap) {
                     Ok(file) => file,
                     Err((code, _)) if code == "CANCELLED" || code == "TIMEOUT" => {
                         cancelled = code == "CANCELLED";
@@ -136,15 +189,39 @@ pub fn search_with_context(
                     break;
                 }
                 if file.contains(&0) {
+                    binary_skipped += 1;
                     continue;
                 }
                 let text = match std::str::from_utf8(&file) {
                     Ok(text) => text,
+                    Err(_) if file_size => {
+                        binary_skipped += 1;
+                        continue;
+                    }
                     Err(_) => {
                         skipped += 1;
                         continue;
                     }
                 };
+                if file_size {
+                    if started.elapsed() >= Duration::from_secs(5) {
+                        timed_out = true;
+                        break 'scan;
+                    }
+                    stable_files += 1;
+                    let lines = file.iter().filter(|&&byte| byte == b'\n').count()
+                        + usize::from(!file.is_empty() && file.last() != Some(&b'\n'));
+                    if lines > min_lines {
+                        let row = json!({"path":relative,"lines":lines,"bytes":file.len()});
+                        metadata_bytes += row.to_string().len();
+                        if metadata_bytes > 4 * 1024 * 1024 {
+                            bounded = true;
+                            break 'scan;
+                        }
+                        all.push(row);
+                    }
+                    continue;
+                }
                 for (line, text) in text.split_inclusive('\n').enumerate() {
                     if let Err((code, _)) = context.check() {
                         cancelled = code == "CANCELLED";
@@ -172,14 +249,32 @@ pub fn search_with_context(
             break;
         }
     }
+    if file_size && started.elapsed() >= Duration::from_secs(5) {
+        timed_out = true;
+    }
+    if let Err((code, _)) = context.check() {
+        cancelled |= code == "CANCELLED";
+        timed_out |= code == "TIMEOUT";
+    }
     let complete = !bounded && !timed_out && !cancelled && skipped == 0;
+    if file_size {
+        all.sort_by(|a, b| {
+            b["lines"]
+                .as_u64()
+                .cmp(&a["lines"].as_u64())
+                .then_with(|| b["bytes"].as_u64().cmp(&a["bytes"].as_u64()))
+                .then_with(|| a["path"].as_str().cmp(&b["path"].as_str()))
+        });
+    }
     let mut compact: Vec<Value> = all.iter().take(limit).cloned().collect();
     if matches!(args.kind, Kind::Text) {
         for row in &mut compact {
             row["text"] = json!(prefix(row["text"].as_str().expect("match text"), 500).trim_end());
         }
     }
-    let key = if matches!(args.kind, Kind::Files) {
+    let key = if file_size {
+        "files"
+    } else if matches!(args.kind, Kind::Files) {
         "paths"
     } else {
         "matches"
@@ -189,6 +284,21 @@ pub fn search_with_context(
         "timings":{"executionMs":started.elapsed().as_millis()},"_detail":{},"diagnostics":[]});
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
+    if file_size {
+        result["kind"] = json!("file_size");
+        result["minLines"] = json!(min_lines);
+        result["comparison"] = json!(">");
+        result["visited"] = json!(visited);
+        result["scanned"] = json!(stable_files);
+        result["binarySkipped"] = json!(binary_skipped);
+        result["counting"] = json!(
+            "LF/CRLF totals including comments/tests; empty=0; trailing LF adds no extra line"
+        );
+        result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":5000});
+        result["binaryPolicy"] =
+            json!("Skip NUL and invalid UTF-8 files without marking those skips incomplete");
+        result["reservedBytes"] = json!(reserved_bytes);
+    }
     if !complete {
         result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":"búsqueda parcial por presupuesto, plazo o archivos no accesibles; revisar complete/skipped/limited"}]);
     }
@@ -208,6 +318,7 @@ mod tests {
         }
         let p = Project::new(dir.path()).unwrap();
         let args = SearchArgs {
+            min_lines: None,
             kind: Kind::Text,
             query: "needle".into(),
             scope: None,
@@ -226,6 +337,7 @@ mod tests {
         fs::write(dir.path().join("a[1].txt"), "text").unwrap();
         let p = Project::new(dir.path()).unwrap();
         let mut args = SearchArgs {
+            min_lines: None,
             kind: Kind::Files,
             query: "[1]".into(),
             scope: None,
@@ -254,6 +366,7 @@ mod tests {
         fs::write(dir.path().join("small.txt"), "needle\n").unwrap();
         let p = Project::new(dir.path()).unwrap();
         let args = SearchArgs {
+            min_lines: None,
             kind: Kind::Text,
             query: "needle".into(),
             scope: None,

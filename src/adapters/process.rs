@@ -33,10 +33,11 @@ impl NativeProcessRunner {
     }
 }
 
-fn executable(program: Program) -> Result<PathBuf, Failure> {
+pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
     let name = match program {
         Program::Cargo => "cargo",
         Program::Rustc => "rustc",
+        Program::Git => "git",
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")
@@ -80,6 +81,23 @@ impl ProcessRunner for NativeProcessRunner {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
+        if spec.program() == Program::Git {
+            // Never inherit alternate repositories, injected -c values, or askpass.
+            for (key, _) in std::env::vars_os() {
+                if key
+                    .to_string_lossy()
+                    .to_ascii_uppercase()
+                    .starts_with("GIT_")
+                {
+                    command.env_remove(key);
+                }
+            }
+            command
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("GIT_NO_LAZY_FETCH", "1")
+                .env("LC_ALL", "C");
+        }
         run_command(command, spec, context)
     }
 }
