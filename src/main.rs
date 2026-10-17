@@ -94,13 +94,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             (PathBuf::from(root), true)
         }
+        (None, None, None, None) => (std::env::current_dir()?, false),
         (Some(flag), None, None, None) if flag == "--version" => {
             println!("agent-harness {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
         _ => {
             return Err(
-                "usage: agent-harness --root <workspace> [--persist-logs | --init-index | --reindex | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
+                "usage: agent-harness [--root <workspace>] [--persist-logs | --init-index | --reindex | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
             );
         }
     };

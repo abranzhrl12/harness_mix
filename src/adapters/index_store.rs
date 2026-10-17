@@ -25,6 +25,16 @@ const UNCERTAIN: Failure = (
 );
 const MAX_ROWS: usize = 20_000;
 
+#[path = "index_candidates.rs"]
+mod candidates;
+
+#[cfg(windows)]
+#[path = "index_writer.rs"]
+mod writer;
+
+#[path = "index_batches.rs"]
+mod batches;
+
 #[path = "index_init.rs"]
 mod initialization;
 pub use initialization::initialize;
@@ -117,11 +127,13 @@ fn sync_workspace_with_limit(
     let mut processed = 0;
     let mut changed = 0;
     let mut failure = None;
+    #[cfg(windows)]
+    let mut writer = None;
     for path in paths.iter().take(max_files) {
         let applied = scope.recheck(&project, context).and_then(|()| {
             #[cfg(windows)]
             {
-                sync_file_config_force(root, path, None, context, || {}, rebuild)
+                sync_file_config_reuse(root, path, None, context, || {}, rebuild, &mut writer)
             }
             #[cfg(not(windows))]
             {
@@ -265,17 +277,28 @@ fn sync_file_config_force(
     before_recheck: impl FnOnce(),
     force: bool,
 ) -> Result<Value, Failure> {
-    use std::{
-        fs::File,
-        os::windows::{
-            fs::{MetadataExt, OpenOptionsExt},
-            io::AsRawHandle,
-        },
-    };
-    use windows::Win32::{
-        Foundation::HANDLE,
-        Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle},
-    };
+    sync_file_config_reuse(
+        root,
+        relative,
+        requested_config,
+        context,
+        before_recheck,
+        force,
+        &mut None,
+    )
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)] // Explicit-file inputs plus operation-scoped connection ownership.
+fn sync_file_config_reuse(
+    root: &Path,
+    relative: &str,
+    requested_config: Option<&str>,
+    context: &OperationContext,
+    before_recheck: impl FnOnce(),
+    force: bool,
+    writer: &mut Option<writer::Writer>,
+) -> Result<Value, Failure> {
     context.check()?;
     if relative.is_empty()
         || relative.len() > 1000
@@ -305,90 +328,16 @@ fn sync_file_config_force(
             index_extract::extract(relative, text, context)
         })
         .transpose()?;
-    let path = project
-        .target(".codegraph/codegraph.db")
-        .map_err(|_| INDEX)?;
-    for suffix in ["-wal", "-shm", "-journal"] {
-        project
-            .target_optional(&format!(".codegraph/codegraph.db{suffix}"))
-            .map_err(|_| INDEX)?;
+    let reused = writer.is_some();
+    if writer.is_none() {
+        *writer = Some(writer::Writer::open(&project, context)?);
     }
-    let _pins = super::edit_commit::pin_directory(&project, path.parent().ok_or(INDEX)?)?;
-    // Deny DELETE sharing so SQLite's path cannot be replaced after validation.
-    let pin = File::options()
-        .read(true)
-        .share_mode(3)
-        .custom_flags(0x0020_0000)
-        .open(&path)
-        .map_err(|_| INDEX)?;
-    let metadata = pin.metadata().map_err(|_| INDEX)?;
-    if !metadata.is_file()
-        || metadata.len() > 512 * 1024 * 1024
-        || metadata.file_attributes() & 0x400 != 0
-    {
-        return Err(INDEX);
-    }
-    let mut identity = BY_HANDLE_FILE_INFORMATION::default();
-    unsafe {
-        GetFileInformationByHandle(HANDLE(pin.as_raw_handle()), &mut identity)
-            .map_err(|_| INDEX)?;
-    }
-    if identity.nNumberOfLinks != 1 {
-        return Err(("PATH", "Hard-linked indexes cannot be updated"));
-    }
-    // Pin deterministic sidecar names too: an attacker must not substitute a
-    // junction/symlink between validation and SQLite opening a writable WAL.
-    // WAL mode doesn't need to unlink these files at commit. They may remain
-    // after closing; this is a valid SQLite WAL layout, not source modification.
-    let mut sidecar_pins = Vec::new();
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let sidecar = project.target_optional(&format!(".codegraph/codegraph.db{suffix}"))?;
-        let options = || {
-            let mut options = File::options();
-            options
-                .read(true)
-                .write(true)
-                .share_mode(3)
-                .custom_flags(0x0020_0000);
-            options
-        };
-        let guard = match options().create_new(true).open(&sidecar) {
-            Ok(guard) => guard,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                options().open(&sidecar).map_err(|_| INDEX)?
-            }
-            Err(_) => return Err(INDEX),
-        };
-        let meta = guard.metadata().map_err(|_| INDEX)?;
-        let mut info = BY_HANDLE_FILE_INFORMATION::default();
-        unsafe {
-            GetFileInformationByHandle(HANDLE(guard.as_raw_handle()), &mut info)
-                .map_err(|_| INDEX)?;
-        }
-        if !meta.is_file() || meta.file_attributes() & 0x400 != 0 || info.nNumberOfLinks != 1 {
-            return Err(("PATH", "Linked SQLite sidecars cannot be updated"));
-        }
-        sidecar_pins.push(guard);
-    }
-    let mut db = sql(Connection::open_with_flags(
-        &path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-    ))?;
-    sql(db.busy_timeout(Duration::from_millis(100)))?;
-    let journal: String = sql(db.query_row("PRAGMA journal_mode", [], |r| r.get(0)))?;
-    if journal != "wal" {
-        return Err((
-            "SYNC_JOURNAL",
-            "Native publication requires an existing WAL-mode CodeGraph index",
-        ));
-    }
-    sql(db.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, 1024 * 1024))?;
-    sql(db.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_SQL_LENGTH, 16384))?;
+    let writer = writer.as_mut().ok_or(INDEX)?;
+    writer.recheck(context)?;
+    let db = &mut writer.db;
     let cancel = context.clone();
     sql(db.progress_handler(1000, Some(move || cancel.check().is_err())))?;
-    sql(db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096;"))?;
+    sql(db.execute_batch("PRAGMA trusted_schema=OFF;"))?;
     let tx = sql(db.transaction_with_behavior(TransactionBehavior::Immediate))?;
     let run = || {
         validate_schema(&tx)?;
@@ -434,6 +383,7 @@ fn sync_file_config_force(
             return Err(("SYNC_INTEGRITY", "Index foreign-key integrity check failed"));
         }
         result["sourceSnapshotAtomic"] = json!(false);
+        result["writerConnectionReused"] = json!(reused);
         Ok(result)
     };
     let prepared = run();
@@ -443,7 +393,6 @@ fn sync_file_config_force(
             tx.progress_handler(0, None::<fn() -> bool>)
                 .map_err(|_| UNCERTAIN)?;
             tx.rollback().map_err(|_| UNCERTAIN)?;
-            drop(sidecar_pins);
             Err(context.check().err().unwrap_or(failure))
         }
         Ok(mut result) => {
@@ -451,7 +400,6 @@ fn sync_file_config_force(
             tx.progress_handler(0, None::<fn() -> bool>)
                 .map_err(|_| UNCERTAIN)?;
             tx.commit().map_err(|_| UNCERTAIN)?;
-            drop(sidecar_pins);
             result["committed"] = json!(true);
             Ok(result)
         }
@@ -668,7 +616,7 @@ fn insert_ref(
     candidates: Option<String>,
     origin: (&str, &str),
 ) -> Result<i64, Failure> {
-    sql(db.execute("INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,candidates,file_path,language,status,name_tail) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'pending','')",params![source,name,kind,line,col,candidates,origin.0,origin.1]))?;
+    sql(sql(db.prepare_cached("INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,candidates,file_path,language,status,name_tail) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'pending','')"))?.execute(params![source,name,kind,line,col,candidates,origin.0,origin.1]))?;
     Ok(db.last_insert_rowid())
 }
 
@@ -787,27 +735,75 @@ fn publish(
         if nodes.len() > MAX_ROWS {
             return Err(LIMIT);
         }
-        for node in nodes {
-            context.check()?;
-            sql(db.execute("INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,visibility,is_exported,is_async,is_static,is_abstract,decorators,type_parameters,return_type,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)", params![string(node,"id")?,string(node,"kind")?,string(node,"name")?,string(node,"qualifiedName")?,path,language,node["startLine"].as_i64(),node["endLine"].as_i64(),node["startColumn"].as_i64(),node["endColumn"].as_i64(),opt_string(node,"docstring"),opt_string(node,"signature"),opt_string(node,"visibility"),node["isExported"].as_bool().unwrap_or(false),node["isAsync"].as_bool().unwrap_or(false),node["isStatic"].as_bool().unwrap_or(false),node["isAbstract"].as_bool().unwrap_or(false),node.get("decorators").map(Value::to_string),node.get("typeParameters").map(Value::to_string),opt_string(node,"returnType"),now]))?;
-        }
+        batches::insert(
+            db,
+            "INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,visibility,is_exported,is_async,is_static,is_abstract,decorators,type_parameters,return_type,updated_at) VALUES ",
+            21,
+            nodes,
+            context,
+            |node| {
+                batches::values(params![
+                    string(node, "id")?,
+                    string(node, "kind")?,
+                    string(node, "name")?,
+                    string(node, "qualifiedName")?,
+                    path,
+                    language,
+                    node["startLine"].as_i64(),
+                    node["endLine"].as_i64(),
+                    node["startColumn"].as_i64(),
+                    node["endColumn"].as_i64(),
+                    opt_string(node, "docstring"),
+                    opt_string(node, "signature"),
+                    opt_string(node, "visibility"),
+                    node["isExported"].as_bool().unwrap_or(false),
+                    node["isAsync"].as_bool().unwrap_or(false),
+                    node["isStatic"].as_bool().unwrap_or(false),
+                    node["isAbstract"].as_bool().unwrap_or(false),
+                    node.get("decorators").map(Value::to_string),
+                    node.get("typeParameters").map(Value::to_string),
+                    opt_string(node, "returnType"),
+                    now
+                ])
+            },
+        )?;
         node_count = nodes.len();
-        for edge in array(extracted, "edges")? {
-            context.check()?;
-            sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![string(edge,"source")?,string(edge,"target")?,string(edge,"kind")?,edge["line"].as_i64(),edge["column"].as_i64(),edge.get("metadata").map(Value::to_string),opt_string(edge,"provenance")]))?;
-        }
-        for reference in array(extracted, "unresolvedReferences")? {
-            context.check()?;
-            refs.insert(insert_ref(
-                db,
-                &string(reference, "fromNodeId")?,
-                &string(reference, "referenceName")?,
-                &string(reference, "referenceKind")?,
+        batches::insert(
+            db,
+            "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES ",
+            7,
+            array(extracted, "edges")?,
+            context,
+            |edge| {
+                batches::values(params![
+                    string(edge, "source")?,
+                    string(edge, "target")?,
+                    string(edge, "kind")?,
+                    edge["line"].as_i64(),
+                    edge["column"].as_i64(),
+                    edge.get("metadata").map(Value::to_string),
+                    opt_string(edge, "provenance")
+                ])
+            },
+        )?;
+        refs.extend(batches::insert_ids(
+            db,
+            "INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,candidates,file_path,language) VALUES ",
+            8,
+            array(extracted, "unresolvedReferences")?,
+            context,
+            |reference| batches::values(params![
+                string(reference, "fromNodeId")?,
+                string(reference, "referenceName")?,
+                string(reference, "referenceKind")?,
                 reference["line"].as_i64().ok_or(INDEX)?,
                 reference["column"].as_i64().ok_or(INDEX)?,
                 reference.get("candidates").map(Value::to_string),
-                (path, language),
-            )?);
+                path, language,
+            ]),
+        )?);
+        if refs.len() > MAX_ROWS {
+            return Err(LIMIT);
         }
         let bytes = bytes.ok_or(INDEX)?;
         // modified_at=0 disables CodeGraph's size/mtime fast-path on the next
@@ -818,10 +814,24 @@ fn publish(
     }
     let retained_count = retained.len();
     let resurrected_count = resurrect.len();
-    for edge in retained {
-        context.check()?;
-        sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![edge.source,edge.target,edge.kind,edge.line,edge.col,edge.metadata,edge.provenance]))?;
-    }
+    batches::insert(
+        db,
+        "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES ",
+        7,
+        &retained,
+        context,
+        |edge| {
+            batches::values(params![
+                edge.source,
+                edge.target,
+                edge.kind,
+                edge.line,
+                edge.col,
+                edge.metadata,
+                edge.provenance
+            ])
+        },
+    )?;
     for (edge, name, kind) in resurrect {
         context.check()?;
         refs.insert(insert_ref(
@@ -859,6 +869,8 @@ fn publish(
     }
     let mut resolved = 0;
     let mut import_sources = imports::Sources::configured(configuration);
+    // Node writes are complete; only edges/refs change during this loop.
+    let mut candidate_snapshot = candidates::Snapshot::default();
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(
@@ -867,6 +879,7 @@ fn publish(
             project,
             context,
             &mut import_sources,
+            &mut candidate_snapshot,
         )?);
     }
     if import_sources.config.digest.is_some() {
@@ -894,8 +907,9 @@ fn resolve_exact(
     project: &Project,
     context: &OperationContext,
     sources: &mut imports::Sources,
+    candidate_snapshot: &mut candidates::Snapshot,
 ) -> Result<bool, Failure> {
-    let reference:Option<ResolutionReference> = sql(db.query_row("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1",[id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
+    let reference:Option<ResolutionReference> = sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
         return Ok(false);
     };
@@ -941,21 +955,8 @@ fn resolve_exact(
     };
     // Receivers/chains are never stripped. Named imports override global names;
     // unsupported import forms defer instead of falling back to a homonym.
-    let mut statement=sql(db.prepare("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE (name=?1 COLLATE BINARY OR qualified_name=?1 COLLATE BINARY) AND ((?3 IS NULL AND language=?2) OR (?3 IS NOT NULL AND file_path=?3 COLLATE BINARY AND language IN ('typescript','tsx','javascript','jsx'))) ORDER BY file_path,start_line,id LIMIT 65"))?;
-    let rows = sql(
-        statement.query_map(params![lookup, language, imported_path], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<bool>>(5)?.unwrap_or(false),
-                r.get::<_, String>(6)?,
-            ))
-        }),
-    )?;
-    let mut candidates = sql(rows.collect::<rusqlite::Result<Vec<_>>>())?;
+    let mut candidates =
+        candidate_snapshot.lookup(db, lookup, &language, imported_path, context)?;
     if candidates.len() > 64 {
         return Ok(false);
     }
@@ -1016,13 +1017,71 @@ fn resolve_exact(
         metadata["exportContributors"] = json!(export_contributors);
     }
     let metadata = metadata.to_string();
-    sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')",params![from,candidates[0].0,edge_kind,line,col,metadata]))?;
-    sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+    sql(sql(db.prepare_cached("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')"))?.execute(params![from,candidates[0].0,edge_kind,line,col,metadata]))?;
+    sql(sql(db.prepare_cached("DELETE FROM unresolved_refs WHERE id=?1"))?.execute([id]))?;
     Ok(true)
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn reused_writer_preserves_full_durability_and_rejects_late_links() {
+        let root = tempfile::tempdir().unwrap();
+        let context = OperationContext::default();
+        super::initialize(root.path(), &context).unwrap();
+        std::fs::write(root.path().join("a.rs"), "pub fn first() {}\n").unwrap();
+        std::fs::write(root.path().join("b.rs"), "pub fn second() { first(); }\n").unwrap();
+        let mut writer = None;
+        let first = super::sync_file_config_reuse(
+            root.path(),
+            "a.rs",
+            None,
+            &context,
+            || {},
+            false,
+            &mut writer,
+        )
+        .unwrap();
+        let second = super::sync_file_config_reuse(
+            root.path(),
+            "b.rs",
+            None,
+            &context,
+            || {},
+            false,
+            &mut writer,
+        )
+        .unwrap();
+        assert_eq!(first["writerConnectionReused"], false);
+        assert_eq!(second["writerConnectionReused"], true);
+        let writer = writer.unwrap();
+        assert_eq!(
+            writer
+                .db
+                .query_row("PRAGMA synchronous", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            writer
+                .db
+                .query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert!(writer.db.is_autocommit());
+        // Some Windows filesystems/permissions do not allow this link operation.
+        if std::fs::hard_link(
+            root.path().join(".codegraph/codegraph.db"),
+            root.path().join("alias.db"),
+        )
+        .is_ok()
+        {
+            assert_eq!(writer.recheck(&context).unwrap_err().0, "PATH");
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn tsconfig_change_before_commit_rolls_back_nodes_and_configuration_stamp() {
