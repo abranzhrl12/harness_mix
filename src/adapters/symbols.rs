@@ -17,21 +17,34 @@ fn snapshot(
     project: &Project,
     path: &str,
     context: &OperationContext,
-) -> Result<(String, String, Vec<Symbol>), Failure> {
-    if !Path::new(path)
+) -> Result<(String, String, Vec<Symbol>, &'static str), Failure> {
+    let ext = Path::new(path)
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
-    {
-        return Err((
-            "PARSER_UNAVAILABLE",
-            "Symbol navigation only supports Rust in this release",
-        ));
-    }
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    let lang = match ext.as_str() {
+        "rs" => "rust",
+        "js" | "mjs" | "cjs" | "jsx" => "javascript",
+        "ts" | "mts" | "cts" | "tsx" => "typescript",
+        _ => {
+            return Err((
+                "PARSER_UNAVAILABLE",
+                "Symbol navigation only supports Rust, JavaScript and TypeScript in this release",
+            ));
+        }
+    };
+
     let bytes = project.bytes_with_context(path, context)?;
     let digest = hash(&bytes);
-    let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "Rust source is not UTF-8"))?;
-    let symbols = rust_symbols::collect(&text, &digest, context)?;
-    Ok((text, digest, symbols))
+    let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not valid UTF-8"))?;
+
+    let symbols = match lang {
+        "rust" => rust_symbols::collect(&text, &digest, context)?,
+        _ => super::ts_symbols::collect(path, &text, &digest, context)?,
+    };
+    Ok((text, digest, symbols, lang))
 }
 
 pub(super) fn outline(
@@ -51,7 +64,7 @@ pub(super) fn outline(
             "maxChars must be 1000..16000; query limited to 1000 bytes",
         ));
     }
-    let (_, digest, all) = snapshot(project, &args.path, context)?;
+    let (_, digest, all, lang) = snapshot(project, &args.path, context)?;
     let mut ranked: Vec<_> = all.iter().enumerate().collect();
     let query = args.query.as_deref().unwrap_or("").to_lowercase();
     if !query.is_empty() {
@@ -83,9 +96,13 @@ pub(super) fn outline(
         }
     }
     let omitted = all.len() - selected.len();
+    let coverage = match lang {
+        "rust" => "declarations, inline modules, impl and trait members; no local items or macro expansion",
+        _ => "declarations, classes, interfaces, types, enums and members; no local block items",
+    };
     let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,
         "selection":{"method":if query.is_empty() {"source-order"} else {"lexical-ranking"},"maxChars":max,"usedChars":used,"unit":"JSON UTF-16 units, not tokens"},
-        "syntaxOnly":true,"language":"rust","coverage":"declarations, inline modules, impl and trait members; no local items or macro expansion"});
+        "syntaxOnly":true,"language":lang,"coverage":coverage});
     if omitted > 0 {
         result["_detail"] = json!({"path":args.path,"hash":digest,"items":all});
     }
@@ -107,7 +124,7 @@ pub(super) fn read_symbol(
     {
         return Err(("ARGUMENT", "Invalid symbol selector"));
     }
-    let (text, digest, all) = snapshot(project, &args.path, context)?;
+    let (text, digest, all, _) = snapshot(project, &args.path, context)?;
     let matches: Vec<_> = all
         .iter()
         .filter(|s| {
