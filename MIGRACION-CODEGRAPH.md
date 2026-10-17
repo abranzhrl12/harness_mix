@@ -104,6 +104,25 @@ descubrimiento sigue siendo parcial: no prueba que no existan alternativas sin i
 
 ## Lo que falta
 
+### Evaluación de bibliotecas: Oxc sí ayuda
+
+Se añadió [experiments/oxc-evaluation](experiments/oxc-evaluation/README.md), aislado
+del runtime y con lockfile propio. Pasaron 14 pruebas ordinarias, una opt-in de
+contraste con CodeGraph y Clippy estricto del experimento. El resolver funciona
+sobre archivos sintéticos en memoria, sin acceso al proyecto original.
+
+`oxc_semantic` permite conservar referencias válidas a imports aunque existan
+homónimos locales en otros scopes; mejora el guard global conservador actual.
+`oxc_resolver` resolvió relativos, índices, extensiones emitidas, tsconfig paths
+y exports condicionales de paquetes. Recomendación: reutilizar ambas piezas
+gradualmente, sin incorporar un bundler completo como Rolldown.
+
+No es un reemplazo directo: se detectó y documentó una diferencia de prioridad
+`.js`/`.ts` frente al proveedor y un caso de conflicto de bindings que requiere
+revisar redeclaraciones. Faltan adaptación de posiciones/IDs, políticas de scope,
+cancelación, snapshots reales y pruebas diferenciales antes de activarlo. No se
+han habilitado tsconfig/packages ni Oxc en el runtime activo por esta evaluación.
+
 ### 1. Resolver de relaciones — prioridad alta
 
 - [ ] Inventariar las reglas del resolver original y definir el alcance de paridad por lenguaje.
@@ -189,8 +208,8 @@ configuración respetada, cobertura y limitaciones explícitas, recuperación
 verificada, suite integrada aprobada y ejecución real sin depender del coordinador
 Node. Hasta entonces, el nombre correcto es **sincronización nativa parcial**.
 
-Siguiente bloque recomendado: ampliar las pruebas diferenciales del resolver
-completo antes de incorporar reexports, scopes léxicos o más formas de imports.
+Siguiente bloque recomendado: integrar bindings de `oxc_semantic` con referencias
+CodeGraph y mantener pruebas diferenciales antes de ampliar reexports o imports.
 
 ## Mapa de implementación
 

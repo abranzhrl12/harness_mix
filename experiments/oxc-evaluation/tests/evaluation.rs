@@ -181,3 +181,79 @@ fn missing_and_outside_snapshot_requests_never_resolve() {
     assert!(resolver.resolve(&base, "./missing").is_err());
     assert!(resolver.resolve(&base, "../outside").is_err());
 }
+
+#[test]
+fn duplicate_import_binding_is_rejected_by_semantic_checks() {
+    assert!(
+        imported_references(
+            "import {run as execute} from './lib'; const execute = () => {}; execute();",
+            "app.ts",
+            "execute"
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn compatibility_options_prefer_existing_js_and_fall_back_when_absent() {
+    let base = root();
+    let both = modules::resolver(
+        Snapshot::new(base.clone(), &[("lib.js", ""), ("lib.ts", "")]),
+        modules::prefer_existing_js(),
+    );
+    assert_eq!(
+        both.resolve(&base, "./lib.js").unwrap().path(),
+        base.join("lib.js")
+    );
+    let source_only = modules::resolver(
+        Snapshot::new(base.clone(), &[("lib.ts", "")]),
+        modules::prefer_existing_js(),
+    );
+    assert_eq!(
+        source_only.resolve(&base, "./lib.js").unwrap().path(),
+        base.join("lib.ts")
+    );
+}
+
+#[test]
+#[ignore = "requires HARNESS_CODEGRAPH_PACKAGE and HARNESS_CODEGRAPH_NODE; reference oracle only"]
+fn detects_emitted_extension_priority_difference_from_codegraph() {
+    use std::process::Command;
+    let package = std::env::var("HARNESS_CODEGRAPH_PACKAGE").expect("reference package");
+    let node = std::env::var("HARNESS_CODEGRAPH_NODE").expect("reference Node");
+    let base = root();
+    let script = r#"
+const path = require('path');
+const api = require(path.join(process.argv[1], 'dist/resolution/import-resolver.js'));
+const ctx = { getProjectRoot: () => process.argv[2], fileExists: p => ['lib.js','lib.ts'].includes(p) };
+process.stdout.write(api.resolveImportPath('./lib.js', 'app.ts', 'typescript', ctx) || 'UNRESOLVED');
+"#;
+    let output = Command::new(node)
+        .args(["-e", script, &package])
+        .arg(&base)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "lib.js");
+    let resolver = modules::resolver(
+        Snapshot::new(base.clone(), &[("lib.js", ""), ("lib.ts", "")]),
+        modules::options(),
+    );
+    assert_eq!(
+        resolver.resolve(&base, "./lib.js").unwrap().path(),
+        base.join("lib.ts")
+    );
+    let compatible = modules::resolver(
+        Snapshot::new(base.clone(), &[("lib.js", ""), ("lib.ts", "")]),
+        modules::prefer_existing_js(),
+    );
+    assert_eq!(
+        compatible.resolve(&base, "./lib.js").unwrap().path(),
+        base.join("lib.js")
+    );
+    // Explicit evidence: do not substitute this Oxc option set blindly.
+}

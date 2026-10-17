@@ -33,6 +33,11 @@ pub fn imported_references(
         if semantic.scoping().symbol_name(symbol) != local {
             continue;
         }
+        // Oxc semantic is not a TypeScript type checker: some conflicting
+        // declarations are recorded rather than emitted as build errors.
+        if !semantic.scoping().symbol_redeclarations(symbol).is_empty() {
+            return Err("conflicting binding declarations");
+        }
         if !matches!(
             semantic.symbol_declaration(symbol).kind(),
             AstKind::ImportSpecifier(_)
@@ -148,6 +153,18 @@ pub mod modules {
             condition_names: vec!["import".into(), "default".into()],
             symlinks: false,
             ..ResolveOptions::default()
+        }
+    }
+
+    /// A compatibility adjustment for the evaluated emitted-.js case only.
+    /// Not a claim that all CodeGraph extension priorities are reproduced.
+    pub fn prefer_existing_js() -> ResolveOptions {
+        ResolveOptions {
+            extension_alias: vec![(
+                ".js".into(),
+                vec![".js".into(), ".ts".into(), ".tsx".into()],
+            )],
+            ..options()
         }
     }
 }

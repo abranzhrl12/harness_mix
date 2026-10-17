@@ -16,6 +16,40 @@ del proyecto de prueba en disco. No ejecuta Node ni plugins JavaScript.
 3. ¿Podemos suministrarle una vista acotada de archivos, en lugar de permitir
    acceso directo al sistema de archivos del usuario?
 
+## Resultado y decisión
+
+**Sí aporta valor; recomendamos reutilizar Oxc para JS/TS, con integración
+gradual. Todavía no está conectado al runtime del harness.**
+
+Validación realizada con rustc 1.99.0 en Windows: 14 pruebas ordinarias aprobadas,
+una prueba opt-in contra CodeGraph aprobada y Clippy estricto del experimento
+aprobado. La prueba opt-in ejecuta Node únicamente como oráculo del proveedor.
+
+| Aspecto | Evidencia | Decisión |
+| --- | --- | --- |
+| Binding y shadowing | Distingue parámetros/bloques y conserva las referencias al import en otros scopes | Integrar primero el análisis semántico, evitando el rechazo global del guard actual |
+| Referencias usadas como valor | Reconoce el alias en un callback JSX | Mapear la referencia al tipo de arista correcto, no convertirla automáticamente en llamada |
+| Rutas | Relativos, index, extensiones emitidas, tsconfig paths y exports condicionales aprobados | Reutilizar el resolver con opciones explícitas y el scope del harness |
+| Filesystem | Resolver funciona íntegramente sobre un snapshot en memoria | Implementar el adaptador de producción sin permitir lecturas arbitrarias |
+| Compatibilidad | Se detectó una diferencia de prioridad `.js`/`.ts` con CodeGraph | No sustituir el resolver sin pruebas diferenciales y política de opciones |
+
+Dos hallazgos concretos:
+
+1. Con `import './lib.js'` y ambos archivos existentes, el perfil inicial de
+   extensión de Oxc escogía `lib.ts`; CodeGraph v1.6.2 escogió `lib.js`. Se añadió
+   `prefer_existing_js()`, que reproduce ese caso y conserva el fallback a `.ts`
+   cuando no existe `.js`. No certifica todas las prioridades de CodeGraph.
+2. En la versión evaluada, comprobar solo `SemanticBuilder.errors` no rechazó
+   el conflicto entre un import y una constante homónima TypeScript. El adaptador
+   experimental también inspecciona `symbol_redeclarations` y lo rechaza. Oxc
+   semantic no sustituye un type checker de TypeScript.
+
+Siguiente entrega: integrar bindings semánticos con las referencias/IDs existentes
+de CodeGraph, convirtiendo posiciones UTF-8 y conservando rollback y validaciones.
+Después, incorporar resolución sobre el inventario autorizado y comparar las
+opciones con el proveedor antes de habilitar tsconfig/packages en producción.
+Rolldown completo no hace falta para estas piezas.
+
 ## Ejecutar
 
 Desde la raíz del harness:
@@ -24,6 +58,11 @@ Desde la raíz del harness:
 cargo test --locked --manifest-path experiments/oxc-evaluation/Cargo.toml
 cargo clippy --locked --manifest-path experiments/oxc-evaluation/Cargo.toml --all-targets -- -D warnings
 ```
+
+Para la comparación opt-in, configurar `HARNESS_CODEGRAPH_PACKAGE` con la raíz
+del paquete CodeGraph v1.6.2 y `HARNESS_CODEGRAPH_NODE` con su ejecutable Node;
+ejecutar el test `detects_emitted_extension_priority_difference_from_codegraph`
+con `-- --ignored`. No es requisito para las 14 pruebas ordinarias.
 
 ## Dependencias y alcance
 

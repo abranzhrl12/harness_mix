@@ -66,7 +66,21 @@ microservicios para escalar las capacidades de este ejecutable.
 - Preservación de DACL en Windows y artefactos de recuperación ante publicación incierta.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
-### Último bloque implementado: imports relativos con nombre y alias JS/TS
+### Evaluación reciente: Oxc para scopes y rutas JS/TS
+
+Experimento aislado en `experiments/oxc-evaluation`, sin modificar el runtime ni
+el índice original. Catorce pruebas ordinarias y una opt-in contra el proveedor
+aprobadas; Clippy estricto del experimento aprobado. Oxc distingue bindings
+importados de homónimos locales y resuelve rutas, tsconfig y exports de paquetes
+sobre un filesystem sintético. Se recomienda integrarlo gradualmente, no portar
+esas reglas manualmente ni incluir Rolldown completo.
+
+La evaluación también detecta diferencias de prioridad `.js`/`.ts` y un conflicto
+de declaraciones TS que necesita validación adicional. No certifica paridad ni
+habilita estas capacidades en el harness. Resultados, versiones, límites y
+reproducción en [el informe](experiments/oxc-evaluation/README.md).
+
+### Último bloque de runtime: imports relativos con nombre y alias JS/TS
 
 El resolver incorpora un primer subconjunto AST de imports relativos con nombre
 y alias. Restringe el destino al módulo indexado único, al mismo lenguaje y a
