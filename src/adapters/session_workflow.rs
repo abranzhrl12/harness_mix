@@ -150,6 +150,11 @@ impl Sessions {
         })
     }
 
+    pub(super) fn session_snapshot(&mut self, id: &str) -> Result<Value, Failure> {
+        let session = self.get(id)?;
+        Ok(session.checkpoint_data(id)["_detail"].clone())
+    }
+
     pub(super) fn record_observed(
         &mut self,
         id: &str,

@@ -107,6 +107,14 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "SVG adapter unavailable"))
     }
+    fn handover(
+        &self,
+        _args: &harness_domain::contracts::HandoverArgs,
+        _snapshot: &Value,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Handover adapter unavailable"))
+    }
     /// Bounded filesystem observation; called outside the session repository mutex.
     fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Workspace observation adapter unavailable"))
@@ -189,6 +197,9 @@ pub trait SessionRepository: Send {
         _args: &harness_domain::contracts::CheckpointArgs,
     ) -> Result<SessionMutation, Failure> {
         Err(("UNSUPPORTED", "Checkpoint adapter unavailable"))
+    }
+    fn snapshot(&mut self, _id: &str) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Session snapshot adapter unavailable"))
     }
     /// Retain negative freshness facts in live checks; never revive historical checks.
     fn invalidate_checks(&mut self, _id: &str, _observation: &Value) -> Result<(), Failure> {

@@ -211,6 +211,27 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Svg(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.svg(&args, context)),
+            Request::Handover(args) => {
+                if args.target_file.is_some() {
+                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                        let snapshot = self
+                            .sessions
+                            .lock()
+                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
+                            .snapshot(&args.session)?;
+                        self.workspace.handover(&args, &snapshot, context)
+                    })
+                } else {
+                    self.lease(Some(&args.session), &mut lease).and_then(|()| {
+                        let snapshot = self
+                            .sessions
+                            .lock()
+                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
+                            .snapshot(&args.session)?;
+                        self.workspace.handover(&args, &snapshot, context)
+                    })
+                }
+            }
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),

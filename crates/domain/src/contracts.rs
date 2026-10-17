@@ -166,6 +166,28 @@ impl CheckpointArgs {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum HandoverKind {
+    #[default]
+    Summary,
+    Adr,
+    PrBody,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct HandoverArgs {
+    pub session: String,
+    pub kind: Option<HandoverKind>,
+    #[serde(rename = "targetFile")]
+    pub target_file: Option<String>,
+    #[serde(rename = "expectedHash")]
+    pub expected_hash: Option<String>,
+}
+
 /// The application has one entry point; transports cannot bypass its admission checks.
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -323,6 +345,7 @@ pub enum Request {
     XlsxInspect(crate::xlsx::XlsxInspectArgs),
     XlsxRead(crate::xlsx::XlsxReadArgs),
     Svg(crate::svg::SvgArgs),
+    Handover(HandoverArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -338,6 +361,7 @@ impl Request {
                     ..
                 })
         ) || matches!(self, Self::Checkpoint(args) if args.has_updates())
+          || matches!(self, Self::Handover(args) if args.target_file.is_some())
     }
     pub fn name(&self) -> &'static str {
         match self {
@@ -366,6 +390,7 @@ impl Request {
             Self::XlsxInspect(_) => "harness_xlsx_inspect",
             Self::XlsxRead(_) => "harness_xlsx_read",
             Self::Svg(_) => "harness_svg",
+            Self::Handover(_) => "harness_handover",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -395,6 +420,7 @@ impl Request {
             Self::XlsxInspect(args) => serde_json::to_value(args),
             Self::XlsxRead(args) => serde_json::to_value(args),
             Self::Svg(args) => serde_json::to_value(args),
+            Self::Handover(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

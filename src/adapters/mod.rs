@@ -47,6 +47,7 @@ mod verify;
 pub mod sql;
 pub mod xlsx;
 pub mod svg;
+pub mod handover;
 
 use harness_application::{
     Application,
@@ -294,6 +295,14 @@ impl Workspace for NativeWorkspace {
             |project, _| svg::handle_svg(project, args, context),
         )
     }
+    fn handover(
+        &self,
+        args: &harness_domain::contracts::HandoverArgs,
+        snapshot: &Value,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        handover::handle_handover(&self.project, args, snapshot, context)
+    }
     fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {
         let captured = fingerprint::capture(&self.project, context);
         context.check()?;
@@ -455,6 +464,9 @@ impl SessionRepository for sessions::Sessions {
         args: &harness_domain::contracts::CheckpointArgs,
     ) -> Result<harness_application::ports::SessionMutation, Failure> {
         self.workflow_checkpoint(args)
+    }
+    fn snapshot(&mut self, id: &str) -> Result<Value, Failure> {
+        self.session_snapshot(id)
     }
     fn record(
         &mut self,

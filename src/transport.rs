@@ -343,6 +343,17 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Svg(args), context).await
     }
+
+    #[tool(
+        description = "Genera un reporte Markdown de traspaso de sesión (summary, adr o pr_body). Si targetFile se especifica, publica atómicamente el archivo (.md); de lo contrario devuelve un preview acotado con el texto completo en detalle."
+    )]
+    async fn harness_handover(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::HandoverArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Handover(args), context).await
+    }
 }
 
 #[tool_handler]

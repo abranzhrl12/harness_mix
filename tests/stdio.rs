@@ -586,7 +586,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 25);
+    assert_eq!(names.len(), 26);
+    assert!(names.contains(&"harness_handover"));
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));
