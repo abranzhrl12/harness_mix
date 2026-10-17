@@ -49,6 +49,8 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_batch` | Implementado | 1..4 lecturas concurrentes; soporta archivos, símbolos, Git, herramientas SQL y XLSX |
 | `harness_sql_*` | Implementado | TDS nativo directo con Tiberius; 4 herramientas (`status`, `search`, `describe`, `query`) de solo lectura auditada, tipos extendidos (Decimal/DateTime) y truncamiento acotado |
 | `harness_xlsx_*` | Implementado | Inspección (`harness_xlsx_inspect`) y lectura paginada/acotada (`harness_xlsx_read`) nativa con calamine y SHA-256 |
+| harness_svg | Implementado | Modos inspect y preview (rasterizacion PNG con resvg), seguridad y cuotas |
+| harness_handover | Implementado | Renderizado puro en dominio de resumen/ADR/PR, preview acotado a 1600 caracteres o publicacion atomica con control SHA-256 |
 | `harness_logs` | Parcial | 512 eventos, requestId y snapshots Windows opt-in; sin configuración/trazas completas |
 | Métricas | Parcial | Operaciones, resultados, rechazos y tiempos por instancia/herramienta; no histórico por sesión |
 | Sesiones en disco | Implementado | Formato v1 compatible con Node; histórico no equivale a vigencia |
