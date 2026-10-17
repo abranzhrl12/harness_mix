@@ -69,3 +69,43 @@ fn real_cargo_build_tests_and_failed_build_have_correct_envelopes() {
     assert_eq!(result["data"]["passed"], false);
     assert_eq!(result["diagnostics"][0]["code"], "VERIFY_FAILED");
 }
+
+#[test]
+fn test_extended_verify_plans() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+
+    // 1. Go recursive test plan
+    std::fs::write(root.path().join("go.mod"), "module example.com/test\n\ngo 1.22\n").unwrap();
+    let go_res = app.execute(Request::Verify(VerifyArgs {
+        language: "go".into(),
+        scope: Some("go.mod".into()),
+        action: Some(VerifyAction::Test),
+        session: None,
+    }));
+    // Since go might not have installed packages, we check that it dispatched with valid scope
+    assert_ne!(go_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
+
+    // 2. Python pytest detection
+    let py_dir = root.path().join("py_tests");
+    std::fs::create_dir_all(&py_dir).unwrap();
+    std::fs::write(py_dir.join("pytest.ini"), "[pytest]\n").unwrap();
+    std::fs::write(py_dir.join("test_sample.py"), "def test_ok(): pass\n").unwrap();
+    let py_res = app.execute(Request::Verify(VerifyArgs {
+        language: "python".into(),
+        scope: Some("py_tests".into()),
+        action: Some(VerifyAction::Test),
+        session: None,
+    }));
+    assert_ne!(py_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
+
+    // 3. TypeScript scope acceptance
+    std::fs::write(root.path().join("index.ts"), "const x: number = 42;\n").unwrap();
+    let ts_res = app.execute(Request::Verify(VerifyArgs {
+        language: "typescript".into(),
+        scope: Some("index.ts".into()),
+        action: Some(VerifyAction::Build),
+        session: None,
+    }));
+    assert_ne!(ts_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
+}

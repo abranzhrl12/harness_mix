@@ -15,7 +15,10 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     {
         return dotnet_plan(project, args);
     }
-    if args.language.eq_ignore_ascii_case("javascript") || args.language.eq_ignore_ascii_case("js")
+    if args.language.eq_ignore_ascii_case("javascript")
+        || args.language.eq_ignore_ascii_case("js")
+        || args.language.eq_ignore_ascii_case("typescript")
+        || args.language.eq_ignore_ascii_case("ts")
     {
         return javascript_plan(project, args);
     }
@@ -136,15 +139,20 @@ fn javascript_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, 
         return Err(("PATH", "Scope too long"));
     }
     let target = project.target(scope)?;
+    let is_ts = target
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ["ts", "tsx"].contains(&ext));
+
     if !target.is_file()
         || !target
             .extension()
             .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ["js", "cjs", "mjs"].contains(&ext))
+            .is_some_and(|ext| ["js", "cjs", "mjs", "ts", "tsx"].contains(&ext))
     {
         return Err((
             "VERIFY_SCOPE",
-            "JavaScript scope must be a .js/.cjs/.mjs file",
+            "JavaScript/TypeScript scope must be a .js/.cjs/.mjs/.ts/.tsx file",
         ));
     }
     let mut arguments = if matches!(args.action, Some(VerifyAction::Test)) {
@@ -152,6 +160,11 @@ fn javascript_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, 
             "--test".into(),
             "--test-reporter=tap".into(),
             "--test-concurrency=1".into(),
+        ]
+    } else if is_ts {
+        vec![
+            "--no-warnings".into(),
+            "--check".into(),
         ]
     } else {
         vec!["--check".into()]
@@ -196,23 +209,39 @@ fn python_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
         if !target.is_dir() {
             return Err((
                 "VERIFY_SCOPE",
-                "Python test requires a directory for unittest discovery",
+                "Python test requires a directory for test discovery",
             ));
         }
-        vec![
-            "-I".into(),
-            "-S".into(),
-            "-B".into(),
-            "-m".into(),
-            "unittest".into(),
-            "discover".into(),
-            "-s".into(),
-            path.into(),
-            "-t".into(),
-            path.into(),
-            "-p".into(),
-            "test*.py".into(),
-        ]
+        let has_pytest = target.join("pytest.ini").is_file()
+            || target.join("pyproject.toml").is_file()
+            || target.join("conftest.py").is_file()
+            || project.root.join("pytest.ini").is_file()
+            || project.root.join("pyproject.toml").is_file();
+
+        if has_pytest {
+            vec![
+                "-B".into(),
+                "-m".into(),
+                "pytest".into(),
+                path.into(),
+                "-q".into(),
+            ]
+        } else {
+            vec![
+                "-I".into(),
+                "-S".into(),
+                "-B".into(),
+                "-m".into(),
+                "unittest".into(),
+                "discover".into(),
+                "-s".into(),
+                path.into(),
+                "-t".into(),
+                path.into(),
+                "-p".into(),
+                "test*.py".into(),
+            ]
+        }
     } else {
         if !target.is_file() || target.extension().and_then(|e| e.to_str()) != Some("py") {
             return Err(("VERIFY_SCOPE", "Python build requires a .py file"));
@@ -274,8 +303,10 @@ fn go_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure>
     ];
     if test {
         arguments.extend(["-count=1".into(), "-timeout=20s".into()]);
+        arguments.push("./...".into());
+    } else {
+        arguments.push(".".into());
     }
-    arguments.push(".".into());
     ProcessSpec::new(
         Program::Go,
         arguments,
