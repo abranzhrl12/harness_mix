@@ -100,6 +100,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "XLSX read adapter unavailable"))
     }
+    fn svg(
+        &self,
+        _args: &harness_domain::svg::SvgArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SVG adapter unavailable"))
+    }
     /// Bounded filesystem observation; called outside the session repository mutex.
     fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Workspace observation adapter unavailable"))

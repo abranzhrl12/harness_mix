@@ -222,6 +222,8 @@ pub enum BatchTool {
     XlsxInspect,
     #[serde(rename = "harness_xlsx_read")]
     XlsxRead,
+    #[serde(rename = "harness_svg")]
+    Svg,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -259,6 +261,7 @@ impl BatchJob {
             BatchTool::SqlQuery => serde_json::from_value(value).map(Request::SqlQuery),
             BatchTool::XlsxInspect => serde_json::from_value(value).map(Request::XlsxInspect),
             BatchTool::XlsxRead => serde_json::from_value(value).map(Request::XlsxRead),
+            BatchTool::Svg => serde_json::from_value(value).map(Request::Svg),
         };
         decoded.map_err(|_| ("ARGUMENT", "Invalid batch child arguments; no jobs started"))
     }
@@ -319,6 +322,7 @@ pub enum Request {
     SqlQuery(crate::sql::SqlQueryArgs),
     XlsxInspect(crate::xlsx::XlsxInspectArgs),
     XlsxRead(crate::xlsx::XlsxReadArgs),
+    Svg(crate::svg::SvgArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -361,6 +365,7 @@ impl Request {
             Self::SqlQuery(_) => "harness_sql_query",
             Self::XlsxInspect(_) => "harness_xlsx_inspect",
             Self::XlsxRead(_) => "harness_xlsx_read",
+            Self::Svg(_) => "harness_svg",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -389,6 +394,7 @@ impl Request {
             Self::SqlQuery(args) => serde_json::to_value(args),
             Self::XlsxInspect(args) => serde_json::to_value(args),
             Self::XlsxRead(args) => serde_json::to_value(args),
+            Self::Svg(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

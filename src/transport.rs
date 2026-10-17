@@ -332,6 +332,17 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::XlsxRead(args), context).await
     }
+
+    #[tool(
+        description = "Inspecciona o previsualiza SVG estático seguro de hasta 256 KiB. Modo inspect: árbol acotado, dimensiones y referencias. Modo preview: metadatos de renderizado seguro para modelos de visión."
+    )]
+    async fn harness_svg(
+        &self,
+        Parameters(args): Parameters<harness_domain::svg::SvgArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Svg(args), context).await
+    }
 }
 
 #[tool_handler]

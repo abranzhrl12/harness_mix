@@ -208,6 +208,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::XlsxRead(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.xlsx_read(&args, context)),
+            Request::Svg(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.svg(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),
