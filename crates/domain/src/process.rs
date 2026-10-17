@@ -8,6 +8,7 @@ pub enum Program {
     Cargo,
     Rustc,
     Git,
+    Go,
 }
 
 #[derive(Debug)]

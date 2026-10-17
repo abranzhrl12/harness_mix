@@ -32,7 +32,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
-| `harness_verify` | Parcial | Rust build/test mediante Cargo; faltan otros lenguajes |
+| `harness_verify` | Parcial | Rust/Go build/test; Go solo paquete raíz, toolchain local sin descargas/cgo |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
 | `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
@@ -60,6 +60,15 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Verificador Go nativo con argumentos cerrados, módulo/ruta local validada y
+política de entorno del hijo sin GOFLAGS/hook de caché, descargas, cgo o go.work.
+Comparte ejecutor, límites, gate de sesión, resultados y observación local con
+Rust. Build/test solo del paquete raíz; faltan subpaquetes, workspaces, cgo y
+paridad multilenguaje completa. Doctor y bootstrap detectan Go sin exigirlo para
+las demás herramientas. No se añaden dependencias ni herramientas MCP.
+
+### Bloque anterior: búsqueda syntax
 
 Búsqueda syntax de declaraciones Rust por selector kind[:nombre exacto], usando
 el colector AST existente sin dependencias nuevas ni Node. Respeta ignores y
@@ -182,7 +191,9 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 123 pruebas Rust cubren configuración XML/JSON, alcances externos y búsqueda syntax.
+- 127 pruebas Rust cubren configuración, alcances, búsqueda y política del verificador Go.
+- Prueba real Go opt-in: build/test/fallo de compilación pasaron en Windows con caché preparada.
+- La primera compilación de tests Go agotó 30 s; no se amplió el límite ni se marcó éxito.
 - Clippy de todo el workspace y todos los targets: sin warnings.
 - Formato Cargo comprobado.
 - Compilación release completada con las últimas modificaciones.
@@ -227,7 +238,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [x] Búsqueda syntax de declaraciones Rust con selectores kind[:nombre].
 - [ ] Patrones AST generales/multilenguaje y equivalencia completa de límites/cobertura.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.
-- [ ] Verificación de .NET, Go, Python, JavaScript y otros adaptadores usados.
+- [x] Verificación Go parcial del paquete raíz de módulo, sin descargas/cgo/workspaces.
+- [ ] Verificación de .NET, Python, JavaScript y paridad completa de Go/otros adaptadores.
 
 ### 3. Relaciones e integraciones
 

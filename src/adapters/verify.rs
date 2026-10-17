@@ -11,8 +11,11 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    if args.language.eq_ignore_ascii_case("go") {
+        return go_plan(project, args);
+    }
     if !args.language.eq_ignore_ascii_case("rust") {
-        return Err(("UNSUPPORTED", "Only Rust verification is migrated"));
+        return Err(("UNSUPPORTED", "Only Rust and Go verification are migrated"));
     }
     let scope = args.scope.as_deref().unwrap_or(".");
     if scope.len() > 4096 {
@@ -57,6 +60,57 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     )
 }
 
+fn go_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    let scope = args.scope.as_deref().unwrap_or(".");
+    if scope.len() > 4096 {
+        return Err(("PATH", "Scope too long"));
+    }
+    let target = project.target(scope)?;
+    let (directory, manifest) = if target.is_dir() {
+        (
+            target,
+            project.target(&format!("{}/go.mod", scope.trim_end_matches(['/', '\\'])))?,
+        )
+    } else if target.file_name().and_then(|n| n.to_str()) == Some("go.mod") {
+        (
+            target
+                .parent()
+                .ok_or(("VERIFY_SCOPE", "Go module directory unavailable"))?
+                .to_path_buf(),
+            target,
+        )
+    } else {
+        return Err((
+            "VERIFY_SCOPE",
+            "Go scope must be a module directory or go.mod",
+        ));
+    };
+    if !manifest.is_file() {
+        return Err(("VERIFY_SCOPE", "go.mod is not a file"));
+    }
+    let test = matches!(args.action, Some(VerifyAction::Test));
+    let mut arguments = vec![
+        "-C".into(),
+        directory
+            .to_str()
+            .ok_or(("PATH", "Go scope must be UTF-8"))?
+            .into(),
+        if test { "test".into() } else { "build".into() },
+        "-mod=readonly".into(),
+        "-buildvcs=false".into(),
+    ];
+    if test {
+        arguments.extend(["-count=1".into(), "-timeout=20s".into()]);
+    }
+    arguments.push(".".into());
+    ProcessSpec::new(
+        Program::Go,
+        arguments,
+        Duration::from_secs(30),
+        2 * 1024 * 1024,
+    )
+}
+
 pub(super) fn verify(
     project: &Project,
     args: &VerifyArgs,
@@ -68,7 +122,7 @@ pub(super) fn verify(
     let before = super::fingerprint::capture(project, context);
     context.check()?;
     let outcome = runner.run(&spec, context)?;
-    // A failed observation must not hide Cargo's actual result or pretend freshness.
+    // A failed observation must not hide the tool's actual result or pretend freshness.
     let after = super::fingerprint::capture(project, context);
     let mut observation = match (&before, &after) {
         (Ok(a), Ok(b)) => {
@@ -86,7 +140,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":"rust", "scope":args.scope.as_deref().unwrap_or("."),
+        "language":if spec.program() == Program::Go { "go" } else { "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -101,7 +155,7 @@ pub(super) fn verify(
         "workspaceObservation":observation,
     });
     if outcome.reason == StopReason::Exited && outcome.exit_code != Some(0) {
-        result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Cargo returned a nonzero exit status; inspect output"}]);
+        result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Verification tool returned a nonzero exit status; inspect output"}]);
     } else if limited {
         result["diagnostics"] =
             json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded 2 MiB"}]);
@@ -116,6 +170,107 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn go_plan_has_closed_arguments_and_accepts_module_with_spaces() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("module with spaces")).unwrap();
+        std::fs::write(
+            root.path().join("module with spaces/go.mod"),
+            "module example.test/fixture\ngo 1.20\n",
+        )
+        .unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for action in [VerifyAction::Build, VerifyAction::Test] {
+            let test = matches!(action, VerifyAction::Test);
+            let args = VerifyArgs {
+                language: "GO".into(),
+                scope: Some("module with spaces/go.mod".into()),
+                action: Some(action),
+                session: None,
+            };
+            let spec = plan(&project, &args).unwrap();
+            assert_eq!(spec.program(), Program::Go);
+            assert_eq!(spec.arguments()[0], "-C");
+            assert!(spec.arguments()[1].ends_with("module with spaces"));
+            assert_eq!(spec.arguments()[2], if test { "test" } else { "build" });
+            assert_eq!(spec.arguments().last().unwrap(), ".");
+            assert!(spec.arguments().contains(&"-mod=readonly".into()));
+            assert!(spec.arguments().contains(&"-buildvcs=false".into()));
+            assert_eq!(spec.arguments().contains(&"-count=1".into()), test);
+            assert_eq!(spec.timeout(), Duration::from_secs(30));
+        }
+    }
+
+    #[test]
+    fn go_scope_rejects_files_traversal_and_nonmodules_before_execution() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("main.go"), "package main").unwrap();
+        std::fs::create_dir(root.path().join("empty")).unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for scope in [
+            "main.go",
+            "empty",
+            "../go.mod",
+            "C:/go.mod",
+            "--help",
+            ".\\..\\go.mod",
+        ] {
+            let args = VerifyArgs {
+                language: "go".into(),
+                scope: Some(scope.into()),
+                action: None,
+                session: None,
+            };
+            assert!(plan(&project, &args).is_err(), "{scope}");
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an installed Go toolchain; run explicitly"]
+    fn real_go_build_test_and_failure() {
+        super::super::process::executable(Program::Go)
+            .expect("Go executable unavailable in absolute PATH");
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("go.mod"),
+            "module example.test/nativefixture\ngo 1.20\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("fixture.go"),
+            "package fixture\nfunc Add(a, b int) int { return a+b }\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("fixture_test.go"), "package fixture\nimport \"testing\"\nfunc TestAdd(t *testing.T) { if Add(2,2)!=4 { t.Fatal(\"unexpected result\") } }\n").unwrap();
+        let app = super::super::application(root.path()).unwrap();
+        for action in [VerifyAction::Build, VerifyAction::Test] {
+            let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                language: "go".into(),
+                scope: None,
+                action: Some(action),
+                session: None,
+            }));
+            assert_eq!(result["state"], "ok", "{result}");
+            assert_eq!(result["scope"]["language"], "go", "{result}");
+            assert_eq!(result["data"]["passed"], true, "{result}");
+            assert_eq!(result["data"]["verificationFreshness"], "not_tracked");
+        }
+        std::fs::write(
+            root.path().join("fixture.go"),
+            "package fixture\ninvalid syntax\n",
+        )
+        .unwrap();
+        let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            language: "go".into(),
+            scope: None,
+            action: None,
+            session: None,
+        }));
+        assert_eq!(result["state"], "error", "{result}");
+        assert_eq!(result["data"]["passed"], false);
+        assert_eq!(result["diagnostics"][0]["code"], "VERIFY_FAILED");
+    }
 
     #[test]
     fn manifest_scope_cannot_escape_or_become_an_option() {

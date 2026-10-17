@@ -24,6 +24,7 @@ fn numeric_version(program: Program, output: &[u8]) -> Option<String> {
         Program::Cargo => "cargo ",
         Program::Rustc => "rustc ",
         Program::Git => "git version ",
+        Program::Go => "go version go",
     };
     let candidate = text.strip_prefix(prefix)?.split_whitespace().next()?;
     let numeric: String = candidate
@@ -62,7 +63,14 @@ fn tool_check(
     if let Some(runner) = runner {
         let spec = ProcessSpec::new(
             program,
-            vec!["--version".into()],
+            vec![
+                if program == Program::Go {
+                    "version"
+                } else {
+                    "--version"
+                }
+                .into(),
+            ],
             Duration::from_secs(2),
             4096,
         )?;
@@ -76,7 +84,7 @@ fn tool_check(
                 if let Some(version) = version {
                     result["versionChecked"] = json!(true);
                     result["numericVersion"] = json!(version);
-                    result["message"] = json!("Bounded --version probe completed");
+                    result["message"] = json!("Bounded version probe completed");
                 } else {
                     result["status"] = json!("warning");
                     result["message"] = json!(
@@ -161,6 +169,7 @@ pub(super) fn doctor(
         (Program::Cargo, "cargo"),
         (Program::Rustc, "rustc"),
         (Program::Git, "git"),
+        (Program::Go, "go"),
     ] {
         checks.push(tool_check(program, name, runner.as_ref(), context)?);
     }
@@ -198,7 +207,7 @@ pub(super) fn doctor(
         json!({"health":health,"counts":counts,"checks":checks,"milliseconds":started.elapsed().as_millis() as u64,
         "coverage":"native_local_only","versionsRequested":versions,
         "limitations":["No builds, tests, repairs, index sync, or configuration/secret reads",
-            "Versions default false; true runs installed tool executables/shims with --version, 2 seconds and 4 KiB each",
+            "Versions default false; true runs bounded version probes (Go: version; others: --version), 2 seconds and 4 KiB each",
             "Toolchain shims may consult their manager/project selection; version probing is not a network sandbox",
             "Executable discovery uses the same absolute PATH/direct executable policy as native execution",
             "Directory presence does not validate contents, permissions, freshness, or remote transport health",
@@ -211,6 +220,14 @@ mod tests {
     use super::*;
     #[test]
     fn version_output_never_forwards_raw_text() {
+        assert_eq!(
+            numeric_version(
+                Program::Go,
+                b"go version go1.25.2 windows/amd64 private-suffix"
+            ),
+            Some("1.25.2".into())
+        );
+        assert!(numeric_version(Program::Go, b"go version private-token").is_none());
         assert_eq!(
             numeric_version(Program::Git, b"git version 2.51.0.windows.1\n"),
             Some("2.51.0".into())

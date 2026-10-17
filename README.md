@@ -542,8 +542,40 @@ Unix usa un grupo de procesos; no impide escapar con setsid y no confirma cierre
 de todo el árbol. Las pruebas de procesos de esta etapa se ejecutaron en Windows.
 
 No tiene aún paridad con Node: no migra configuración de verificadores personalizados,
-los demás lenguajes ni diagnósticos Rust estructurados. Node usaba Cargo check con
+lenguajes distintos de Rust/Go ni diagnósticos Rust estructurados. Node usaba Cargo check con
 scope de paquete; esta versión usa build/test con scope de ruta explícito.
+
+## Verificación Go nativa (parcial)
+
+`harness_verify` también acepta language="go", action="build"|"test" y scope
+relativo a un directorio de módulo con go.mod propio, o al archivo go.mod. Verifica
+solo el paquete raíz (`.`), no todos los subpaquetes ni un workspace go.work.
+Requiere un Go instalado compatible con `-C`; el ejecutable no incluye compiladores.
+Invoca `go -C <directorio validado> build/test -mod=readonly -buildvcs=false .`,
+y añade `-count=1 -timeout=20s` para tests. No acepta flags ni comandos libres.
+
+El proceso hijo usa GOENV=off, GOFLAGS vacío, GOCACHEPROG vacío, GOWORK=off,
+GOTOOLCHAIN=local, GO111MODULE=on, GOPROXY/GOSUMDB=off, GONOPROXY=none,
+GOPRIVATE vacío, GOVCS=*:off y CGO_ENABLED=0; elimina GOOS/GOARCH/GOEXPERIMENT
+heredados. No cambia variables globales del harness. Esta política deshabilita
+descargas automáticas del comando Go y hooks heredados reconocidos; no es un
+sandbox ni bloquea la red o el sistema de archivos para código ejecutado en tests.
+Los reemplazos locales de go.mod y cachés externas no se auditan como inputs.
+Puede escribir caché, go.sum, temporales o binarios normales de build. Los permisos
+externos de lectura no habilitan este ejecutor. No hace go mod tidy ni go generate.
+Referencias: [comando Go](https://pkg.go.dev/cmd/go) y
+[selección de toolchain](https://go.dev/doc/toolchain).
+
+Conserva límites de 30 s/2 MiB, cancelación, Job Objects y huella local parcial del
+ejecutor existente. Una caché fría puede agotar el plazo antes de ejecutar tests:
+se informa timedOut/passed=false, no éxito. verificationFreshness sigue not_tracked.
+La salida del compilador/tests es contenido del proyecto y puede contener secretos;
+no equivale a la política de redacción fuerte de harness_config.
+
+La prueba real Go es opt-in para no exigir Go a cada consumidor de la suite:
+`cargo test --locked --lib real_go_build_test_and_failure -- --ignored --nocapture`.
+En Windows se comprobaron build, test y fallo de compilación con Go instalado; una
+primera compilación de tests agotó 30 s y la repetición con caché preparada pasó.
 
 Bootstrap usa `session` e `includeRules`, devuelve reglas, lenguajes de la raíz y
 disponibilidad de herramientas en PATH (sin ejecutar comandos). Reutiliza hashes

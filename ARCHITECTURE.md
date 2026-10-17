@@ -49,6 +49,16 @@ sin convertir entradas de herramientas en comandos de shell.
 
 ### Procesos y verificación (0.4.0)
 
+Go usa el mismo puerto ProcessRunner y el mismo caso de uso que Rust: no hay
+segundo ejecutor ni bypass del gate de sesión. go_plan solo admite un módulo
+local y construye argumentos cerrados (-C, build/test, paquete .). Program::Go
+se resuelve desde PATH absoluto; la política de entorno se aplica al Command
+hijo, nunca al proceso global. Deshabilita hooks GOFLAGS/GOCACHEPROG, selección
+remota de toolchain, descargas del comando Go, cgo y go.work. Estas restricciones
+no son un sandbox del código del proyecto ni controlan la red de sus tests.
+Doctor usa go version opt-in y solo publica componentes numéricos. La prueba
+real es opt-in; el contrato, scopes y entorno se prueban sin requerir Go instalado.
+
 `domain::process::ProcessSpec` es interno, no deserializable desde MCP, con campos
 privados y constructor validado. Identifica Cargo/Rustc/Git mediante enum; no acepta
 un ejecutable arbitrario. Limita cada ejecución a 30 s, 2 MiB de salida combinada,

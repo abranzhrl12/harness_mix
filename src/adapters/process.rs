@@ -38,6 +38,7 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
         Program::Cargo => "cargo",
         Program::Rustc => "rustc",
         Program::Git => "git",
+        Program::Go => "go",
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")
@@ -72,6 +73,26 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
     ))
 }
 
+fn go_environment(command: &mut Command) {
+    // These overrides apply to the child only; never mutate the harness environment.
+    command
+        .env("GOENV", "off")
+        .env("GOFLAGS", "")
+        .env("GOCACHEPROG", "")
+        .env("GOWORK", "off")
+        .env("GOTOOLCHAIN", "local")
+        .env("GO111MODULE", "on")
+        .env("GOPROXY", "off")
+        .env("GOSUMDB", "off")
+        .env("GONOPROXY", "none")
+        .env("GOPRIVATE", "")
+        .env("GOVCS", "*:off")
+        .env("CGO_ENABLED", "0")
+        .env_remove("GOOS")
+        .env_remove("GOARCH")
+        .env_remove("GOEXPERIMENT");
+}
+
 impl ProcessRunner for NativeProcessRunner {
     fn run(
         &self,
@@ -81,6 +102,10 @@ impl ProcessRunner for NativeProcessRunner {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
+        if spec.program() == Program::Go {
+            // Closed local-toolchain policy, not a sandbox for project/test code.
+            go_environment(&mut command);
+        }
         if spec.program() == Program::Git {
             // Never inherit alternate repositories, injected -c values, or askpass.
             for (key, _) in std::env::vars_os() {
@@ -289,6 +314,35 @@ fn run_command(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn go_policy_overrides_injected_flags_and_disables_downloads() {
+        let mut command = std::process::Command::new("unused-fixture");
+        command
+            .env("GOFLAGS", "-toolexec=private-command")
+            .env("GOCACHEPROG", "private-command")
+            .env("GOOS", "foreign");
+        super::go_environment(&mut command);
+        let env: std::collections::BTreeMap<_, _> = command.get_envs().collect();
+        for (key, value) in [
+            ("GOENV", "off"),
+            ("GOFLAGS", ""),
+            ("GOCACHEPROG", ""),
+            ("GOWORK", "off"),
+            ("GOTOOLCHAIN", "local"),
+            ("GOPROXY", "off"),
+            ("GOSUMDB", "off"),
+            ("GONOPROXY", "none"),
+            ("GOVCS", "*:off"),
+            ("CGO_ENABLED", "0"),
+        ] {
+            assert_eq!(
+                env[std::ffi::OsStr::new(key)],
+                Some(std::ffi::OsStr::new(value))
+            );
+        }
+        assert_eq!(env[std::ffi::OsStr::new("GOOS")], None);
+        assert_eq!(env[std::ffi::OsStr::new("GOARCH")], None);
+    }
     use super::*;
     use std::io::Write;
 

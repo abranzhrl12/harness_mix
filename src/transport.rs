@@ -203,7 +203,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Verificar un crate Rust con Cargo build/test, scope relativo al workspace. Ejecuta código del proyecto; no es sandbox. Plazo 30 s y salida 2 MiB."
+        description = "Verificar Rust (crate/Cargo.toml) o Go (directorio raíz de módulo/go.mod, paquete .) con build/test. Go usa toolchain local, sin descargas, workspaces ni cgo. Scope relativo al workspace; no ejecuta rutas externas. Ejecuta código del proyecto, no es sandbox. Plazo 30 s, salida 2 MiB."
     )]
     async fn harness_verify(
         &self,
