@@ -91,7 +91,7 @@ impl McpHarness {
         self.call(Request::ExternalScope(args), context).await
     }
     #[tool(
-        description = "Leer configuración XML/JSON redactada antes de truncar. XML: atributos/textos ocultos. JSON: sección top-level exacta; nombres de propiedades y escalares ocultos, claves duplicadas usan último valor. Sin referencias externas ni fuente original. Límite 1 MiB, 10000 nodos, profundidad 64. No modifica el runtime."
+        description = "Leer configuración XML/JSON redactada antes de truncar. XML: atributos/textos ocultos. JSON: sección top-level exacta; nombres de propiedades y escalares ocultos, claves duplicadas usan último valor. raw=true activa modo heurístico IIS/ASP.NET clásico preservando nombres de claves y atributos, redactando contraseñas, connectionStrings, tokens y tags <value>. Sin referencias externas ni fuente original. Límite 1 MiB. No modifica el runtime."
     )]
     async fn harness_config(
         &self,

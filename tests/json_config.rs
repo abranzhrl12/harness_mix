@@ -9,6 +9,7 @@ fn read(app: &NativeApplication, section: &str, max: usize) -> Value {
         max_chars: Some(max),
         external_scope: None,
         session: None,
+        raw: None,
     }))
 }
 

@@ -510,6 +510,9 @@ pub struct ConfigArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
     pub session: Option<String>,
+    /// When true, extracts the raw section text with IIS/ASP.NET heuristic regex redaction
+    /// (preserving keys and attributes, redacting sensitive secrets like password/pwd/token/connectionString).
+    pub raw: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

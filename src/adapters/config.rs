@@ -61,6 +61,11 @@ pub(super) fn section(
         return Err(("CONFIG_XML", "DTD/entity declarations are not accepted"));
     }
     context.check()?;
+
+    if args.raw.unwrap_or(false) {
+        return raw_iis_section(source, args, max, context);
+    }
+
     let document = roxmltree::Document::parse_with_options(
         source,
         roxmltree::ParsingOptions {
@@ -147,6 +152,223 @@ pub(super) fn section(
         result["_detail"] = json!({"text":output,"redacted":true,"complete":!bounded});
     }
     Ok(result)
+}
+
+fn raw_iis_section(
+    source: &str,
+    args: &ConfigArgs,
+    max: usize,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    let section_name = &args.section;
+    let lower_source = source.to_ascii_lowercase();
+    let lower_name = section_name.to_ascii_lowercase();
+
+    let open_tag = format!("<{}", lower_name);
+    let mut search_idx = 0;
+    let mut matched_span: Option<(usize, usize)> = None;
+
+    while let Some(start_rel) = lower_source[search_idx..].find(&open_tag) {
+        let tag_start = search_idx + start_rel;
+        let char_after = source[tag_start + open_tag.len()..]
+            .chars()
+            .next();
+
+        if let Some(ch) = char_after
+            && (ch.is_whitespace() || ch == '>' || ch == '/')
+            && let Some(tag_end_rel) = source[tag_start..].find('>')
+        {
+            let tag_end = tag_start + tag_end_rel;
+            if source[tag_start..=tag_end].ends_with("/>") {
+                if matched_span.is_some() {
+                    return Err(("AMBIGUOUS_SECTION", "Multiple sections match; select an unambiguous section"));
+                }
+                matched_span = Some((tag_start, tag_end + 1));
+            } else {
+                let close_tag = format!("</{}>", lower_name);
+                let close_tag_ws = format!("</{} ", lower_name);
+                let close_rel = lower_source[tag_end..]
+                    .find(&close_tag)
+                    .or_else(|| lower_source[tag_end..].find(&close_tag_ws));
+
+                if let Some(c_rel) = close_rel {
+                    let close_start = tag_end + c_rel;
+                    if let Some(end_rel) = source[close_start..].find('>') {
+                        let total_end = close_start + end_rel + 1;
+                        if matched_span.is_some() {
+                            return Err(("AMBIGUOUS_SECTION", "Multiple sections match; select an unambiguous section"));
+                        }
+                        matched_span = Some((tag_start, total_end));
+                    }
+                }
+            }
+        }
+        search_idx = tag_start + open_tag.len();
+    }
+
+    let (start, end) = matched_span.ok_or(("SECTION", "XML section not found; usar harness_search kind:text para listar secciones"))?;
+    context.check()?;
+
+    let raw_text = &source[start..end];
+    let redacted = redact_iis_heuristics(raw_text);
+
+    let bounded = redacted.len() > 64000;
+    let output = if bounded {
+        prefix(&redacted, 64000)
+    } else {
+        &redacted
+    };
+
+    let truncated = bounded || utf16_len(output) > max;
+    let mut result = json!({
+        "path": args.path,
+        "section": args.section,
+        "format": "raw_xml",
+        "redacted": true,
+        "redactionPolicy": "iis_heuristic_sensitive_attributes_and_tags",
+        "text": prefix(output, max),
+        "truncated": truncated,
+        "externalReferencesFollowed": false,
+        "editReady": false,
+        "complete": !bounded,
+        "_complete": !bounded
+    });
+
+    if truncated {
+        result["_detail"] = json!({"text": output, "redacted": true, "complete": !bounded});
+    }
+
+    Ok(result)
+}
+
+fn redact_iis_heuristics(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut i = 0;
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+
+    let sensitive_keys = [
+        "password",
+        "secret",
+        "connectionstring",
+        "pwd",
+        "token",
+        "clientsecret",
+        "apikey",
+    ];
+
+    while i < len {
+        // Redact <value>...</value>
+        if text[i..].starts_with("<value") {
+            let rest = &text[i..];
+            if let Some(open_end) = rest.find('>') {
+                let close_tag = "</value>";
+                if let Some(close_start) = rest[open_end..].to_ascii_lowercase().find(close_tag) {
+                    let total_close_end = open_end + close_start + close_tag.len();
+                    result.push_str("<value>***</value>");
+                    i += total_close_end;
+                    continue;
+                }
+            }
+        }
+
+        // IIS appSettings pattern: <add key="SecretKey" value="secret_value" ... />
+        if text[i..].starts_with("<add")
+            && (i + 4 >= len || bytes[i + 4].is_ascii_whitespace())
+            && let Some(tag_end_rel) = text[i..].find('>')
+        {
+            let tag_str = &text[i..i + tag_end_rel + 1];
+                let is_sensitive = sensitive_keys.iter().any(|k| {
+                    if let Some(key_idx) = tag_str.to_ascii_lowercase().find("key") {
+                        let after_key = &tag_str[key_idx + 3..];
+                        if let Some(eq_idx) = after_key.find('=') {
+                            let after_eq = after_key[eq_idx + 1..].trim_start();
+                            if after_eq.starts_with('"') || after_eq.starts_with('\'') {
+                                let quote = after_eq.chars().next().unwrap();
+                                let inner = &after_eq[1..];
+                                if let Some(q_end) = inner.find(quote) {
+                                    let key_name = &inner[..q_end].to_ascii_lowercase();
+                                    return key_name.contains(k);
+                                }
+                            }
+                        }
+                    }
+                    false
+                });
+
+                if is_sensitive {
+                    // Redact value="..." in this tag
+                    if let Some(val_idx) = tag_str.to_ascii_lowercase().find("value") {
+                        let after_val = &tag_str[val_idx + 5..];
+                        if let Some(eq_idx) = after_val.find('=') {
+                            let after_eq = &after_val[eq_idx + 1..];
+                            let ws_count = after_eq.len() - after_eq.trim_start().len();
+                            let trimmed = after_eq.trim_start();
+                            if trimmed.starts_with('"') || trimmed.starts_with('\'') {
+                                let quote = trimmed.chars().next().unwrap();
+                                let inner = &trimmed[1..];
+                                if let Some(q_end) = inner.find(quote) {
+                                    let val_start_abs = i + val_idx + 5 + eq_idx + 1 + ws_count + 1;
+                                    let val_end_abs = val_start_abs + q_end;
+                                    result.push_str(&text[i..val_start_abs]);
+                                    result.push_str("***");
+                                    result.push_str(&text[val_end_abs..i + tag_end_rel + 1]);
+                                    i += tag_end_rel + 1;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        // Direct sensitive attribute redaction: (password="...", connectionString="...", etc.)
+        let mut matched_attr = false;
+        for key in &sensitive_keys {
+            let key_len = key.len();
+            if i + key_len < len && text[i..i + key_len].eq_ignore_ascii_case(key) {
+                let char_before = if i > 0 { text[..i].chars().next_back() } else { None };
+                let is_word_boundary = char_before.is_none_or(|c| c.is_whitespace() || c == '<' || c == '(' || c == ';');
+
+                if is_word_boundary {
+                    let mut j = i + key_len;
+                    while j < len && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n') {
+                        j += 1;
+                    }
+                    if j < len && bytes[j] == b'=' {
+                        j += 1;
+                        while j < len && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n') {
+                            j += 1;
+                        }
+                        if j < len && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                            let quote = bytes[j];
+                            let val_start = j + 1;
+                            let mut val_end = val_start;
+                            while val_end < len && bytes[val_end] != quote {
+                                val_end += 1;
+                            }
+                            if val_end < len {
+                                result.push_str(&text[i..val_start]);
+                                result.push_str("***");
+                                result.push(quote as char);
+                                i = val_end + 1;
+                                matched_attr = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !matched_attr {
+            result.push(text[i..].chars().next().unwrap());
+            i += text[i..].chars().next().unwrap().len_utf8();
+        }
+    }
+
+    result
 }
 
 fn json_section(

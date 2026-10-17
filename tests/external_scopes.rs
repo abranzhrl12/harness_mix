@@ -142,6 +142,7 @@ fn external_config_requires_redaction_and_grants_do_not_survive_restart() {
         max_chars: None,
         external_scope: Some(scope.clone()),
         session: Some(id.clone()),
+        raw: None,
     }));
     assert_eq!(redacted["state"], "ok", "{redacted}");
     assert_eq!(redacted["logPersistence"]["saved"], true);
@@ -163,6 +164,7 @@ fn external_config_requires_redaction_and_grants_do_not_survive_restart() {
         max_chars: None,
         external_scope: Some(json_scope.into()),
         session: Some(id.clone()),
+        raw: None,
     }));
     assert_eq!(redacted["state"], "ok", "{redacted}");
     assert_eq!(redacted["logPersistence"]["saved"], true);
@@ -176,6 +178,7 @@ fn external_config_requires_redaction_and_grants_do_not_survive_restart() {
         max_chars: None,
         external_scope: Some(json_scope.into()),
         session: Some(id.clone()),
+        raw: None,
     }));
     assert_eq!(invalid["diagnostics"][0]["code"], "CONFIG_JSON");
     assert_eq!(invalid["logPersistence"]["saved"], true);

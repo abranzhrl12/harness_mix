@@ -8,6 +8,7 @@ fn config(app: &NativeApplication, section: &str, max: usize) -> Value {
         max_chars: Some(max),
         external_scope: None,
         session: None,
+        raw: None,
     }))
 }
 #[test]
@@ -131,4 +132,63 @@ fn batch_config_results_are_redacted_and_do_not_follow_config_source() {
     let result = app.execute(Request::Batch(args));
     assert_eq!(result["state"], "ok", "{result}");
     assert!(!result.to_string().contains("outside-private"));
+}
+
+#[test]
+fn raw_iis_mode_preserves_structure_and_redacts_sensitive_attributes() {
+    let root = tempfile::tempdir().unwrap();
+    let web_config = r#"<configuration>
+  <connectionStrings>
+    <add name="EFAST" connectionString="Data Source=sql.prod;Initial Catalog=EFAST;User ID=sa;Password=secret_pwd;MultipleActiveResultSets=True;" providerName="System.Data.SqlClient" />
+  </connectionStrings>
+  <appSettings>
+    <add key="ApiBaseUrl" value="https://api.internal.corp" />
+    <add key="ClientSecret" value="super-secret-token" />
+    <add key="ApiKey" value="123456789" />
+    <add key="Timeout" value="30" />
+    <value>sensitive-inner-value</value>
+  </appSettings>
+</configuration>"#;
+    std::fs::write(root.path().join("Web.config"), web_config).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+
+    let res = app.execute(Request::Config(ConfigArgs {
+        path: "Web.config".into(),
+        section: "connectionStrings".into(),
+        max_chars: Some(8000),
+        external_scope: None,
+        session: None,
+        raw: Some(true),
+    }));
+
+    assert_eq!(res["state"], "ok", "{res}");
+    let text = res["data"]["text"].as_str().unwrap();
+    assert!(text.contains("<connectionStrings>"));
+    assert!(text.contains("name=\"EFAST\""));
+    assert!(text.contains("connectionString=\"***\""));
+    assert!(!text.contains("secret_pwd"));
+    assert!(!text.contains("Data Source=sql.prod"));
+
+    let res_app = app.execute(Request::Config(ConfigArgs {
+        path: "Web.config".into(),
+        section: "appSettings".into(),
+        max_chars: Some(8000),
+        external_scope: None,
+        session: None,
+        raw: Some(true),
+    }));
+
+    assert_eq!(res_app["state"], "ok", "{res_app}");
+    let app_text = res_app["data"]["text"].as_str().unwrap();
+    assert!(app_text.contains("key=\"ApiBaseUrl\""));
+    assert!(app_text.contains("value=\"https://api.internal.corp\""));
+    assert!(app_text.contains("key=\"Timeout\""));
+    assert!(app_text.contains("value=\"30\""));
+    assert!(app_text.contains("key=\"ClientSecret\""));
+    assert!(app_text.contains("value=\"***\""));
+    assert!(app_text.contains("key=\"ApiKey\""));
+    assert!(app_text.contains("<value>***</value>"));
+    assert!(!app_text.contains("super-secret-token"));
+    assert!(!app_text.contains("123456789"));
+    assert!(!app_text.contains("sensitive-inner-value"));
 }
