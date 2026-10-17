@@ -238,6 +238,18 @@ pub struct GitDiffArgs {
     pub session: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticsArgs {
+    pub files: Option<Vec<String>>,
+    #[serde(rename = "maxFiles")]
+    pub max_files: Option<usize>,
+    #[serde(rename = "buildScope")]
+    pub build_scope: Option<String>,
+    pub session: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BatchTool {
@@ -372,6 +384,7 @@ pub enum Request {
     Svg(crate::svg::SvgArgs),
     Handover(HandoverArgs),
     ProcessStatus(ProcessStatusArgs),
+    Diagnostics(DiagnosticsArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -418,6 +431,7 @@ impl Request {
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) => "harness_process_status",
+            Self::Diagnostics(_) => "harness_diagnostics",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -449,6 +463,7 @@ impl Request {
             Self::Svg(args) => serde_json::to_value(args),
             Self::Handover(args) => serde_json::to_value(args),
             Self::ProcessStatus(args) => serde_json::to_value(args),
+            Self::Diagnostics(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

@@ -50,6 +50,7 @@ pub mod xlsx;
 pub mod svg;
 pub mod handover;
 pub mod process_status;
+pub mod diagnostics;
 
 use harness_application::{
     Application,
@@ -311,6 +312,13 @@ impl Workspace for NativeWorkspace {
         context: &OperationContext,
     ) -> Result<Value, Failure> {
         process_status::handle_process_status(args, context)
+    }
+    fn diagnostics(
+        &self,
+        args: &harness_domain::contracts::DiagnosticsArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        diagnostics::handle_diagnostics(&self.project, args, context)
     }
     fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {
         let captured = fingerprint::capture(&self.project, context);

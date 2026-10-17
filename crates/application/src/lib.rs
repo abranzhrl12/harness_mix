@@ -235,6 +235,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::ProcessStatus(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.process_status(&args, context)),
+            Request::Diagnostics(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.diagnostics(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),

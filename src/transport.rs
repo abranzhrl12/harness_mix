@@ -365,6 +365,17 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::ProcessStatus(args), context).await
     }
+
+    #[tool(
+        description = "Diagnóstico rápido de sintaxis en lote de archivos explícitos o cambios Git tracked. Valida Rust, JS/TS y JSON sin devolver código. maxFiles 1–50 (defecto 20)."
+    )]
+    async fn harness_diagnostics(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::DiagnosticsArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Diagnostics(args), context).await
+    }
 }
 
 #[tool_handler]
