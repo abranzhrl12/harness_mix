@@ -206,15 +206,16 @@ fn python_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
         .to_str()
         .ok_or(("PATH", "Python scope must be UTF-8"))?;
     let arguments = if matches!(args.action, Some(VerifyAction::Test)) {
-        if !target.is_dir() {
+        if !target.is_dir() && (!target.is_file() || target.extension().and_then(|e| e.to_str()) != Some("py")) {
             return Err((
                 "VERIFY_SCOPE",
-                "Python test requires a directory for test discovery",
+                "Python test requires a directory or .py test file",
             ));
         }
-        let has_pytest = target.join("pytest.ini").is_file()
-            || target.join("pyproject.toml").is_file()
-            || target.join("conftest.py").is_file()
+        let test_dir = if target.is_dir() { &target } else { target.parent().unwrap_or(&target) };
+        let has_pytest = test_dir.join("pytest.ini").is_file()
+            || test_dir.join("pyproject.toml").is_file()
+            || test_dir.join("conftest.py").is_file()
             || project.root.join("pytest.ini").is_file()
             || project.root.join("pyproject.toml").is_file();
 
@@ -225,6 +226,15 @@ fn python_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
                 "pytest".into(),
                 path.into(),
                 "-q".into(),
+            ]
+        } else if target.is_file() {
+            vec![
+                "-I".into(),
+                "-S".into(),
+                "-B".into(),
+                "-m".into(),
+                "unittest".into(),
+                path.into(),
             ]
         } else {
             vec![

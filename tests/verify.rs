@@ -99,6 +99,15 @@ fn test_extended_verify_plans() {
     }));
     assert_ne!(py_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
 
+    // 2b. Python single test file
+    let py_file_res = app.execute(Request::Verify(VerifyArgs {
+        language: "python".into(),
+        scope: Some("py_tests/test_sample.py".into()),
+        action: Some(VerifyAction::Test),
+        session: None,
+    }));
+    assert_ne!(py_file_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
+
     // 3. TypeScript scope acceptance
     std::fs::write(root.path().join("index.ts"), "const x: number = 42;\n").unwrap();
     let ts_res = app.execute(Request::Verify(VerifyArgs {
