@@ -123,6 +123,14 @@ de configuración externa; no hay puerto de ejecución ni de escritura externo.
 
 ### Conteo file_size
 
+El modo syntax comparte el recorrido y los presupuestos, y llama al colector
+rust_symbols existente en lugar de añadir un segundo parser. Su selector cerrado
+kind[:nombre] filtra declaraciones AST, no texto ni patrones generales. Solo emite
+metadata de navegación y firmas; los errores originales del parser se descartan.
+Los fallos por archivo incrementan skipped/parseErrors y hacen complete=false.
+Los guards del permiso externo permanecen vigentes durante el recorrido, igual
+que en búsquedas existentes. No se evalúan macros/cfg ni se infieren relaciones.
+
 SearchArgs permite query ausente solo para el modo file_size, validado por el
 adaptador. Comparte walker/ignores y lecturas sin enlaces. Project expone una
 lectura interna con límite reducido por reserva, sin ampliar el límite público

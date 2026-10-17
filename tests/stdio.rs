@@ -64,6 +64,41 @@ impl Server {
     }
 }
 
+#[test]
+fn syntax_search_round_trip_without_node() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("lib.rs"),
+        "// fn fake() {}\npub fn actual() {}\n",
+    )
+    .unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let result = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_search","arguments":{
+            "kind":"syntax","query":"function_item:actual","scope":"lib.rs"
+        }}),
+    );
+    let result = &result["result"]["structuredContent"];
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["matches"].as_array().unwrap().len(), 1);
+    assert_eq!(result["data"]["matches"][0]["name"], "actual");
+    assert_eq!(result["data"]["syntaxOnly"], true);
+    let rejected = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_search","arguments":{
+            "kind":"syntax","query":"fn $NAME() {}","scope":"lib.rs"
+        }}),
+    );
+    assert_eq!(
+        rejected["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "ARGUMENT"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn xml_config_and_external_scope_round_trip_without_node() {

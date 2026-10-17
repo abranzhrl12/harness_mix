@@ -247,7 +247,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Búsqueda nativa text/files/file_size. file_size no recibe query: minLines=500 cuenta archivos con más de 500 líneas totales sin devolver contenido. Límites 2 MiB/archivo y 5 s cooperativos; ignora binarios/archivos generados reconocidos y señala resultados parciales. Sin AST ni scopes externos."
+        description = "Búsqueda nativa text/files/file_size/syntax. syntax: solo declaraciones Rust, selector declaration_kind[:nombre exacto], p.ej. function_item:run o struct_item; no patrones AST generales ni callers. file_size no recibe query: minLines=500 filtra archivos con más líneas. Límites 2 MiB/archivo, 5 s cooperativos, salida parcial explícita. Admite scopes externos autorizados Windows."
     )]
     async fn harness_search(
         &self,

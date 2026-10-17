@@ -7,6 +7,36 @@ use harness_domain::{
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+// A deliberately small declaration selector, not ast-grep pattern syntax.
+fn selector(query: &str) -> Result<(&str, Option<&str>), Failure> {
+    let (kind, name) = query
+        .split_once(':')
+        .map_or((query, None), |(k, n)| (k, Some(n)));
+    if ![
+        "function_item",
+        "function_signature_item",
+        "struct_item",
+        "enum_item",
+        "union_item",
+        "trait_item",
+        "mod_item",
+        "type_item",
+        "const_item",
+        "static_item",
+        "macro_definition",
+        "impl_item",
+    ]
+    .contains(&kind)
+        || name.is_some_and(|n| n.is_empty() || n.contains(':') || n.chars().any(char::is_control))
+    {
+        return Err((
+            "ARGUMENT",
+            "Rust syntax selector requires declaration_kind[:exact name]; AST patterns are not supported",
+        ));
+    }
+    Ok((kind, name))
+}
+
 fn excluded(name: &str) -> bool {
     let name = name.to_lowercase();
     [".git", ".hg", ".svn", "node_modules", "target"].contains(&name.as_str())
@@ -28,6 +58,12 @@ pub fn search_with_context(
 ) -> Result<Value, Failure> {
     context.check()?;
     let file_size = matches!(args.kind, Kind::FileSize);
+    let syntax = matches!(args.kind, Kind::Syntax);
+    let selected = if syntax {
+        Some(selector(&args.query)?)
+    } else {
+        None
+    };
     let min_lines = args.min_lines.unwrap_or(500);
     if min_lines > 10000000
         || (!file_size && args.min_lines.is_some())
@@ -93,6 +129,7 @@ pub fn search_with_context(
     let mut reserved_bytes = 0_u64;
     let mut skipped = 0;
     let mut binary_skipped = 0;
+    let mut parse_errors = 0;
     let mut stable_files = 0;
     let mut metadata_bytes = 0;
     let mut bounded = false;
@@ -143,14 +180,22 @@ pub fn search_with_context(
             skipped += 1;
             continue;
         }
+        if syntax
+            && !entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+        {
+            continue;
+        }
         match args.kind {
             Kind::Files => {
                 if relative.contains(&args.query) {
                     all.push(json!(relative));
                 }
             }
-            Kind::Text | Kind::FileSize => {
-                let cap = if file_size {
+            Kind::Text | Kind::FileSize | Kind::Syntax => {
+                let cap = if file_size || syntax {
                     let metadata = match entry.metadata() {
                         Ok(metadata) => metadata,
                         Err(_) => {
@@ -195,6 +240,9 @@ pub fn search_with_context(
                 }
                 if file.contains(&0) {
                     binary_skipped += 1;
+                    if syntax {
+                        skipped += 1;
+                    }
                     continue;
                 }
                 let text = match std::str::from_utf8(&file) {
@@ -208,6 +256,46 @@ pub fn search_with_context(
                         continue;
                     }
                 };
+                if let Some((kind, name)) = selected {
+                    let digest = harness_domain::hash(&file);
+                    let symbols = match super::rust_symbols::collect(text, &digest, context) {
+                        Ok(symbols) => symbols,
+                        Err((code, _)) if code == "CANCELLED" || code == "TIMEOUT" => {
+                            cancelled = code == "CANCELLED";
+                            timed_out = code == "TIMEOUT";
+                            break 'scan;
+                        }
+                        Err(_) => {
+                            skipped += 1;
+                            parse_errors += 1;
+                            continue;
+                        }
+                    };
+                    stable_files += 1;
+                    for symbol in symbols {
+                        if let Err((code, _)) = context.check() {
+                            cancelled = code == "CANCELLED";
+                            timed_out = code == "TIMEOUT";
+                            break 'scan;
+                        }
+                        if started.elapsed() >= Duration::from_secs(5) {
+                            timed_out = true;
+                            break 'scan;
+                        }
+                        if symbol.kind == kind && name.is_none_or(|name| symbol.name == name) {
+                            let row = json!({"file":relative,"hash":digest,"name":symbol.name,
+                                "container":symbol.container,"kind":symbol.kind,"start":symbol.start,
+                                "end":symbol.end,"signature":symbol.signature,"symbolId":symbol.id});
+                            metadata_bytes += row.to_string().len();
+                            if metadata_bytes > 4 * 1024 * 1024 || all.len() >= 10000 {
+                                bounded = true;
+                                break 'scan;
+                            }
+                            all.push(row);
+                        }
+                    }
+                    continue;
+                }
                 if file_size {
                     if started.elapsed() >= Duration::from_secs(5) {
                         timed_out = true;
@@ -289,6 +377,20 @@ pub fn search_with_context(
         "timings":{"executionMs":started.elapsed().as_millis()},"_detail":{},"diagnostics":[]});
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
+    if syntax {
+        let coverage = "Rust declarations, inline modules, impl/trait members; no local items, macro expansion, references or AST patterns";
+        result["kind"] = json!("syntax");
+        result["language"] = json!("rust");
+        result["syntaxOnly"] = json!(true);
+        result["selector"] = json!(args.query);
+        result["coverage"] = json!(coverage);
+        result["parsedFiles"] = json!(stable_files);
+        result["parseErrors"] = json!(parse_errors);
+        result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":5000});
+        result["_detail"]["coverage"] = json!(coverage);
+        result["_detail"]["syntaxOnly"] = json!(true);
+        result["_detail"]["language"] = json!("rust");
+    }
     if file_size {
         result["kind"] = json!("file_size");
         result["minLines"] = json!(min_lines);

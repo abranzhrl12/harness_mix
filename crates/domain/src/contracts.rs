@@ -41,6 +41,7 @@ pub enum Kind {
     Text,
     Files,
     FileSize,
+    Syntax,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

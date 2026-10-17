@@ -486,7 +486,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         result["limitations"] = json!([
             "Edición Windows solo Rust/JSON/texto; navegación de símbolos solo Rust, sin SQL ni otros parsers",
             "Navegación sintáctica: sin locales, expansión de macros ni relaciones CodeGraph",
-            "Búsqueda text/files/file_size; sin syntax. Scopes externos Windows solo lectura, sin ejecución",
+            "Búsqueda text/files/file_size y syntax de declaraciones Rust (kind[:nombre]); sin patrones AST generales. Scopes Windows solo lectura",
             "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
             "Verificación solo Rust; ejecuta código del proyecto, no es un sandbox",
             "Git solo lectura; requiere git instalado y raíz con .git directorio, sin linked worktrees",

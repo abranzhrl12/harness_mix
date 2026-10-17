@@ -29,7 +29,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_bootstrap` | Implementado | Sesión, reglas, capacidades y guía de uso |
 | `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 100 líneas por fragmento |
 | `harness_detail` | Implementado | Caché acotada, paginado UTF-16, referencias locales al proceso |
-| `harness_search` | Parcial | Text/files/file_size y scopes externos Windows; falta syntax |
+| `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
 | `harness_verify` | Parcial | Rust build/test mediante Cargo; faltan otros lenguajes |
@@ -60,6 +60,15 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Búsqueda syntax de declaraciones Rust por selector kind[:nombre exacto], usando
+el colector AST existente sin dependencias nuevas ni Node. Respeta ignores y
+permisos externos, admite batch y devuelve ubicación/hash/symbolId/firma, sin
+cuerpos. Errores del parser quedan sanitizados y hacen explícita la cobertura
+incompleta. No incluye expresiones, patrones ast-grep, items locales, expansión
+de macros ni relaciones semánticas. Se mantienen 17 herramientas.
+
+### Bloque anterior: configuración JSON
 
 Configuración JSON redactada en el mismo adaptador nativo, sin dependencias nuevas.
 Sección de primer nivel exacta; nombres de propiedades y escalares ocultos antes
@@ -173,7 +182,7 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 119 pruebas Rust cubren configuración XML/JSON y alcances externos.
+- 123 pruebas Rust cubren configuración XML/JSON, alcances externos y búsqueda syntax.
 - Clippy de todo el workspace y todos los targets: sin warnings.
 - Formato Cargo comprobado.
 - Compilación release completada con las últimas modificaciones.
@@ -215,7 +224,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [x] Alcances externos Windows autorizados, acotados por sesión/TTL/identidad.
 - [ ] Alcances externos Unix y cobertura de herramientas todavía no migradas.
 - [x] Búsqueda de tamaño (`file_size`) nativa con límites explícitos.
-- [ ] Búsqueda AST (`syntax`) y equivalencia completa de límites/cobertura.
+- [x] Búsqueda syntax de declaraciones Rust con selectores kind[:nombre].
+- [ ] Patrones AST generales/multilenguaje y equivalencia completa de límites/cobertura.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.
 - [ ] Verificación de .NET, Go, Python, JavaScript y otros adaptadores usados.
 

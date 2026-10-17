@@ -92,6 +92,33 @@ incompleta; ni el preview ni detail garantizan JSON válido si hay recorte.
 Compatible con batch y scopes Windows; un permiso externo no habilita lectura
 cruda de appsettings.json, que debe pasar por este adaptador redactado.
 
+## Búsqueda sintáctica de declaraciones Rust
+
+`harness_search` admite kind="syntax" sin Node ni procesos auxiliares. query es
+un selector `declaration_kind[:nombre exacto]`, por ejemplo `function_item:run`,
+`struct_item:Server` o `enum_item`. Es sensible a mayúsculas. Tipos admitidos:
+function_item, function_signature_item, struct_item, enum_item, union_item,
+trait_item, mod_item, type_item, const_item, static_item, macro_definition e
+impl_item. Un tipo sin nombre selecciona todas sus declaraciones. No acepta
+patrones ast-grep, expresiones, metavariables ni reconstruye callers; los patrones
+no admitidos se rechazan como ARGUMENT, no se convierten en búsqueda textual.
+
+Usa el mismo AST y colector que outline/read_symbol: declaraciones de archivos
+.rs, módulos inline y miembros impl/trait. No incluye items locales dentro de
+funciones, expansión de macros ni evaluación de cfg. Cada coincidencia entrega
+archivo, hash, nombre, container, kind, start/end, firma y symbolId; no cuerpos.
+function_signature_item distingue métodos de trait sin cuerpo. Los IDs sirven
+para la navegación existente y quedan obsoletos si cambia el snapshot de origen.
+
+Respeta ignores, exclusiones de secretos, scopes relativos y permisos externos
+Windows; funciona dentro de batch. limit=1..200 (40 por defecto), detalle paginado
+para coincidencias omitidas. El recorrido tiene límites de 10000 archivos visitados,
+2 MiB/archivo, 64 MiB reservados, 10000 coincidencias, 4 MiB de metadata y 5 s
+cooperativos. El parser conserva sus propios presupuestos más estrictos. Los .rs
+inválidos, binarios o no legibles se omiten y marcan complete=false; parseErrors
+cuenta fallos del parser sin devolver su contenido. No es paridad completa con
+la búsqueda AST multilenguaje de Node.
+
 ## Alcances externos autorizados (Windows)
 
 `harness_external_scope`: action=grant/list/revoke y session requerida. grant

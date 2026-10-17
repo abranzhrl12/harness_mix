@@ -101,12 +101,26 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
         min_lines: None,
         scope: None,
         limit: None,
-        session: Some(id),
+        session: Some(id.clone()),
         external_scope: Some(scope.into()),
     }));
     assert_eq!(search["state"], "ok", "{search}");
     assert_eq!(search["data"]["paths"], json!(["a.rs"]));
     assert!(!search.to_string().contains("private neighbor"));
+    let syntax = app.execute(Request::Search(SearchArgs {
+        kind: Kind::Syntax,
+        query: "function_item:allowed".into(),
+        min_lines: None,
+        scope: None,
+        limit: None,
+        session: Some(id),
+        external_scope: Some(scope.into()),
+    }));
+    assert_eq!(syntax["state"], "ok", "{syntax}");
+    assert_eq!(syntax["data"]["externalScope"], scope);
+    assert_eq!(syntax["data"]["matches"].as_array().unwrap().len(), 1);
+    assert_eq!(syntax["data"]["matches"][0]["file"], "a.rs");
+    assert!(!syntax.to_string().contains("private neighbor"));
 }
 #[test]
 fn external_config_requires_redaction_and_grants_do_not_survive_restart() {
