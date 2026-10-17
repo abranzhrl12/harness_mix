@@ -66,6 +66,50 @@ impl Server {
 
 #[cfg(windows)]
 #[test]
+fn xml_config_and_external_scope_round_trip_without_node() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("Web.config"),r#"<configuration><appSettings><add key="api" value="protocol-private"/></appSettings></configuration>"#).unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let boot = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_bootstrap","arguments":{}}),
+    );
+    let session = boot["result"]["structuredContent"]["data"]["sessionId"]
+        .as_str()
+        .unwrap();
+    let path = outside.path().to_string_lossy();
+    let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
+    let granted=server.request(3,"tools/call",json!({"name":"harness_external_scope","arguments":{"session":session,"action":"grant","root":path,"userAuthorized":true}}));
+    assert_eq!(
+        granted["result"]["structuredContent"]["state"], "ok",
+        "{granted}"
+    );
+    let scope = granted["result"]["structuredContent"]["data"]["scopeId"]
+        .as_str()
+        .unwrap();
+    let config=server.request(4,"tools/call",json!({"name":"harness_config","arguments":{"session":session,"externalScope":scope,"path":"Web.config","section":"appSettings"}}));
+    assert_eq!(
+        config["result"]["structuredContent"]["state"], "ok",
+        "{config}"
+    );
+    assert!(!config.to_string().contains("protocol-private"));
+    let raw=server.request(5,"tools/call",json!({"name":"harness_read","arguments":{"session":session,"externalScope":scope,"path":"Web.config","start":1,"end":1}}));
+    assert_eq!(
+        raw["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "PATH"
+    );
+    let revoked=server.request(6,"tools/call",json!({"name":"harness_external_scope","arguments":{"session":session,"action":"revoke","scopeId":scope}}));
+    assert_eq!(
+        revoked["result"]["structuredContent"]["data"]["revoked"],
+        true
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn persistent_cli_logs_survive_server_restart_without_node() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("fixture.txt"), "persistent CLI").unwrap();
@@ -376,7 +420,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 15);
+    assert_eq!(names.len(), 17);
+    assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));
     let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));
     assert_eq!(

@@ -1,10 +1,12 @@
 //! Native implementations of application ports. No MCP handlers or schemas here.
 mod capabilities;
+mod config;
 mod disk_logs;
 mod doctor;
 mod edit;
 mod edit_commit;
 mod edit_security;
+mod external_scopes;
 mod fingerprint;
 mod git;
 pub mod process;
@@ -32,6 +34,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 pub struct NativeWorkspace {
+    external_scopes: std::sync::Mutex<external_scopes::Registry>,
     log_store: Option<Result<disk_logs::DiskLogs, Failure>>,
     project: Project,
     edit_lock: std::sync::Mutex<()>,
@@ -50,6 +53,7 @@ pub fn application_with_logging(
     let log_store = persist_logs.then(|| disk_logs::DiskLogs::new(project.clone()));
     Ok(Application::new(
         NativeWorkspace {
+            external_scopes: std::sync::Mutex::default(),
             log_store,
             project,
             edit_lock: std::sync::Mutex::new(()),
@@ -58,7 +62,101 @@ pub fn application_with_logging(
     ))
 }
 
+impl NativeWorkspace {
+    fn read_project(
+        &self,
+        scope: Option<&str>,
+        session: Option<&str>,
+        context: &OperationContext,
+        read: impl FnOnce(&Project, Option<&str>) -> Result<Value, Failure>,
+    ) -> Result<Value, Failure> {
+        let Some(id) = scope else {
+            return read(&self.project, None);
+        };
+        if !harness_domain::execution::valid_request_id(id) {
+            return Err(("EXTERNAL_SCOPE", "Invalid external scope ID"));
+        }
+        let session = session.ok_or((
+            "EXTERNAL_SCOPE",
+            "externalScope requires its owning session",
+        ))?;
+        let grant = self
+            .external_scopes
+            .lock()
+            .map_err(|_| ("INTERNAL", "External registry unavailable"))?
+            .lookup(session, id)?;
+        let scoped = grant.resolve(context)?;
+        let mut result = read(&scoped.project, scoped.default_scope.as_deref())?;
+        let info = grant.describe();
+        result["externalScope"] = json!(id);
+        result["externalScopeInfo"] = info.clone();
+        if let Some(detail) = result.get_mut("_detail").filter(|v| v.is_object()) {
+            detail["externalScope"] = json!(id);
+            detail["externalScopeInfo"] = info;
+        }
+        Ok(result)
+    }
+}
+
 impl Workspace for NativeWorkspace {
+    fn external_scope(
+        &self,
+        args: &harness_domain::contracts::ExternalScopeArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        use harness_domain::contracts::ExternalScopeAction;
+        context.check()?;
+        match args.action {
+            ExternalScopeAction::Grant => {
+                if args.user_authorized != Some(true) {
+                    return Err((
+                        "AUTHORIZATION",
+                        "Grant requires explicit user consent for this exact path and task",
+                    ));
+                }
+                let approved = external_scopes::approve(
+                    args.root
+                        .as_deref()
+                        .ok_or(("ARGUMENT", "grant requires root"))?,
+                    context,
+                )?;
+                self.external_scopes
+                    .lock()
+                    .map_err(|_| ("INTERNAL", "External registry unavailable"))?
+                    .grant(&args.session, approved, context)
+            }
+            ExternalScopeAction::List => Ok(self
+                .external_scopes
+                .lock()
+                .map_err(|_| ("INTERNAL", "External registry unavailable"))?
+                .list(&args.session)),
+            ExternalScopeAction::Revoke => self
+                .external_scopes
+                .lock()
+                .map_err(|_| ("INTERNAL", "External registry unavailable"))?
+                .revoke(
+                    &args.session,
+                    args.scope_id
+                        .as_deref()
+                        .ok_or(("ARGUMENT", "revoke requires scopeId"))?,
+                ),
+        }
+    }
+    fn config(
+        &self,
+        args: &harness_domain::contracts::ConfigArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        if args.external_scope.is_some() {
+            return self.read_project(
+                args.external_scope.as_deref(),
+                args.session.as_deref(),
+                context,
+                |project, _| config::section(project, args, context),
+            );
+        }
+        config::section(&self.project, args, context)
+    }
     fn log_persistence_enabled(&self) -> bool {
         self.log_store.is_some()
     }
@@ -121,14 +219,24 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::OutlineArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        symbols::outline(&self.project, args, context)
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| symbols::outline(project, args, context),
+        )
     }
     fn read_symbol(
         &self,
         args: &harness_domain::contracts::ReadSymbolArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        symbols::read_symbol(&self.project, args, context)
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| symbols::read_symbol(project, args, context),
+        )
     }
     fn replace(
         &self,
@@ -191,11 +299,31 @@ impl Workspace for NativeWorkspace {
         capabilities::capabilities()
     }
     fn read(&self, args: &ReadArgs, context: &OperationContext) -> Result<Value, Failure> {
-        self.project
-            .read_with_context(&args.path, args.start, args.end, context)
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| project.read_with_context(&args.path, args.start, args.end, context),
+        )
     }
     fn search(&self, args: &SearchArgs, context: &OperationContext) -> Result<Value, Failure> {
-        search::search_with_context(&self.project, args, context)
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, default_scope| {
+                if args.scope.is_none() && default_scope.is_some() {
+                    let mut value = serde_json::to_value(args)
+                        .map_err(|_| ("INTERNAL", "Cannot encode search arguments"))?;
+                    value["scope"] = json!(default_scope);
+                    let scoped = serde_json::from_value(value)
+                        .map_err(|_| ("INTERNAL", "Cannot scope search arguments"))?;
+                    search::search_with_context(project, &scoped, context)
+                } else {
+                    search::search_with_context(project, args, context)
+                }
+            },
+        )
     }
     fn verify(
         &self,

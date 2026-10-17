@@ -54,6 +54,8 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "harness_doctor",
                     "harness_batch",
                     "harness_logs",
+                    "harness_config",
+                    "harness_external_scope",
                 ]
                 .contains(&s)
             })
@@ -95,6 +97,13 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "SESSION_BUSY",
                     "INTERNAL",
                     "TOOL_ERROR",
+                    "CONFIG_XML",
+                    "SECTION",
+                    "AMBIGUOUS_SECTION",
+                    "AUTHORIZATION",
+                    "EXTERNAL_SCOPE",
+                    "EXTERNAL_SCOPE_LIMIT",
+                    "STALE_SCOPE",
                 ]
                 .contains(&s)
             })

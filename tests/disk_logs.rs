@@ -4,6 +4,7 @@ use harness_domain::contracts::{DoctorArgs, LogsArgs, ReadArgs, Request};
 use serde_json::Value;
 fn read(app: &NativeApplication) -> Value {
     app.execute(Request::Read(ReadArgs {
+        external_scope: None,
         path: "good.txt".into(),
         start: 1,
         end: 1,

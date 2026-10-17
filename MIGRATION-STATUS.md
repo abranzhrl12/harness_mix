@@ -29,7 +29,9 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_bootstrap` | Implementado | Sesión, reglas, capacidades y guía de uso |
 | `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 100 líneas por fragmento |
 | `harness_detail` | Implementado | Caché acotada, paginado UTF-16, referencias locales al proceso |
-| `harness_search` | Parcial | Text/files/file_size; faltan syntax y scopes externos |
+| `harness_search` | Parcial | Text/files/file_size y scopes externos Windows; falta syntax |
+| `harness_config` | Parcial | Sección XML, todos los valores redactados; no settings runtime/JSON |
+| `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
 | `harness_verify` | Parcial | Rust build/test mediante Cargo; faltan otros lenguajes |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
@@ -58,6 +60,18 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Configuración XML por parser nativo y alcances externos Windows: 17 herramientas.
+Config oculta todos los valores antes del recorte y no devuelve fuente en errores
+ni detail; rechaza DTD/entidades, múltiples coincidencias y límites excedidos.
+Scopes requieren consentimiento explícito declarado, sesión propietaria y ruta
+concreta; caducan, se revocan y comprueban identidad sin conservar pins ociosos.
+Pueden usarse en read/search/navegación/config, también dentro de batch compatible,
+pero nunca conceden edición, procesos o SQL. Archivos únicos no autorizan vecinos.
+Son coberturas parciales: valores no sensibles también redactados; scopes Unix,
+JSON y configuración dinámica del harness no están implementados.
+
+### Bloque anterior: file_size
 
 file_size nativo dentro de search, también usable por batch, sin Node/ripgrep ni
 CodeGraph. Cuenta LF/CRLF, vacío y última línea; filtra >minLines y devuelve solo
@@ -150,7 +164,7 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 104 pruebas Rust pasan en la ejecución secuencial con persistencia y file_size.
+- 116 pruebas Rust pasan con configuración XML y alcances externos.
 - Clippy de todo el workspace y todos los targets: sin warnings.
 - Formato Cargo comprobado.
 - Compilación release completada con las últimas modificaciones.
@@ -186,8 +200,10 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [ ] Soporte Git para linked worktrees con .git archivo.
 - [x] `harness_batch` para lecturas nativas con admisión y cancelación compartidas.
 - [ ] Extender batch a SQL y otras lecturas cuando sus adaptadores estén migrados.
-- [ ] Configuración nativa y redacción de secretos.
-- [ ] Alcances externos autorizados y su validación.
+- [x] Lectura XML nativa con redacción de todos los valores y límites explícitos.
+- [ ] Configuración JSON/runtime y paridad de valores no sensibles con política segura.
+- [x] Alcances externos Windows autorizados, acotados por sesión/TTL/identidad.
+- [ ] Alcances externos Unix y cobertura de herramientas todavía no migradas.
 - [x] Búsqueda de tamaño (`file_size`) nativa con límites explícitos.
 - [ ] Búsqueda AST (`syntax`) y equivalencia completa de límites/cobertura.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.

@@ -7,6 +7,7 @@ use serde_json::Value;
 
 fn outline(app: &NativeApplication, query: Option<&str>, max: usize) -> Value {
     app.execute(Request::Outline(OutlineArgs {
+        external_scope: None,
         path: "sample.rs".into(),
         query: query.map(Into::into),
         max_chars: Some(max),
@@ -21,6 +22,7 @@ fn read(
     signature: bool,
 ) -> Value {
     app.execute(Request::ReadSymbol(ReadSymbolArgs {
+        external_scope: None,
         path: "sample.rs".into(),
         symbol: name.into(),
         container: container.map(Into::into),
@@ -135,6 +137,7 @@ fn bounds_selectors_and_parser_work_and_rejects_other_languages() {
         "STALE_SYMBOL"
     );
     let missing = app.execute(Request::Outline(OutlineArgs {
+        external_scope: None,
         path: "sample.rs".into(),
         query: None,
         max_chars: None,
@@ -142,6 +145,7 @@ fn bounds_selectors_and_parser_work_and_rejects_other_languages() {
     }));
     assert_eq!(missing["diagnostics"][0]["code"], "SESSION");
     let unsupported = app.execute(Request::Outline(OutlineArgs {
+        external_scope: None,
         path: "sample.js".into(),
         query: None,
         max_chars: None,

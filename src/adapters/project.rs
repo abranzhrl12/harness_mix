@@ -9,9 +9,40 @@ use std::{
 
 const MAX_FILE: u64 = 2 * 1024 * 1024;
 
+pub(super) fn external_sensitive(relative: &str) -> bool {
+    let normalized = relative.replace('\\', "/").to_ascii_lowercase();
+    let name = normalized.rsplit('/').next().unwrap_or("");
+    name.contains(".config")
+        || name.starts_with(".npmrc")
+        || (name.starts_with("appsettings") && name.contains(".json"))
+        || ["pem", "key", "pfx", "p12"]
+            .iter()
+            .any(|ext| name.ends_with(&format!(".{ext}")))
+}
+
+pub(super) fn external_restricted(relative: &str) -> bool {
+    relative.replace('\\', "/").split('/').any(|part| {
+        let name = part.to_ascii_lowercase();
+        [".git", ".hg", ".svn"].contains(&name.as_str())
+            || [
+                ".env",
+                "credential",
+                "secret",
+                "mcp_config.json",
+                "oauth_creds.json",
+                "id_rsa",
+                "id_ed25519",
+            ]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+    })
+}
+
 #[derive(Clone)]
 pub struct Project {
     pub root: PathBuf,
+    pub(crate) external: bool,
+    pub(crate) single_file: Option<PathBuf>,
 }
 
 impl Project {
@@ -20,7 +51,11 @@ impl Project {
         if !root.is_dir() {
             return Err(std::io::Error::other("workspace must be a directory"));
         }
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            external: false,
+            single_file: None,
+        })
     }
 
     pub(crate) fn target(&self, relative: &str) -> Result<PathBuf, Failure> {
@@ -41,6 +76,12 @@ impl Project {
         }
         // Treat Windows separators identically on every platform.
         let normalized = relative.replace('\\', "/");
+        if self.external && external_restricted(&normalized) {
+            return Err(("PATH", "Restricted external credential or metadata path"));
+        }
+        if self.external && Path::new(&normalized).components().count() > 64 {
+            return Err(("PATH", "External path depth exceeds 64"));
+        }
         let mut target = self.root.clone();
         for component in Path::new(&normalized).components() {
             match component {
@@ -107,6 +148,13 @@ impl Project {
         let real = existing
             .canonicalize()
             .map_err(|_| ("PATH", "archivo no accesible"))?;
+        if self
+            .single_file
+            .as_ref()
+            .is_some_and(|single| *single != real)
+        {
+            return Err(("PATH", "Scope authorizes only its registered file"));
+        }
         if !real.starts_with(&self.root) {
             return Err(("PATH", "destino fuera del proyecto"));
         }
@@ -129,9 +177,41 @@ impl Project {
         context: &OperationContext,
         limit: u64,
     ) -> Result<Vec<u8>, Failure> {
+        self.input_bytes(relative, context, limit, false)
+    }
+    pub(crate) fn redacted_input_bytes(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Vec<u8>, Failure> {
+        self.input_bytes(relative, context, limit, true)
+    }
+    fn input_bytes(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+        redacted: bool,
+    ) -> Result<Vec<u8>, Failure> {
+        if self.external && !redacted && external_sensitive(relative) {
+            return Err((
+                "PATH",
+                "External configuration/credential content requires the redacted config tool",
+            ));
+        }
         let limit = limit.min(MAX_FILE);
         context.check()?;
         let path = self.target(relative)?;
+        #[cfg(windows)]
+        let _pins = if self.external {
+            Some(super::edit_commit::pin_directory(
+                self,
+                path.parent().ok_or(("PATH", "Missing parent"))?,
+            )?)
+        } else {
+            None
+        };
         let mut options = File::options();
         options.read(true);
         #[cfg(unix)]
@@ -151,6 +231,22 @@ impl Project {
         let before = file
             .metadata()
             .map_err(|_| ("IO", "no se pudo leer metadata"))?;
+        #[cfg(windows)]
+        if self.external {
+            use std::os::windows::io::AsRawHandle;
+            use windows::Win32::{
+                Foundation::HANDLE,
+                Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle},
+            };
+            let mut identity = BY_HANDLE_FILE_INFORMATION::default();
+            unsafe {
+                GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut identity)
+                    .map_err(|_| ("PATH", "External identity unavailable"))?;
+            }
+            if identity.nNumberOfLinks != 1 {
+                return Err(("PATH", "External hard-linked files are not accepted"));
+            }
+        }
         if !before.is_file() || before.len() > limit {
             return Err(("SIZE", "archivo no admitido o supera límite de lectura"));
         }

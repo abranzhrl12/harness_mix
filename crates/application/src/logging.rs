@@ -34,6 +34,13 @@ fn code(value: Option<&str>) -> Option<&'static str> {
     value.map(|value| match value {
         "PATH" => "PATH",
         "ARGUMENT" => "ARGUMENT",
+        "CONFIG_XML" => "CONFIG_XML",
+        "SECTION" => "SECTION",
+        "AMBIGUOUS_SECTION" => "AMBIGUOUS_SECTION",
+        "AUTHORIZATION" => "AUTHORIZATION",
+        "EXTERNAL_SCOPE" => "EXTERNAL_SCOPE",
+        "EXTERNAL_SCOPE_LIMIT" => "EXTERNAL_SCOPE_LIMIT",
+        "STALE_SCOPE" => "STALE_SCOPE",
         "QUEUE_FULL" => "QUEUE_FULL",
         "CANCELLED" => "CANCELLED",
         "TIMEOUT" => "TIMEOUT",

@@ -93,6 +93,27 @@ Hay dos permisos de coordinación separados de los cuatro permisos de trabajo,
 evitando que los padres agoten todos los cupos necesarios para sus propios hijos.
 Los errores de hijos se conservan por índice y la salida grande usa detalle común.
 
+### XML y permisos externos
+
+ConfigArgs y ExternalScopeArgs son contratos distintos: leer una sección no
+modifica settings; grant/revoke sí mutan el registro y esperan resultado definitivo
+ante cancelación. La aplicación valida/pinea la sesión, usando su gate para estas
+mutaciones. Workspace implementa los adaptadores; el dominio no depende del parser
+XML ni de APIs Windows.
+
+roxmltree vive solo en el adaptador, con DTD/resolver desactivados y presupuesto
+de archivo/nodos/profundidad. El renderer itera sin recursión y solo construye
+salida redactada: texto original y errores del parser nunca llegan al result store.
+Los límites y la política de todos los valores redactados son más estrictos que Node.
+
+NativeWorkspace mantiene un registro de scopes por sesión, acotado y volátil.
+La aprobación FS y la resolución con pins se hacen fuera del mutex del registro;
+solo IDs/paths/identidades/TTL permanecen guardados, no handles ociosos. Un Scoped
+conserva handles de directorio/archivo mientras termina la lectura. Project aplica
+el límite de archivo único, rutas sensibles y pinning de padres/hardlinks en las
+lecturas externas. Solo los adaptadores redactados/metadata pueden consumir bytes
+de configuración externa; no hay puerto de ejecución ni de escritura externo.
+
 ### Conteo file_size
 
 SearchArgs permite query ausente solo para el modo file_size, validado por el

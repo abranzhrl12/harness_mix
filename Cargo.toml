@@ -23,6 +23,7 @@ ignore = "0.4"
 syn = { version = "2", default-features = false, features = ["full", "parsing", "printing"] }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+roxmltree = "=0.21.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

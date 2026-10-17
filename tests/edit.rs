@@ -136,6 +136,7 @@ fn protects_instructions_internal_paths_secrets_and_hardlinks() {
         "PATH"
     );
     let result = app.execute(Request::Read(ReadArgs {
+        external_scope: None,
         path: "original.txt".into(),
         start: 1,
         end: 1,

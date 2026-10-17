@@ -81,6 +81,26 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
+        description = "Registrar/listar/revocar un alcance externo de solo lectura ligado a session durante 1 hora. grant requiere root absoluto y userAuthorized=true, solo si el usuario autorizó esa ruta para la tarea. No inferir autorización de archivos. No permite escritura, ejecución ni carpetas vecinas."
+    )]
+    async fn harness_external_scope(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ExternalScopeArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::ExternalScope(args), context).await
+    }
+    #[tool(
+        description = "Leer una sección XML/config sin devolver valores: todos los atributos y textos se redactan antes de truncar. Sin DTD, entidades externas, configSource ni salida original. Límite 1 MiB, 10000 nodos, profundidad 64. No modifica configuración del runtime."
+    )]
+    async fn harness_config(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ConfigArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Config(args), context).await
+    }
+    #[tool(
         description = "Logs nativos acotados, sin argumentos/rutas/contenido. Filtros limit 1..50, level, tool, slowOnly, requestId y after. Persistencia Windows opt-in con --persist-logs, histórico marcado; no lee logs Node."
     )]
     async fn harness_logs(
@@ -422,6 +442,7 @@ mod tests {
             );
             let recovered = application.clone();
             let request = Request::Read(ReadArgs {
+                external_scope: None,
                 path: "waiting".into(),
                 start: 1,
                 end: 1,

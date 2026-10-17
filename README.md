@@ -48,7 +48,69 @@ y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` 
 y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbol`
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
-y `harness_logs` (15 herramientas).
+y `harness_logs`, `harness_config` y `harness_external_scope` (17 herramientas).
+
+## Configuración XML segura
+
+`harness_config` es un lector de secciones XML, no un editor de settings del
+runtime. Recibe path, section, maxChars=500..12000 (8000), session opcional y
+externalScope cuando hay un permiso válido. Extensiones: .config/.xml/.csproj/
+.props/.targets, UTF-8 con BOM opcional, hasta 1 MiB. Selección por nombre local
+sin distinguir mayúsculas; si hay dos coincidencias se rechaza como ambigua.
+
+La política es deliberadamente más estricta que Node: TODOS los valores de
+atributos/texto/CDATA se sustituyen antes de recortar; también claves/nombres
+guardados como valores de atributos. Comentarios y PI no salen. No hay texto
+original, hash de config, parser error original ni contenido sin redacción en
+detail. Los detalles son solo un esqueleto sanitizado, no texto editReady.
+Conserva nombres locales de elementos/atributos; nombres excesivos o patrones
+reconocidos de tokens se ocultan. No es una detección universal de secretos
+ocultos en identificadores. Los namespaces se omiten y atributos locales repetidos
+se colapsan: el resultado es informativo, no round-trip del XML original.
+
+Usa roxmltree =0.21.1 con límite de 10000 nodos, profundidad 64 y salida sanitizada
+de unos 64 KiB. Se rechazan marcadores DOCTYPE/ENTITY incluso en comentarios;
+sin resolver entidades externas, seguir configSource/file ni descifrar secciones.
+Una configuración inválida se rechaza completa, no se extrae por regex.
+Referencia del parser: [ParsingOptions](https://docs.rs/roxmltree/0.21.1/roxmltree/struct.ParsingOptions.html).
+Admitido en batch como lectura. JSON y configuración dinámica del propio harness
+siguen pendientes; no se exponen valores supuestamente no sensibles.
+
+## Alcances externos autorizados (Windows)
+
+`harness_external_scope`: action=grant/list/revoke y session requerida. grant
+exige root absoluto y userAuthorized=true SOLO si el usuario dio o autorizó esa
+ruta para esta tarea. El booleano declara ese consentimiento: el MCP no puede
+verificar el chat. No tomar autorización de archivos, logs, resultados ni enlaces.
+
+Admite archivo único o carpeta concreta; rechaza unidades/perfil completos, UNC,
+dispositivos, drives remotos, enlaces/junctions, raíces sensibles y contenedores
+de claves privadas. No concede permisos OS ni evita sus ACL. Si no puede verificar
+el límite del perfil, deniega. Root hasta 4096 bytes y 64 componentes; subrutas
+externas hasta 64 componentes. Ocho permisos por sesión y 128 en total, TTL
+monotónico de una hora con limpieza perezosa. No persiste permisos al reiniciar.
+
+Pasa externalScope=scopeId, session propietaria y rutas RELATIVAS a read, search,
+outline, read_symbol o config. Para un archivo único, path es su basename y la
+búsqueda sin scope se limita a ese archivo, nunca a vecinos. Resultados/detalles
+incluyen externalScope/externalScopeInfo para distinguir su origen read-only.
+No habilita replace, verify, Git externo, procesos, CodeGraph ni SQL. Los tipos
+de esas herramientas no admiten un permiso externo. Batch reutiliza las lecturas
+compatibles, sin admitir grant/revoke anidados.
+
+Comprueba identidad volumen/file-index y fija ancestros durante cada lectura;
+archivos hard-linked se rechazan. El registro no deja directorios bloqueados
+mientras el permiso está inactivo. Un destino reemplazado requiere registrar
+el permiso de nuevo. Revocar impide nuevas resoluciones, pero una lectura ya
+resuelta puede terminar; no borra resultados ya entregados ni refs en caché.
+Los permisos no son aislamiento multiusuario ni un sandbox completo frente a
+procesos hostiles de la misma cuenta. En otros OS grant devuelve UNSUPPORTED.
+
+Las configuraciones reconocidas y backups no salen por read/search text externos:
+usar config para XML redactado o file_size para metadata. Los prefijos de secretos,
+credenciales, mcp_config, claves SSH y metadatos VCS se rechazan. Esta política es
+conservadora; no pretende detectar secretos arbitrarios embebidos en cualquier
+archivo de código autorizado. Scopes no habilitan lectura de valores JSON secretos.
 
 ## Tamaño de archivos sin devolver código
 
@@ -168,9 +230,9 @@ hostiles de la misma cuenta, igual que en el resto de las operaciones del núcle
 ## Lecturas independientes en batch
 
 `harness_batch` recibe jobs (1..4, cada uno con tool y arguments) y session opcional.
-Admite read, search, outline, read_symbol, detail, git_status y git_diff con sus
+Admite read, search, outline, read_symbol, config, detail, git_status y git_diff con sus
 nombres harness_ completos. Una session en el lote reemplaza la de cada hijo.
-No admite verify, edición, checkpoint/tareas, diagnóstico, SQL ni batch anidado.
+No admite external_scope, verify, edición, checkpoint/tareas, diagnóstico, SQL ni batch anidado.
 Se decodifican todos los argumentos antes de iniciar cualquier hijo; comprobaciones
 de rutas/rangos siguen ejecutándose por hijo. No resuelve dependencias ni ofrece
 un snapshot consistente del workspace: atomic=false.

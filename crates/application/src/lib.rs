@@ -156,6 +156,22 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
             Request::Bootstrap(args) => self.bootstrap(args, context, &mut lease),
+            Request::ExternalScope(args) => {
+                if matches!(
+                    args.action,
+                    harness_domain::contracts::ExternalScopeAction::List
+                ) {
+                    self.lease(Some(&args.session), &mut lease)
+                        .and_then(|()| self.workspace.external_scope(&args, context))
+                } else {
+                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                        self.workspace.external_scope(&args, context)
+                    })
+                }
+            }
+            Request::Config(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.config(&args, context)),
             Request::Logs(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.metrics.logs.read(&args)),
@@ -463,12 +479,14 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "harness_git_diff",
             "harness_doctor",
             "harness_batch",
-            "harness_logs"
+            "harness_logs",
+            "harness_config",
+            "harness_external_scope"
         ]);
         result["limitations"] = json!([
             "Edición Windows solo Rust/JSON/texto; navegación de símbolos solo Rust, sin SQL ni otros parsers",
             "Navegación sintáctica: sin locales, expansión de macros ni relaciones CodeGraph",
-            "Búsqueda text/files/file_size; sin syntax ni scopes externos",
+            "Búsqueda text/files/file_size; sin syntax. Scopes externos Windows solo lectura, sin ejecución",
             "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
             "Verificación solo Rust; ejecuta código del proyecto, no es un sandbox",
             "Git solo lectura; requiere git instalado y raíz con .git directorio, sin linked worktrees",
@@ -484,6 +502,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if is_new || args.include_rules.unwrap_or(false) {
             result["routing"] = json!([
                 {"need":"plan declarado y timeline observado de sesión","tool":"harness_tasks"},
+                {"need":"sección XML con todos sus valores redactados","tool":"harness_config"},
+                {"need":"leer una ruta externa expresamente autorizada por el usuario; requiere sesión y consentimiento real","tool":"harness_external_scope"},
                 {"need":"eventos recientes sin argumentos ni contenido","tool":"harness_logs"},
                 {"need":"1–4 lecturas independientes, nunca pasos dependientes","tool":"harness_batch"},
                 {"need":"diagnóstico local sin builds; versiones opcionales","tool":"harness_doctor"},

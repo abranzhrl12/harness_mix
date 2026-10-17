@@ -14,6 +14,8 @@ pub struct BootstrapArgs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ReadArgs {
+    #[serde(rename = "externalScope")]
+    pub external_scope: Option<String>,
     pub path: String,
     pub start: usize,
     pub end: usize,
@@ -45,6 +47,8 @@ pub enum Kind {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SearchArgs {
+    #[serde(rename = "externalScope")]
+    pub external_scope: Option<String>,
     pub kind: Kind,
     #[serde(default)]
     pub query: String,
@@ -90,6 +94,8 @@ pub struct ReplaceArgs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct OutlineArgs {
+    #[serde(rename = "externalScope")]
+    pub external_scope: Option<String>,
     pub path: String,
     pub query: Option<String>,
     #[serde(rename = "maxChars")]
@@ -109,6 +115,8 @@ pub enum SymbolView {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ReadSymbolArgs {
+    #[serde(rename = "externalScope")]
+    pub external_scope: Option<String>,
     pub path: String,
     pub symbol: String,
     pub container: Option<String>,
@@ -185,6 +193,8 @@ pub struct GitDiffArgs {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BatchTool {
+    #[serde(rename = "harness_config")]
+    Config,
     #[serde(rename = "harness_read")]
     Read,
     #[serde(rename = "harness_search")]
@@ -222,6 +232,7 @@ impl BatchJob {
         }
         let value = Value::Object(self.arguments);
         let decoded = match self.tool {
+            BatchTool::Config => serde_json::from_value(value).map(Request::Config),
             BatchTool::Read => serde_json::from_value(value).map(Request::Read),
             BatchTool::Search => serde_json::from_value(value).map(Request::Search),
             BatchTool::Outline => serde_json::from_value(value).map(Request::Outline),
@@ -235,6 +246,8 @@ impl BatchJob {
 }
 
 pub enum Request {
+    ExternalScope(ExternalScopeArgs),
+    Config(ConfigArgs),
     Logs(LogsArgs),
     Batch(BatchArgs),
     Doctor(DoctorArgs),
@@ -256,6 +269,10 @@ impl Request {
         matches!(
             self,
             Self::Replace(_)
+                | Self::ExternalScope(ExternalScopeArgs {
+                    action: ExternalScopeAction::Grant | ExternalScopeAction::Revoke,
+                    ..
+                })
                 | Self::Tasks(TasksArgs {
                     action: Some(TasksAction::Update),
                     ..
@@ -264,6 +281,8 @@ impl Request {
     }
     pub fn name(&self) -> &'static str {
         match self {
+            Self::ExternalScope(_) => "harness_external_scope",
+            Self::Config(_) => "harness_config",
             Self::Logs(_) => "harness_logs",
             Self::Batch(_) => "harness_batch",
             Self::Doctor(_) => "harness_doctor",
@@ -283,6 +302,8 @@ impl Request {
     }
     pub fn arguments(&self) -> Value {
         match self {
+            Self::ExternalScope(args) => serde_json::to_value(args),
+            Self::Config(args) => serde_json::to_value(args),
             Self::Logs(args) => serde_json::to_value(args),
             Self::Batch(args) => serde_json::to_value(args),
             Self::Doctor(args) => serde_json::to_value(args),
@@ -311,6 +332,40 @@ pub struct DoctorArgs {
     pub versions: Option<bool>,
     pub connection: Option<bool>,
     pub session: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ConfigArgs {
+    pub path: String,
+    pub section: String,
+    #[serde(rename = "maxChars")]
+    pub max_chars: Option<usize>,
+    #[serde(rename = "externalScope")]
+    pub external_scope: Option<String>,
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalScopeAction {
+    Grant,
+    List,
+    Revoke,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ExternalScopeArgs {
+    pub action: ExternalScopeAction,
+    pub session: String,
+    pub root: Option<String>,
+    #[serde(rename = "userAuthorized")]
+    pub user_authorized: Option<bool>,
+    #[serde(rename = "scopeId")]
+    pub scope_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

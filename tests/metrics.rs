@@ -7,6 +7,7 @@ use serde_json::Value;
 
 fn request() -> Request {
     Request::Read(ReadArgs {
+        external_scope: None,
         path: "private-path-not-retained.txt".into(),
         start: 1,
         end: 1,
@@ -32,6 +33,7 @@ fn clones_share_metrics_but_restarts_and_sessions_do_not_restore_counters() {
     let clone = app.clone();
     assert_eq!(
         clone.execute(Request::Read(ReadArgs {
+            external_scope: None,
             path: "good.txt".into(),
             start: 1,
             end: 1,

@@ -171,7 +171,12 @@ pub fn search_with_context(
                 } else {
                     2 * 1024 * 1024
                 };
-                let file = match project.bytes_with_limit(relative, context, cap) {
+                let read = if file_size {
+                    project.redacted_input_bytes(relative, context, cap)
+                } else {
+                    project.bytes_with_limit(relative, context, cap)
+                };
+                let file = match read {
                     Ok(file) => file,
                     Err((code, _)) if code == "CANCELLED" || code == "TIMEOUT" => {
                         cancelled = code == "CANCELLED";
@@ -318,6 +323,7 @@ mod tests {
         }
         let p = Project::new(dir.path()).unwrap();
         let args = SearchArgs {
+            external_scope: None,
             min_lines: None,
             kind: Kind::Text,
             query: "needle".into(),
@@ -337,6 +343,7 @@ mod tests {
         fs::write(dir.path().join("a[1].txt"), "text").unwrap();
         let p = Project::new(dir.path()).unwrap();
         let mut args = SearchArgs {
+            external_scope: None,
             min_lines: None,
             kind: Kind::Files,
             query: "[1]".into(),
@@ -366,6 +373,7 @@ mod tests {
         fs::write(dir.path().join("small.txt"), "needle\n").unwrap();
         let p = Project::new(dir.path()).unwrap();
         let args = SearchArgs {
+            external_scope: None,
             min_lines: None,
             kind: Kind::Text,
             query: "needle".into(),

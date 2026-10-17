@@ -7,6 +7,20 @@ use serde_json::Value;
 
 /// Platform-dependent I/O. Implementations enforce filesystem safety and scan budgets.
 pub trait Workspace: Send + Sync {
+    fn external_scope(
+        &self,
+        _args: &harness_domain::contracts::ExternalScopeArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "External scope adapter unavailable"))
+    }
+    fn config(
+        &self,
+        _args: &harness_domain::contracts::ConfigArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Configuration section adapter unavailable"))
+    }
     fn log_persistence_enabled(&self) -> bool {
         false
     }

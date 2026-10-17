@@ -158,6 +158,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
         MemorySessions::default(),
     );
     let read = app.execute(Request::Read(ReadArgs {
+        external_scope: None,
         path: "a.txt".into(),
         start: 1,
         end: 1,
@@ -166,6 +167,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
     assert_eq!(read["scope"], json!({"tool":"harness_read","path":"a.txt"}));
     let search = app.execute(Request::Search(SearchArgs {
+        external_scope: None,
         min_lines: None,
         kind: Kind::Text,
         query: "a".into(),
@@ -176,6 +178,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(search["diagnostics"][0]["code"], "SESSION");
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let read = app.execute(Request::Read(ReadArgs {
+        external_scope: None,
         path: "a.txt".into(),
         start: 1,
         end: 1,
@@ -215,6 +218,7 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
 
 fn read_request() -> Request {
     Request::Read(ReadArgs {
+        external_scope: None,
         path: "a.txt".into(),
         start: 1,
         end: 1,
@@ -223,6 +227,7 @@ fn read_request() -> Request {
 }
 fn search_request() -> Request {
     Request::Search(SearchArgs {
+        external_scope: None,
         min_lines: None,
         kind: Kind::Text,
         query: "a".into(),
@@ -329,6 +334,7 @@ fn cancellation_and_timeout_are_distinct_and_do_not_leak_session_leases() {
         "timeout"
     );
     let read = Request::Read(ReadArgs {
+        external_scope: None,
         path: "a.txt".into(),
         start: 1,
         end: 1,

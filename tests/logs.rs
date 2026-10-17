@@ -20,6 +20,7 @@ fn logs_filter_worker_failures_without_paths_arguments_or_contents() {
     let root = tempfile::tempdir().unwrap();
     let app = adapters::application(root.path()).unwrap();
     app.execute(Request::Read(ReadArgs {
+        external_scope: None,
         path: "secret-request-path.txt".into(),
         start: 1,
         end: 1,
@@ -48,6 +49,7 @@ fn cancelled_rejections_and_abandoned_work_are_warnings() {
     let app = adapters::application(root.path()).unwrap();
     let request = || {
         Request::Read(ReadArgs {
+            external_scope: None,
             path: "x".into(),
             start: 1,
             end: 1,
@@ -83,6 +85,7 @@ fn request_ids_correlate_completed_rejected_and_abandoned_operations() {
     let app = adapters::application(root.path()).unwrap();
     let request = || {
         Request::Read(ReadArgs {
+            external_scope: None,
             path: "x".into(),
             start: 1,
             end: 1,
