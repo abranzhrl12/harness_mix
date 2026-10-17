@@ -49,6 +49,13 @@ sin convertir entradas de herramientas en comandos de shell.
 
 ### Procesos y verificación (0.4.0)
 
+JavaScript añade un Program::Node opcional y un plan cerrado, no un runtime del
+harness ni un segundo servidor. Check/test aceptan un archivo validado y usan
+el mismo ejecutor/gate. NODE_OPTIONS/NODE_PATH se vacían solo en el hijo; la ruta
+relativa con prefijo ./ evita flags y problemas del globber Windows con verbatim.
+Se rechazan globs, no se invoca npm ni se instala nada. Los tests/imports siguen
+siendo código con los permisos del usuario, no un sandbox ni una prueba de cobertura.
+
 Python añade solo un plan de proceso y un Program cerrado al mismo puerto.
 Build exige archivo .py y usa py_compile; test exige directorio y usa unittest
 discover con patrón fijo. Los argumentos -I/-S impiden hooks de arranque/config

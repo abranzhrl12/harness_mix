@@ -57,6 +57,7 @@ pub(super) fn capabilities() -> Value {
         ("git", harness_domain::process::Program::Git),
         ("go", harness_domain::process::Program::Go),
         ("python", harness_domain::process::Program::Python),
+        ("node", harness_domain::process::Program::Node),
     ] {
         available[name] = json!(super::process::executable(program).is_ok());
     }

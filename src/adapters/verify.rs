@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    if args.language.eq_ignore_ascii_case("javascript") || args.language.eq_ignore_ascii_case("js")
+    {
+        return javascript_plan(project, args);
+    }
     if args.language.eq_ignore_ascii_case("python") {
         return python_plan(project, args);
     }
@@ -20,7 +24,7 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if !args.language.eq_ignore_ascii_case("rust") {
         return Err((
             "UNSUPPORTED",
-            "Only Rust, Go and Python verification are migrated",
+            "Only Rust, Go, Python and JavaScript verification are migrated",
         ));
     }
     let scope = args.scope.as_deref().unwrap_or(".");
@@ -61,6 +65,59 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
             "--color".into(),
             "never".into(),
         ],
+        Duration::from_secs(30),
+        2 * 1024 * 1024,
+    )
+}
+
+fn javascript_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    let scope = args
+        .scope
+        .as_deref()
+        .ok_or(("VERIFY_SCOPE", "JavaScript requires an explicit file"))?;
+    if scope.len() > 4096 {
+        return Err(("PATH", "Scope too long"));
+    }
+    let target = project.target(scope)?;
+    if !target.is_file()
+        || !target
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ["js", "cjs", "mjs"].contains(&ext))
+    {
+        return Err((
+            "VERIFY_SCOPE",
+            "JavaScript scope must be a .js/.cjs/.mjs file",
+        ));
+    }
+    let mut arguments = if matches!(args.action, Some(VerifyAction::Test)) {
+        vec![
+            "--test".into(),
+            "--test-reporter=tap".into(),
+            "--test-concurrency=1".into(),
+        ]
+    } else {
+        vec!["--check".into()]
+    };
+    let relative = target
+        .strip_prefix(&project.root)
+        .ok()
+        .and_then(|path| path.to_str())
+        .ok_or(("PATH", "JavaScript scope must be relative UTF-8"))?;
+    if relative.contains(['*', '?', '[', ']', '{', '}', '(', ')', '!']) {
+        return Err((
+            "VERIFY_SCOPE",
+            "JavaScript scope cannot contain glob metacharacters",
+        ));
+    }
+    #[cfg(windows)]
+    let relative = relative.replace('\\', "/");
+    // Node's Windows test globber does not reliably accept verbatim \\?\ paths.
+    // Prefix prevents option injection; the path was resolved and validated above.
+    arguments.push(format!("./{relative}"));
+    ProcessSpec::new(
+        Program::Node,
+        arguments,
         Duration::from_secs(30),
         2 * 1024 * 1024,
     )
@@ -199,7 +256,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":match spec.program() { Program::Go => "go", Program::Python => "python", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":match spec.program() { Program::Go => "go", Program::Python => "python", Program::Node => "javascript", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -213,6 +270,14 @@ pub(super) fn verify(
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });
+    if spec.program() == Program::Node {
+        result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
+            "node_test_file"
+        } else {
+            "node_syntax_check"
+        });
+        result["testCountVerified"] = json!(false);
+    }
     if spec.program() == Program::Python {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "unittest_discovery"
@@ -237,6 +302,121 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn javascript_plan_uses_closed_commands_for_explicit_files() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for extension in ["js", "cjs", "mjs"] {
+            let scope = format!("file with spaces.{extension}");
+            std::fs::write(
+                root.path().join(&scope),
+                "throw new Error('not executed by check');",
+            )
+            .unwrap();
+            for action in [VerifyAction::Build, VerifyAction::Test] {
+                let test = matches!(action, VerifyAction::Test);
+                let spec = plan(
+                    &project,
+                    &VerifyArgs {
+                        language: "JS".into(),
+                        scope: Some(scope.clone()),
+                        action: Some(action),
+                        session: None,
+                    },
+                )
+                .unwrap();
+                assert_eq!(spec.program(), Program::Node);
+                assert_eq!(spec.arguments()[0], if test { "--test" } else { "--check" });
+                assert!(spec.arguments().last().unwrap().ends_with(&scope));
+                assert_eq!(
+                    spec.arguments().contains(&"--test-concurrency=1".into()),
+                    test
+                );
+                assert_eq!(spec.arguments().len(), if test { 4 } else { 2 });
+            }
+        }
+    }
+
+    #[test]
+    fn javascript_rejects_implicit_scope_typescript_and_path_injection() {
+        let root = tempfile::tempdir().unwrap();
+        for file in ["a.ts", "a.jsx", "a.json", "pattern[1].js"] {
+            std::fs::write(root.path().join(file), "{}").unwrap();
+        }
+        let project = Project::new(root.path()).unwrap();
+        for scope in [
+            None,
+            Some("."),
+            Some("a.ts"),
+            Some("a.jsx"),
+            Some("a.json"),
+            Some("pattern[1].js"),
+            Some("../a.js"),
+            Some("--eval"),
+            Some("C:/a.js"),
+        ] {
+            let args = VerifyArgs {
+                language: "javascript".into(),
+                scope: scope.map(String::from),
+                action: None,
+                session: None,
+            };
+            assert!(plan(&project, &args).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires installed Node.js with builtin test runner; run explicitly"]
+    fn real_javascript_check_tests_and_failures() {
+        super::super::process::executable(Program::Node)
+            .expect("Node unavailable in absolute PATH");
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("check with spaces.cjs"),
+            "throw new Error('syntax check must not execute');\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("example.mjs"), "export const value = 4;\n").unwrap();
+        std::fs::write(root.path().join("fixture.test.cjs"), "const test=require('node:test'); const assert=require('node:assert/strict'); test('fixture',()=>assert.equal(2+2,4));\n").unwrap();
+        let app = super::super::application(root.path()).unwrap();
+        let call = |scope: &str, action| {
+            app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                language: "javascript".into(),
+                scope: Some(scope.into()),
+                action: Some(action),
+                session: None,
+            }))
+        };
+        for scope in ["check with spaces.cjs", "example.mjs"] {
+            let result = call(scope, VerifyAction::Build);
+            assert_eq!(result["state"], "ok", "{result}");
+            assert_eq!(result["scope"]["language"], "javascript");
+            assert_eq!(result["data"]["verificationMode"], "node_syntax_check");
+        }
+        let test = call("fixture.test.cjs", VerifyAction::Test);
+        assert_eq!(test["state"], "ok", "{test}");
+        assert!(
+            test["data"]["output"]
+                .as_str()
+                .unwrap()
+                .contains("# pass 1")
+        );
+        assert_eq!(test["data"]["testCountVerified"], false);
+        std::fs::write(root.path().join("fixture.test.cjs"), "const test=require('node:test'); test('bad',()=>{throw new Error('expected failure')});\n").unwrap();
+        let failed = call("fixture.test.cjs", VerifyAction::Test);
+        assert_eq!(failed["state"], "error", "{failed}");
+        assert_eq!(failed["diagnostics"][0]["code"], "VERIFY_FAILED");
+        std::fs::write(
+            root.path().join("check with spaces.cjs"),
+            "function broken( {",
+        )
+        .unwrap();
+        assert_eq!(
+            call("check with spaces.cjs", VerifyAction::Build)["state"],
+            "error"
+        );
+    }
 
     #[test]
     fn python_plans_use_isolated_stdlib_commands_and_validated_scopes() {
@@ -485,7 +665,7 @@ mod tests {
             args.scope = Some(scope.into());
             assert!(plan(&project, &args).is_err(), "{scope}");
         }
-        args.language = "javascript".into();
+        args.language = "typescript".into();
         assert_eq!(plan(&project, &args).unwrap_err().0, "UNSUPPORTED");
     }
 }

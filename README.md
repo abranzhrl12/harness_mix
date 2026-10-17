@@ -542,8 +542,39 @@ Unix usa un grupo de procesos; no impide escapar con setsid y no confirma cierre
 de todo el árbol. Las pruebas de procesos de esta etapa se ejecutaron en Windows.
 
 No tiene aún paridad con Node: no migra configuración de verificadores personalizados,
-lenguajes distintos de Rust/Go/Python ni diagnósticos Rust estructurados. Node usaba Cargo check con
+lenguajes distintos de Rust/Go/Python/JavaScript ni diagnósticos Rust estructurados. Node usaba Cargo check con
 scope de paquete; esta versión usa build/test con scope de ruta explícito.
+
+## Verificación JavaScript nativa (parcial)
+
+`harness_verify` acepta language="javascript" o "js", scope explícito de un archivo
+.js/.cjs/.mjs local, action="build"|"test". build significa comprobación sintáctica
+con `node --check`, sin ejecutar el archivo; no transpila, empaqueta ni resuelve
+imports para verificar sus dependencias. test ejecuta únicamente la ruta indicada
+con `node --test --test-reporter=tap --test-concurrency=1`. Requiere Node compatible
+con estas opciones (probado con Node 22); no ejecuta npm, scripts de package.json,
+Jest/Vitest ni instala paquetes. JSX/TypeScript y directorios se rechazan.
+
+El harness sigue siendo un ejecutable Rust sin node_modules. Node es un runtime
+externo opcional para proyectos JavaScript, como Python/Go/Cargo para sus lenguajes:
+si falta, solo esta verificación devuelve PROCESS_EXECUTABLE. Las demás herramientas
+nativas siguen disponibles sin Node. Bootstrap/doctor lo descubren con PATH absoluto.
+
+El hijo recibe NODE_OPTIONS y NODE_PATH vacíos, sin NODE_V8_COVERAGE heredado.
+No se alteran variables globales. Las rutas se validan dentro del workspace y se
+pasan como ./ruta, evitando el problema del prefijo Windows verbatim en el runner;
+se rechazan metacaracteres glob para no ampliar el archivo solicitado. No acepta
+flags del usuario ni scopes externos. Los imports del proyecto sí pueden ejecutar
+código y acceder a red/archivos: no es sandbox ni auditoría de dependencias.
+
+Comparte el plazo de 30 s, salida 2 MiB, cancelación, Job Objects, gate y huella
+local parcial. verificationMode distingue node_syntax_check y node_test_file.
+passed solo refleja exit code cero; testCountVerified=false, sin certificar cantidad
+ni cobertura de tests. La salida puede contener fuente o secretos del proyecto.
+Prueba real opt-in: `cargo test --locked --lib real_javascript_check_tests_and_failures -- --ignored --nocapture`.
+Se probaron CommonJS/ESM, check sin ejecutar, tests aprobados/fallidos y sintaxis
+inválida con Node instalado, sin paquetes adicionales.
+Referencia: [CLI de Node 22](https://nodejs.org/download/release/v22.16.0/docs/api/cli.html).
 
 ## Verificación Python nativa (parcial)
 

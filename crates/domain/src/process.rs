@@ -10,6 +10,7 @@ pub enum Program {
     Git,
     Go,
     Python,
+    Node,
 }
 
 #[derive(Debug)]

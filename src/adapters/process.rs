@@ -40,6 +40,7 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
         Program::Git => "git",
         Program::Go => "go",
         Program::Python => "python",
+        Program::Node => "node",
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")
@@ -94,6 +95,13 @@ fn go_environment(command: &mut Command) {
         .env_remove("GOEXPERIMENT");
 }
 
+fn node_environment(command: &mut Command) {
+    command
+        .env("NODE_OPTIONS", "")
+        .env("NODE_PATH", "")
+        .env_remove("NODE_V8_COVERAGE");
+}
+
 impl ProcessRunner for NativeProcessRunner {
     fn run(
         &self,
@@ -103,6 +111,9 @@ impl ProcessRunner for NativeProcessRunner {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
+        if spec.program() == Program::Node {
+            node_environment(&mut command);
+        }
         if spec.program() == Program::Go {
             // Closed local-toolchain policy, not a sandbox for project/test code.
             go_environment(&mut command);
@@ -315,6 +326,25 @@ fn run_command(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn node_policy_clears_preloads_and_inherited_module_paths() {
+        let mut command = std::process::Command::new("unused-fixture");
+        command
+            .env("NODE_OPTIONS", "--require=private-hook")
+            .env("NODE_PATH", "private-path")
+            .env("NODE_V8_COVERAGE", "private-output");
+        super::node_environment(&mut command);
+        let env: std::collections::BTreeMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            env[std::ffi::OsStr::new("NODE_OPTIONS")],
+            Some(std::ffi::OsStr::new(""))
+        );
+        assert_eq!(
+            env[std::ffi::OsStr::new("NODE_PATH")],
+            Some(std::ffi::OsStr::new(""))
+        );
+        assert_eq!(env[std::ffi::OsStr::new("NODE_V8_COVERAGE")], None);
+    }
     #[test]
     fn go_policy_overrides_injected_flags_and_disables_downloads() {
         let mut command = std::process::Command::new("unused-fixture");

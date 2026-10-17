@@ -32,7 +32,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
-| `harness_verify` | Parcial | Rust/Go/Python; Python py_compile de archivo o unittest de directorio, sin pytest |
+| `harness_verify` | Parcial | Rust/Go/Python/JS; JS archivo check/test sin npm; faltan .NET y paridad completa |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
 | `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
 | `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
@@ -60,6 +60,14 @@ microservicios para escalar las capacidades de este ejecutable.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
 ### Último bloque implementado
+
+Verificador JavaScript por argumentos cerrados, archivo .js/.cjs/.mjs y Node
+opcional: --check o --test, sin npm ni instalación. Entorno del hijo sin preloads
+NODE_OPTIONS/NODE_PATH y sin cobertura heredada. Rutas relativas validadas y
+glob rechazado; conserva ejecutor, gate, límites y huella existentes. El núcleo
+Rust no incorpora dependencias Node. Faltan TS/JSX, runners npm y build de bundles.
+
+### Bloque anterior: verificación Python
 
 Verificador Python nativo por comandos stdlib cerrados, con -I/-S: compilación
 sintáctica de archivo explícito o unittest discovery de directorio explícito.
@@ -201,7 +209,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 130 pruebas Rust cubren configuración, alcances, búsqueda y planes de verificación Rust/Go/Python.
+- 134 pruebas Rust cubren configuración, alcances, búsqueda y planes de verificación Rust/Go/Python/JS.
+- Prueba JavaScript opt-in pasó con Node real: check, tests y fallos, sin paquetes adicionales.
 - Prueba Python opt-in pasó con intérprete real: compilación, unittest y fallos esperados.
 - Prueba real Go opt-in: build/test/fallo de compilación pasaron en Windows con caché preparada.
 - La primera compilación de tests Go agotó 30 s; no se amplió el límite ni se marcó éxito.
@@ -251,7 +260,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [ ] Navegación, validación y edición para los demás lenguajes requeridos.
 - [x] Verificación Go parcial del paquete raíz de módulo, sin descargas/cgo/workspaces.
 - [x] Verificación Python parcial: py_compile de archivo y unittest de directorio.
-- [ ] Verificación de .NET, JavaScript y paridad completa de Python/Go/otros adaptadores.
+- [x] Verificación JavaScript parcial con node --check/--test de archivo explícito.
+- [ ] Verificación de .NET y paridad completa de JavaScript/Python/Go/otros adaptadores.
 
 ### 3. Relaciones e integraciones
 
