@@ -148,7 +148,20 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
         current["data"]["observedByHarness"]["checks"][0]["ok"],
         true
     );
-    assert!(current["data"]["observedByHarness"]["checks"][0]["current"].is_null());
+    assert_ne!(
+        current["data"]["observedByHarness"]["checks"][0]["current"],
+        true
+    );
+    if result["data"]["workspaceObservation"]["status"] == "changed" {
+        assert_eq!(
+            current["data"]["observedByHarness"]["checks"][0]["current"],
+            false
+        );
+        assert_eq!(
+            current["data"]["observedByHarness"]["checks"][0]["invalidation"]["reason"],
+            "workspace_changed_during_verification"
+        );
+    }
     assert!(
         current["data"]["observedByHarness"]["checks"][0]["time"]
             .as_str()
@@ -159,6 +172,11 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
     let app = adapters::application(root.path()).unwrap();
     let restored = checkpoint(&app, &id, None, false);
     assert_eq!(restored["data"]["historical"]["checks"][0]["ok"], true);
+    assert_eq!(
+        restored["data"]["historical"]["checks"][0]["historical"],
+        true
+    );
+    assert!(restored["data"]["historical"]["checks"][0]["current"].is_null());
     assert!(
         restored["data"]["observedByHarness"]["checks"]
             .as_array()
@@ -239,13 +257,79 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
         "local_workspace_changed",
         "{changed}"
     );
-    // Refresh is response-only, not a stored claim that can silently become stale.
+    assert_eq!(
+        changed["data"]["observedByHarness"]["checks"][1]["current"],
+        false
+    );
+    // Retain invalidation without caching a positive freshness assessment.
     let plain = checkpoint(&app, &id, None, false);
+    assert_eq!(
+        plain["data"]["observedByHarness"]["checks"][1]["current"],
+        false
+    );
     assert!(
         plain["data"]["observedByHarness"]["checks"][1]
             .get("localFreshness")
             .is_none()
     );
+    // Reverting content must not resurrect an invalidated check.
+    std::fs::write(root.path().join("src/lib.rs"), "pub fn sample() {}\n").unwrap();
+    let reverted = checkpoint(&app, &id, None, true);
+    let old_check = &reverted["data"]["observedByHarness"]["checks"][1];
+    assert_eq!(
+        old_check["localFreshness"]["status"],
+        "matches_local_workspace"
+    );
+    assert_eq!(old_check["current"], false);
+    assert_eq!(old_check["invalidation"]["requiresRerun"], true);
+    let rerun = app.execute(Request::Verify(VerifyArgs {
+        language: "rust".into(),
+        scope: None,
+        action: Some(VerifyAction::Build),
+        session: Some(id.clone()),
+    }));
+    assert_eq!(rerun["state"], "ok", "{rerun}");
+    let after_rerun = checkpoint(&app, &id, None, true);
+    let checks = &after_rerun["data"]["observedByHarness"]["checks"];
+    assert_eq!(checks[1]["current"], false);
+    assert!(checks[2]["current"].is_null());
+    assert_eq!(checks[2]["action"], "build");
+    assert_eq!(
+        checks[2]["localFreshness"]["status"],
+        "matches_local_workspace"
+    );
+    // A later verify also observes external changes without an explicit refresh.
+    std::fs::write(root.path().join("README.md"), "new local input\n").unwrap();
+    let next = app.execute(Request::Verify(VerifyArgs {
+        language: "rust".into(),
+        scope: None,
+        action: Some(VerifyAction::Build),
+        session: Some(id.clone()),
+    }));
+    assert_eq!(next["state"], "ok", "{next}");
+    let plain = checkpoint(&app, &id, None, false);
+    let checks = &plain["data"]["observedByHarness"]["checks"];
+    assert_eq!(checks[2]["current"], false);
+    assert_eq!(
+        checks[2]["invalidation"]["reason"],
+        "local_workspace_changed"
+    );
+    assert!(checks[3]["current"].is_null());
+    #[cfg(windows)]
+    {
+        let edit = app.execute(Request::Replace(ReplaceArgs {
+            session: Some(id.clone()),
+            path: "src/lib.rs".into(),
+            hash: harness_domain::hash(b"pub fn sample() {}\n"),
+            old_text: "sample".into(),
+            new_text: "changed".into(),
+        }));
+        assert_eq!(edit["state"], "ok", "{edit}");
+        let edited = checkpoint(&app, &id, None, false);
+        let check = &edited["data"]["observedByHarness"]["checks"][3];
+        assert_eq!(check["current"], false);
+        assert_eq!(check["invalidation"]["reason"], "harness_edit_applied");
+    }
     std::fs::write(root.path().join(".env"), "restricted fixture").unwrap();
     let unknown = checkpoint(&app, &id, Some("goal can still be saved"), true);
     assert_eq!(unknown["state"], "ok", "{unknown}");

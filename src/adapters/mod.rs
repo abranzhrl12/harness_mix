@@ -6,9 +6,32 @@ mod doctor;
 mod edit;
 mod edit_commit;
 mod edit_security;
+mod explore;
 mod external_scopes;
 mod fingerprint;
 mod git;
+pub mod index_extract;
+mod index_freshness;
+mod index_inventory;
+#[cfg(windows)]
+pub mod index_store;
+#[cfg(not(windows))]
+pub mod index_store {
+    pub fn sync_workspace(
+        _: &std::path::Path,
+        _: &harness_domain::execution::OperationContext,
+    ) -> Result<serde_json::Value, harness_domain::Failure> {
+        Err(("UNSUPPORTED", "Native index publication requires Windows path pinning"))
+    }
+    pub fn sync_file(
+        _: &std::path::Path,
+        _: &str,
+        _: &harness_domain::execution::OperationContext,
+    ) -> Result<serde_json::Value, harness_domain::Failure> {
+        Err(("UNSUPPORTED", "Native index publication requires Windows path pinning"))
+    }
+}
+pub mod index_sync;
 pub mod process;
 mod process_tree;
 mod project;
@@ -19,6 +42,8 @@ mod session_workflow;
 mod sessions;
 mod symbols;
 mod verify;
+pub mod sql;
+pub mod xlsx;
 
 use harness_application::{
     Application,
@@ -99,6 +124,13 @@ impl NativeWorkspace {
 }
 
 impl Workspace for NativeWorkspace {
+    fn explore(
+        &self,
+        args: &harness_domain::contracts::ExploreArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        explore::explore(&self.project, args, context)
+    }
     fn external_scope(
         &self,
         args: &harness_domain::contracts::ExternalScopeArgs,
@@ -194,6 +226,58 @@ impl Workspace for NativeWorkspace {
         context: &OperationContext,
     ) -> Result<Value, Failure> {
         git::diff(&self.project, args, context)
+    }
+    fn sql_status(
+        &self,
+        args: &harness_domain::sql::SqlStatusArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        sql::status(&self.project, args, context)
+    }
+    fn sql_search(
+        &self,
+        args: &harness_domain::sql::SqlSearchArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        sql::search(&self.project, args, context)
+    }
+    fn sql_describe(
+        &self,
+        args: &harness_domain::sql::SqlDescribeArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        sql::describe(&self.project, args, context)
+    }
+    fn sql_query(
+        &self,
+        args: &harness_domain::sql::SqlQueryArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        sql::query(&self.project, args, context)
+    }
+    fn xlsx_inspect(
+        &self,
+        args: &harness_domain::xlsx::XlsxInspectArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| xlsx::inspect(project, args, context),
+        )
+    }
+    fn xlsx_read(
+        &self,
+        args: &harness_domain::xlsx::XlsxReadArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| xlsx::read(project, args, context),
+        )
     }
     fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {
         let captured = fingerprint::capture(&self.project, context);
@@ -335,6 +419,13 @@ impl Workspace for NativeWorkspace {
 }
 
 impl SessionRepository for sessions::Sessions {
+    fn invalidate_checks(&mut self, id: &str, observation: &Value) -> Result<(), Failure> {
+        harness_domain::freshness::invalidate_observed_checks(
+            &mut self.get(id)?.observed_checks,
+            observation,
+        );
+        Ok(())
+    }
     fn workflow_gate(&mut self, id: &str) -> Result<std::sync::Arc<std::sync::Mutex<()>>, Failure> {
         Ok(self.get(id)?.workflow_gate.clone())
     }

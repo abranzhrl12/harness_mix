@@ -1,4 +1,6 @@
 use serde_json::{Value, json};
+#[path = "support/codegraph.rs"]
+mod graph_fixture;
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Child, Command, Stdio},
@@ -62,6 +64,47 @@ impl Server {
             }
         }
     }
+}
+
+#[test]
+fn graph_exploration_reads_existing_index_with_empty_path() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    db.execute("INSERT INTO edges VALUES(4,'d','c','calls')", [])
+        .unwrap();
+    drop(db);
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let result = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_explore","arguments":{"query":"target"}}),
+    );
+    let result = &result["result"]["structuredContent"];
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(
+        result["data"]["graph"]["edges"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(result["data"]["focus"]["status"], "resolved");
+    let deeper = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","direction":"outbound","maxDepth":2}}));
+    let deeper = &deeper["result"]["structuredContent"];
+    assert_eq!(deeper["state"], "ok", "{deeper}");
+    assert_eq!(
+        deeper["data"]["graph"]["traversal"]["nodeDepths"]["c"]["outbound"],
+        2
+    );
+    let matching = server.request(4, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","requireMatchingFiles":true}}));
+    assert_eq!(
+        matching["result"]["structuredContent"]["data"]["fileFreshness"]["status"],
+        "matches_observed_files"
+    );
+    std::fs::write(root.path().join("lib.rs"), "pub fn target() {}\n").unwrap();
+    let stale = server.request(5, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","requireMatchingFiles":true}}));
+    assert_eq!(
+        stale["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "INDEX_STALE"
+    );
 }
 
 #[test]
@@ -543,9 +586,13 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 17);
+    assert_eq!(names.len(), 24);
+    assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));
+    assert!(names.contains(&"harness_sql_status") && names.contains(&"harness_sql_search"));
+    assert!(names.contains(&"harness_sql_describe") && names.contains(&"harness_sql_query"));
+    assert!(names.contains(&"harness_xlsx_inspect") && names.contains(&"harness_xlsx_read"));
     let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));
     assert_eq!(
         sizes["result"]["structuredContent"]["state"], "ok",

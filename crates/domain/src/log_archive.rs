@@ -40,6 +40,7 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
             || !event["tool"].as_str().is_some_and(|s| {
                 [
                     "harness_bootstrap",
+                    "harness_explore",
                     "harness_read",
                     "harness_detail",
                     "harness_search",
@@ -94,6 +95,11 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "GIT_REPO",
                     "GIT_READ",
                     "GIT_SIZE",
+                    "INDEX",
+                    "INDEX_STALE",
+                    "INDEX_UNCHECKED",
+                    "GRAPH_CONTRACT",
+                    "GRAPH_LIMIT",
                     "SESSION_BUSY",
                     "INTERNAL",
                     "TOOL_ERROR",

@@ -7,6 +7,13 @@ use serde_json::Value;
 
 /// Platform-dependent I/O. Implementations enforce filesystem safety and scan budgets.
 pub trait Workspace: Send + Sync {
+    fn explore(
+        &self,
+        _args: &harness_domain::contracts::ExploreArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Graph exploration adapter unavailable"))
+    }
     fn external_scope(
         &self,
         _args: &harness_domain::contracts::ExternalScopeArgs,
@@ -50,6 +57,48 @@ pub trait Workspace: Send + Sync {
         _context: &OperationContext,
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Git diff adapter unavailable"))
+    }
+    fn sql_status(
+        &self,
+        _args: &harness_domain::sql::SqlStatusArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SQL status adapter unavailable"))
+    }
+    fn sql_search(
+        &self,
+        _args: &harness_domain::sql::SqlSearchArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SQL search adapter unavailable"))
+    }
+    fn sql_describe(
+        &self,
+        _args: &harness_domain::sql::SqlDescribeArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SQL describe adapter unavailable"))
+    }
+    fn sql_query(
+        &self,
+        _args: &harness_domain::sql::SqlQueryArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SQL query adapter unavailable"))
+    }
+    fn xlsx_inspect(
+        &self,
+        _args: &harness_domain::xlsx::XlsxInspectArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "XLSX inspect adapter unavailable"))
+    }
+    fn xlsx_read(
+        &self,
+        _args: &harness_domain::xlsx::XlsxReadArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "XLSX read adapter unavailable"))
     }
     /// Bounded filesystem observation; called outside the session repository mutex.
     fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
@@ -133,6 +182,10 @@ pub trait SessionRepository: Send {
         _args: &harness_domain::contracts::CheckpointArgs,
     ) -> Result<SessionMutation, Failure> {
         Err(("UNSUPPORTED", "Checkpoint adapter unavailable"))
+    }
+    /// Retain negative freshness facts in live checks; never revive historical checks.
+    fn invalidate_checks(&mut self, _id: &str, _observation: &Value) -> Result<(), Failure> {
+        Ok(())
     }
     fn record(
         &mut self,

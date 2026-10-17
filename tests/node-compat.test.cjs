@@ -6,13 +6,22 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {createRequire} = require('node:module');
 const {randomUUID, createHash} = require('node:crypto');
-const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
-const {StdioClientTransport} = require('@modelcontextprotocol/sdk/client/stdio.js');
-const {SessionDisk} = require('../../../persistence.cjs');
-const {Sessions} = require('../../../session.cjs');
-const {ResultStore} = require('../../../results.cjs');
-const {TaskBoard} = require('../../../tasks.cjs');
+// Support both the original native/core layout and a standalone Rust checkout.
+// Resolve the SDK from the reference implementation too; this checkout needs no
+// package.json or node_modules. This is a development-only comparison harness.
+const nodeRoot = path.resolve(process.env.HARNESS_NODE_ROOT || path.resolve(__dirname, '../../..'));
+if (!fs.existsSync(path.join(nodeRoot, 'persistence.cjs'))) {
+  throw new Error('Set HARNESS_NODE_ROOT to the original .agents/harness directory before running compatibility tests');
+}
+const nodeRequire = createRequire(path.join(nodeRoot, 'package.json'));
+const {Client} = nodeRequire('@modelcontextprotocol/sdk/client/index.js');
+const {StdioClientTransport} = nodeRequire('@modelcontextprotocol/sdk/client/stdio.js');
+const {SessionDisk} = nodeRequire('./persistence.cjs');
+const {Sessions} = nodeRequire('./session.cjs');
+const {ResultStore} = nodeRequire('./results.cjs');
+const {TaskBoard} = nodeRequire('./tasks.cjs');
 
 test('Rust and Node share session v1, read hashes and UTF-16 detail pages', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-rust-'));

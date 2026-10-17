@@ -34,7 +34,7 @@ impl Session {
     fn checkpoint_data(&self, id: &str) -> Value {
         let historical = self
             .restored
-            .then(|| json!({"modifiedFiles":self.state.edits,"checks":self.state.checks}));
+            .then(|| json!({"modifiedFiles":self.state.edits,"checks":self.historical_checks()}));
         let full = json!({"sessionId":id,"restored":self.restored,"historical":historical,
             "persistenceScope":"objetivo, decisiones, fases y hechos históricos; timeline solo del proceso actual",
             "declaredByAgent":self.state.declared,"tasks":self.summary(),
@@ -42,7 +42,7 @@ impl Session {
             "observedByHarness":{"modifiedFiles":self.observed_edits,"checks":self.observed_checks,"omittedFiles":0,"omittedChecks":0},
             "coverage":"solo operaciones de esta sesión realizadas a través del arnés",
             "compaction":"el cliente controla el historial; este checkpoint no lo poda",
-            "freshness":{"available":false,"reason":"not_tracked","checksAreHistorical":true}});
+            "freshness":{"available":false,"reason":"full_input_coverage_not_tracked","checksAreHistorical":self.restored,"invalidationTracked":true}});
         let mut compact = full.clone();
         compact["declaredByAgent"] = json!({"goal":prefix(&self.state.declared.goal,500),
             "decisions":self.state.declared.decisions.iter().skip(self.state.declared.decisions.len().saturating_sub(3)).map(|s|prefix(s,200)).collect::<Vec<_>>(),
@@ -51,11 +51,24 @@ impl Session {
         compact["observedByHarness"] = json!({"modifiedFiles":tail(&self.observed_edits,8),"checks":tail(&self.observed_checks,5),
             "omittedFiles":self.observed_edits.len().saturating_sub(8),"omittedChecks":self.observed_checks.len().saturating_sub(5)});
         if self.restored {
-            compact["historical"] = json!({"modifiedFiles":tail(&self.state.edits,8),"checks":tail(&self.state.checks,5),
+            compact["historical"] = json!({"modifiedFiles":tail(&self.state.edits,8),"checks":tail(&self.historical_checks(),5),
                 "omittedFiles":self.state.edits.len().saturating_sub(8),"omittedChecks":self.state.checks.len().saturating_sub(5)});
         }
         compact["_detail"] = full;
         compact
+    }
+
+    fn historical_checks(&self) -> Vec<Value> {
+        self.state
+            .checks
+            .iter()
+            .cloned()
+            .map(|mut check| {
+                check["current"] = Value::Null;
+                check["historical"] = json!(true);
+                check
+            })
+            .collect()
     }
 }
 
@@ -149,6 +162,9 @@ impl Sessions {
         if tool == "harness_replace" && result["changed"] == true {
             let path = bounded(&args["path"])?;
             let hash = bounded(&result["hash"])?;
+            for check in &mut session.observed_checks {
+                harness_domain::freshness::invalidate(check, "harness_edit_applied", &time);
+            }
             session.observed_edits.retain(|item| item["path"] != path);
             session.observed_edits.push(json!({"path":path,"hash":hash,"time":time,"syntax":result["syntax"],"postcheckVerified":result["verified"]}));
             if session.observed_edits.len() > 50 {
@@ -169,9 +185,20 @@ impl Sessions {
                 ));
             }
             let ok = result["passed"] == true;
-            session.observed_checks.push(
-                json!({"language":language,"scope":scope,"ok":ok,"time":time,"current":null,"workspaceObservation":result["workspaceObservation"]}),
+            let observation = &result["workspaceObservation"];
+            harness_domain::freshness::invalidate_observed_checks(
+                &mut session.observed_checks,
+                &json!({"status":"captured","hash":observation["after"],"coverage":observation["coverage"],"capturedAt":time}),
             );
+            let mut check = json!({"language":language,"scope":scope,"action":result["action"],"ok":ok,"time":time,"current":null,"workspaceObservation":observation});
+            if observation["status"] == "changed" {
+                harness_domain::freshness::invalidate(
+                    &mut check,
+                    "workspace_changed_during_verification",
+                    &time,
+                );
+            }
+            session.observed_checks.push(check);
             if session.observed_checks.len() > 20 {
                 session.observed_checks.remove(0);
             }

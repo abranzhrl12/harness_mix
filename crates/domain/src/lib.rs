@@ -8,7 +8,9 @@ pub mod navigation;
 pub mod process;
 pub mod process_output;
 pub mod results;
+pub mod sql;
 pub mod workflow;
+pub mod xlsx;
 
 pub type Failure = (&'static str, &'static str);
 

@@ -131,7 +131,7 @@ impl McpHarness {
         self.call(Request::Doctor(args), context).await
     }
     #[tool(
-        description = "Estado Git de solo lectura, paginado y acotado. No fetch ni stage. Raíz Git con .git directorio; excluye submódulos."
+        description = "Estado Git de solo lectura, paginado y acotado. No fetch ni stage. Raíz Git o worktree vinculado registrado; excluye submódulos."
     )]
     async fn harness_git_status(
         &self,
@@ -139,6 +139,16 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::GitStatus(args), context).await
+    }
+    #[tool(
+        description = "Explorar un símbolo exacto en un índice CodeGraph SQLite existente. symbol explícito o query identificador simple. direction=inbound/outbound/both (both por defecto), maxDepth=1..4 (1 por defecto). Hasta 4 archivos objetivo. Comprueba hashes de archivos contribuyentes antes/después de leer definiciones; requireMatchingFiles=true rechaza archivos desactualizados o no comprobados. Coincidencia local no certifica cobertura ni vigencia del índice completo. Sin Node, sync ni SQL libre; definiciones locales solo Rust."
+    )]
+    async fn harness_explore(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ExploreArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Explore(args), context).await
     }
     #[tool(
         description = "Diff Git textual de un archivo relativo, incluidas eliminaciones. Solo lectura; staged selecciona HEAD:index. Sin textconv/diff externo, archivos secretos ni metadatos Git. No incluye untracked."
@@ -214,6 +224,50 @@ impl McpHarness {
     }
 
     #[tool(
+        description = "Diagnóstico y estado de la conexión a SQL Server de solo lectura."
+    )]
+    async fn harness_sql_status(
+        &self,
+        Parameters(args): Parameters<harness_domain::sql::SqlStatusArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::SqlStatus(args), context).await
+    }
+
+    #[tool(
+        description = "Búsqueda en catálogo SQL Server (tablas, vistas, columnas, procedimientos, funciones)."
+    )]
+    async fn harness_sql_search(
+        &self,
+        Parameters(args): Parameters<harness_domain::sql::SqlSearchArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::SqlSearch(args), context).await
+    }
+
+    #[tool(
+        description = "Describe columnas, tipos, definiciones o relaciones de objetos SQL Server."
+    )]
+    async fn harness_sql_describe(
+        &self,
+        Parameters(args): Parameters<harness_domain::sql::SqlDescribeArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::SqlDescribe(args), context).await
+    }
+
+    #[tool(
+        description = "Ejecuta una consulta SELECT validada de solo lectura en SQL Server con límite de filas y caracteres."
+    )]
+    async fn harness_sql_query(
+        &self,
+        Parameters(args): Parameters<harness_domain::sql::SqlQueryArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::SqlQuery(args), context).await
+    }
+
+    #[tool(
         description = "Bootstrap experimental Rust: reglas, capacidades y sesiones persistentes. No reemplaza todavía el harness Node."
     )]
     async fn harness_bootstrap(
@@ -255,6 +309,28 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Search(args), context).await
+    }
+
+    #[tool(
+        description = "Inspecciona metadatos y hojas de un libro XLSX de solo lectura sin volcar filas (hash SHA-256, hojas, dimensiones)."
+    )]
+    async fn harness_xlsx_inspect(
+        &self,
+        Parameters(args): Parameters<harness_domain::xlsx::XlsxInspectArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::XlsxInspect(args), context).await
+    }
+
+    #[tool(
+        description = "Lee un rango paginado y acotado de celdas de una hoja XLSX en formato matricial/JSON."
+    )]
+    async fn harness_xlsx_read(
+        &self,
+        Parameters(args): Parameters<harness_domain::xlsx::XlsxReadArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::XlsxRead(args), context).await
     }
 }
 

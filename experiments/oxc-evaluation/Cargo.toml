@@ -1,0 +1,20 @@
+[package]
+name = "harness-oxc-evaluation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# Isolated proof of concept. Not linked into the harness executable.
+[workspace]
+
+[dependencies]
+oxc_allocator = "=0.75.0"
+oxc_ast = "=0.75.0"
+oxc_parser = "=0.75.0"
+oxc_semantic = "=0.75.0"
+oxc_span = "=0.75.0"
+oxc_resolver = "=11.0.0"
+
+[dev-dependencies]
+codegraph-native = { path = "../../vendor/codegraph-native" }

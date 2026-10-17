@@ -17,6 +17,18 @@ Para logs persistidos en Windows, añadir `--persist-logs`. Las pruebas Rust no
 requieren Node. La prueba opcional `tests/node-compat.test.cjs` requiere el checkout
 del arnés Node original y su SDK; no forma parte de `cargo test` ni del runtime.
 
+Para ejecutar esa comparación desde este repositorio independiente:
+
+```powershell
+cargo test --locked --workspace
+$env:HARNESS_NODE_ROOT = 'D:\fast v1\web-fast-v1\.agents\harness'
+node --test tests/node-compat.test.cjs
+```
+
+Sustituir `HARNESS_NODE_ROOT` por la carpeta del arnés Node de referencia. El test
+carga de allí tanto sus módulos como el SDK MCP, sin instalar paquetes aquí.
+Sin esa variable conserva la resolución relativa del workspace original.
+
 Los comandos con `.agents/harness/native/core` de las secciones siguientes son
 para el workspace original. En este checkout independiente se ejecuta Cargo desde
 la raíz, sin ese `--manifest-path`, y se usa `target/release` como ruta del binario.
@@ -24,6 +36,92 @@ Ver [MIGRATION-STATUS.md](MIGRATION-STATUS.md) para capacidades, límites y pend
 
 Ejecutable MCP por stdio, sin Node/npm en ejecución.
 No cambiar todavía la conexión MCP del harness actual.
+
+### Plan de sincronización CodeGraph sin Node
+
+```powershell
+target/release/agent-harness.exe --root E:\ruta\a\tu\proyecto --sync-plan
+```
+
+Imprime JSON y termina; no inicia MCP ni publica cambios en el índice. Requiere
+un `.codegraph/codegraph.db` existente (schema 1..11). Comprueba por contenido
+los archivos ya registrados no restringidos y descubre nuevos archivos Rust, C#,
+JavaScript/JSX y TypeScript/TSX, respetando gitignores
+locales y exclusiones conservadoras de dependencias/build. Un archivo rastreado
+ignorado durante discovery se comprueba directamente, no se considera borrado.
+Los borrados requieren ausencia explícita; errores, enlaces y fuentes de más de
+1 MiB quedan no comprobados. Las rutas sensibles se omiten sin leer ni exponer
+sus nombres y se contabilizan en `restrictedIndexedFiles`. Presupuestos: 20.000 archivos en el plan, 40.000
+entradas de discovery, 64 MiB reservados de lectura y 10 segundos cooperativos
+de inventario, bajo el deadline global de 30 segundos.
+
+Es un dry-run parcial: no aplica todavía `include`/`exclude`, overrides de
+extensiones ni reglas de repositorios embebidos de CodeGraph. El resultado
+declara `fullProviderScope=false`, `inventoryComplete=false`, `synchronized=false`
+y la cobertura de lenguajes. No certifica frescura integral, no es una instantánea
+atómica de las fuentes y no reemplaza aún al sincronizador Node.
+
+Incluye `extractionPreview`: hasta cuatro archivos añadidos/modificados o con
+errores previos, releídos y contrastados contra el hash del inventario antes de
+extraer símbolos/aristas/referencias. Usa los walkers originales de CodeGraph
+v1.6.2 como biblioteca Rust, sin N-API/Node; conserva licencia MIT y procedencia
+en `vendor/codegraph-native/UPSTREAM.md`. El preview devuelve solo hash y
+contadores, no cuerpos ni el grafo completo. No resuelve referencias ni escribe
+resultados. Fuentes con errores de parser o deferrals no reciben fallback Node.
+
+La prueba opcional de paridad de extracción usa Node solo como referencia:
+
+```powershell
+$env:HARNESS_CODEGRAPH_PACKAGE = 'C:\ruta\a\codegraph\lib'
+$env:HARNESS_CODEGRAPH_NODE = 'C:\ruta\a\codegraph\node.exe'
+cargo test --locked --test index_extract extraction_matches_the_installed_codegraph_provider -- --ignored
+```
+
+### Publicación nativa experimental de CodeGraph
+
+En Windows, con un índice existente schema 11 en modo WAL:
+
+```powershell
+cargo run --locked -- --root E:\ruta\al\proyecto --sync-file src/Example.cs
+cargo run --locked -- --root E:\ruta\al\proyecto --sync
+```
+
+Estos comandos SÍ modifican el índice; no editan ni eliminan fuentes. Probar
+primero con un índice de prueba. `--sync-file` usa una ruta relativa explícita.
+`--sync` aplica hasta 32 candidatos nativos del plan, con una transacción por
+archivo, no una transacción global. Si un archivo falla, el JSON conserva los
+commits anteriores y el proceso termina con error. El mismo comportamiento
+expone trabajo restante al alcanzar el límite; una nueva ejecución vuelve a
+planificar. La ejecución automática rechaza `codegraph.json` hasta portar su
+configuración; no ignora silenciosamente sus reglas.
+
+Reextrae símbolos/aristas/referencias con el kernel del proveedor y actualiza
+hashes y FTS en la misma transacción. Resuelve un subconjunto de nombres exactos
+no ambiguos, conserva llamadas entrantes al cambiar IDs por desplazamientos y
+recupera las referencias originales de destinos eliminados/renombrados. Reintenta
+referencias que encuentran una definición nueva. Incluye un primer subconjunto
+AST de imports relativos con nombre/alias JS/TS hacia funciones exportadas
+explícitamente del mismo lenguaje. Revalida fuentes y reevalúa estas aristas
+cuando cambian exports o alternativas de módulo. Sobrecargas ambiguas, receptores,
+default/namespace/type-only, reexports y resolución avanzada quedan pendientes;
+el alcance preciso está en [MIGRACION-CODEGRAPH.md](MIGRACION-CODEGRAPH.md). No hay paridad completa
+con el resolver del proveedor. La marca global `indexed_at_commit` se invalida
+al cambiar el grafo. Fuentes iguales no se reescriben ni invalidan esa marca.
+
+Rechaza aristas antiguas no recuperables, datos de frameworks/síntesis afectados
+(incluida configuración en un tercer archivo), esquemas/triggers desconocidos y
+enlaces/hardlinks. Revalida las fuentes antes del commit. Cancelación, cambios
+concurrentes o errores antes del commit hacen rollback; un commit/rollback no
+confirmado se informa como `SYNC_COMMIT_UNCERTAIN`. Puede dejar sidecars WAL
+válidos. No crea ni migra bases de datos y aún no soporta publicación en Unix.
+
+`committed=true` confirma una transacción, NO vigencia global. El informe mantiene
+`synchronized=false`, `fullProviderScope=false` y/o
+`globalFreshnessCertified=false`: este sincronizador parcial todavía no sustituye
+al CodeGraph completo para todos los lenguajes, frameworks y configuraciones.
+Al volver al proveedor completo puede ser necesaria una reindexación completa:
+conservar el hash real no obliga a su sync incremental a repetir toda la
+extracción y síntesis que todavía no implementa este subconjunto.
 
 La implementación usa tres crates: domain (contratos/resultados), aplicación
 (casos de uso y puertos) y ejecutable (adaptadores/MCP). Ver
@@ -48,7 +146,8 @@ y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` 
 y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbol`
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
-y `harness_logs`, `harness_config` y `harness_external_scope` (17 herramientas).
+y `harness_logs`, `harness_config`, `harness_external_scope` y `harness_explore`
+y las 4 herramientas SQL Server nativas (harness_sql_status, harness_sql_search, harness_sql_describe, harness_sql_query) con TDS/Tiberius directo (22 herramientas).
 
 ## Configuración XML/JSON redactada
 
@@ -348,11 +447,110 @@ La detección nativa comparte la resolución del ejecutor: entradas absolutas de
 PATH y ejecutable directo, sin .cmd/.bat ni búsqueda en el directorio actual.
 La detección del bootstrap aplica esa misma regla a Cargo/Rustc/Git.
 
+## Exploración CodeGraph nativa (parcial)
+
+`harness_explore` lee `.codegraph/codegraph.db` existente con SQLite integrado
+en el binario Rust; no ejecuta Node, la CLI CodeGraph ni SQL enviado por el cliente.
+Ejemplo de argumentos: `{"query":"quién llama a target","symbol":"target"}`.
+Sin symbol explícito, query debe ser un identificador simple. Admite session,
+maxFiles=1..4 (4 por defecto) y maxChars=1000..16000 (12000 por defecto).
+También direction=inbound/outbound/both (both por defecto) y maxDepth=1..4
+(1 por defecto, compatible con la consulta anterior).
+maxChars limita el texto de preview; los metadatos del grafo tienen límites propios.
+
+El adaptador acepta tablas normales del contrato CodeGraph con schema_versions
+1..11 y columnas requeridas. Es una dependencia explícita del formato SQLite
+interno instalado, distinta de la API pública del proveedor. Cambios de formato
+pueden necesitar una actualización del adaptador; esquemas futuros, vistas,
+rutas restringidas y referencias fuera del workspace se rechazan sin devolver
+diagnósticos crudos de SQLite. No crea índices, migra esquemas, sincroniza ni
+ofrece acceso a scopes externos.
+
+Devuelve coincidencias exactas y relaciones entrantes/salientes de hasta cuatro saltos
+(`calls`, `references`, `imports`, `instantiates`, `navigates`) y definiciones
+comprobadas por el parser local Rust. Otros lenguajes, símbolos ambiguos o
+fuentes eliminadas aparecen en unresolved; no se sustituyen por cuerpos guardados
+en el índice. Las relaciones siguen siendo evidencia indexada, aunque la
+definición local pueda comprobarse. indexFreshness=not_certified,
+synchronized=false y absenceProven=false son explícitos: no hay prueba de
+ausencia global, cobertura integral ni impacto exhaustivo. La sincronización
+sigue pendiente; batch aún no admite explore. Los recorridos son por anchura,
+independientes por dirección y desde todos los objetivos seleccionados: no cambian
+de dirección al atravesar nodos intermedios. Los ciclos no repiten expansiones.
+graph.traversal indica los saltos mínimos descubiertos dentro del recorrido
+acotado por nodo/dirección (nodeDepths), no distancias mínimas globales; también el
+número de expansiones y depthBoundaryReached. Este último solo dice que se llegó
+a la profundidad solicitada, no que existan más aristas fuera de ella. Es un
+vecindario dirigido del índice, no una traza de ejecución ni enumeración de todas
+las rutas posibles. Solo se comprueban definiciones locales de los archivos objetivo.
+
+La coincidencia de contenido se evalúa automáticamente en `fileFreshness`, para
+todos los archivos que aportan nodos al resultado, incluidos los de saltos
+posteriores y los de otros lenguajes. Compara SHA-256 contra files.content_hash
+de la misma transacción SQLite, antes y después de leer las definiciones locales.
+Puede devolver matches_observed_files, stale o unknown, con motivo por archivo.
+Si se observa un cambio, un borrado o un cuerpo local distinto del hash indexado,
+la respuesta no vuelve a ser coincidente aunque el archivo se revierta durante
+esa misma operación. Un escaneo posterior se evalúa de nuevo, sin caché positiva.
+
+Por defecto, un resultado stale/unknown conserva las relaciones indexadas con
+diagnóstico warning y detail.complete=false. `requireMatchingFiles=true` exige
+coincidencia de todos los archivos contribuyentes: devuelve INDEX_STALE para
+cambios detectados e INDEX_UNCHECKED si no se pudo establecer la coincidencia,
+sin publicar un grafo en esa respuesta. No exige ni certifica cobertura completa
+del grafo: incluso con archivos coincidentes puede haber recortes.
+
+Metadatos de archivos ausentes, hashes inválidos, fallos de extracción registrados,
+UTF-8 inválido y límites de lectura se marcan unknown. Los stamps de tamaño que
+CodeGraph usa para archivos sobredimensionados tampoco acreditan coincidencia
+de contenido. Presupuesto de observación compartido: 64 MiB para ambas pasadas,
+2 MiB por archivo y cinco segundos cooperativos desde el inicio de la observación,
+incluyendo el tiempo entre pasadas; se conserva el deadline global de 30 segundos.
+Los motivos no incluyen mensajes crudos del indexador ni de SQLite.
+
+`indexFreshness` permanece not_certified: estas comprobaciones no buscan archivos
+nuevos/no indexados, no revalidan semánticamente las aristas ni dan una instantánea
+atómica de todo el workspace. Los cambios intermedios revertidos pueden escapar
+a las observaciones. La sincronización nativa multilenguaje sigue pendiente;
+`synchronization` indica performed=false/nativeIndexerAvailable=false. El lector
+no actualiza hashes del proveedor para hacer parecer vigente un grafo obsoleto.
+
+Límites: base de hasta 512 MiB, consulta de 5 segundos cooperativos y deadline
+compartido de 30 segundos para la operación; espera SQLite de 100 ms, caché de
+4 MiB y filas SQLite de hasta 64 KiB. Selecciona hasta 100 candidatos, 16 nodos
+objetivo, cuatro archivos objetivo y 20 aristas por dirección/nodo (160 en total),
+con un máximo de 176 nodos. Las relaciones pueden mencionar otros archivos del
+workspace, sujetos a la misma validación de rutas. El límite global no crece
+al aumentar maxDepth; si se supera, graph.truncated y detail.complete lo señalan.
+El texto de cada definición se limita a 16000 unidades UTF-16. Recortes y
+resoluciones incompletas se señalan también en detail. Usa conexión read-only,
+query_only y transacción de lectura para conservar una vista coherente del índice;
+SQLite puede usar sus archivos auxiliares WAL/SHM de coordinación. Solo se probó
+en Windows; las comprobaciones de rutas no son un sandbox frente a sustituciones
+hostiles concurrentes. La herramienta permanece integrada con admisión, leases,
+cancelación, métricas, logs y detail comunes.
+
+Prueba opcional contra el índice instalado de un proyecto C#:
+
+```powershell
+$env:HARNESS_CODEGRAPH_ROOT = 'D:\fast v1\web-fast-v1'
+cargo test --locked --test explore real_codegraph_index_can_be_read_without_running_node -- --ignored
+```
+
 ## Git de solo lectura
 
-Requiere Git instalado en una entrada absoluta de PATH, no Node. La raíz debe
-contener un directorio .git real; linked worktrees con .git archivo no se soportan
-todavía. Comprueba que core.worktree no redirija la consulta fuera del workspace.
+Requiere Git instalado en una entrada absoluta de PATH, no Node. La raíz puede
+contener un directorio .git real o un archivo .git de un worktree vinculado.
+Para este último valida la referencia gitdir, su enlace de retorno al archivo
+.git y commondir bajo la estructura común worktrees/id. Admite referencias
+absolutas y relativas; rechaza registros incompletos, enlaces y reparse points
+en esas rutas. Las referencias tienen hasta 4096 bytes y los archivos de registro
+hasta 8 KiB. Solo este adaptador consulta esos metadatos externos: no concede
+lectura, edición ni ejecución general fuera del workspace. Submódulos y archivos
+.git que no representan un worktree registrado siguen sin soporte.
+Comprueba que core.worktree no redirija la consulta fuera del workspace y que
+Git resuelva el mismo directorio de metadatos validado. Desactiva filtros y
+comandos externos también en la configuración por worktree.
 No hace fetch, stage, commit ni push. No es un sandbox para repositorios hostiles.
 
 `harness_git_status`: includeUntracked (true por defecto), offset=0..1000000 y
@@ -389,7 +587,9 @@ resultado de Cargo. La creación inicial de Cargo.lock puede producir changed.
 
 Esto NO certifica vigencia: no observa dependencias externas, entorno, toolchain,
 cambios revertidos entre lecturas ni cambios posteriores. `verificationFreshness`
-sigue not_tracked y los checks del checkpoint mantienen current=null. Aún falta
+sigue not_tracked para vigencia total. Los checks del checkpoint llevan
+current=false si se observó una invalidación y null si la vigencia es desconocida.
+Aún falta
 completar el seguimiento de todos los inputs de verificación.
 La observación se conserva en checks observados de la sesión viva; la persistencia
 v1 compatible con Node la elimina, igual que otros datos de versión.
@@ -419,16 +619,29 @@ espera su resultado aun si llega cancelación, sin fingir que no cambió el esta
 Las ediciones confirmadas y verificaciones que devuelven resultado se registran
 cuando llevan session. Hasta 50 archivos editados y 20 checks por sesión; tras
 restaurar son historical, no nuevos hechos observados. La persistencia elimina
-versiones/flags de vigencia. Los checks observados llevan current=null: no hay
-certificación de vigencia total del código todavía. Las métricas de ejecución
+versiones/flags de vigencia. Los checks observados llevan current=null cuando
+no hay evidencia negativa, o current=false junto con invalidation (reason, time,
+requiresRerun=true) cuando quedaron desactualizados. Una edición confirmada por
+harness_replace invalida conservadoramente todos los checks vivos de esa sesión;
+un verify con cambios entre sus huellas también nace invalidado. Verificaciones
+posteriores comparan su huella final con baselines anteriores estables.
+No hay certificación de vigencia total del código todavía. Las métricas de ejecución
 son de la instancia, no de la sesión. refreshFreshness=true
 compara la huella local actual con los checks de la sesión viva: localFreshness
 indica matches_local_workspace, local_workspace_changed, no_stable_baseline o
 unknown. Solo compara baselines estables con idéntica cobertura. La comparación
-se deriva para esa respuesta y su detail; no se guarda como vigencia permanente.
+se deriva para esa respuesta y su detail. Un cambio observado invalida el check
+en memoria: el estado negativo aparece también sin refresh y no se borra al
+revertir archivos ni ante un escaneo unknown. Una nueva ejecución crea un check
+nuevo, conservando los anteriores invalidados. Los cambios externos y los de
+otras sesiones requieren refreshFreshness=true o una verificación posterior para
+detectarse; no hay un watcher del sistema de archivos. Las observaciones cubren
+todo el workspace permitido, sin análisis de dependencias por archivo.
 freshness.localObservation incluye hora, hash/código de error y cobertura.
 available sigue false para vigencia total y current nunca se vuelve true.
-Los checks restaurados no se revalidan. El escaneo usa el mismo presupuesto que
+Los checks restaurados llevan historical=true y current=null y no se revalidan.
+El formato persistido v1 sigue conservando solo hechos históricos; la invalidación
+en memoria no se restaura como evidencia vigente. El escaneo usa el mismo presupuesto que
 las huellas de Cargo, fuera del mutex global y dentro del gate de sesión; un
 escritor concurrente recibe SESSION_BUSY. Una lectura sin refresh no reutiliza
 evaluaciones antiguas. Los límites o archivos restringidos devuelven unknown,

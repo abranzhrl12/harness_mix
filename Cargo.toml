@@ -9,12 +9,13 @@ publish = false
 members = ["crates/domain", "crates/application"]
 default-members = [".", "crates/domain", "crates/application"]
 resolver = "3"
+exclude = ["vendor/codegraph-native"]
 
 [dependencies]
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "net"] }
 uuid = { version = "1", features = ["v4"] }
 harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
@@ -24,6 +25,12 @@ syn = { version = "2", default-features = false, features = ["full", "parsing", 
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 roxmltree = "=0.21.1"
+rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
+codegraph-native = { path = "vendor/codegraph-native" }
+tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"] }
+tokio-util = { version = "0.7.20", features = ["compat"] }
+rust_decimal = { version = "1.43.0", features = ["serde"] }
+calamine = "0.36.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

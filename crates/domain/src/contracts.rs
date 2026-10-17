@@ -210,6 +210,18 @@ pub enum BatchTool {
     GitStatus,
     #[serde(rename = "harness_git_diff")]
     GitDiff,
+    #[serde(rename = "harness_sql_status")]
+    SqlStatus,
+    #[serde(rename = "harness_sql_search")]
+    SqlSearch,
+    #[serde(rename = "harness_sql_describe")]
+    SqlDescribe,
+    #[serde(rename = "harness_sql_query")]
+    SqlQuery,
+    #[serde(rename = "harness_xlsx_inspect")]
+    XlsxInspect,
+    #[serde(rename = "harness_xlsx_read")]
+    XlsxRead,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -241,12 +253,49 @@ impl BatchJob {
             BatchTool::Detail => serde_json::from_value(value).map(Request::Detail),
             BatchTool::GitStatus => serde_json::from_value(value).map(Request::GitStatus),
             BatchTool::GitDiff => serde_json::from_value(value).map(Request::GitDiff),
+            BatchTool::SqlStatus => serde_json::from_value(value).map(Request::SqlStatus),
+            BatchTool::SqlSearch => serde_json::from_value(value).map(Request::SqlSearch),
+            BatchTool::SqlDescribe => serde_json::from_value(value).map(Request::SqlDescribe),
+            BatchTool::SqlQuery => serde_json::from_value(value).map(Request::SqlQuery),
+            BatchTool::XlsxInspect => serde_json::from_value(value).map(Request::XlsxInspect),
+            BatchTool::XlsxRead => serde_json::from_value(value).map(Request::XlsxRead),
         };
         decoded.map_err(|_| ("ARGUMENT", "Invalid batch child arguments; no jobs started"))
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ExploreArgs {
+    pub query: String,
+    pub symbol: Option<String>,
+    #[serde(rename = "maxFiles")]
+    pub max_files: Option<usize>,
+    #[serde(rename = "maxChars")]
+    pub max_chars: Option<usize>,
+    /// Indexed traversal only: defaults to both directions and one hop.
+    pub direction: Option<ExploreDirection>,
+    #[serde(rename = "maxDepth")]
+    pub max_depth: Option<usize>,
+    /// Reject results unless all contributing files match indexed hashes.
+    /// This does not certify full index coverage or freshness.
+    #[serde(rename = "requireMatchingFiles")]
+    pub require_matching_files: Option<bool>,
+    pub session: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ExploreDirection {
+    Inbound,
+    Outbound,
+    Both,
+}
+
 pub enum Request {
+    Explore(ExploreArgs),
     ExternalScope(ExternalScopeArgs),
     Config(ConfigArgs),
     Logs(LogsArgs),
@@ -264,6 +313,12 @@ pub enum Request {
     Checkpoint(CheckpointArgs),
     GitStatus(GitStatusArgs),
     GitDiff(GitDiffArgs),
+    SqlStatus(crate::sql::SqlStatusArgs),
+    SqlSearch(crate::sql::SqlSearchArgs),
+    SqlDescribe(crate::sql::SqlDescribeArgs),
+    SqlQuery(crate::sql::SqlQueryArgs),
+    XlsxInspect(crate::xlsx::XlsxInspectArgs),
+    XlsxRead(crate::xlsx::XlsxReadArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -282,6 +337,7 @@ impl Request {
     }
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
             Self::Config(_) => "harness_config",
             Self::Logs(_) => "harness_logs",
@@ -299,10 +355,17 @@ impl Request {
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) => "harness_git_status",
             Self::GitDiff(_) => "harness_git_diff",
+            Self::SqlStatus(_) => "harness_sql_status",
+            Self::SqlSearch(_) => "harness_sql_search",
+            Self::SqlDescribe(_) => "harness_sql_describe",
+            Self::SqlQuery(_) => "harness_sql_query",
+            Self::XlsxInspect(_) => "harness_xlsx_inspect",
+            Self::XlsxRead(_) => "harness_xlsx_read",
         }
     }
     pub fn arguments(&self) -> Value {
         match self {
+            Self::Explore(args) => serde_json::to_value(args),
             Self::ExternalScope(args) => serde_json::to_value(args),
             Self::Config(args) => serde_json::to_value(args),
             Self::Logs(args) => serde_json::to_value(args),
@@ -320,6 +383,12 @@ impl Request {
             Self::Checkpoint(args) => serde_json::to_value(args),
             Self::GitStatus(args) => serde_json::to_value(args),
             Self::GitDiff(args) => serde_json::to_value(args),
+            Self::SqlStatus(args) => serde_json::to_value(args),
+            Self::SqlSearch(args) => serde_json::to_value(args),
+            Self::SqlDescribe(args) => serde_json::to_value(args),
+            Self::SqlQuery(args) => serde_json::to_value(args),
+            Self::XlsxInspect(args) => serde_json::to_value(args),
+            Self::XlsxRead(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

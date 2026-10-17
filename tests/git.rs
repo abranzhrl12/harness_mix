@@ -61,6 +61,213 @@ fn fixture() -> tempfile::TempDir {
     root
 }
 
+fn linked_fixture() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf) {
+    let main = fixture();
+    std::fs::write(main.path().join("tracked.txt"), "before\n").unwrap();
+    git(main.path(), &["add", "tracked.txt"]);
+    git(
+        main.path(),
+        &["commit", "--quiet", "--no-verify", "-m", "fixture"],
+    );
+    let linked = tempfile::Builder::new()
+        .prefix("harness linked café ")
+        .tempdir()
+        .unwrap();
+    git(
+        main.path(),
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "feature",
+            linked.path().to_str().unwrap(),
+        ],
+    );
+    let pointer = std::fs::read_to_string(linked.path().join(".git")).unwrap();
+    let directory = Path::new(pointer.strip_prefix("gitdir: ").unwrap().trim_end())
+        .canonicalize()
+        .unwrap();
+    (main, linked, directory)
+}
+
+#[test]
+fn linked_worktree_status_and_diff_preserve_both_indexes_and_disable_filters() {
+    let (main, linked, directory) = linked_fixture();
+    let app = adapters::application(linked.path()).unwrap();
+    assert_eq!(status(&app, 0, 30)["data"]["branch"], "feature");
+    std::fs::write(linked.path().join("tracked.txt"), "staged\n").unwrap();
+    git(linked.path(), &["add", "tracked.txt"]);
+    std::fs::write(linked.path().join("tracked.txt"), "worktree\n").unwrap();
+    std::fs::write(
+        linked.path().join(".gitattributes"),
+        "*.txt filter=unsafe diff=unsafe\n",
+    )
+    .unwrap();
+    std::fs::write(
+        linked.path().join(".filter-fixture-allowed"),
+        "fixture only",
+    )
+    .unwrap();
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .replace('\\', "/");
+    let command = format!("\"{exe}\" --exact injected_filter_fixture --nocapture");
+    // Include per-worktree configuration as well as the common repository config.
+    git(
+        main.path(),
+        &["config", "extensions.worktreeConfig", "true"],
+    );
+    for key in [
+        "filter.unsafe.clean",
+        "filter.unsafe.process",
+        "diff.external",
+        "diff.unsafe.textconv",
+        "core.fsmonitor",
+    ] {
+        git(linked.path(), &["config", "--worktree", key, &command]);
+    }
+    git(
+        linked.path(),
+        &["config", "--worktree", "filter.unsafe.required", "true"],
+    );
+    let main_index = std::fs::read(main.path().join(".git/index")).unwrap();
+    let linked_index = std::fs::read(directory.join("index")).unwrap();
+    let result = status(&app, 0, 30);
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["counts"]["staged"], 1);
+    assert_eq!(result["data"]["counts"]["modified"], 1);
+    for (staged, expected) in [(true, "+staged"), (false, "+worktree")] {
+        let patch = diff(&app, "tracked.txt", staged, 120);
+        assert_eq!(patch["state"], "ok", "{patch}");
+        assert!(
+            patch["data"]["preview"]
+                .as_str()
+                .unwrap()
+                .contains(expected),
+            "{patch}"
+        );
+    }
+    assert!(!linked.path().join("FILTER_EXECUTED").exists());
+    assert!(!main.path().join("FILTER_EXECUTED").exists());
+    assert_eq!(
+        std::fs::read(main.path().join(".git/index")).unwrap(),
+        main_index
+    );
+    assert_eq!(
+        std::fs::read(directory.join("index")).unwrap(),
+        linked_index
+    );
+}
+
+#[test]
+fn linked_worktree_relative_gitfile_and_invalid_registration() {
+    let (main, linked, directory) = linked_fixture();
+    // Both isolated fixtures share the temp parent; preserve the supported relative layout.
+    let relative = format!(
+        "../{}/.git/worktrees/{}",
+        main.path().file_name().unwrap().to_str().unwrap(),
+        directory.file_name().unwrap().to_str().unwrap()
+    );
+    std::fs::write(linked.path().join(".git"), format!("gitdir: {relative}\n")).unwrap();
+    let app = adapters::application(linked.path()).unwrap();
+    let result = status(&app, 0, 30);
+    assert_eq!(result["state"], "ok", "{result}");
+    // A gitfile cannot borrow another repository's metadata without a reciprocal registration.
+    std::fs::write(
+        directory.join("gitdir"),
+        main.path().join(".git").to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(status(&app, 0, 30)["diagnostics"][0]["code"], "GIT_REPO");
+    assert_eq!(
+        diff(&app, "tracked.txt", false, 120)["diagnostics"][0]["code"],
+        "GIT_REPO"
+    );
+    std::fs::write(
+        directory.join("gitdir"),
+        linked.path().join(".git").to_str().unwrap(),
+    )
+    .unwrap();
+    std::fs::write(directory.join("commondir"), main.path().to_str().unwrap()).unwrap();
+    assert_eq!(status(&app, 0, 30)["diagnostics"][0]["code"], "GIT_REPO");
+}
+
+#[test]
+fn linked_worktree_metadata_aliases_and_worktree_redirection_are_rejected() {
+    let (main, linked, directory) = linked_fixture();
+    let app = adapters::application(linked.path()).unwrap();
+    git(
+        main.path(),
+        &["config", "extensions.worktreeConfig", "true"],
+    );
+    git(
+        linked.path(),
+        &[
+            "config",
+            "--worktree",
+            "core.worktree",
+            main.path().to_str().unwrap(),
+        ],
+    );
+    let redirected = status(&app, 0, 30);
+    assert_eq!(
+        redirected["diagnostics"][0]["code"], "GIT_REPO",
+        "{redirected}"
+    );
+    git(
+        linked.path(),
+        &["config", "--worktree", "--unset", "core.worktree"],
+    );
+    let alias = linked.path().join("metadata-alias");
+    #[cfg(windows)]
+    {
+        let output = Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&alias)
+            .arg(&directory)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&directory, &alias).unwrap();
+    #[cfg(any(windows, unix))]
+    {
+        std::fs::write(
+            linked.path().join(".git"),
+            format!("gitdir: {}\n", alias.display()),
+        )
+        .unwrap();
+        let result = status(&app, 0, 30);
+        assert_eq!(result["diagnostics"][0]["code"], "GIT_REPO", "{result}");
+        #[cfg(windows)]
+        std::fs::remove_dir(&alias).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&alias).unwrap();
+    }
+}
+
+#[test]
+fn malformed_and_unregistered_gitfiles_fail_with_sanitized_errors() {
+    let main = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    let app = adapters::application(workspace.path()).unwrap();
+    for text in [
+        "not a gitfile".to_string(),
+        "gitdir: private\nsecond-line".to_string(),
+        format!("gitdir: {}\n", main.path().join(".git").display()),
+        format!("gitdir: {}", "x".repeat(8192)),
+    ] {
+        std::fs::write(workspace.path().join(".git"), text).unwrap();
+        let result = status(&app, 0, 30);
+        assert_eq!(result["diagnostics"][0]["code"], "GIT_REPO", "{result}");
+        assert!(!result.to_string().contains("private"));
+    }
+}
+
 #[test]
 fn real_status_diff_paging_staging_unicode_and_read_only_index() {
     let root = fixture();

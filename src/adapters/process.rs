@@ -449,6 +449,11 @@ mod tests {
                     .unwrap();
                 println!("DESCENDANT={}", child.id());
                 std::io::stdout().flush().unwrap();
+                // Signal only after the descendant exists and its PID was flushed.
+                // Each test supplies a private temporary path; no global env changes.
+                if let Some(path) = std::env::var_os("HARNESS_RUST_PROCESS_READY") {
+                    std::fs::write(path, child.id().to_string()).unwrap();
+                }
                 if mode == "orphan" {
                     std::process::exit(0);
                 }
@@ -467,6 +472,11 @@ mod tests {
         limit: usize,
         context: &OperationContext,
     ) -> ProcessOutcome {
+        let spec = ProcessSpec::new(Program::Cargo, vec![], timeout, limit).unwrap();
+        run_command(fixture_command(mode), &spec, context).unwrap()
+    }
+
+    fn fixture_command(mode: &str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args([
@@ -475,8 +485,8 @@ mod tests {
                 "--nocapture",
             ])
             .env("HARNESS_RUST_PROCESS_FIXTURE", mode);
-        let spec = ProcessSpec::new(Program::Cargo, vec![], timeout, limit).unwrap();
-        run_command(command, &spec, context).unwrap()
+        command.env_remove("HARNESS_RUST_PROCESS_READY");
+        command
     }
 
     #[test]
@@ -523,16 +533,34 @@ mod tests {
 
     #[test]
     fn cancellation_terminates_contained_descendants() {
+        let directory = tempfile::tempdir().unwrap();
+        let ready = directory.path().join("descendant-ready");
+        let mut command = fixture_command("tree");
+        command.env("HARNESS_RUST_PROCESS_READY", &ready);
         let context = OperationContext::default();
         let cancel = context.clone();
         let thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(500));
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !ready.is_file() {
+                if Instant::now() >= deadline {
+                    cancel.cancel();
+                    return false;
+                }
+                // Poll for a condition, never assume startup finished after a delay.
+                thread::sleep(Duration::from_millis(5));
+            }
             cancel.cancel();
+            true
         });
-        let result = run("tree", Duration::from_secs(5), 4096, &context);
-        thread.join().unwrap();
+        let spec = ProcessSpec::new(Program::Cargo, vec![], Duration::from_secs(15), 4096).unwrap();
+        let result = run_command(command, &spec, &context);
+        let was_ready = thread.join().unwrap();
+        assert!(
+            was_ready,
+            "descendant did not signal readiness before watchdog"
+        );
+        let result = result.unwrap();
         assert_eq!(result.reason, StopReason::Cancelled);
-        assert!(result.elapsed < Duration::from_secs(5));
         let text = String::from_utf8(result.stdout).unwrap();
         assert!(text.contains("DESCENDANT="));
         #[cfg(windows)]
@@ -563,11 +591,9 @@ mod tests {
             &OperationContext::default(),
         );
         assert_eq!(result.reason, StopReason::TimedOut);
-        assert!(
-            String::from_utf8(result.stdout)
-                .unwrap()
-                .contains("DESCENDANT=")
-        );
+        // A timeout may expire before the fixture gets CPU time. Descendant
+        // creation is proved separately by the readiness-gated cancellation test
+        // and the normal-leader-exit case above, not by this wall-clock deadline.
         #[cfg(windows)]
         assert!(result.tree_termination_confirmed);
         assert!(result.elapsed < Duration::from_secs(5));

@@ -1,0 +1,249 @@
+//! Conservative inventory for the first native CodeGraph synchronization stage.
+use super::{
+    index_sync::{self, Observation},
+    project::{self, Project},
+};
+use harness_domain::{Failure, execution::OperationContext};
+use serde::Serialize;
+use std::{
+    collections::BTreeMap,
+    path::Path,
+    time::{Duration, Instant},
+};
+
+const MAX_VISITED: usize = 40_000;
+const MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Inventory {
+    #[serde(skip)]
+    pub observations: BTreeMap<String, Observation>,
+    pub discovery_complete: bool,
+    pub visited_entries: usize,
+    pub reserved_source_bytes: u64,
+    pub skipped_entries: usize,
+    pub restricted_indexed_files: usize,
+    pub budget_exhausted: bool,
+}
+
+fn excluded(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".git"
+            | ".hg"
+            | ".svn"
+            | ".codegraph"
+            | "node_modules"
+            | "target"
+            | "vendor"
+            | "dist"
+            | "build"
+            | "coverage"
+            | ".venv"
+            | "venv"
+            | "obj"
+    )
+}
+
+pub(super) fn restricted(path: &str) -> bool {
+    project::external_restricted(path) || project::external_sensitive(path)
+}
+
+pub(super) fn scan(
+    project: &Project,
+    tracked: &[String],
+    context: &OperationContext,
+) -> Result<Inventory, Failure> {
+    let started = Instant::now();
+    let mut inventory = Inventory {
+        observations: BTreeMap::new(),
+        discovery_complete: true,
+        visited_entries: 0,
+        reserved_source_bytes: 0,
+        skipped_entries: 0,
+        restricted_indexed_files: 0,
+        budget_exhausted: false,
+    };
+    // Check each tracked path directly. Discovery exclusions must never turn an
+    // old provider record into an inferred deletion. This is NOT full ScopeIgnore.
+    for path in tracked {
+        context.check()?;
+        if restricted(path) {
+            inventory.restricted_indexed_files += 1;
+            continue;
+        }
+        let observation = inventory.observe(project, path, started, context)?;
+        inventory.observations.insert(path.clone(), observation);
+    }
+    let mut builder = ignore::WalkBuilder::new(&project.root);
+    builder
+        .follow_links(false)
+        .hidden(false)
+        .parents(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(false)
+        .require_git(false)
+        .ignore(false)
+        .sort_by_file_path(|a, b| a.cmp(b))
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !excluded(&entry.file_name().to_string_lossy())
+        });
+    for entry in builder.build() {
+        context.check()?;
+        if started.elapsed() >= Duration::from_secs(10) || inventory.visited_entries >= MAX_VISITED
+        {
+            inventory.budget_exhausted = true;
+            inventory.discovery_complete = false;
+            break;
+        }
+        inventory.visited_entries += 1;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                inventory.discovery_complete = false;
+                inventory.skipped_entries += 1;
+                continue;
+            }
+        };
+        if entry.error().is_some() {
+            inventory.discovery_complete = false;
+            inventory.skipped_entries += 1;
+        }
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let Some(path) = entry
+            .path()
+            .strip_prefix(&project.root)
+            .ok()
+            .and_then(Path::to_str)
+        else {
+            inventory.discovery_complete = false;
+            inventory.skipped_entries += 1;
+            continue;
+        };
+        let path = path.replace('\\', "/");
+        // Only languages supported by the pinned headless kernel are discovered.
+        // Never claim provider-wide inventory coverage.
+        if super::index_extract::language(&path).is_none()
+            || restricted(&path)
+            || inventory.observations.contains_key(&path)
+        {
+            continue;
+        }
+        if inventory.observations.len() >= index_sync::MAX_FILES {
+            inventory.budget_exhausted = true;
+            inventory.discovery_complete = false;
+            break;
+        }
+        let observation = inventory.observe(project, &path, started, context)?;
+        inventory.observations.insert(path, observation);
+    }
+    Ok(inventory)
+}
+
+impl Inventory {
+    fn observe(
+        &mut self,
+        project: &Project,
+        relative: &str,
+        started: Instant,
+        context: &OperationContext,
+    ) -> Result<Observation, Failure> {
+        context.check()?;
+        if started.elapsed() >= Duration::from_secs(10) {
+            self.discovery_complete = false;
+            self.budget_exhausted = true;
+            return Ok(Observation::Unchecked);
+        }
+        let path = match project.target_optional(relative) {
+            Ok(path) => path,
+            Err(_) => {
+                self.skipped_entries += 1;
+                return Ok(Observation::Unchecked);
+            }
+        };
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Observation::Missing);
+            }
+            Err(_) => {
+                self.skipped_entries += 1;
+                return Ok(Observation::Unchecked);
+            }
+        };
+        if !metadata.is_file() || metadata.len() > index_sync::MAX_SOURCE_BYTES as u64 {
+            self.skipped_entries += 1;
+            return Ok(Observation::Unchecked);
+        }
+        if self.reserved_source_bytes + metadata.len() > MAX_BYTES {
+            self.budget_exhausted = true;
+            self.discovery_complete = false;
+            return Ok(Observation::Unchecked);
+        }
+        self.reserved_source_bytes += metadata.len();
+        #[cfg(windows)]
+        let _pins = match super::edit_commit::pin_directory(
+            project,
+            path.parent().ok_or(("PATH", "Missing source parent"))?,
+        ) {
+            Ok(pins) => pins,
+            Err(_) => {
+                self.skipped_entries += 1;
+                return Ok(Observation::Unchecked);
+            }
+        };
+        // Reserve the observed size and cap the actual read at that size. Growth
+        // during reading cannot bypass the aggregate reservation.
+        let bytes = match project.bytes_with_limit(relative, context, metadata.len()) {
+            Ok(bytes) => bytes,
+            Err(failure @ ("CANCELLED" | "TIMEOUT", _)) => return Err(failure),
+            Err(_) => {
+                self.skipped_entries += 1;
+                return Ok(Observation::Unchecked);
+            }
+        };
+        match index_sync::source_hash(&bytes) {
+            Ok(digest) => Ok(Observation::Content(digest)),
+            Err(_) => {
+                self.skipped_entries += 1;
+                Ok(Observation::Unchecked)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn aggregate_budget_never_turns_an_existing_source_into_a_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("source.rs"), "fn source() {}").unwrap();
+        let project = Project::new(dir.path()).unwrap();
+        let mut inventory = Inventory {
+            observations: BTreeMap::new(),
+            discovery_complete: true,
+            visited_entries: 0,
+            reserved_source_bytes: MAX_BYTES,
+            skipped_entries: 0,
+            restricted_indexed_files: 0,
+            budget_exhausted: false,
+        };
+        let observed = inventory
+            .observe(
+                &project,
+                "source.rs",
+                Instant::now(),
+                &OperationContext::default(),
+            )
+            .unwrap();
+        assert!(matches!(observed, Observation::Unchecked));
+        assert!(inventory.budget_exhausted);
+        assert!(!inventory.discovery_complete);
+        assert_eq!(inventory.reserved_source_bytes, MAX_BYTES);
+    }
+}

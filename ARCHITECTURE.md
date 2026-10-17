@@ -1,5 +1,26 @@
 # Arquitectura del harness Rust
 
+El adaptador `index_extract` usa `vendor/codegraph-native`: subconjunto fijado
+del kernel MIT de CodeGraph v1.6.2 (Rust/C#/TS/JS), con entry point Rust en lugar
+de N-API. Se mantiene como dependencia de infraestructura fuera de los crates
+portables; no introduce Node. Su preview aún no resuelve ni publica el grafo.
+
+`index_store` publica explícitamente en índices existentes schema 11/WAL:
+extracción nativa, emparejado de identidades, recuperación de refs entrantes y
+resolver conservador de nombres exactos, bajo transacción por archivo. La CLI
+expone --sync-file y lotes --sync; el lote no es atómico entre archivos. Los
+stamps globales se invalidan y la cobertura parcial sigue visible. No se conecta
+automáticamente al MCP ni modifica el runtime Node activo. La publicación requiere
+pines Windows para DB/sidecars y no sustituye el resolver completo del proveedor.
+
+`index_imports`, interno al escritor, limita imports relativos con nombre/alias
+JS/TS al módulo indexado único y a funciones explícitamente exportadas del mismo
+lenguaje. Helpers AST propios del entry point nativo evitan capturar nombres
+locales; los walkers upstream siguen intactos. Fuentes contribuyentes se comparan
+con sus hashes y se revalidan antes del commit; relaciones nativas de imports se
+reintentan al cambiar módulos/exports. No implementa todavía scopes completos,
+reexports, paquetes ni configuración de aliases.
+
 Monolito modular, un ejecutable y fronteras entre crates. El objetivo es añadir
 herramientas y motores sin acoplar sus reglas al protocolo MCP o a una plataforma.
 
@@ -346,6 +367,28 @@ No se necesitan servicios separados para esas capacidades. Motores auxiliares co
 XLSX/SQL pueden permanecer como procesos bajo un adaptador y un contrato explícito.
 
 ## Verificación de fronteras
+
+La exploración CodeGraph usa `src/adapters/explore.rs` y rusqlite/SQLite integrado
+exclusivamente en el crate nativo. `ExploreArgs` y `Request::Explore` son contratos
+del dominio; `Workspace::explore` es el puerto de aplicación. El transporte solo
+despacha hacia Application, conservando admisión, leases, cancelación y resultados.
+No se añaden dependencias SQLite ni de plataforma a domain/application.
+El adaptador consume el contrato interno de tablas CodeGraph schema_versions
+1..11 en modo read-only/query_only y transacción de lectura. Es una dependencia
+de formato explícita, no paridad con la API pública de CodeGraph: no sincroniza
+ni certifica frescura/cobertura del índice. Las definiciones se vuelven a leer por
+el adaptador de símbolos Rust; las relaciones conservan procedencia indexada.
+El recorrido de hasta cuatro saltos conserva una frontera BFS y distancias por
+dirección, con presupuesto global fijo de aristas/nodos. Ambos sentidos se
+recorren independientemente para no introducir rutas que cambian de dirección;
+el estado por nodo/dirección evita ciclos y conserva las distancias mínimas.
+`index_freshness.rs` obtiene files.content_hash/errors dentro de esa misma
+transacción y observa las fuentes antes/después de la lectura de definiciones.
+Comparte presupuesto entre ambas pasadas, conserva evidencia negativa durante
+la operación y nunca convierte coincidencia parcial en vigencia integral.
+El modo requireMatchingFiles rechaza datos desactualizados/no comprobados en
+el adaptador; la aplicación conserva sus envelopes, logs y admisión habituales.
+Este lector sigue sin escribir ni sincronizar el índice del proveedor.
 
 `tests/architecture.rs` revisa los metadatos reales de Cargo y exige una lista
 aprobada de dependencias para domain y aplicación. Añadir una nueva dependencia

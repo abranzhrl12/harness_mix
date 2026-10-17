@@ -199,11 +199,32 @@ pub(super) fn doctor(
     );
     connection["requested"] = json!(args.connection.unwrap_or(false));
     checks.push(connection);
-    checks.push(check(
-        "sql",
-        "skipped",
-        "Native SQL diagnostic not migrated; no configuration read or connection attempted",
-    ));
+    if args.connection.unwrap_or(false) {
+        let sql_res = super::sql::status(project, &harness_domain::sql::SqlStatusArgs { connect: Some(true), session: None }, context);
+        match sql_res {
+            Ok(val) => {
+                let connected = val["connected"].as_bool().unwrap_or(false);
+                let configured = val["configured"].as_bool().unwrap_or(false);
+                if configured && connected {
+                    checks.push(check("sql", "ok", "SQL Server connection verified successfully"));
+                } else if configured {
+                    checks.push(check("sql", "warning", "SQL Server configured but verification ping failed"));
+                } else {
+                    checks.push(check("sql", "skipped", "SQL Server not configured in harness.config.json"));
+                }
+            }
+            Err(_) => {
+                checks.push(check("sql", "error", "SQL Server check error"));
+            }
+        }
+    } else {
+        let config = super::sql::load_sql_config(project);
+        if config.enabled {
+            checks.push(check("sql", "ok", "SQL Server configured; connection verification not requested"));
+        } else {
+            checks.push(check("sql", "skipped", "SQL Server not configured in harness.config.json"));
+        }
+    }
     context.check()?;
     let (counts, health) = counts(&checks);
     Ok(

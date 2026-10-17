@@ -155,6 +155,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let args = request.arguments();
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
+            Request::Explore(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.explore(&args, context)),
             Request::Bootstrap(args) => self.bootstrap(args, context, &mut lease),
             Request::ExternalScope(args) => {
                 if matches!(
@@ -187,6 +190,24 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::GitDiff(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.git_diff(&args, context)),
+            Request::SqlStatus(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.sql_status(&args, context)),
+            Request::SqlSearch(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.sql_search(&args, context)),
+            Request::SqlDescribe(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.sql_describe(&args, context)),
+            Request::SqlQuery(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.sql_query(&args, context)),
+            Request::XlsxInspect(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.xlsx_inspect(&args, context)),
+            Request::XlsxRead(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.xlsx_read(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),
@@ -257,11 +278,15 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                             None
                         };
                         context.check()?;
-                        let mut update = self
+                        let mut sessions = self
                             .sessions
                             .lock()
-                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
-                            .checkpoint(&args)?;
+                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?;
+                        let mut update = sessions.checkpoint(&args)?;
+                        if let Some(observation) = &observation {
+                            sessions.invalidate_checks(&args.session, observation)?;
+                        }
+                        drop(sessions);
                         if let Some(observation) = observation {
                             harness_domain::freshness::refresh_checkpoint(
                                 &mut update.data,
@@ -465,6 +490,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         result["implementation"] = json!("rust-experimental");
         result["logging"] = self.metrics.logs.status();
         result["supportedTools"] = json!([
+            "harness_explore",
             "harness_bootstrap",
             "harness_read",
             "harness_detail",
@@ -485,11 +511,11 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         ]);
         result["limitations"] = json!([
             "Edición Windows solo Rust/JSON/texto; navegación de símbolos solo Rust, sin SQL ni otros parsers",
-            "Navegación sintáctica: sin locales, expansión de macros ni relaciones CodeGraph",
+            "Explore: relaciones de un índice CodeGraph existente, sin sincronización ni vigencia certificada; definición local solo Rust",
             "Búsqueda text/files/file_size y syntax de declaraciones Rust (kind[:nombre]); sin patrones AST generales. Scopes Windows solo lectura",
             "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
             "Verificación Rust/Go/Python/JavaScript/.NET parcial; .NET exige .csproj/.sln, SDK y restore previo. Ejecuta código del proyecto, no es sandbox",
-            "Git solo lectura; requiere git instalado y raíz con .git directorio, sin linked worktrees",
+            "Git solo lectura; requiere git instalado y raíz Git o worktree vinculado registrado",
             "No sustituye el servidor actual"
         ]);
         result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":2,"queue":"reject_when_full","timeoutMs":30000,"cancellation":"cooperative"});
@@ -501,6 +527,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         }
         if is_new || args.include_rules.unwrap_or(false) {
             result["routing"] = json!([
+                {"need":"relaciones indexadas de un símbolo exacto; no certifica frescura del índice","tool":"harness_explore"},
                 {"need":"plan declarado y timeline observado de sesión","tool":"harness_tasks"},
                 {"need":"sección XML/JSON redactada, sin valores originales","tool":"harness_config"},
                 {"need":"leer una ruta externa expresamente autorizada por el usuario; requiere sesión y consentimiento real","tool":"harness_external_scope"},
