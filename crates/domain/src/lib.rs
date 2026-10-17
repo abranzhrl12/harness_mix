@@ -11,6 +11,7 @@ pub mod results;
 pub mod sql;
 pub mod workflow;
 pub mod xlsx;
+pub mod svg;
 
 pub type Failure = (&'static str, &'static str);
 

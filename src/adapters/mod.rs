@@ -46,6 +46,7 @@ mod symbols;
 mod verify;
 pub mod sql;
 pub mod xlsx;
+pub mod svg;
 
 use harness_application::{
     Application,
@@ -279,6 +280,18 @@ impl Workspace for NativeWorkspace {
             args.session.as_deref(),
             context,
             |project, _| xlsx::read(project, args, context),
+        )
+    }
+    fn svg(
+        &self,
+        args: &harness_domain::svg::SvgArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.read_project(
+            args.external_scope.as_deref(),
+            args.session.as_deref(),
+            context,
+            |project, _| svg::handle_svg(project, args, context),
         )
     }
     fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {

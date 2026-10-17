@@ -586,13 +586,14 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 24);
+    assert_eq!(names.len(), 25);
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));
     assert!(names.contains(&"harness_sql_status") && names.contains(&"harness_sql_search"));
     assert!(names.contains(&"harness_sql_describe") && names.contains(&"harness_sql_query"));
     assert!(names.contains(&"harness_xlsx_inspect") && names.contains(&"harness_xlsx_read"));
+    assert!(names.contains(&"harness_svg"));
     let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));
     assert_eq!(
         sizes["result"]["structuredContent"]["state"], "ok",
