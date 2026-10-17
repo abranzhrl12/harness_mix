@@ -141,7 +141,7 @@ impl McpHarness {
         self.call(Request::GitStatus(args), context).await
     }
     #[tool(
-        description = "Explorar un símbolo exacto en un índice CodeGraph SQLite existente. symbol explícito o query identificador simple. direction=inbound/outbound/both (both por defecto), maxDepth=1..4 (1 por defecto). Hasta 4 archivos objetivo. Comprueba hashes de archivos contribuyentes antes/después de leer definiciones; requireMatchingFiles=true rechaza archivos desactualizados o no comprobados. Coincidencia local no certifica cobertura ni vigencia del índice completo. Sin Node, sync ni SQL libre; definiciones locales solo Rust."
+        description = "Explorar relaciones de un símbolo exacto en un índice SQLite existente, sin Node. direction=inbound/outbound/both; maxDepth=1..4. Por defecto solo lectura. syncIndex=true autoriza actualizar el índice nativo ANTES de consultar (no crea índices); conserva el reporte de commits parciales y no consulta si sync queda incompleto. requireMatchingFiles=true exige hashes contribuyentes vigentes. No certifica cobertura global ni paridad con todos los resolvers del proveedor."
     )]
     async fn harness_explore(
         &self,
@@ -375,6 +375,17 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Diagnostics(args), context).await
+    }
+
+    #[tool(
+        description = "Consulta, filtra y proyecta datos estructurados JSON o archivos de configuracion en memoria con JMESPath sin procesos externos. maxChars 500-32000."
+    )]
+    async fn harness_data_query(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::DataQueryArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::DataQuery(args), context).await
     }
 }
 

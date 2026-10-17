@@ -238,6 +238,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Diagnostics(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.diagnostics(&args, context)),
+            Request::DataQuery(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.data_query(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),

@@ -129,6 +129,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Diagnostics adapter unavailable"))
     }
+    fn data_query(
+        &self,
+        _args: &harness_domain::contracts::DataQueryArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Data query adapter unavailable"))
+    }
     /// Bounded filesystem observation; called outside the session repository mutex.
     fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Workspace observation adapter unavailable"))

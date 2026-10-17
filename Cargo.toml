@@ -38,6 +38,7 @@ tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"] }
 tokio-util = { version = "0.7.20", features = ["compat"] }
 rust_decimal = { version = "1.43.0", features = ["serde"] }
 calamine = "0.36.1"
+jmespath = { version = "0.3", features = ["sync"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

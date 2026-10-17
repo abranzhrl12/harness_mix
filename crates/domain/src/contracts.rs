@@ -250,6 +250,18 @@ pub struct DiagnosticsArgs {
     pub session: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DataQueryArgs {
+    pub path: Option<String>,
+    pub data: Option<Value>,
+    pub query: String,
+    #[serde(rename = "maxChars")]
+    pub max_chars: Option<usize>,
+    pub session: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BatchTool {
@@ -331,6 +343,10 @@ impl BatchJob {
 #[serde(deny_unknown_fields)]
 pub struct ExploreArgs {
     pub query: String,
+    /// Explicit authorization to write the existing native index before querying.
+    /// Omitted/false preserves read-only exploration; no index is created implicitly.
+    #[serde(rename = "syncIndex")]
+    pub sync_index: Option<bool>,
     pub symbol: Option<String>,
     #[serde(rename = "maxFiles")]
     pub max_files: Option<usize>,
@@ -385,6 +401,7 @@ pub enum Request {
     Handover(HandoverArgs),
     ProcessStatus(ProcessStatusArgs),
     Diagnostics(DiagnosticsArgs),
+    DataQuery(DataQueryArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -400,7 +417,8 @@ impl Request {
                     ..
                 })
         ) || matches!(self, Self::Checkpoint(args) if args.has_updates())
-          || matches!(self, Self::Handover(args) if args.target_file.is_some())
+            || matches!(self, Self::Handover(args) if args.target_file.is_some())
+            || matches!(self, Self::Explore(args) if args.sync_index == Some(true))
     }
     pub fn name(&self) -> &'static str {
         match self {
@@ -432,6 +450,7 @@ impl Request {
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) => "harness_process_status",
             Self::Diagnostics(_) => "harness_diagnostics",
+            Self::DataQuery(_) => "harness_data_query",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -464,6 +483,7 @@ impl Request {
             Self::Handover(args) => serde_json::to_value(args),
             Self::ProcessStatus(args) => serde_json::to_value(args),
             Self::Diagnostics(args) => serde_json::to_value(args),
+            Self::DataQuery(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

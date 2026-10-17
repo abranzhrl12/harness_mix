@@ -52,6 +52,8 @@ pub mod svg;
 pub mod handover;
 pub mod process_status;
 pub mod diagnostics;
+pub mod data_query;
+
 
 use harness_application::{
     Application,
@@ -137,7 +139,16 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::ExploreArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        explore::explore(&self.project, args, context)
+        if args.sync_index == Some(true) {
+            let _guard = self
+                .edit_lock
+                .lock()
+                .map_err(|_| ("INTERNAL", "Workspace mutation lock unavailable"))?;
+            context.check()?;
+            explore::synchronized(&self.project, args, context)
+        } else {
+            explore::explore(&self.project, args, context)
+        }
     }
     fn external_scope(
         &self,
@@ -320,6 +331,13 @@ impl Workspace for NativeWorkspace {
         context: &OperationContext,
     ) -> Result<Value, Failure> {
         diagnostics::handle_diagnostics(&self.project, args, context)
+    }
+    fn data_query(
+        &self,
+        args: &harness_domain::contracts::DataQueryArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        data_query::handle_data_query(&self.project, args, context)
     }
     fn observe_workspace(&self, context: &OperationContext) -> Result<Value, Failure> {
         let captured = fingerprint::capture(&self.project, context);
