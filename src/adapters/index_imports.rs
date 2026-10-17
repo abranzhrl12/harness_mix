@@ -12,6 +12,11 @@ pub(super) struct Sources {
     routes: Option<super::paths::Routes>,
     pub(super) config: super::tsconfig::Snapshot,
 }
+pub(super) struct ExportTarget {
+    pub path: String,
+    pub name: String,
+    pub contributors: Vec<serde_json::Value>,
+}
 impl Sources {
     pub fn configured(config: super::tsconfig::Snapshot) -> Self {
         Self {
@@ -59,6 +64,22 @@ impl Sources {
         line: i64,
         col: i64,
     ) -> Result<bool, Failure> {
+        if !self.analyzed(db, project, context, path)? {
+            return Ok(false);
+        }
+        Ok(self
+            .semantic
+            .get(path)
+            .ok_or(INDEX)?
+            .contains(name, line, col))
+    }
+    fn analyzed(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+    ) -> Result<bool, Failure> {
         if !self.observe(db, project, context, path)? {
             return Ok(false);
         }
@@ -72,28 +93,74 @@ impl Sources {
             }
             self.semantic.insert(path.into(), calls);
         }
-        Ok(self
-            .semantic
-            .get(path)
-            .ok_or(INDEX)?
-            .contains(name, line, col))
+        Ok(true)
     }
-    pub(super) fn exported(
+    pub(super) fn export_target(
         &mut self,
         db: &Connection,
         project: &Project,
         context: &OperationContext,
         path: &str,
-        language: &str,
         name: &str,
-    ) -> Result<bool, Failure> {
-        if !self.observe(db, project, context, path)? {
-            return Ok(false);
+    ) -> Result<Option<ExportTarget>, Failure> {
+        use super::super::index_semantic::Export;
+        let (mut path, mut name) = (path.to_string(), name.to_string());
+        let mut visited = std::collections::BTreeSet::new();
+        let mut contributors = Vec::new();
+        loop {
+            context.check()?;
+            if !visited.insert((path.clone(), name.clone())) {
+                return Ok(None);
+            }
+            if visited.len() > 16 {
+                return Err(LIMIT);
+            }
+            if !self.analyzed(db, project, context, &path)? {
+                return Ok(None);
+            }
+            contributors.push(
+                serde_json::json!({"path":path,"hash":hash(self.files.get(&path).ok_or(INDEX)?)}),
+            );
+            match self
+                .semantic
+                .get(&path)
+                .ok_or(INDEX)?
+                .exports
+                .get(&name)
+                .cloned()
+            {
+                Some(Export::Local(local)) => {
+                    return Ok(Some(ExportTarget {
+                        path,
+                        name: local,
+                        contributors,
+                    }));
+                }
+                Some(Export::Remote {
+                    module,
+                    name: original,
+                }) => {
+                    let language: String = sql(db.query_row(
+                        "SELECT language FROM files WHERE path=?1",
+                        [&path],
+                        |r| r.get(0),
+                    ))?;
+                    if !matches!(
+                        language.as_str(),
+                        "typescript" | "tsx" | "javascript" | "jsx"
+                    ) {
+                        return Ok(None);
+                    }
+                    let Some(target) = module_path(db, &path, &module, &language, context, self)?
+                    else {
+                        return Ok(None);
+                    };
+                    path = target;
+                    name = original;
+                }
+                _ => return Ok(None),
+            }
         }
-        let source = std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
-        Ok(codegraph_native::named_function_export(
-            source, language, name,
-        ))
     }
     pub(super) fn recheck(
         &self,
@@ -208,7 +275,24 @@ pub(super) fn scope(
         return Ok(Scope::Pending);
     }
     let (module, original) = bindings.pop().ok_or(INDEX)?;
-    let target = relative_module(path, &module);
+    let Some(resolved) = module_path(db, path, &module, language, context, sources)? else {
+        return Ok(Scope::Pending);
+    };
+    Ok(Scope::Binding {
+        path: resolved,
+        name: original,
+    })
+}
+
+fn module_path(
+    db: &Connection,
+    path: &str,
+    module: &str,
+    language: &str,
+    context: &OperationContext,
+    sources: &mut Sources,
+) -> Result<Option<String>, Failure> {
+    let target = relative_module(path, module);
     if target.is_none()
         && (module.starts_with('.')
             || module.starts_with('/')
@@ -216,7 +300,7 @@ pub(super) fn scope(
             || module.split('/').any(|p| matches!(p, "" | "." | ".."))
             || module.chars().any(char::is_control))
     {
-        return Ok(Scope::Pending);
+        return Ok(None);
     }
     if sources.routes.is_none() {
         sources.routes = Some(super::paths::Routes::load_config(
@@ -228,18 +312,12 @@ pub(super) fn scope(
     let routes = sources.routes.as_mut().ok_or(INDEX)?;
     let resolved = match target {
         Some(target) => routes.resolve(path, &target, language, context)?,
-        None if sources.config.matches(&module) => {
-            routes.resolve_bare(path, &module, language, context)?
+        None if sources.config.matches(module) => {
+            routes.resolve_bare(path, module, language, context)?
         }
         None => None,
     };
-    let Some(resolved) = resolved else {
-        return Ok(Scope::Pending);
-    };
-    Ok(Scope::Binding {
-        path: resolved,
-        name: original,
-    })
+    Ok(resolved)
 }
 
 fn relative_module(from: &str, module: &str) -> Option<String> {

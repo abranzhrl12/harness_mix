@@ -140,6 +140,48 @@ pub(super) fn indexed_files(
     Ok(expected)
 }
 
+/// Decode only the selected edge's JSON provenance, never arbitrary paths from
+/// another edge or a global index stamp. Legacy edges have no such field.
+pub(super) fn export_contributors(
+    raw: Option<&str>,
+    observed: &mut BTreeMap<String, String>,
+) -> Result<(), Failure> {
+    let invalid = ("GRAPH_CONTRACT", "Invalid or conflicting export provenance");
+    let Some(raw) = raw else { return Ok(()) };
+    if raw.len() > 20 * 1024 {
+        return Err(invalid);
+    }
+    let value: Value = serde_json::from_str(raw).map_err(|_| invalid)?;
+    let items = value
+        .as_array()
+        .filter(|v| !v.is_empty() && v.len() <= 16)
+        .ok_or(invalid)?;
+    for item in items {
+        let path = item["path"].as_str().ok_or(invalid)?;
+        let digest = item["hash"].as_str().ok_or(invalid)?;
+        if path.len() > 1000
+            || path.chars().any(char::is_control)
+            || path.contains(['\\', ':'])
+            || path.split('/').any(|p| matches!(p, "" | "." | ".."))
+            || super::index_inventory::restricted(path)
+            || super::project::external_restricted(path)
+            || digest.len() != 64
+            || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(invalid);
+        }
+        let digest = digest.to_ascii_lowercase();
+        if observed.get(path).is_some_and(|old| old != &digest) {
+            return Err(invalid);
+        }
+        observed.insert(path.into(), digest);
+        if observed.len() > 256 {
+            return Err(("GRAPH_LIMIT", "Export provenance exceeds query budget"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 struct Observation {
     status: &'static str,

@@ -835,7 +835,7 @@ fn resolve_exact(
         language.as_str(),
         "typescript" | "tsx" | "javascript" | "jsx"
     );
-    let scope = if js {
+    let mut scope = if js {
         imports::scope(db, &path, &name, &language, context, sources)?
     } else {
         imports::Scope::None
@@ -843,15 +843,28 @@ fn resolve_exact(
     if matches!(scope, imports::Scope::Pending) {
         return Ok(false);
     }
+    let mut export_contributors = Vec::new();
+    if let imports::Scope::Binding {
+        path: target,
+        name: exported,
+    } = &scope
+    {
+        if kind != "calls" || !sources.permits(db, project, context, &path, &name, line, col)? {
+            return Ok(false);
+        }
+        let Some(target) = sources.export_target(db, project, context, target, exported)? else {
+            return Ok(false);
+        };
+        export_contributors = target.contributors;
+        scope = imports::Scope::Binding {
+            path: target.path,
+            name: target.name,
+        };
+    }
     let (lookup, imported_path) = match &scope {
         imports::Scope::Binding { path, name } => (name.as_str(), Some(path.as_str())),
         _ => (name.as_str(), None),
     };
-    if imported_path.is_some()
-        && (kind != "calls" || !sources.permits(db, project, context, &path, &name, line, col)?)
-    {
-        return Ok(false);
-    }
     // Receivers/chains are never stripped. Named imports override global names;
     // unsupported import forms defer instead of falling back to a homonym.
     let mut statement=sql(db.prepare("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE (name=?1 COLLATE BINARY OR qualified_name=?1 COLLATE BINARY) AND ((?3 IS NULL AND language=?2) OR (?3 IS NOT NULL AND file_path=?3 COLLATE BINARY AND language IN ('typescript','tsx','javascript','jsx'))) ORDER BY file_path,start_line,id LIMIT 65"))?;
@@ -874,13 +887,15 @@ fn resolve_exact(
     }
     candidates.retain(|n| allowed.contains(&n.1.as_str()));
     if let Some(target) = imported_path {
-        candidates.retain(|n| n.2 == target && n.5 && n.1 != "method" && n.3 == lookup);
+        candidates.retain(|n| n.2 == target && n.1 == "function" && n.3 == lookup);
     } else if matches!(scope, imports::Scope::LocalOnly) {
         candidates.retain(|n| n.2 == path);
     }
     // Cross-file private symbols require receiver/import/visibility analysis
     // outside this subset. Keep them pending rather than guessing accessibility.
-    candidates.retain(|n| n.2 == path || n.4.as_deref() == Some("public") || n.5);
+    if imported_path.is_none() {
+        candidates.retain(|n| n.2 == path || n.4.as_deref() == Some("public") || n.5);
+    }
     let qualified = lookup.contains('.') || lookup.contains("::");
     if qualified {
         candidates.retain(|n| n.3 == lookup);
@@ -911,11 +926,6 @@ fn resolve_exact(
     if candidates.len() != 1 {
         return Ok(false);
     }
-    if let Some(target) = imported_path
-        && !sources.exported(db, project, context, target, &candidates[0].6, lookup)?
-    {
-        return Ok(false);
-    }
     let edge_kind = if kind == "function_ref" {
         "references"
     } else {
@@ -928,6 +938,8 @@ fn resolve_exact(
         }
         metadata["bindingEngine"] = json!("oxc-semantic-0.90.0");
         metadata["moduleEngine"] = json!("oxc-resolver-11.0.0-index-snapshot");
+        metadata["exportEngine"] = json!("oxc-module-record-0.90.0-named-chain-v1");
+        metadata["exportContributors"] = json!(export_contributors);
     }
     let metadata = metadata.to_string();
     sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')",params![from,candidates[0].0,edge_kind,line,col,metadata]))?;
@@ -1036,6 +1048,58 @@ mod tests {
             db.query_row("SELECT count(*) FROM nodes WHERE name='old'", [], |r| r
                 .get::<_, i64>(0))
                 .unwrap(),
+            1
+        );
+    }
+    #[test]
+    fn barrel_changed_after_resolution_rolls_back_target_update() {
+        let dir = tempfile::tempdir().unwrap();
+        fixture(dir.path());
+        for (path, source) in [
+            ("lib.ts", "export function run(){}"),
+            ("barrel.ts", "export {run as api} from './lib';"),
+            (
+                "app.ts",
+                "import {api} from './barrel'; export function caller(){api();}",
+            ),
+        ] {
+            std::fs::write(dir.path().join(path), source).unwrap();
+            sync_file(dir.path(), path, &OperationContext::default()).unwrap();
+        }
+        let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+        let before: String = db
+            .query_row(
+                "SELECT content_hash FROM files WHERE path='lib.ts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(db);
+        std::fs::write(dir.path().join("lib.ts"), "\nexport function run(){}").unwrap();
+        let result = sync_file_with(dir.path(), "lib.ts", &OperationContext::default(), || {
+            std::fs::write(
+                dir.path().join("barrel.ts"),
+                "export {missing as api} from './lib';",
+            )
+            .unwrap();
+        });
+        assert_eq!(result.unwrap_err().0, "STALE");
+        let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT content_hash FROM files WHERE path='lib.ts'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            before
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM edges WHERE kind='calls'", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
             1
         );
     }

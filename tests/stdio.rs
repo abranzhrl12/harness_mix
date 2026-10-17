@@ -660,12 +660,21 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let unsupported = server.request(
         20,
         "tools/call",
-        json!({"name":"harness_verify","arguments":{"language":"typescript"}}),
+        json!({"name":"harness_verify","arguments":{"language":"unknown-language"}}),
     );
     assert_eq!(unsupported["result"]["structuredContent"]["state"], "error");
     assert_eq!(
         unsupported["result"]["structuredContent"]["diagnostics"][0]["code"],
         "UNSUPPORTED"
+    );
+    let missing_ts_scope = server.request(
+        23,
+        "tools/call",
+        json!({"name":"harness_verify","arguments":{"language":"typescript"}}),
+    );
+    assert_eq!(
+        missing_ts_scope["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "VERIFY_SCOPE"
     );
     std::fs::write(
         root.path().join("Cargo.toml"),

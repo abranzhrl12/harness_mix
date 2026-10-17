@@ -109,26 +109,45 @@ pub(super) fn analyze(
     // Oxc supplies the ESM entries; retain owned, bounded data after its arena
     // is dropped. Only implemented function declarations become graph targets.
     let record = &parsed.module_record;
-    for entry in record.local_export_entries.iter().chain(&record.indirect_export_entries) {
+    for entry in record
+        .local_export_entries
+        .iter()
+        .chain(&record.indirect_export_entries)
+    {
         context.check()?;
-        let ExportExportName::Name(exported) = &entry.export_name else { continue };
+        let ExportExportName::Name(exported) = &entry.export_name else {
+            continue;
+        };
         let name = exported.name.as_str();
         let mut target = Export::Unsupported;
         if !entry.is_type && name != "default" {
-            if let (Some(module), ExportImportName::Name(imported)) = (&entry.module_request, &entry.import_name) {
+            if let (Some(module), ExportImportName::Name(imported)) =
+                (&entry.module_request, &entry.import_name)
+            {
                 if imported.name != "default" {
-                    target = Export::Remote { module: module.name.to_string(), name: imported.name.to_string() };
+                    target = Export::Remote {
+                        module: module.name.to_string(),
+                        name: imported.name.to_string(),
+                    };
                 }
             } else if let Some(local) = entry.local_name.name() {
-                let imported = record.import_entries.iter().find(|i| i.local_name.name == local);
+                let imported = record
+                    .import_entries
+                    .iter()
+                    .find(|i| i.local_name.name == local);
                 if let Some(imported) = imported {
                     if !imported.is_type
                         && let ImportImportName::Name(original) = &imported.import_name
                         && original.name != "default"
                     {
-                        target = Export::Remote { module: imported.module_request.name.to_string(), name: original.name.to_string() };
+                        target = Export::Remote {
+                            module: imported.module_request.name.to_string(),
+                            name: original.name.to_string(),
+                        };
                     }
-                } else if let Some(symbol) = semantic.scoping().get_binding(semantic.scoping().root_scope_id(), local.as_str())
+                } else if let Some(symbol) = semantic
+                    .scoping()
+                    .get_binding(semantic.scoping().root_scope_id(), local.as_str())
                     && let AstKind::Function(function) = semantic.symbol_declaration(symbol).kind()
                     && function.body.is_some()
                 {
@@ -136,11 +155,12 @@ pub(super) fn analyze(
                 }
             }
         }
-        let bytes = name.len() + match &target {
-            Export::Local(local) => local.len(),
-            Export::Remote { module, name } => module.len() + name.len(),
-            Export::Unsupported => 0,
-        };
+        let bytes = name.len()
+            + match &target {
+                Export::Local(local) => local.len(),
+                Export::Remote { module, name } => module.len() + name.len(),
+                Export::Unsupported => 0,
+            };
         result.reserved += bytes + 64;
         if result.exports.len() >= 20_000 || result.reserved > 16 * 1024 * 1024 {
             return Err(LIMIT);

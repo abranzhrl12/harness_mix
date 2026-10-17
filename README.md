@@ -85,6 +85,9 @@ Uso: `--sync-file src/app.ts --tsconfig tsconfig.json`. Admite JSONC y `extends`
 local simple con invalidación de padres. No activa búsqueda automática de
 tsconfigs por importador, references, herencia de paquetes ni resolución de paquetes.
 
+Exports locales con alias, reexports nombrados y cadenas acotadas de funciones:
+[NAMED-REEXPORTS.md](NAMED-REEXPORTS.md), con invalidación de barrels y evidencia diferencial.
+
 En Windows, con un índice existente schema 11 en modo WAL:
 
 ```powershell

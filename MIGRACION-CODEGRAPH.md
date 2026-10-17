@@ -30,7 +30,10 @@ de compatibilidad. La conexión Node activa no se ha sustituido automáticamente
 `extends` local simple, con hashes de padres, límites, rollback y vigencia al
 consultar. Diez pruebas del perfil pasaron, incluida comparación de seis casos
 con CodeGraph v1.6.2. No incluye selección por importador, references, herencia de
-paquetes/arrays ni reexports. Perfil completo: [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md).
+paquetes/arrays. Perfil completo: [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md).
+La ampliación posterior integra exports locales con alias y reexports nombrados
+de funciones usando ModuleRecord de Oxc, hashes de la cadena y rollback:
+[NAMED-REEXPORTS.md](NAMED-REEXPORTS.md). Export *, default/namespace y callbacks siguen pendientes.
 
 | Bloque | Implementado | Límite actual |
 | --- | --- | --- |
@@ -106,7 +109,7 @@ Alcance inicial conservador:
   nativas de imports al publicar cambios JS/TS. Retira enlaces que dejan de ser
   válidos por cambios de exportación o nuevas alternativas de módulo.
 
-Siguen pendientes paquetes externos, default/namespace/type-only, reexports,
+Siguen pendientes paquetes externos, default/namespace/type-only y export *,
 selección de tsconfig por importador y semántica completa entre archivos. El escritor ahora aplica
 prioridades explícitas del proveedor a rutas relativas con Oxc y soporta el
 fallback de extensiones emitidas cuando no existe el archivo original.
@@ -164,7 +167,7 @@ del harness. Cargo ajustó `bumpalo` a 3.19.0 y `zopfli` a 0.8.3 en el lockfile.
 La validación usa el compilador instalado; no se certifica todavía Rust 1.88.
 
 El bloque semántico por sí solo no cambia la política de rutas. Siguen pendientes
-default/namespace/type-only, reexports y callbacks. Los archivos sin cambios conservan el no-op actual:
+default/namespace/type-only, export * y callbacks. Los archivos sin cambios conservan el no-op actual:
 la actualización del motor no fuerza una reconstrucción global del índice.
 
 ### Integración realizada: Oxc resolver sobre el índice autorizado
@@ -307,7 +310,7 @@ verificada, suite integrada aprobada y ejecución real sin depender del coordina
 Node. Hasta entonces, el nombre correcto es **sincronización nativa parcial**.
 
 Siguiente bloque recomendado: selección de configuración por importador y
-reexports/formas restantes de imports, con invalidación transitiva y fixtures
+export */formas restantes de imports, con invalidación transitiva y fixtures
 diferenciales, sin habilitar acceso libre al disco.
 
 ## Mapa de implementación

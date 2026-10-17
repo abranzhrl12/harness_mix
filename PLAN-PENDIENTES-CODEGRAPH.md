@@ -95,14 +95,17 @@ fixtures diferenciales, sin leer configuraciones de padres externos por defecto.
 
 ### 3. Exports, reexports e imports restantes
 
-- [ ] Evaluar los registros de módulos de Oxc disponibles en la versión fijada.
-- [ ] Resolver exports locales con alias y reexports con nombre.
-- [ ] Seguir cadenas de reexports con presupuesto y detección de ciclos.
+- [x] Integrar ModuleRecord y bindings semánticos de Oxc 0.90.0, sin parser duplicado.
+- [x] Exports locales con alias y reexports con nombre para funciones implementadas/direct calls.
+- [x] Cadenas de hasta 16 pares archivo/nombre, con ciclos pendientes y límites que provocan rollback.
 - [ ] Resolver `export *` sin inventar un ganador entre símbolos ambiguos.
 - [ ] Añadir default y namespace de forma diferenciada; no convertir imports type-only en llamadas runtime.
 - [ ] Mapear referencias usadas como valor/callback a su tipo de arista correcto.
-- [ ] Conservar el nombre original y la procedencia necesarios para recuperar referencias al renombrar/eliminar destinos.
-- [ ] Invalidar relaciones dependientes de un barrel o tercer archivo modificado.
+- [x] Conservar refName/refKind y hashes de la cadena para recuperar referencias al renombrar/eliminar destinos.
+- [x] Invalidar/reintentar imports nativos al publicar JS/TS; Explore incluye hashes de los barrels.
+
+Perfil acotado y evidencia: [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md).
+Tres fixtures comparados con indexación completa de CodeGraph v1.6.2; no paridad global.
 
 Pruebas mínimas: barrel simple, alias encadenados, export default, namespace,
 colisiones, ciclos, tipos, altas/bajas y desplazamientos de líneas.

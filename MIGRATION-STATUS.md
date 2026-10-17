@@ -66,7 +66,20 @@ microservicios para escalar las capacidades de este ejecutable.
 - Preservación de DACL en Windows y artefactos de recuperación ante publicación incierta.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
-### Último bloque: paths/baseUrl explícitos y vigencia de configuración
+### Último bloque: exports/reexports nombrados con Oxc
+
+ModuleRecord y bindings de Oxc 0.90.0 reutilizados para exports locales con alias,
+reexports nombrados y cadenas de funciones. Resolución de archivos con el Oxc
+cerrado existente; hasta 16 pares archivo/nombre, fuentes verificadas y rollback.
+Aristas conservan refName/refKind y hashes de los archivos intermedios; cambios
+de barrels provocan rebinding y Explore comprueba su vigencia. Los índices mínimos
+sin metadata de aristas siguen siendo legibles. Tres fixtures contrastados con
+indexación completa de CodeGraph v1.6.2. No incluye export *, default/namespace,
+callbacks ni variables exportadas como función. Ver [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md).
+Validación final: suite completa del workspace, Clippy estricto y build release
+aprobados; fixture CLI del ejecutable release con PATH vacío también aprobado.
+
+### Bloque anterior: paths/baseUrl explícitos y vigencia de configuración
 
 Perfil Windows de tsconfig JSONC seleccionado por CLI, leído con límites
 y pins y entregado a Oxc como snapshot sanitizado, sin filesystem del SO. Soporta

@@ -188,6 +188,22 @@ pub(super) fn explore(
         targets.iter().map(|n| (n.id.clone(), n.clone())).collect();
     let mut edges = Vec::new();
     let mut edge_ids = BTreeSet::new();
+    let mut export_contributors = BTreeMap::new();
+    // Minimal legacy reader schemas need not have edge metadata. Detect the
+    // column explicitly; never turn a malformed full-schema query into a
+    // silent "no provenance" fallback.
+    let has_metadata: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('edges') WHERE name='metadata'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(failed)?;
+    let mut export_query = if has_metadata == 1 {
+        Some(db.prepare("SELECT CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.exportContributors') END FROM edges WHERE id=?1").map_err(failed)?)
+    } else {
+        None
+    };
     let directions: &[bool] = match direction {
         ExploreDirection::Inbound => &[true],
         ExploreDirection::Outbound => &[false],
@@ -262,15 +278,34 @@ pub(super) fn explore(
             }
             nodes.insert(related.id.clone(), related);
             if edge_ids.insert(id) {
+                let provenance = export_query
+                    .as_mut()
+                    .map(|query| query.query_row([id], |r| r.get::<_, Option<String>>(0)))
+                    .transpose()
+                    .map_err(failed)?
+                    .flatten();
+                super::index_freshness::export_contributors(
+                    provenance.as_deref(),
+                    &mut export_contributors,
+                )?;
                 edges.push(json!({"id":id,"source":source,"target":destination,"kind":kind}));
             }
         }
     }
-    let contributing_files = nodes
+    let mut contributing_files = nodes
         .values()
         .map(|node| node.file_path.clone())
         .collect::<BTreeSet<_>>();
-    let indexed_files = super::index_freshness::indexed_files(&db, contributing_files, context)?;
+    contributing_files.extend(export_contributors.keys().cloned());
+    let mut indexed_files =
+        super::index_freshness::indexed_files(&db, contributing_files, context)?;
+    for (path, digest) in export_contributors {
+        let expected = indexed_files.get_mut(&path).ok_or(CONTRACT)?;
+        if expected.hash.as_deref() != Some(digest.as_str()) {
+            expected.hash = Some(digest);
+            expected.reason = Some("export_provenance_mismatch");
+        }
+    }
     db.execute_batch("ROLLBACK").map_err(failed)?;
     context.check()?;
     if started.elapsed() >= Duration::from_secs(5) {

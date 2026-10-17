@@ -23,8 +23,9 @@ selection again. Transactions are per source, not per workspace.
 - baseUrl anchors those targets relative to the declaring file. Without baseUrl,
   targets are relative to that file's directory. Normalized `..` may stay inside
   the workspace; absolute paths, traversal escapes and restricted paths fail.
-- Only named imports/direct calls and explicit function exports already supported
-  by the native binding layer. No default/namespace/type-only/reexports added.
+- Named imports/direct calls and the function export profile described in
+  [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md), including named reexport chains.
+  No default/namespace/type-only runtime calls are added.
 - Unmatched bare packages, Node builtins and missing destinations remain pending.
   baseUrl alone does not turn arbitrary package names into local symbols.
 - Relative imports keep their previous behavior. Conservative directory-index

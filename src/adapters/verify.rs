@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn javascript_rejects_implicit_scope_typescript_and_path_injection() {
+    fn javascript_rejects_implicit_scope_and_path_injection() {
         let root = tempfile::tempdir().unwrap();
         for file in ["a.ts", "a.jsx", "a.json", "pattern[1].js"] {
             std::fs::write(root.path().join(file), "{}").unwrap();
@@ -612,7 +612,6 @@ mod tests {
         for scope in [
             None,
             Some("."),
-            Some("a.ts"),
             Some("a.jsx"),
             Some("a.json"),
             Some("pattern[1].js"),
@@ -627,6 +626,17 @@ mod tests {
                 session: None,
             };
             assert!(plan(&project, &args).is_err());
+        }
+        for language in ["javascript", "typescript", "ts"] {
+            let args = VerifyArgs {
+                language: language.into(),
+                scope: Some("a.ts".into()),
+                action: None,
+                session: None,
+            };
+            let spec = plan(&project, &args).unwrap();
+            assert_eq!(spec.program(), Program::Node);
+            assert_eq!(spec.arguments(), ["--no-warnings", "--check", "./a.ts"]);
         }
     }
 
@@ -822,7 +832,10 @@ mod tests {
             assert_eq!(spec.arguments()[0], "-C");
             assert!(spec.arguments()[1].ends_with("module with spaces"));
             assert_eq!(spec.arguments()[2], if test { "test" } else { "build" });
-            assert_eq!(spec.arguments().last().unwrap(), ".");
+            assert_eq!(
+                spec.arguments().last().unwrap(),
+                if test { "./..." } else { "." }
+            );
             assert!(spec.arguments().contains(&"-mod=readonly".into()));
             assert!(spec.arguments().contains(&"-buildvcs=false".into()));
             assert_eq!(spec.arguments().contains(&"-count=1".into()), test);
@@ -929,7 +942,7 @@ mod tests {
             args.scope = Some(scope.into());
             assert!(plan(&project, &args).is_err(), "{scope}");
         }
-        args.language = "typescript".into();
+        args.language = "unknown-language".into();
         assert_eq!(plan(&project, &args).unwrap_err().0, "UNSUPPORTED");
     }
 }
