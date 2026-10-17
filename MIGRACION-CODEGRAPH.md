@@ -2,6 +2,9 @@
 
 Punto de control: 2026-10-17. Estado: implementación parcial, no migración terminada.
 
+Plan de siguientes entregas y bibliotecas a reutilizar:
+[PLAN-PENDIENTES-CODEGRAPH.md](PLAN-PENDIENTES-CODEGRAPH.md).
+
 Este documento resume el bloque CodeGraph del harness. El estado general y el
 historial de los demás bloques están en [MIGRATION-STATUS.md](MIGRATION-STATUS.md).
 En caso de contradicción con una etapa histórica, este resumen describe el
