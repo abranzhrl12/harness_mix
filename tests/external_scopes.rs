@@ -132,6 +132,40 @@ fn external_config_requires_redaction_and_grants_do_not_survive_restart() {
     assert_eq!(redacted["state"], "ok", "{redacted}");
     assert_eq!(redacted["logPersistence"]["saved"], true);
     assert!(!redacted.to_string().contains("external-private"));
+    std::fs::write(
+        outside.path().join("appsettings.json"),
+        r#"{"Settings":{"password-private":"json-private"}}"#,
+    )
+    .unwrap();
+    let json_scope = grant(&app, &id, &outside.path().join("appsettings.json"), true);
+    let json_scope = json_scope["data"]["scopeId"].as_str().unwrap();
+    assert_eq!(
+        read(&app, &id, json_scope, "appsettings.json")["diagnostics"][0]["code"],
+        "PATH"
+    );
+    let redacted = app.execute(Request::Config(ConfigArgs {
+        path: "appsettings.json".into(),
+        section: "Settings".into(),
+        max_chars: None,
+        external_scope: Some(json_scope.into()),
+        session: Some(id.clone()),
+    }));
+    assert_eq!(redacted["state"], "ok", "{redacted}");
+    assert_eq!(redacted["logPersistence"]["saved"], true);
+    assert_eq!(redacted["data"]["externalScope"], json_scope);
+    assert!(!redacted.to_string().contains("password-private"));
+    assert!(!redacted.to_string().contains("json-private"));
+    std::fs::write(outside.path().join("appsettings.json"), "{invalid-private}").unwrap();
+    let invalid = app.execute(Request::Config(ConfigArgs {
+        path: "appsettings.json".into(),
+        section: "Settings".into(),
+        max_chars: None,
+        external_scope: Some(json_scope.into()),
+        session: Some(id.clone()),
+    }));
+    assert_eq!(invalid["diagnostics"][0]["code"], "CONFIG_JSON");
+    assert_eq!(invalid["logPersistence"]["saved"], true);
+    assert!(!invalid.to_string().contains("invalid-private"));
     drop(app);
     let restarted = adapters::application(root.path()).unwrap();
     assert_eq!(

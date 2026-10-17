@@ -502,7 +502,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if is_new || args.include_rules.unwrap_or(false) {
             result["routing"] = json!([
                 {"need":"plan declarado y timeline observado de sesión","tool":"harness_tasks"},
-                {"need":"sección XML con todos sus valores redactados","tool":"harness_config"},
+                {"need":"sección XML/JSON redactada, sin valores originales","tool":"harness_config"},
                 {"need":"leer una ruta externa expresamente autorizada por el usuario; requiere sesión y consentimiento real","tool":"harness_external_scope"},
                 {"need":"eventos recientes sin argumentos ni contenido","tool":"harness_logs"},
                 {"need":"1–4 lecturas independientes, nunca pasos dependientes","tool":"harness_batch"},

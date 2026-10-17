@@ -91,7 +91,7 @@ impl McpHarness {
         self.call(Request::ExternalScope(args), context).await
     }
     #[tool(
-        description = "Leer una sección XML/config sin devolver valores: todos los atributos y textos se redactan antes de truncar. Sin DTD, entidades externas, configSource ni salida original. Límite 1 MiB, 10000 nodos, profundidad 64. No modifica configuración del runtime."
+        description = "Leer configuración XML/JSON redactada antes de truncar. XML: atributos/textos ocultos. JSON: sección top-level exacta; nombres de propiedades y escalares ocultos, claves duplicadas usan último valor. Sin referencias externas ni fuente original. Límite 1 MiB, 10000 nodos, profundidad 64. No modifica el runtime."
     )]
     async fn harness_config(
         &self,

@@ -30,7 +30,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 100 líneas por fragmento |
 | `harness_detail` | Implementado | Caché acotada, paginado UTF-16, referencias locales al proceso |
 | `harness_search` | Parcial | Text/files/file_size y scopes externos Windows; falta syntax |
-| `harness_config` | Parcial | Sección XML, todos los valores redactados; no settings runtime/JSON |
+| `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
 | `harness_verify` | Parcial | Rust build/test mediante Cargo; faltan otros lenguajes |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
@@ -61,6 +61,15 @@ microservicios para escalar las capacidades de este ejecutable.
 
 ### Último bloque implementado
 
+Configuración JSON redactada en el mismo adaptador nativo, sin dependencias nuevas.
+Sección de primer nivel exacta; nombres de propiedades y escalares ocultos antes
+de preview/detail. Presupuestos 1 MiB/10000 nodos/profundidad 64 y salida acotada.
+Compatible con batch, scopes Windows y logs persistidos. Las claves duplicadas
+usan el último valor; no sigue referencias ni ofrece texto editable. Se mantienen
+17 herramientas y sigue pendiente la configuración dinámica del runtime.
+
+### Bloque anterior: XML y alcances externos
+
 Configuración XML por parser nativo y alcances externos Windows: 17 herramientas.
 Config oculta todos los valores antes del recorte y no devuelve fuente en errores
 ni detail; rechaza DTD/entidades, múltiples coincidencias y límites excedidos.
@@ -68,8 +77,8 @@ Scopes requieren consentimiento explícito declarado, sesión propietaria y ruta
 concreta; caducan, se revocan y comprueban identidad sin conservar pins ociosos.
 Pueden usarse en read/search/navegación/config, también dentro de batch compatible,
 pero nunca conceden edición, procesos o SQL. Archivos únicos no autorizan vecinos.
-Son coberturas parciales: valores no sensibles también redactados; scopes Unix,
-JSON y configuración dinámica del harness no están implementados.
+Son coberturas parciales: valores no sensibles también redactados; faltan scopes
+Unix y configuración dinámica del harness. JSON se añadió después.
 
 ### Bloque anterior: file_size
 
@@ -164,7 +173,7 @@ misma sesión, sin retener el mutex global durante el escaneo.
 
 ## Verificación realizada antes de este documento
 
-- 116 pruebas Rust pasan con configuración XML y alcances externos.
+- 119 pruebas Rust cubren configuración XML/JSON y alcances externos.
 - Clippy de todo el workspace y todos los targets: sin warnings.
 - Formato Cargo comprobado.
 - Compilación release completada con las últimas modificaciones.
@@ -201,7 +210,8 @@ misma sesión, sin retener el mutex global durante el escaneo.
 - [x] `harness_batch` para lecturas nativas con admisión y cancelación compartidas.
 - [ ] Extender batch a SQL y otras lecturas cuando sus adaptadores estén migrados.
 - [x] Lectura XML nativa con redacción de todos los valores y límites explícitos.
-- [ ] Configuración JSON/runtime y paridad de valores no sensibles con política segura.
+- [x] Configuración JSON redactada, incluyendo nombres de propiedades.
+- [ ] Configuración runtime y paridad de valores no sensibles con política segura.
 - [x] Alcances externos Windows autorizados, acotados por sesión/TTL/identidad.
 - [ ] Alcances externos Unix y cobertura de herramientas todavía no migradas.
 - [x] Búsqueda de tamaño (`file_size`) nativa con límites explícitos.

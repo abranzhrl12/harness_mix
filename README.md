@@ -50,9 +50,9 @@ para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
 y `harness_logs`, `harness_config` y `harness_external_scope` (17 herramientas).
 
-## Configuración XML segura
+## Configuración XML/JSON redactada
 
-`harness_config` es un lector de secciones XML, no un editor de settings del
+`harness_config` es un lector de secciones XML/JSON, no un editor de settings del
 runtime. Recibe path, section, maxChars=500..12000 (8000), session opcional y
 externalScope cuando hay un permiso válido. Extensiones: .config/.xml/.csproj/
 .props/.targets, UTF-8 con BOM opcional, hasta 1 MiB. Selección por nombre local
@@ -73,8 +73,24 @@ de unos 64 KiB. Se rechazan marcadores DOCTYPE/ENTITY incluso en comentarios;
 sin resolver entidades externas, seguir configSource/file ni descifrar secciones.
 Una configuración inválida se rechaza completa, no se extrae por regex.
 Referencia del parser: [ParsingOptions](https://docs.rs/roxmltree/0.21.1/roxmltree/struct.ParsingOptions.html).
-Admitido en batch como lectura. JSON y configuración dinámica del propio harness
-siguen pendientes; no se exponen valores supuestamente no sensibles.
+Admitido en batch como lectura. La configuración dinámica del propio harness
+sigue pendiente; no se exponen valores supuestamente no sensibles.
+
+Para .json, section elige una propiedad de primer nivel con coincidencia exacta
+y sensible a mayúsculas (no JSONPath ni búsqueda recursiva). Se conserva la forma
+de objetos/arrays, pero TODOS los nombres de propiedades se reemplazan por
+field_1, field_2, etc., y TODOS los escalares, incluidos números, booleanos y null,
+por "***". No conserva tipos escalares, nombres ni orden original: no sirve para
+edición. Incluso los nombres JSON pueden contener secretos. Las claves duplicadas
+siguen la política explícita de serde_json: último valor; los presupuestos de
+nodos se aplican al árbol resultante. Solo JSON estricto UTF-8/BOM, sin comentarios,
+referencias $ref, interpolación ni lectura de archivos referenciados. Límite de
+entrada 1 MiB, árbol de 10000 nodos y profundidad 64; el parser conserva también
+su límite de recursión. Los errores originales nunca se publican. La salida mayor
+de 64000 bytes se recorta conservadoramente a 16000 unidades UTF-16 y se marca
+incompleta; ni el preview ni detail garantizan JSON válido si hay recorte.
+Compatible con batch y scopes Windows; un permiso externo no habilita lectura
+cruda de appsettings.json, que debe pasar por este adaptador redactado.
 
 ## Alcances externos autorizados (Windows)
 

@@ -96,6 +96,18 @@ fn xml_config_and_external_scope_round_trip_without_node() {
         "{config}"
     );
     assert!(!config.to_string().contains("protocol-private"));
+    std::fs::write(
+        outside.path().join("appsettings.json"),
+        r#"{"Settings":{"protocol-key-private":"protocol-json-private"}}"#,
+    )
+    .unwrap();
+    let config = server.request(7, "tools/call", json!({"name":"harness_config","arguments":{"session":session,"externalScope":scope,"path":"appsettings.json","section":"Settings"}}));
+    assert_eq!(
+        config["result"]["structuredContent"]["state"], "ok",
+        "{config}"
+    );
+    assert!(!config.to_string().contains("protocol-key-private"));
+    assert!(!config.to_string().contains("protocol-json-private"));
     let raw=server.request(5,"tools/call",json!({"name":"harness_read","arguments":{"session":session,"externalScope":scope,"path":"Web.config","start":1,"end":1}}));
     assert_eq!(
         raw["result"]["structuredContent"]["diagnostics"][0]["code"],

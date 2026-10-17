@@ -35,6 +35,7 @@ fn code(value: Option<&str>) -> Option<&'static str> {
         "PATH" => "PATH",
         "ARGUMENT" => "ARGUMENT",
         "CONFIG_XML" => "CONFIG_XML",
+        "CONFIG_JSON" => "CONFIG_JSON",
         "SECTION" => "SECTION",
         "AMBIGUOUS_SECTION" => "AMBIGUOUS_SECTION",
         "AUTHORIZATION" => "AUTHORIZATION",

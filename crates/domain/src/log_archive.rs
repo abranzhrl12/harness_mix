@@ -98,6 +98,7 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "INTERNAL",
                     "TOOL_ERROR",
                     "CONFIG_XML",
+                    "CONFIG_JSON",
                     "SECTION",
                     "AMBIGUOUS_SECTION",
                     "AUTHORIZATION",

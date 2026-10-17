@@ -95,6 +95,13 @@ Los errores de hijos se conservan por índice y la salida grande usa detalle com
 
 ### XML y permisos externos
 
+El mismo adaptador admite JSON usando serde_json existente, sin dependencias en
+dominio/aplicación. Selecciona una propiedad top-level exacta y produce un árbol
+sanitizado: nombres field_N y escalares "***". El árbol completo se valida contra
+presupuestos antes de una redacción de profundidad acotada; solo el árbol redactado
+se serializa y recorta. Errores del parser se sustituyen por CONFIG_JSON estático.
+No hay resolución de referencias, interpolación ni exposición de tipos escalares.
+
 ConfigArgs y ExternalScopeArgs son contratos distintos: leer una sección no
 modifica settings; grant/revoke sí mutan el registro y esperan resultado definitivo
 ante cancelación. La aplicación valida/pinea la sesión, usando su gate para estas

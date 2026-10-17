@@ -1,4 +1,4 @@
-//! XML skeleton only. Raw XML values and parser error messages never enter results/details/logs.
+//! Redacted configuration skeletons. Raw values and parser errors never enter results.
 use super::project::Project;
 use harness_domain::{
     Failure,
@@ -45,15 +45,18 @@ pub(super) fn section(
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !["config", "xml", "csproj", "props", "targets"].contains(&extension.as_str()) {
+    if !["json", "config", "xml", "csproj", "props", "targets"].contains(&extension.as_str()) {
         return Err((
             "ARGUMENT",
-            "Config supports .config/.xml/.csproj/.props/.targets only",
+            "Config supports .json/.config/.xml/.csproj/.props/.targets only",
         ));
     }
     let bytes = project.redacted_input_bytes(&args.path, context, 1024 * 1024)?;
-    let source = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "XML must be UTF-8"))?;
+    let source = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "Config must be UTF-8"))?;
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+    if extension == "json" {
+        return json_section(source, args, max, context);
+    }
     if source.contains("<!DOCTYPE") || source.contains("<!ENTITY") {
         return Err(("CONFIG_XML", "DTD/entity declarations are not accepted"));
     }
@@ -140,6 +143,78 @@ pub(super) fn section(
     let mut result = json!({"path":args.path,"section":args.section,"redacted":true,"redactionPolicy":"all_attribute_and_text_values",
         "text":prefix(&output,max),"truncated":truncated,"externalReferencesFollowed":false,"editReady":false,
         "namespacePolicy":"local names only; repeated local attributes collapsed","complete":!bounded,"_complete":!bounded});
+    if truncated {
+        result["_detail"] = json!({"text":output,"redacted":true,"complete":!bounded});
+    }
+    Ok(result)
+}
+
+fn json_section(
+    source: &str,
+    args: &ConfigArgs,
+    max: usize,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    // Keep serde's recursion limit enabled; never return its source-bearing errors.
+    let document: Value = serde_json::from_str(source).map_err(|_| {
+        (
+            "CONFIG_JSON",
+            "Invalid JSON or parser budget exceeded; original error withheld",
+        )
+    })?;
+    let mut pending = vec![(&document, 0usize)];
+    let mut nodes = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        context.check()?;
+        nodes += 1;
+        if nodes > 10000 || depth > 64 {
+            return Err(("CONFIG_JSON", "JSON exceeds 10000 nodes or depth 64"));
+        }
+        match node {
+            Value::Array(items) => pending.extend(items.iter().map(|v| (v, depth + 1))),
+            Value::Object(items) => pending.extend(items.values().map(|v| (v, depth + 1))),
+            _ => {}
+        }
+    }
+    let selected = document
+        .as_object()
+        .and_then(|object| object.get(&args.section))
+        .ok_or((
+            "SECTION",
+            "JSON top-level section not found (case-sensitive)",
+        ))?;
+    // JSON property names can themselves be secrets. Do not publish them, even in detail.
+    fn redact(node: &Value) -> Value {
+        match node {
+            Value::Array(items) => Value::Array(items.iter().map(redact).collect()),
+            Value::Object(items) => Value::Object(
+                items
+                    .values()
+                    .enumerate()
+                    .map(|(index, value)| (format!("field_{}", index + 1), redact(value)))
+                    .collect(),
+            ),
+            _ => Value::String("***".into()),
+        }
+    }
+    let sanitized = redact(selected);
+    context.check()?;
+    let output = serde_json::to_string(&sanitized)
+        .map_err(|_| ("CONFIG_JSON", "Redacted JSON serialization failed"))?;
+    let bounded = output.len() > 64000;
+    // Truncation is only ever applied after redaction. A partial skeleton is not valid JSON.
+    let output = if bounded {
+        prefix(&output, 16000)
+    } else {
+        &output
+    };
+    let truncated = bounded || utf16_len(output) > max;
+    let mut result = json!({"path":args.path,"section":args.section,"format":"json",
+        "redacted":true,"redactionPolicy":"all_property_names_and_scalar_values",
+        "text":prefix(output,max),"truncated":truncated,"externalReferencesFollowed":false,
+        "editReady":false,"complete":!bounded,"_complete":!bounded,
+        "sectionPolicy":"case-sensitive top-level property; duplicate keys use last value"});
     if truncated {
         result["_detail"] = json!({"text":output,"redacted":true,"complete":!bounded});
     }
