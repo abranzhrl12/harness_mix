@@ -90,21 +90,49 @@ Exports locales con alias, reexports nombrados y cadenas acotadas de funciones:
 La ampliación [STAR-REEXPORTS.md](STAR-REEXPORTS.md) cubre `export *`, diamantes,
 ciclos y ambigüedades en ese perfil, sin añadir Rolldown como dependencia del runtime.
 
-En Windows, con un índice existente schema 11 en modo WAL:
+En Windows, con un índice schema 11 en modo WAL. Para un proyecto SIN `.codegraph`,
+`--init-index` crea el esquema vacío usando el SQL ya incluido, sin Node ni nuevas
+dependencias. Rechaza cualquier directorio `.codegraph` existente: no sobrescribe,
+no migra y no reconstruye índices. Un intento interrumpido se conserva para inspección.
 
 ```powershell
+cargo run --locked -- --root E:\ruta\al\proyecto --init-index
 cargo run --locked -- --root E:\ruta\al\proyecto --sync-file src/Example.cs
 cargo run --locked -- --root E:\ruta\al\proyecto --sync
+cargo run --locked -- --root E:\ruta\al\proyecto --reindex
 ```
 
 Estos comandos SÍ modifican el índice; no editan ni eliminan fuentes. Probar
 primero con un índice de prueba. `--sync-file` usa una ruta relativa explícita.
-`--sync` aplica hasta 32 candidatos nativos del plan, con una transacción por
+`--sync` procesa los candidatos nativos del inventario acotado, con una transacción por
 archivo, no una transacción global. Si un archivo falla, el JSON conserva los
-commits anteriores y el proceso termina con error. El mismo comportamiento
-expone trabajo restante al alcanzar el límite; una nueva ejecución vuelve a
-planificar. La ejecución automática rechaza `codegraph.json` hasta portar su
-configuración; no ignora silenciosamente sus reglas.
+commits anteriores y el proceso termina con error. El informe incluye contadores
+de todos los archivos procesados y hasta 32 resultados individuales; el recorte del
+informe no corta la sincronización. La API de lote `sync_workspace` conserva su
+límite de 32; la CLI usa `sync_workspace_all`.
+
+`--reindex` reextrae también los archivos sin cambios del perfil nativo: no borra
+ni sustituye la base, no migra esquemas, conserva metadatos ajenos y mantiene el
+mismo reporte de commits parciales. Usarlo después de actualizar el motor si hace
+falta reprocesar fuentes previamente indexadas. No vuelve compatibles relaciones
+de frameworks o lenguajes que el perfil nativo todavía rechaza.
+
+`codegraph.json` admite `include` y `exclude` (arrays de hasta 128 patrones cada
+uno, archivo JSON estricto de hasta 128 KiB). Usa `ignore`, ya dependiente del
+proyecto: include recupera fuentes gitignored, exclude gana incluso para fuentes
+ya indexadas, y los filtros de seguridad/dependencias siguen vigentes. Excluir
+retira datos del grafo, nunca borra la fuente. Se revalida el hash antes del commit;
+un cambio de configuración provoca rollback del archivo en curso. Se rechazan
+opciones desconocidas, `extensions`, `includeIgnored`, negaciones y patrones que
+escapan del workspace; no se simula compatibilidad completa con el proveedor.
+
+En MCP, `harness_explore` con `syncIndex=true` sincroniza el índice EXISTENTE
+antes de consultar. Es una petición mutante explícita, serializada con ediciones;
+cancelación/timeout esperan un resultado definitivo y conservan el informe de
+commits previos. Una sincronización incompleta bloquea la exploración. Ejemplo:
+`{"query":"miFuncion","syncIndex":true,"requireMatchingFiles":true}`.
+Omitir `syncIndex` conserva la exploración de solo lectura. No crea índices
+implícitamente ni cambia la conexión MCP instalada.
 
 Reextrae símbolos/aristas/referencias con el kernel del proveedor y actualiza
 hashes y FTS en la misma transacción. Resuelve un subconjunto de nombres exactos

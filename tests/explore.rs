@@ -516,7 +516,7 @@ fn graph_metadata_through_directory_links_is_rejected() {
 }
 
 #[test]
-fn cancellation_unknown_fields_and_non_rust_candidates_are_explicit() {
+fn cancellation_unknown_fields_and_unsupported_candidates_are_explicit() {
     let root = tempfile::tempdir().unwrap();
     let db = graph_fixture::fixture(root.path());
     let app = adapters::application(root.path()).unwrap();
@@ -528,8 +528,8 @@ fn cancellation_unknown_fields_and_non_rust_candidates_are_explicit() {
         serde_json::from_value::<ExploreArgs>(json!({"query":"target","sql":"DROP TABLE nodes"}))
             .is_err()
     );
-    std::fs::write(root.path().join("source.js"), "function target() {}\n").unwrap();
-    db.execute("UPDATE nodes SET file_path='source.js' WHERE id='t'", [])
+    std::fs::write(root.path().join("source.py"), "def target():\n    pass\n").unwrap();
+    db.execute("UPDATE nodes SET file_path='source.py' WHERE id='t'", [])
         .unwrap();
     let result = explore(&app, "target");
     assert_eq!(

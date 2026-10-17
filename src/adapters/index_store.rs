@@ -25,6 +25,13 @@ const UNCERTAIN: Failure = (
 );
 const MAX_ROWS: usize = 20_000;
 
+#[path = "index_init.rs"]
+mod initialization;
+pub use initialization::initialize;
+
+#[path = "index_scope.rs"]
+pub(crate) mod scope;
+
 #[path = "index_imports.rs"]
 mod imports;
 #[path = "index_paths.rs"]
@@ -37,25 +44,34 @@ pub(super) mod tsconfig;
 /// are returned in the JSON report alongside committed paths, never as a bare
 /// error that could imply the earlier files were rolled back.
 pub fn sync_workspace(root: &Path, context: &OperationContext) -> Result<Value, Failure> {
+    sync_workspace_with_limit(root, context, 32, false)
+}
+
+/// Drain the bounded inventory rather than requiring one CLI call per 32 files.
+/// Keep at most 32 detailed results; aggregate every confirmed commit separately.
+pub fn sync_workspace_all(root: &Path, context: &OperationContext) -> Result<Value, Failure> {
+    sync_workspace_with_limit(root, context, MAX_ROWS, false)
+}
+
+/// Re-extract unchanged files too, preserving the existing DB and per-file rollback.
+/// This is a native-profile rebuild, not a schema migration or global transaction.
+pub fn rebuild_workspace(root: &Path, context: &OperationContext) -> Result<Value, Failure> {
+    sync_workspace_with_limit(root, context, MAX_ROWS, true)
+}
+
+fn sync_workspace_with_limit(
+    root: &Path,
+    context: &OperationContext,
+    max_files: usize,
+    rebuild: bool,
+) -> Result<Value, Failure> {
     context.check()?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    let config = project.target_optional("codegraph.json")?;
-    match std::fs::symlink_metadata(config) {
-        Ok(_) => {
-            return Err((
-                "SYNC_SCOPE",
-                "Automatic native sync does not yet implement codegraph.json; use an explicitly reviewed --sync-file scope",
-            ));
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => {
-            return Err((
-                "SYNC_SCOPE",
-                "Cannot establish CodeGraph configuration scope",
-            ));
-        }
-    }
+    let scope = scope::Snapshot::load(&project, context)?;
     let planned = index_sync::plan_workspace(root, context)?;
+    if planned["scope"] != scope.stamp() {
+        return Err(("STALE", "Scope changed during planning"));
+    }
     let unchecked = planned["plan"]["unchecked"].as_array().ok_or(INDEX)?.len();
     let mut paths = BTreeSet::new();
     let mut unsupported = 0;
@@ -64,6 +80,16 @@ pub fn sync_workspace(root: &Path, context: &OperationContext) -> Result<Value, 
             let path = path.as_str().ok_or(INDEX)?;
             if index_extract::language(path).is_some() {
                 paths.insert(path.to_owned());
+            } else {
+                unsupported += 1;
+            }
+        }
+    }
+    if rebuild {
+        for path in planned["plan"]["unchanged"].as_array().ok_or(INDEX)? {
+            let path = path.as_str().ok_or(INDEX)?;
+            if index_extract::language(path).is_some() {
+                paths.insert(path.into());
             } else {
                 unsupported += 1;
             }
@@ -88,13 +114,28 @@ pub fn sync_workspace(root: &Path, context: &OperationContext) -> Result<Value, 
     }
     let total = paths.len();
     let mut results = Vec::new();
+    let mut processed = 0;
+    let mut changed = 0;
     let mut failure = None;
-    for path in paths.iter().take(32) {
-        let applied = context
-            .check()
-            .and_then(|()| sync_file(root, path, context));
+    for path in paths.iter().take(max_files) {
+        let applied = scope.recheck(&project, context).and_then(|()| {
+            #[cfg(windows)]
+            {
+                sync_file_config_force(root, path, None, context, || {}, rebuild)
+            }
+            #[cfg(not(windows))]
+            {
+                sync_file(root, path, context)
+            }
+        });
         match applied {
-            Ok(result) => results.push(result),
+            Ok(result) => {
+                processed += 1;
+                changed += usize::from(result["changed"] == true);
+                if results.len() < 32 {
+                    results.push(result);
+                }
+            }
             Err((code, _)) => {
                 failure = Some(
                     json!({"path":path,"code":code,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
@@ -103,15 +144,17 @@ pub fn sync_workspace(root: &Path, context: &OperationContext) -> Result<Value, 
             }
         }
     }
-    let changed = results
-        .iter()
-        .filter(|result| result["changed"] == true)
-        .count();
-    let native_complete = failure.is_none() && results.len() == total;
+    if failure.is_none()
+        && let Err((code, _)) = scope.recheck(&project, context)
+    {
+        failure = Some(json!({"path":"codegraph.json","code":code,"commitState":"not_committed"}));
+    }
+    let native_complete = failure.is_none() && processed == total;
     Ok(
-        json!({"mode":"sync_native_subset","files":results,"failure":failure,
-        "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total-results.len(),
-        "maxFiles":32,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
+        json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
+        "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total-processed,
+        "filesProcessed":processed,"fileReportsOmitted":processed-results.len(),"fileReportLimit":32,
+        "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
         "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
@@ -203,6 +246,25 @@ fn sync_file_config_with(
     context: &OperationContext,
     before_recheck: impl FnOnce(),
 ) -> Result<Value, Failure> {
+    sync_file_config_force(
+        root,
+        relative,
+        requested_config,
+        context,
+        before_recheck,
+        false,
+    )
+}
+
+#[cfg(windows)]
+fn sync_file_config_force(
+    root: &Path,
+    relative: &str,
+    requested_config: Option<&str>,
+    context: &OperationContext,
+    before_recheck: impl FnOnce(),
+    force: bool,
+) -> Result<Value, Failure> {
     use std::{
         fs::File,
         os::windows::{
@@ -229,7 +291,12 @@ fn sync_file_config_with(
         "No native extractor for this source language",
     ))?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    let source = read_source(&project, relative, context)?;
+    let scope = scope::Snapshot::load(&project, context)?;
+    let source = if scope.excluded(relative) {
+        None
+    } else {
+        read_source(&project, relative, context)?
+    };
     let extracted = source
         .as_ref()
         .map(|bytes| {
@@ -329,7 +396,9 @@ fn sync_file_config_with(
         // triggers require trusted_schema; it is enabled only after validation.
         sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
         context.check()?;
-        let configuration = tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
+        let mut configuration =
+            tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
+        configuration.1 |= force;
         let (mut result, import_sources) = publish(
             &tx,
             &project,
@@ -342,8 +411,13 @@ fn sync_file_config_with(
         )?;
         result["tsconfig"] = import_sources.config.stamp();
         before_recheck();
+        scope.recheck(&project, context)?;
         import_sources.recheck(&project, context)?;
-        let observed = read_source(&project, relative, context)?;
+        let observed = if scope.excluded(relative) {
+            None
+        } else {
+            read_source(&project, relative, context)?
+        };
         if observed.as_ref().map(|b| hash(b)) != source.as_ref().map(|b| hash(b)) {
             return Err((
                 "STALE",

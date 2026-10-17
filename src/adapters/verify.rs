@@ -755,7 +755,7 @@ mod tests {
         }
         let args = VerifyArgs {
             language: "python".into(),
-            scope: Some("a.py".into()),
+            scope: Some("a.txt".into()),
             action: Some(VerifyAction::Test),
             session: None,
         };

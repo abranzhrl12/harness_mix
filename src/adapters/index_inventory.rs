@@ -25,6 +25,8 @@ pub(super) struct Inventory {
     pub skipped_entries: usize,
     pub restricted_indexed_files: usize,
     pub budget_exhausted: bool,
+    pub scope_excluded: Vec<String>,
+    pub scope: serde_json::Value,
 }
 
 fn excluded(name: &str) -> bool {
@@ -56,6 +58,7 @@ pub(super) fn scan(
     context: &OperationContext,
 ) -> Result<Inventory, Failure> {
     let started = Instant::now();
+    let scope = super::index_store::scope::Snapshot::load(project, context)?;
     let mut inventory = Inventory {
         observations: BTreeMap::new(),
         discovery_complete: true,
@@ -64,6 +67,8 @@ pub(super) fn scan(
         skipped_entries: 0,
         restricted_indexed_files: 0,
         budget_exhausted: false,
+        scope_excluded: Vec::new(),
+        scope: scope.stamp(),
     };
     // Check each tracked path directly. Discovery exclusions must never turn an
     // old provider record into an inferred deletion. This is NOT full ScopeIgnore.
@@ -73,74 +78,90 @@ pub(super) fn scan(
             inventory.restricted_indexed_files += 1;
             continue;
         }
+        if scope.excluded(path) {
+            inventory.scope_excluded.push(path.clone());
+            continue;
+        }
         let observation = inventory.observe(project, path, started, context)?;
         inventory.observations.insert(path.clone(), observation);
     }
-    let mut builder = ignore::WalkBuilder::new(&project.root);
-    builder
-        .follow_links(false)
-        .hidden(false)
-        .parents(false)
-        .git_ignore(true)
-        .git_exclude(true)
-        .git_global(false)
-        .require_git(false)
-        .ignore(false)
-        .sort_by_file_path(|a, b| a.cmp(b))
-        .filter_entry(|entry| {
-            entry.depth() == 0 || !excluded(&entry.file_name().to_string_lossy())
-        });
-    for entry in builder.build() {
-        context.check()?;
-        if started.elapsed() >= Duration::from_secs(10) || inventory.visited_entries >= MAX_VISITED
-        {
-            inventory.budget_exhausted = true;
-            inventory.discovery_complete = false;
+    for include_pass in [false, true] {
+        if include_pass && !scope.has_includes {
             break;
         }
-        inventory.visited_entries += 1;
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => {
+        let mut builder = ignore::WalkBuilder::new(&project.root);
+        builder
+            .follow_links(false)
+            .hidden(false)
+            .parents(false)
+            .git_ignore(!include_pass)
+            .git_exclude(!include_pass)
+            .git_global(false)
+            .require_git(false)
+            .ignore(false)
+            .sort_by_file_path(|a, b| a.cmp(b))
+            .filter_entry(|entry| {
+                entry.depth() == 0 || !excluded(&entry.file_name().to_string_lossy())
+            });
+        for entry in builder.build() {
+            context.check()?;
+            if started.elapsed() >= Duration::from_secs(10)
+                || inventory.visited_entries >= MAX_VISITED
+            {
+                inventory.budget_exhausted = true;
+                inventory.discovery_complete = false;
+                break;
+            }
+            inventory.visited_entries += 1;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    inventory.discovery_complete = false;
+                    inventory.skipped_entries += 1;
+                    continue;
+                }
+            };
+            if entry.error().is_some() {
+                inventory.discovery_complete = false;
+                inventory.skipped_entries += 1;
+            }
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                continue;
+            }
+            let Some(path) = entry
+                .path()
+                .strip_prefix(&project.root)
+                .ok()
+                .and_then(Path::to_str)
+            else {
                 inventory.discovery_complete = false;
                 inventory.skipped_entries += 1;
                 continue;
+            };
+            let path = path.replace('\\', "/");
+            // Only languages supported by the pinned headless kernel are discovered.
+            // Never claim provider-wide inventory coverage.
+            if super::index_extract::language(&path).is_none()
+                || restricted(&path)
+                || scope.excluded(&path)
+                || (include_pass && !scope.included(&path))
+                || inventory.observations.contains_key(&path)
+            {
+                continue;
             }
-        };
-        if entry.error().is_some() {
-            inventory.discovery_complete = false;
-            inventory.skipped_entries += 1;
+            if inventory.observations.len() >= index_sync::MAX_FILES {
+                inventory.budget_exhausted = true;
+                inventory.discovery_complete = false;
+                break;
+            }
+            let observation = inventory.observe(project, &path, started, context)?;
+            inventory.observations.insert(path, observation);
         }
-        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-            continue;
-        }
-        let Some(path) = entry
-            .path()
-            .strip_prefix(&project.root)
-            .ok()
-            .and_then(Path::to_str)
-        else {
-            inventory.discovery_complete = false;
-            inventory.skipped_entries += 1;
-            continue;
-        };
-        let path = path.replace('\\', "/");
-        // Only languages supported by the pinned headless kernel are discovered.
-        // Never claim provider-wide inventory coverage.
-        if super::index_extract::language(&path).is_none()
-            || restricted(&path)
-            || inventory.observations.contains_key(&path)
-        {
-            continue;
-        }
-        if inventory.observations.len() >= index_sync::MAX_FILES {
-            inventory.budget_exhausted = true;
-            inventory.discovery_complete = false;
+        if inventory.budget_exhausted {
             break;
         }
-        let observation = inventory.observe(project, &path, started, context)?;
-        inventory.observations.insert(path, observation);
     }
+    scope.recheck(project, context)?;
     Ok(inventory)
 }
 
@@ -232,6 +253,8 @@ mod tests {
             skipped_entries: 0,
             restricted_indexed_files: 0,
             budget_exhausted: false,
+            scope_excluded: Vec::new(),
+            scope: serde_json::Value::Null,
         };
         let observed = inventory
             .observe(

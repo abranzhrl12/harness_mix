@@ -1057,7 +1057,7 @@ fn automatic_scope_refuses_unported_provider_configuration_before_any_commit() {
     fs::write(root.path().join("a.rs"), "pub fn f() {}\n").unwrap();
     fs::write(
         root.path().join("codegraph.json"),
-        "{\"exclude\":[\"a.rs\"]}",
+        "{\"extensions\":{\".custom\":\"rust\"}}",
     )
     .unwrap();
     assert_eq!(

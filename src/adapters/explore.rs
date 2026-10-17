@@ -84,17 +84,11 @@ fn identifier(text: &str) -> bool {
         && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
 }
 
-pub(super) fn explore(
-    project: &Project,
-    args: &ExploreArgs,
-    context: &OperationContext,
-) -> Result<Value, Failure> {
-    context.check()?;
+fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
     let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
     let max_files = args.max_files.unwrap_or(4);
     let max_chars = args.max_chars.unwrap_or(12000);
     let max_depth = args.max_depth.unwrap_or(1);
-    let direction = args.direction.unwrap_or(ExploreDirection::Both);
     if args.query.len() > 2000
         || args.query.contains('\0')
         || symbol.len() > 256
@@ -108,6 +102,60 @@ pub(super) fn explore(
             "Explore requires symbol or a simple-identifier query; maxFiles 1..4, maxChars 1000..16000, maxDepth 1..4",
         ));
     }
+    Ok(())
+}
+
+fn sync_failure(report: Value, code: &str, message: &str) -> Value {
+    json!({"ok":false,"cancelled":code=="CANCELLED","timedOut":code=="TIMEOUT",
+        "diagnostics":[{"code":code,"message":message}],"sync":report,
+        "explorationPerformed":false,"globalFreshnessCertified":false})
+}
+
+pub(super) fn synchronized(
+    project: &Project,
+    args: &ExploreArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    validate_args(args)?;
+    let report = super::index_store::sync_workspace_all(&project.root, context)?;
+    if report["selectedScopeApplied"] != true
+        || report["discoveryComplete"] != true
+        || report["uncheckedFiles"] != 0
+        || report["unsupportedChangedFiles"] != 0
+        || report["restrictedIndexedFiles"] != 0
+    {
+        let code = report["failure"]["code"]
+            .as_str()
+            .unwrap_or("SYNC_INCOMPLETE")
+            .to_owned();
+        return Ok(sync_failure(
+            report,
+            &code,
+            "Index update incomplete; inspect confirmed commits before retrying",
+        ));
+    }
+    match explore(project, args, context) {
+        Ok(mut result) => {
+            result["sync"] = report;
+            Ok(result)
+        }
+        Err((code, message)) => Ok(sync_failure(report, code, message)),
+    }
+}
+
+pub(super) fn explore(
+    project: &Project,
+    args: &ExploreArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    validate_args(args)?;
+    let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
+    let max_files = args.max_files.unwrap_or(4);
+    let max_chars = args.max_chars.unwrap_or(12000);
+    let max_depth = args.max_depth.unwrap_or(1);
+    let direction = args.direction.unwrap_or(ExploreDirection::Both);
     let path = project
         .target(".codegraph/codegraph.db")
         .map_err(|_| INDEX)?;

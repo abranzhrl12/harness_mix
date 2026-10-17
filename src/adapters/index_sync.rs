@@ -6,7 +6,7 @@
 use harness_domain::{Failure, execution::OperationContext, hash};
 use rusqlite::Connection;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Executable dry-run stage. It checks every provider-tracked file and discovers
 /// new Rust files, but deliberately cannot claim the full CodeGraph scan scope.
@@ -72,6 +72,15 @@ pub fn plan_workspace(
         let tracked = plan(&db, &BTreeMap::new(), false, context)?.unchecked;
         let inventory = super::index_inventory::scan(&project, &tracked, context)?;
         let mut result = plan(&db, &inventory.observations, false, context)?;
+        // Explicit config exclusions are deliberate removals from the graph,
+        // unlike missing entries in an incomplete filesystem discovery.
+        let excluded: BTreeSet<_> = inventory.scope_excluded.iter().collect();
+        result.unchecked.retain(|path| !excluded.contains(path));
+        result
+            .removed
+            .extend(inventory.scope_excluded.iter().cloned());
+        result.removed.sort();
+        result.removed.dedup();
         // Restricted provider entries are counted, never read or echoed. They
         // remain unresolved work, not additions/modifications/deletions.
         result
@@ -82,12 +91,12 @@ pub fn plan_workspace(
         context.check()?;
         Ok(serde_json::json!({
             "mode":"plan_only", "format":"codegraph-sqlite-readonly-v1", "schemaVersion":version,
-            "plan":result, "inventory":inventory, "extractionPreview":extraction, "writesPerformed":false, "synchronized":false,
+            "plan":result, "scope":inventory.scope,"inventory":inventory, "extractionPreview":extraction, "writesPerformed":false, "synchronized":false,
             "coverage":{
                 "trackedLanguages":"all_nonrestricted", "newFileLanguages":codegraph_native::LANGUAGES, "fullProviderScope":false,
-                "providerConfigApplied":false, "trackedFilesCheckedOutsideDiscoveryIgnores":true,
-                "deletionsRequireExplicitAbsence":true,
-                "limitations":["CodeGraph include/exclude/extension overrides and embedded-repository rules not ported", "Six-language new-file discovery uses local gitignore rules and conservative directory exclusions", "Not an atomic source snapshot; observations must be revalidated before publication", "Extraction preview does not resolve or publish the graph"]
+                "providerConfigApplied":inventory.scope["providerConfigApplied"], "trackedFilesCheckedOutsideDiscoveryIgnores":true,
+                "deletionsRequireExplicitAbsenceOrConfigExclusion":true,
+                "limitations":["Only bounded include/exclude config is supported; extension overrides and includeIgnored are refused", "Six-language new-file discovery uses local gitignore rules and conservative directory exclusions", "Not an atomic source snapshot; observations must be revalidated before publication", "Extraction preview does not resolve or publish the graph"]
             }
         }))
     };

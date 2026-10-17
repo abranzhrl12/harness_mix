@@ -141,10 +141,13 @@ biblioteca de patrones conoce las reglas de frameworks que debemos reproducir.
 
 ### 6. Ciclo de vida completo y retirada de Node
 
-- [ ] Definir creación inicial del índice y política de versiones/migraciones de esquema.
-- [ ] Completar reglas de `codegraph.json`, inventario y cobertura del proveedor para el alcance acordado.
-- [ ] Diseñar el reprocesamiento al actualizar el motor: hoy un archivo sin cambios puede conservar el no-op.
-- [ ] Integrar la sincronización en MCP con política explícita de escritura, cancelación y reporte de commits parciales.
+- [x] Crear índice vacío explícito schema 11/WAL con `--init-index`, reutilizando SQL vendorizado y rechazando namespaces existentes; prueba CLI sin Node.
+- [x] Procesar más de 32 candidatos en la CLI sin ampliar los informes individuales; conservar contadores y commits parciales.
+- [x] Reextracción explícita del perfil nativo con `--reindex`, incluso sin cambios de fuente, sin borrar DB/metadatos ajenos; no migra esquemas.
+- [x] `codegraph.json` include/exclude con ignore, exclusión de fuentes indexadas y revalidación antes de cada commit.
+- [ ] Decidir si hacen falta extensions/includeIgnored y migraciones de esquema; se rechazan, no se omiten silenciosamente.
+- [x] Reprocesamiento manual tras actualizar motor mediante `--reindex`; no atribuir a un no-op una actualización semántica.
+- [x] Sincronización MCP explícita `syncIndex=true`, clasificación mutante, serialización con ediciones, cancelación y reporte de commits parciales.
 - [ ] Mantener separados commit confirmado, cobertura comprobada y vigencia global.
 - [ ] Documentar reconstrucción/recuperación y retorno al proveedor; una reindexación completa puede ser necesaria.
 - [ ] Probar una copia del proyecto original antes de modificar su índice real.

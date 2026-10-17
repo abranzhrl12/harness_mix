@@ -26,6 +26,16 @@ de compatibilidad. La conexión Node activa no se ha sustituido automáticamente
 
 ## Lo que tenemos
 
+Ampliación de ciclo de vida: `--init-index` crea un índice vacío schema 11/WAL
+sin Node, reutilizando el SQL vendorizado; rechaza cualquier `.codegraph`
+existente y conserva intentos incompletos para inspección. `--sync` ahora procesa
+el inventario nativo acotado sin detenerse a los 32 archivos; solo limita a 32
+los resultados detallados del informe. `--reindex` fuerza la reextracción del
+perfil nativo sin borrar la base; `codegraph.json` admite include/exclude acotados.
+MCP `harness_explore(syncIndex=true)` sincroniza antes de consultar y conserva
+commits parciales al fallar. Extensiones personalizadas, includeIgnored, migración
+de esquemas y paridad semántica completa siguen fuera del perfil demostrado.
+
 Última ampliación: aliases `paths/baseUrl` desde tsconfig explícito, JSONC y
 `extends` local simple, con hashes de padres, límites, rollback y vigencia al
 consultar. Diez pruebas del perfil pasaron, incluida comparación de seis casos
@@ -46,12 +56,13 @@ procedencia de todas las ramas verificadas. Default/namespace y callbacks siguen
 | Publicación SQLite | Nodos, aristas, referencias, hashes y FTS en una transacción por archivo | Windows; índice existente, schema 11 y modo WAL |
 | Referencias entrantes | Conservación por identidad única y recuperación mediante metadatos originales | Referencias legacy irrecuperables bloquean la escritura |
 | Resolver nativo | Nombres exactos, imports nombrados, aliases tsconfig y reexports nombrados/star de funciones | No equivale al resolver completo de CodeGraph |
-| Lotes | Hasta 32 candidatos por ejecución y reporte de commits previos ante un fallo | No existe una transacción global del workspace |
+| Lotes | CLI procesa el inventario acotado; hasta 32 informes individuales y contadores de todos los commits | No existe una transacción global del workspace; la API de lote conserva 32 candidatos |
 | Seguridad | Validación de rutas, enlaces, DB, sidecars, esquema, FTS, límites y cancelación | Las garantías de escritura implementadas son específicas de Windows |
 
 Antes del commit se vuelve a comprobar la fuente. Cambios de contenido, errores
 o cancelación provocan rollback; una confirmación incierta se informa como tal.
-El escritor no modifica los archivos fuente ni crea o migra el índice.
+El escritor no modifica fuentes ni migra índices. La creación inicial vacía es
+una operación explícita separada (`--init-index`), nunca sobrescribe un índice.
 
 Cuando cambia el grafo, se invalidan marcas globales del proveedor. El resultado
 sigue declarando `synchronized=false` y `globalFreshnessCertified=false`.

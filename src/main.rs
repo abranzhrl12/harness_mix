@@ -26,9 +26,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("too many command-line arguments".into());
     }
     let (root, persist_logs) = match input {
+        (Some(flag), Some(root), Some(option), None)
+            if flag == "--root" && option == "--reindex" =>
+        {
+            let context = harness_domain::execution::OperationContext::default();
+            let result = agent_harness::adapters::index_store::rebuild_workspace(
+                &PathBuf::from(root),
+                &context,
+            )
+            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            println!("{}", serde_json::to_string(&result)?);
+            if result["selectedScopeApplied"] != true {
+                return Err("Native rebuild incomplete; see JSON report".into());
+            }
+            return Ok(());
+        }
+        (Some(flag), Some(root), Some(option), None)
+            if flag == "--root" && option == "--init-index" =>
+        {
+            let context = harness_domain::execution::OperationContext::default();
+            let result =
+                agent_harness::adapters::index_store::initialize(&PathBuf::from(root), &context)
+                    .map_err(|(code, message)| format!("{code}: {message}"))?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
         (Some(flag), Some(root), Some(option), None) if flag == "--root" && option == "--sync" => {
             let context = harness_domain::execution::OperationContext::default();
-            let result = agent_harness::adapters::index_store::sync_workspace(
+            let result = agent_harness::adapters::index_store::sync_workspace_all(
                 &PathBuf::from(root),
                 &context,
             )
@@ -75,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: agent-harness --root <workspace> [--persist-logs | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
+                "usage: agent-harness --root <workspace> [--persist-logs | --init-index | --reindex | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
             );
         }
     };
