@@ -187,6 +187,31 @@ pub struct HandoverArgs {
     #[serde(rename = "expectedHash")]
     pub expected_hash: Option<String>,
 }
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessListFilter {
+    Active,
+    Recent,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ProcessStatusArgs {
+    pub pid: Option<u32>,
+    #[serde(rename = "runId")]
+    pub run_id: Option<String>,
+    pub list: Option<ProcessListFilter>,
+    pub limit: Option<usize>,
+    pub port: Option<u16>,
+    pub host: Option<String>,
+    #[serde(rename = "healthUrl")]
+    pub health_url: Option<String>,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: Option<u64>,
+    pub session: Option<String>,
+}
 
 /// The application has one entry point; transports cannot bypass its admission checks.
 #[derive(Debug, Deserialize, Serialize)]
@@ -346,6 +371,7 @@ pub enum Request {
     XlsxRead(crate::xlsx::XlsxReadArgs),
     Svg(crate::svg::SvgArgs),
     Handover(HandoverArgs),
+    ProcessStatus(ProcessStatusArgs),
 }
 impl Request {
     pub fn is_mutating(&self) -> bool {
@@ -391,6 +417,7 @@ impl Request {
             Self::XlsxRead(_) => "harness_xlsx_read",
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
+            Self::ProcessStatus(_) => "harness_process_status",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -421,6 +448,7 @@ impl Request {
             Self::XlsxRead(args) => serde_json::to_value(args),
             Self::Svg(args) => serde_json::to_value(args),
             Self::Handover(args) => serde_json::to_value(args),
+            Self::ProcessStatus(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }

@@ -68,7 +68,20 @@ microservicios para escalar las capacidades de este ejecutable.
 - Preservación de DACL en Windows y artefactos de recuperación ante publicación incierta.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
-### Último bloque: exports/reexports nombrados con Oxc
+### Último bloque: export-star sobre Oxc, sin incorporar el bundler
+
+`export *` enlaza funciones originales, deduplica diamantes y deja ambiguos/ciclos
+sin destino como pendientes. Los exports explícitos tienen prioridad. Se verifican
+también hashes de ramas sin coincidencia; mutación, presupuesto o fallo de fuente
+no publican un ganador supuesto. Adapter acotado de las reglas de Rolldown/ECMAScript,
+con licencia preservada; parser/resolver Oxc y dependencias del runtime sin cambios.
+Matriz de 11 casos comparada con Node ESM y bundles de Rolldown, más seis fixtures
+positivos de CodeGraph v1.6.2. `export type *` sigue diferido por el kernel.
+No se habilitan default/namespace ni variables-función. Ver [STAR-REEXPORTS.md](STAR-REEXPORTS.md).
+Suite completa, Clippy estricto, formato y build release aprobados; siete tests
+del perfil star pasaron incluyendo oráculos y CLI release con PATH vacío.
+
+### Bloque anterior: exports/reexports nombrados con Oxc
 
 ModuleRecord y bindings de Oxc 0.90.0 reutilizados para exports locales con alias,
 reexports nombrados y cadenas de funciones. Resolución de archivos con el Oxc

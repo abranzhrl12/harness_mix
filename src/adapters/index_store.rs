@@ -938,7 +938,7 @@ fn resolve_exact(
         }
         metadata["bindingEngine"] = json!("oxc-semantic-0.90.0");
         metadata["moduleEngine"] = json!("oxc-resolver-11.0.0-index-snapshot");
-        metadata["exportEngine"] = json!("oxc-module-record-0.90.0-named-chain-v1");
+        metadata["exportEngine"] = json!("oxc-module-record-0.90.0-resolve-export-v2");
         metadata["exportContributors"] = json!(export_contributors);
     }
     let metadata = metadata.to_string();
@@ -1048,6 +1048,58 @@ mod tests {
             db.query_row("SELECT count(*) FROM nodes WHERE name='old'", [], |r| r
                 .get::<_, i64>(0))
                 .unwrap(),
+            1
+        );
+    }
+    #[test]
+    fn star_nonwinning_branch_changed_before_commit_rolls_back_target_update() {
+        let dir = tempfile::tempdir().unwrap();
+        fixture(dir.path());
+        for (path, source) in [
+            ("lib.ts", "export function api(){}"),
+            ("other.ts", "export function unrelated(){}"),
+            (
+                "barrel.ts",
+                "export * from './lib'; export * from './other';",
+            ),
+            (
+                "app.ts",
+                "import {api} from './barrel'; export function caller(){api();}",
+            ),
+        ] {
+            std::fs::write(dir.path().join(path), source).unwrap();
+            sync_file(dir.path(), path, &OperationContext::default()).unwrap();
+        }
+        let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+        let before: String = db
+            .query_row(
+                "SELECT content_hash FROM files WHERE path='lib.ts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(db);
+        std::fs::write(dir.path().join("lib.ts"), "\nexport function api(){}").unwrap();
+        let result = sync_file_with(dir.path(), "lib.ts", &OperationContext::default(), || {
+            std::fs::write(dir.path().join("other.ts"), "export function api(){}").unwrap();
+        });
+        assert_eq!(result.unwrap_err().0, "STALE");
+        let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT content_hash FROM files WHERE path='lib.ts'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            before
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM edges WHERE kind='calls'", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
             1
         );
     }

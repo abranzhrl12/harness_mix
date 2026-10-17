@@ -87,6 +87,8 @@ tsconfigs por importador, references, herencia de paquetes ni resolución de paq
 
 Exports locales con alias, reexports nombrados y cadenas acotadas de funciones:
 [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md), con invalidación de barrels y evidencia diferencial.
+La ampliación [STAR-REEXPORTS.md](STAR-REEXPORTS.md) cubre `export *`, diamantes,
+ciclos y ambigüedades en ese perfil, sin añadir Rolldown como dependencia del runtime.
 
 En Windows, con un índice existente schema 11 en modo WAL:
 

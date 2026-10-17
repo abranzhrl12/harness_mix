@@ -3,6 +3,9 @@ use super::{Failure, INDEX, LIMIT, OperationContext, Project, hash, read_source,
 use rusqlite::{Connection, OptionalExtension};
 use std::collections::BTreeMap;
 
+#[path = "index_exports.rs"]
+mod exports;
+
 #[derive(Default)]
 pub(super) struct Sources {
     files: BTreeMap<String, Vec<u8>>,
@@ -103,64 +106,7 @@ impl Sources {
         path: &str,
         name: &str,
     ) -> Result<Option<ExportTarget>, Failure> {
-        use super::super::index_semantic::Export;
-        let (mut path, mut name) = (path.to_string(), name.to_string());
-        let mut visited = std::collections::BTreeSet::new();
-        let mut contributors = Vec::new();
-        loop {
-            context.check()?;
-            if !visited.insert((path.clone(), name.clone())) {
-                return Ok(None);
-            }
-            if visited.len() > 16 {
-                return Err(LIMIT);
-            }
-            if !self.analyzed(db, project, context, &path)? {
-                return Ok(None);
-            }
-            contributors.push(
-                serde_json::json!({"path":path,"hash":hash(self.files.get(&path).ok_or(INDEX)?)}),
-            );
-            match self
-                .semantic
-                .get(&path)
-                .ok_or(INDEX)?
-                .exports
-                .get(&name)
-                .cloned()
-            {
-                Some(Export::Local(local)) => {
-                    return Ok(Some(ExportTarget {
-                        path,
-                        name: local,
-                        contributors,
-                    }));
-                }
-                Some(Export::Remote {
-                    module,
-                    name: original,
-                }) => {
-                    let language: String = sql(db.query_row(
-                        "SELECT language FROM files WHERE path=?1",
-                        [&path],
-                        |r| r.get(0),
-                    ))?;
-                    if !matches!(
-                        language.as_str(),
-                        "typescript" | "tsx" | "javascript" | "jsx"
-                    ) {
-                        return Ok(None);
-                    }
-                    let Some(target) = module_path(db, &path, &module, &language, context, self)?
-                    else {
-                        return Ok(None);
-                    };
-                    path = target;
-                    name = original;
-                }
-                _ => return Ok(None),
-            }
-        }
+        exports::resolve(self, db, project, context, path, name)
     }
     pub(super) fn recheck(
         &self,

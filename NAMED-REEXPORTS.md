@@ -24,7 +24,9 @@ The final graph target must be a unique top-level CodeGraph function in the
 proven destination file. Its original is_exported flag need not be true when
 Oxc proves a local export alias. Names in other files never win as a fallback.
 
-Not implemented: export-star traversal, default/namespace binding, type-only
+Export-star traversal now extends this named profile; see
+[STAR-REEXPORTS.md](STAR-REEXPORTS.md) for branching, ambiguity and provenance.
+Not implemented: default/namespace binding, type-only
 runtime calls, exported function-valued variables, CommonJS, callbacks/classes,
 package resolution or nearest-tsconfig selection. Unsupported or missing targets
 remain pending. Cycles naming no declaration remain pending; budget exhaustion
@@ -32,14 +34,15 @@ aborts publication rather than silently returning a complete result.
 
 ## Safety, provenance and invalidation
 
-At most 16 visited `(path, exported name)` pairs per chain. Existing transaction
+At most 16 active `(path, exported name)` pairs and 16 unique contributing files,
+with 256 total visits per reference. Existing transaction
 budgets still apply: 64 observed sources, 64 MiB source buffers, 16 MiB owned
 semantic data, resolver probe/deadline limits and bounded reference inventories.
 Every source is authorized, content-hash checked against the current transaction
 and rechecked before commit. Changing a barrel during publication rolls back.
 
 Native import edges retain their compatible resolvedBy marker and additionally
-store `exportEngine=oxc-module-record-0.90.0-named-chain-v1` plus bounded
+store `exportEngine=oxc-module-record-0.90.0-resolve-export-v2` plus bounded
 `exportContributors` path/hash records for the chain, including the destination.
 Publishing a JS/TS source invalidates/retries native import edges, including
 those depending on a changed or deleted intermediate file. This is conservative
@@ -56,15 +59,15 @@ edge metadata remain supported. No global freshness/coverage claim is added.
 
 `tests/reexports.rs` covers local aliases, chained renamed reexports, imported
 bindings exported again, barrel-only edits, strict freshness, destination/barrel
-deletion and recovery, cycles, type-only/default/namespace/star deferrals,
+deletion and recovery, cycles, type-only/default/namespace deferrals,
 non-functions, stale intermediate sources, depth rollback and unsafe provenance.
 A writer unit test mutates a barrel after SQL resolution and verifies rollback
 of the target hash and existing call edge.
 
 The opt-in `named_reexport_targets_match_full_provider_indexing` test indexes
-three separate temporary projects with the CodeGraph v1.6.2 SDK and compares
+six separate temporary projects with the CodeGraph v1.6.2 SDK and compares
 actual caller target paths/names with native publication. It passed on 2026-10-17
-for a named reexport, renamed chain and local-export-alias chain. Node is used
+for named reexports, renamed/local aliases and three star-chain cases. Node is used
 only as the oracle; the native runtime never invokes it for this feature.
 
 ```powershell

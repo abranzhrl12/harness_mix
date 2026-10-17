@@ -354,6 +354,17 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Handover(args), context).await
     }
+
+    #[tool(
+        description = "Consulta estado de procesos (existencia por pid, hijos retenidos), sondeo de puerto TCP y healthcheck HTTP(S) loopback."
+    )]
+    async fn harness_process_status(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ProcessStatusArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::ProcessStatus(args), context).await
+    }
 }
 
 #[tool_handler]

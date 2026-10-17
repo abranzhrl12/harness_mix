@@ -115,6 +115,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Handover adapter unavailable"))
     }
+    fn process_status(
+        &self,
+        _args: &harness_domain::contracts::ProcessStatusArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Process status adapter unavailable"))
+    }
     /// Bounded filesystem observation; called outside the session repository mutex.
     fn observe_workspace(&self, _context: &OperationContext) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Workspace observation adapter unavailable"))

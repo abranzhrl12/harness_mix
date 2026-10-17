@@ -21,6 +21,7 @@ const LIMIT: Failure = (
 pub(super) struct Calls {
     sites: BTreeSet<(String, i64, i64)>,
     pub(super) exports: BTreeMap<String, Export>,
+    pub(super) stars: Vec<String>,
     pub(super) reserved: usize,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +105,7 @@ pub(super) fn analyze(
     let mut result = Calls {
         sites: BTreeSet::new(),
         exports: BTreeMap::new(),
+        stars: Vec::new(),
         reserved,
     };
     // Oxc supplies the ESM entries; retain owned, bounded data after its arena
@@ -115,6 +117,10 @@ pub(super) fn analyze(
         .chain(&record.indirect_export_entries)
     {
         context.check()?;
+        // Type-only exports are erased, not runtime shadows of export-star.
+        if entry.is_type {
+            continue;
+        }
         let ExportExportName::Name(exported) = &entry.export_name else {
             continue;
         };
@@ -169,6 +175,20 @@ pub(super) fn analyze(
             return Err(INVALID);
         }
     }
+    for entry in &record.star_export_entries {
+        context.check()?;
+        if entry.is_type {
+            continue;
+        }
+        let Some(module) = &entry.module_request else {
+            return Err(INVALID);
+        };
+        result.reserved += module.name.len() + 32;
+        if result.stars.len() >= 256 || result.reserved > 16 * 1024 * 1024 {
+            return Err(LIMIT);
+        }
+        result.stars.push(module.name.to_string());
+    }
     // One monotonic source scan: avoid rescanning a long line for every call.
     // CodeGraph uses 1-based LF lines and 0-based UTF-16 columns, not byte offsets.
     let mut cursor = 0;
@@ -194,6 +214,21 @@ pub(super) fn analyze(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn oxc_type_exports_are_not_runtime_star_shadows() {
+        let context = OperationContext::default();
+        let typed = analyze("export type * from './types';", "barrel.ts", &context).unwrap();
+        assert!(typed.stars.is_empty());
+        assert!(typed.exports.is_empty());
+        let mixed = analyze(
+            "export type {Api as api} from './types'; export * from './leaf';",
+            "barrel.ts",
+            &context,
+        )
+        .unwrap();
+        assert!(!mixed.exports.contains_key("api"));
+        assert_eq!(mixed.stars, ["./leaf"]);
+    }
     #[test]
     fn lexical_scopes_keep_import_call_but_not_shadowed_calls() {
         let source = "import {run as execute} from './lib';\nfunction local(execute: () => void) { execute(); }\nexport function caller() { execute(); }";

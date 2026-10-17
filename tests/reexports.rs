@@ -69,7 +69,7 @@ fn oxc_local_export_alias_and_named_chains_reach_original_function() {
     assert_eq!(metadata["refName"], "execute");
     assert_eq!(
         metadata["exportEngine"],
-        "oxc-module-record-0.90.0-named-chain-v1"
+        "oxc-module-record-0.90.0-resolve-export-v2"
     );
     let contributors = metadata["exportContributors"].as_array().unwrap();
     assert_eq!(
@@ -77,7 +77,7 @@ fn oxc_local_export_alias_and_named_chains_reach_original_function() {
             .iter()
             .map(|c| c["path"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["barrel.ts", "middle.ts", "lib.ts"]
+        ["barrel.ts", "lib.ts", "middle.ts"]
     );
     assert!(
         contributors
@@ -126,14 +126,13 @@ fn barrel_only_change_is_stale_then_rebinds_and_deletion_recovers_pending_refs()
 }
 
 #[test]
-fn cycles_types_default_namespace_stars_and_nonfunctions_never_guess_targets() {
+fn cycles_types_default_namespace_and_nonfunctions_never_guess_targets() {
     for barrel in [
         "export {api} from './barrel';",
         "export type {run as api} from './lib';",
         "export {type run as api} from './lib';",
         "export {default as api} from './lib';",
         "export * as api from './lib';",
-        "export * from './lib';",
         "export {missing as api} from './lib';",
         "const api=()=>{}; export {api};",
         "function api(){}", // not exported: no global homonym fallback
@@ -244,6 +243,17 @@ const {CodeGraph} = require(require('path').join(process.argv[1], 'dist/index.js
             "function run(){} export {run as original};",
             "export {original as renamed} from './lib';",
             "export {renamed as api} from './middle';",
+        ),
+        ("export function api(){}", "", "export * from './lib';"),
+        (
+            "export function run(){}",
+            "export {run as api} from './lib';",
+            "export * from './middle';",
+        ),
+        (
+            "export function run(){}",
+            "export * from './lib';",
+            "export {run as api} from './middle';",
         ),
     ] {
         let native = tempfile::tempdir().unwrap();

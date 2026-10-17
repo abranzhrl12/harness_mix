@@ -33,7 +33,9 @@ con CodeGraph v1.6.2. No incluye selección por importador, references, herencia
 paquetes/arrays. Perfil completo: [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md).
 La ampliación posterior integra exports locales con alias y reexports nombrados
 de funciones usando ModuleRecord de Oxc, hashes de la cadena y rollback:
-[NAMED-REEXPORTS.md](NAMED-REEXPORTS.md). Export *, default/namespace y callbacks siguen pendientes.
+[NAMED-REEXPORTS.md](NAMED-REEXPORTS.md). La resolución acotada de `export *`,
+diamantes y ambigüedades está en [STAR-REEXPORTS.md](STAR-REEXPORTS.md), con
+procedencia de todas las ramas verificadas. Default/namespace y callbacks siguen pendientes.
 
 | Bloque | Implementado | Límite actual |
 | --- | --- | --- |
@@ -43,7 +45,7 @@ de funciones usando ModuleRecord de Oxc, hashes de la cadena y rollback:
 | Extracción | Núcleo Rust original para Rust, C#, JavaScript, JSX, TypeScript y TSX | No incluye todos los lenguajes ni todos los preprocesamientos |
 | Publicación SQLite | Nodos, aristas, referencias, hashes y FTS en una transacción por archivo | Windows; índice existente, schema 11 y modo WAL |
 | Referencias entrantes | Conservación por identidad única y recuperación mediante metadatos originales | Referencias legacy irrecuperables bloquean la escritura |
-| Resolver nativo | Nombres exactos, imports relativos JS/TS con nombre y aliases de tsconfig explícito | No equivale al resolver completo de CodeGraph |
+| Resolver nativo | Nombres exactos, imports nombrados, aliases tsconfig y reexports nombrados/star de funciones | No equivale al resolver completo de CodeGraph |
 | Lotes | Hasta 32 candidatos por ejecución y reporte de commits previos ante un fallo | No existe una transacción global del workspace |
 | Seguridad | Validación de rutas, enlaces, DB, sidecars, esquema, FTS, límites y cancelación | Las garantías de escritura implementadas son específicas de Windows |
 
@@ -109,7 +111,7 @@ Alcance inicial conservador:
   nativas de imports al publicar cambios JS/TS. Retira enlaces que dejan de ser
   válidos por cambios de exportación o nuevas alternativas de módulo.
 
-Siguen pendientes paquetes externos, default/namespace/type-only y export *,
+Siguen pendientes paquetes externos, default/namespace/type-only,
 selección de tsconfig por importador y semántica completa entre archivos. El escritor ahora aplica
 prioridades explícitas del proveedor a rutas relativas con Oxc y soporta el
 fallback de extensiones emitidas cuando no existe el archivo original.
@@ -167,7 +169,7 @@ del harness. Cargo ajustó `bumpalo` a 3.19.0 y `zopfli` a 0.8.3 en el lockfile.
 La validación usa el compilador instalado; no se certifica todavía Rust 1.88.
 
 El bloque semántico por sí solo no cambia la política de rutas. Siguen pendientes
-default/namespace/type-only, export * y callbacks. Los archivos sin cambios conservan el no-op actual:
+default/namespace/type-only y callbacks. Los archivos sin cambios conservan el no-op actual:
 la actualización del motor no fuerza una reconstrucción global del índice.
 
 ### Integración realizada: Oxc resolver sobre el índice autorizado
@@ -310,7 +312,7 @@ verificada, suite integrada aprobada y ejecución real sin depender del coordina
 Node. Hasta entonces, el nombre correcto es **sincronización nativa parcial**.
 
 Siguiente bloque recomendado: selección de configuración por importador y
-export */formas restantes de imports, con invalidación transitiva y fixtures
+default/namespace y formas restantes de imports, con invalidación transitiva y fixtures
 diferenciales, sin habilitar acceso libre al disco.
 
 ## Mapa de implementación

@@ -98,14 +98,14 @@ fixtures diferenciales, sin leer configuraciones de padres externos por defecto.
 - [x] Integrar ModuleRecord y bindings semánticos de Oxc 0.90.0, sin parser duplicado.
 - [x] Exports locales con alias y reexports con nombre para funciones implementadas/direct calls.
 - [x] Cadenas de hasta 16 pares archivo/nombre, con ciclos pendientes y límites que provocan rollback.
-- [ ] Resolver `export *` sin inventar un ganador entre símbolos ambiguos.
+- [x] Resolver `export *` en el perfil de funciones: precedencia explícita, binding original, ciclos y ambigüedades pendientes; límites con rollback.
 - [ ] Añadir default y namespace de forma diferenciada; no convertir imports type-only en llamadas runtime.
 - [ ] Mapear referencias usadas como valor/callback a su tipo de arista correcto.
 - [x] Conservar refName/refKind y hashes de la cadena para recuperar referencias al renombrar/eliminar destinos.
 - [x] Invalidar/reintentar imports nativos al publicar JS/TS; Explore incluye hashes de los barrels.
 
-Perfil acotado y evidencia: [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md).
-Tres fixtures comparados con indexación completa de CodeGraph v1.6.2; no paridad global.
+Perfil acotado y evidencia: [NAMED-REEXPORTS.md](NAMED-REEXPORTS.md) y [STAR-REEXPORTS.md](STAR-REEXPORTS.md).
+Seis fixtures comparados con CodeGraph v1.6.2; matriz de 11 casos contrastada con Node ESM y bundles Rolldown. No paridad global.
 
 Pruebas mínimas: barrel simple, alias encadenados, export default, namespace,
 colisiones, ciclos, tipos, altas/bajas y desplazamientos de líneas.
