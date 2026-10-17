@@ -10,8 +10,15 @@ pub(super) struct Sources {
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
     routes: Option<super::paths::Routes>,
+    pub(super) config: super::tsconfig::Snapshot,
 }
 impl Sources {
+    pub fn configured(config: super::tsconfig::Snapshot) -> Self {
+        Self {
+            config,
+            ..Self::default()
+        }
+    }
     fn observe(
         &mut self,
         db: &Connection,
@@ -93,6 +100,7 @@ impl Sources {
         project: &Project,
         context: &OperationContext,
     ) -> Result<(), Failure> {
+        self.config.recheck(project, context)?;
         for (path, bytes) in &self.files {
             if read_source(project, path, context)?
                 .as_ref()
@@ -200,18 +208,32 @@ pub(super) fn scope(
         return Ok(Scope::Pending);
     }
     let (module, original) = bindings.pop().ok_or(INDEX)?;
-    let Some(target) = relative_module(path, &module) else {
+    let target = relative_module(path, &module);
+    if target.is_none()
+        && (module.starts_with('.')
+            || module.starts_with('/')
+            || module.contains(['\\', ':', '?', '#'])
+            || module.split('/').any(|p| matches!(p, "" | "." | ".."))
+            || module.chars().any(char::is_control))
+    {
         return Ok(Scope::Pending);
-    };
-    if sources.routes.is_none() {
-        sources.routes = Some(super::paths::Routes::load(db, context)?);
     }
-    let Some(resolved) = sources
-        .routes
-        .as_mut()
-        .ok_or(INDEX)?
-        .resolve(path, &target, language, context)?
-    else {
+    if sources.routes.is_none() {
+        sources.routes = Some(super::paths::Routes::load_config(
+            db,
+            context,
+            Some(&sources.config),
+        )?);
+    }
+    let routes = sources.routes.as_mut().ok_or(INDEX)?;
+    let resolved = match target {
+        Some(target) => routes.resolve(path, &target, language, context)?,
+        None if sources.config.matches(&module) => {
+            routes.resolve_bare(path, &module, language, context)?
+        }
+        None => None,
+    };
+    let Some(resolved) = resolved else {
         return Ok(Scope::Pending);
     };
     Ok(Scope::Binding {

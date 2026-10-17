@@ -59,17 +59,21 @@ Terminado cuando exista una matriz de casos y un alcance explícito. Las cifras
 de horas y porcentajes comunicadas anteriormente son estimaciones preliminares,
 no una planificación validada; revisarlas con esa matriz y trabajo medido.
 
-### 1. Aliases básicos de tsconfig — siguiente implementación
+### 1. Aliases básicos de tsconfig — perfil inicial implementado
 
-- [ ] Revisar la API y comportamiento del `oxc_resolver` fijado, antes de elegir opciones o actualizarlo.
-- [ ] Leer un tsconfig local explícito mediante las validaciones del harness, nunca mediante acceso libre de Oxc al disco.
-- [ ] Proporcionar su contenido en un snapshot de configuración acotado.
-- [ ] Soportar inicialmente `compilerOptions.paths` y `baseUrl`, incluyendo su resolución relativa al archivo que los declara.
-- [ ] Conservar el límite del workspace y las restricciones de rutas tras resolver cada alias.
-- [ ] Mantener pendientes configuraciones no soportadas; no sustituirlas por coincidencias globales.
-- [ ] Registrar dependencias de configuración y hashes para invalidar las relaciones afectadas.
-- [ ] Revalidar la configuración antes del commit, igual que las fuentes.
-- [ ] Reprocesar importadores afectados al cambiar/eliminar la configuración aunque no cambien sus fuentes.
+- [x] API y comportamiento manual comprobados mediante compilación/fixtures con Oxc 11.0.0, sin actualizar versión.
+- [x] Lectura de tsconfig explícito mediante Project/pins, sin acceso libre de Oxc al disco.
+- [x] Snapshot sanitizado y acotado; JSONC/BOM, comentarios y comas finales.
+- [x] paths exactos/wildcard/destinos alternativos y baseUrl como ancla relativa al declarante.
+- [x] Límite del workspace y restricciones de rutas en configuración y destino.
+- [x] Configuraciones no soportadas rechazadas; no fallback a homónimos globales.
+- [x] Dependencias/hashes en metadata y aristas, con invalidación al cambiar configuración.
+- [x] Revalidación de config/fuentes antes del commit y rollback.
+- [x] Rebinding por cambios/eliminación de config aunque no cambien las fuentes.
+- [x] Comparación opt-in ejecutada con CodeGraph v1.6.2: seis casos de aliases/JSONC/herencia/overrides, sin afirmar paridad global.
+
+Perfil y límites: [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md). JSONC y extends local
+simple están implementados; falta compatibilidad diferencial amplia y selección por importador.
 
 Pruebas mínimas: alias exacto y wildcard, múltiples destinos, baseUrl, prioridad
 frente a relativos, destino ausente, configuración inválida o modificada durante
@@ -80,11 +84,11 @@ configuración no publiquen un resultado aparentemente completo.
 
 ### 2. Configuración heredada y límites entre proyectos
 
-- [ ] Ampliar `extends` local con detección de ciclos, profundidad y presupuesto agregado.
-- [ ] Validar cómo se heredan/reescriben paths y baseUrl en las versiones utilizadas.
+- [x] `extends` local simple: ciclos, hasta 8 archivos, 256 KiB por archivo y 1 MiB agregado; sin arrays/paquetes.
+- [x] Herencia y reemplazo de paths/baseUrl comprobados con fixtures de CodeGraph v1.6.2 para el perfil simple.
 - [ ] Añadir selección de configuración por importador y proyectos anidados.
 - [ ] Evaluar project references y tsconfigs heredados de paquetes solo después de definir su alcance autorizado.
-- [ ] Revalidar todas las configuraciones contribuyentes; un ciclo o límite excedido no equivale a configuración vacía.
+- [x] Revalidar todas las configuraciones contribuyentes; ciclos/límites/padres ausentes provocan rollback, no configuración vacía.
 
 Terminado cuando la selección e invalidación entre proyectos esté cubierta por
 fixtures diferenciales, sin leer configuraciones de padres externos por defecto.

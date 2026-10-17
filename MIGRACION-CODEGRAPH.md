@@ -26,6 +26,12 @@ de compatibilidad. La conexión Node activa no se ha sustituido automáticamente
 
 ## Lo que tenemos
 
+Última ampliación: aliases `paths/baseUrl` desde tsconfig explícito, JSONC y
+`extends` local simple, con hashes de padres, límites, rollback y vigencia al
+consultar. Diez pruebas del perfil pasaron, incluida comparación de seis casos
+con CodeGraph v1.6.2. No incluye selección por importador, references, herencia de
+paquetes/arrays ni reexports. Perfil completo: [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md).
+
 | Bloque | Implementado | Límite actual |
 | --- | --- | --- |
 | Lectura del grafo | Consulta SQLite, navegación acotada y comprobación de hashes de archivos contribuyentes | No certifica cobertura ni vigencia global |
@@ -34,7 +40,7 @@ de compatibilidad. La conexión Node activa no se ha sustituido automáticamente
 | Extracción | Núcleo Rust original para Rust, C#, JavaScript, JSX, TypeScript y TSX | No incluye todos los lenguajes ni todos los preprocesamientos |
 | Publicación SQLite | Nodos, aristas, referencias, hashes y FTS en una transacción por archivo | Windows; índice existente, schema 11 y modo WAL |
 | Referencias entrantes | Conservación por identidad única y recuperación mediante metadatos originales | Referencias legacy irrecuperables bloquean la escritura |
-| Resolver nativo | Nombres exactos y primer subconjunto de imports relativos JS/TS con nombre y alias | No equivale al resolver completo de CodeGraph |
+| Resolver nativo | Nombres exactos, imports relativos JS/TS con nombre y aliases de tsconfig explícito | No equivale al resolver completo de CodeGraph |
 | Lotes | Hasta 32 candidatos por ejecución y reporte de commits previos ante un fallo | No existe una transacción global del workspace |
 | Seguridad | Validación de rutas, enlaces, DB, sidecars, esquema, FTS, límites y cancelación | Las garantías de escritura implementadas son específicas de Windows |
 
@@ -101,7 +107,7 @@ Alcance inicial conservador:
   válidos por cambios de exportación o nuevas alternativas de módulo.
 
 Siguen pendientes paquetes externos, default/namespace/type-only, reexports,
-aliases de tsconfig y semántica completa entre archivos. El escritor ahora aplica
+selección de tsconfig por importador y semántica completa entre archivos. El escritor ahora aplica
 prioridades explícitas del proveedor a rutas relativas con Oxc y soporta el
 fallback de extensiones emitidas cuando no existe el archivo original.
 Los imports de otras formas bloquean el fallback global de ese archivo. El
@@ -128,7 +134,8 @@ No es un reemplazo directo: se detectó y documentó una diferencia de prioridad
 revisar redeclaraciones. La evaluación inicial no habilitó capacidades del
 runtime; la integración posterior de semantic se describe a continuación.
 La integración posterior de `oxc_resolver` sobre un snapshot del índice está
-descrita abajo; tsconfig/packages permanecen fuera del alcance activo.
+descrita abajo; tsconfig explícito está integrado con el perfil enlazado arriba,
+mientras que packages permanece fuera del alcance activo.
 
 ### Integración realizada: Oxc semantic en el escritor nativo
 
@@ -164,8 +171,9 @@ la actualización del motor no fuerza una reconstrucción global del índice.
 
 `index_paths.rs` integra `oxc_resolver` 11.0.0 en el escritor Windows. Su filesystem
 implementa únicamente una vista inmutable de rutas SQLite dentro de la transacción:
-no utiliza `FileSystemOs`, no lee contenidos, no sigue enlaces y no consulta
-`package.json`, `tsconfig.json`, paquetes externos ni directorios del usuario.
+no utiliza `FileSystemOs`, no sigue enlaces ni consulta `package.json`, paquetes
+externos o directorios del usuario. Solo recibe el tsconfig seleccionado como
+contenido sanitizado en memoria; Project valida y lee sus archivos originales.
 El destino final sigue requiriendo lectura autorizada, hash coincidente y
 revalidación antes del commit por el harness.
 
@@ -194,8 +202,8 @@ un archivo físico nuevo no se incorpora hasta su publicación. No prueba ausenc
 de candidatos sin indexar ni certifica cobertura global. Oxc admite más variantes
 de index de directorio que CodeGraph; las no equivalentes se dejan pendientes
 (por ejemplo, si selecciona `index.d.ts` donde el proveedor no lo admite).
-El soporte deliberadamente no activa aliases de tsconfig, exports de paquetes,
-configuraciones heredadas ni referencias fuera del workspace.
+El soporte de aliases/extends local se detalla en TSCONFIG-PATHS.md. No activa
+exports de paquetes, herencia de paquetes/arrays ni referencias fuera del workspace.
 
 ### 1. Resolver de relaciones — prioridad alta
 
@@ -279,8 +287,7 @@ Registro anterior, conservado como historial:
 - La comparación opt-in de extracción con CodeGraph aprobó siete fuentes de los
   seis lenguajes; se omitieron timestamps y duración. No prueba paridad del resolver.
 - Las pruebas de escritura usaron índices temporales; no se publicó contra el índice original.
-- El último Clippy estricto registrado señaló warnings del bloque SQL concurrente;
-  su estado actual debe volver a comprobarse, no se presupone resuelto.
+- Clippy estricto del workspace pasó tras corregir cuatro collapsible_if de SQL/XLSX.
 
 ## Complejidad y porcentaje
 
@@ -299,9 +306,9 @@ configuración respetada, cobertura y limitaciones explícitas, recuperación
 verificada, suite integrada aprobada y ejecución real sin depender del coordinador
 Node. Hasta entonces, el nombre correcto es **sincronización nativa parcial**.
 
-Siguiente bloque recomendado: configuración acotada de aliases de tsconfig,
-con lectura autorizada, invalidación/revalidación y pruebas diferenciales; después
-ampliar reexports o formas de imports sin habilitar acceso libre al disco.
+Siguiente bloque recomendado: selección de configuración por importador y
+reexports/formas restantes de imports, con invalidación transitiva y fixtures
+diferenciales, sin habilitar acceso libre al disco.
 
 ## Mapa de implementación
 
@@ -312,6 +319,7 @@ ampliar reexports o formas de imports sin habilitar acceso libre al disco.
 - [index_imports.rs](src/adapters/index_imports.rs): alcance de imports, observación de fuentes e invalidación.
 - [index_semantic.rs](src/adapters/index_semantic.rs): bindings Oxc y posiciones de llamadas importadas.
 - [index_paths.rs](src/adapters/index_paths.rs): Oxc resolver y filesystem cerrado del índice.
+- [index_tsconfig.rs](src/adapters/index_tsconfig.rs): JSONC, herencia local, límites y procedencia.
 - [index_store.rs — pruebas](tests/index_store.rs): escritura, protección y fallos.
 - [index_extract.rs — pruebas](tests/index_extract.rs): extracción y comparación opt-in.
 - [ARCHITECTURE.md](ARCHITECTURE.md): organización general del harness.

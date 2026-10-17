@@ -79,6 +79,12 @@ cargo test --locked --test index_extract extraction_matches_the_installed_codegr
 
 ### Publicación nativa experimental de CodeGraph
 
+El perfil explícito de aliases `paths/baseUrl` está documentado en
+[TSCONFIG-PATHS.md](TSCONFIG-PATHS.md), con límites y evidencia de validación.
+Uso: `--sync-file src/app.ts --tsconfig tsconfig.json`. Admite JSONC y `extends`
+local simple con invalidación de padres. No activa búsqueda automática de
+tsconfigs por importador, references, herencia de paquetes ni resolución de paquetes.
+
 En Windows, con un índice existente schema 11 en modo WAL:
 
 ```powershell

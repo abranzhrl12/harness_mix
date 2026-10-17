@@ -29,6 +29,8 @@ const MAX_ROWS: usize = 20_000;
 mod imports;
 #[path = "index_paths.rs"]
 mod paths;
+#[path = "index_tsconfig.rs"]
+pub(super) mod tsconfig;
 
 /// Apply a bounded native subset of the current plan. Transactions are per
 /// file, NOT per workspace. Once any file commits, subsequent errors/cancellation
@@ -66,6 +68,23 @@ pub fn sync_workspace(root: &Path, context: &OperationContext) -> Result<Value, 
                 unsupported += 1;
             }
         }
+    }
+    // A selected config can change without a source edit. Revisit one unchanged
+    // JS/TS source so the transaction can invalidate/re-resolve import edges.
+    if paths.is_empty()
+        && let Some(path) = planned["plan"]["unchanged"]
+            .as_array()
+            .ok_or(INDEX)?
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|p| {
+                matches!(
+                    index_extract::language(p),
+                    Some("typescript" | "tsx" | "javascript" | "jsx")
+                )
+            })
+    {
+        paths.insert(path.into());
     }
     let total = paths.len();
     let mut results = Vec::new();
@@ -139,6 +158,24 @@ pub fn sync_file(
     }
 }
 
+/// Explicit single tsconfig selection; no parent discovery or inherited configurations.
+pub fn sync_file_with_tsconfig(
+    root: &Path,
+    relative: &str,
+    config: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    #[cfg(windows)]
+    {
+        sync_file_config_with(root, relative, Some(config), context, || {})
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (root, relative, config, context);
+        Err(("UNSUPPORTED", "Native index publication requires Windows"))
+    }
+}
+
 #[cfg(windows)]
 fn sync_file_windows(
     root: &Path,
@@ -152,6 +189,17 @@ fn sync_file_windows(
 fn sync_file_with(
     root: &Path,
     relative: &str,
+    context: &OperationContext,
+    before_recheck: impl FnOnce(),
+) -> Result<Value, Failure> {
+    sync_file_config_with(root, relative, None, context, before_recheck)
+}
+
+#[cfg(windows)]
+fn sync_file_config_with(
+    root: &Path,
+    relative: &str,
+    requested_config: Option<&str>,
     context: &OperationContext,
     before_recheck: impl FnOnce(),
 ) -> Result<Value, Failure> {
@@ -281,6 +329,7 @@ fn sync_file_with(
         // triggers require trusted_schema; it is enabled only after validation.
         sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
         context.check()?;
+        let configuration = tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
         let (mut result, import_sources) = publish(
             &tx,
             &project,
@@ -289,7 +338,9 @@ fn sync_file_with(
             source.as_deref(),
             extracted.as_ref(),
             context,
+            configuration,
         )?;
+        result["tsconfig"] = import_sources.config.stamp();
         before_recheck();
         import_sources.recheck(&project, context)?;
         let observed = read_source(&project, relative, context)?;
@@ -547,6 +598,7 @@ fn insert_ref(
     Ok(db.last_insert_rowid())
 }
 
+#[allow(clippy::too_many_arguments)] // Publication inputs plus the transaction's configuration snapshot.
 fn publish(
     db: &Transaction<'_>,
     project: &Project,
@@ -555,7 +607,9 @@ fn publish(
     bytes: Option<&[u8]>,
     extracted: Option<&Value>,
     context: &OperationContext,
+    configuration: (tsconfig::Snapshot, bool),
 ) -> Result<(Value, imports::Sources), Failure> {
+    let (configuration, config_changed) = configuration;
     let record: Option<(String, Option<String>)> = sql(db
         .query_row(
             "SELECT content_hash,errors FROM files WHERE path=?1",
@@ -568,17 +622,18 @@ fn publish(
             serde_json::from_str::<Value>(e).is_ok_and(|v| v.as_array().is_some_and(Vec::is_empty))
         })
     });
-    if (bytes.is_none() && record.is_none())
-        || (clean
-            && bytes.is_some_and(|bytes| {
-                record
-                    .as_ref()
-                    .is_some_and(|(digest, _)| *digest == hash(bytes))
-            }))
+    if !config_changed
+        && ((bytes.is_none() && record.is_none())
+            || (clean
+                && bytes.is_some_and(|bytes| {
+                    record
+                        .as_ref()
+                        .is_some_and(|(digest, _)| *digest == hash(bytes))
+                })))
     {
         return Ok((
             json!({"mode":"sync_file","path":path,"changed":false,"committed":false,"synchronized":false,"globalFreshnessCertified":false}),
-            imports::Sources::default(),
+            imports::Sources::configured(configuration),
         ));
     }
     let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
@@ -709,11 +764,12 @@ fn publish(
             return Err(LIMIT);
         }
     }
-    let import_rechecks = if matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
-        imports::invalidate(db)?
-    } else {
-        Vec::new()
-    };
+    let import_rechecks =
+        if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
+            imports::invalidate(db)?
+        } else {
+            Vec::new()
+        };
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
     if refs.len() > MAX_ROWS {
@@ -728,7 +784,7 @@ fn publish(
         }
     }
     let mut resolved = 0;
-    let mut import_sources = imports::Sources::default();
+    let mut import_sources = imports::Sources::configured(configuration);
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(
@@ -738,6 +794,11 @@ fn publish(
             context,
             &mut import_sources,
         )?);
+    }
+    if import_sources.config.digest.is_some() {
+        sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at", params![tsconfig::KEY, import_sources.config.stamp().to_string(), now]))?;
+    } else {
+        sql(db.execute("DELETE FROM project_metadata WHERE key=?1", [tsconfig::KEY]))?;
     }
     // Invalidate the global provider stamp. This single-file subset is not a
     // full language/framework resolver or a whole-workspace synchronization.
@@ -862,6 +923,9 @@ fn resolve_exact(
     };
     let mut metadata = json!({"refName":name,"refKind":kind,"resolvedBy":if imported_path.is_some(){"native-relative-named-import-subset"}else{"native-exact-name-subset"},"confidence":0.9});
     if imported_path.is_some() {
+        if sources.config.path.is_some() {
+            metadata["tsconfig"] = sources.config.stamp();
+        }
         metadata["bindingEngine"] = json!("oxc-semantic-0.90.0");
         metadata["moduleEngine"] = json!("oxc-resolver-11.0.0-index-snapshot");
     }
@@ -873,6 +937,59 @@ fn resolve_exact(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn tsconfig_change_before_commit_rolls_back_nodes_and_configuration_stamp() {
+        use super::*;
+        for changed in ["tsconfig.json", "base.json"] {
+            let dir = tempfile::tempdir().unwrap();
+            fixture(dir.path());
+            std::fs::write(dir.path().join("a.ts"), "export function planned() {}\n").unwrap();
+            std::fs::write(
+                dir.path().join("tsconfig.json"),
+                "{\"compilerOptions\":{\"baseUrl\":\".\"}}",
+            )
+            .unwrap();
+            if changed == "base.json" {
+                std::fs::write(
+                    dir.path().join("tsconfig.json"),
+                    "{\"extends\":\"./base.json\"}",
+                )
+                .unwrap();
+                std::fs::write(dir.path().join("base.json"), "{}").unwrap();
+            }
+            let result = sync_file_config_with(
+                dir.path(),
+                "a.ts",
+                Some("tsconfig.json"),
+                &OperationContext::default(),
+                || {
+                    std::fs::write(
+                        dir.path().join(changed),
+                        "{\"compilerOptions\":{\"baseUrl\":\"src\"}}",
+                    )
+                    .unwrap();
+                },
+            );
+            assert_eq!(result.unwrap_err().0, "STALE");
+            let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+            assert_eq!(
+                db.query_row("SELECT count(*) FROM nodes WHERE name='planned'", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM project_metadata WHERE key='native_tsconfig_v1'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+        }
+    }
     use super::*;
     fn fixture(root: &Path) {
         std::fs::create_dir_all(root.join(".codegraph")).unwrap();

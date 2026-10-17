@@ -122,12 +122,11 @@ pub fn resolve_connection_string(project: &Project, config: &SqlConfig) -> Resul
         .map_err(|_| ("SQL_CONFIG", "Web.config tiene formato XML inválido"))?;
 
     for node in doc.descendants() {
-        if node.has_tag_name("add") {
-            if let (Some(name), Some(conn_str)) = (node.attribute("name"), node.attribute("connectionString")) {
-                if name.eq_ignore_ascii_case(target_name) {
-                    return Ok(conn_str.to_string());
-                }
-            }
+        if node.has_tag_name("add")
+            && let (Some(name), Some(conn_str)) = (node.attribute("name"), node.attribute("connectionString"))
+            && name.eq_ignore_ascii_case(target_name)
+        {
+            return Ok(conn_str.to_string());
         }
     }
 

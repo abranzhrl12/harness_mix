@@ -70,6 +70,72 @@ pub(super) fn indexed_files(
         };
         expected.insert(path, item);
     }
+    // Configuration contributes to every native import edge; never certify
+    // source hashes alone after its aliases changed or the config disappeared.
+    let metadata_kind: Option<String> = db
+        .query_row(
+            "SELECT type FROM sqlite_schema WHERE name='project_metadata'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|_| ("INDEX", "Configuration provenance unavailable"))?;
+    if let Some(kind) = metadata_kind {
+        if kind != "table" {
+            return Err((
+                "INDEX",
+                "Configuration provenance must be an ordinary table",
+            ));
+        }
+        let stamp: Option<String> = db
+            .query_row(
+                "SELECT value FROM project_metadata WHERE key='native_tsconfig_v1'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| ("INDEX", "Configuration provenance unavailable"))?;
+        if let Some(stamp) = stamp {
+            if stamp.len() > 16 * 1024 {
+                return Err(("INDEX", "Invalid configuration provenance"));
+            }
+            let stamp: Value = serde_json::from_str(&stamp)
+                .map_err(|_| ("INDEX", "Invalid configuration provenance"))?;
+            let mut contributors = vec![&stamp];
+            if let Some(dependencies) = stamp.get("dependencies") {
+                let dependencies = dependencies
+                    .as_array()
+                    .filter(|items| items.len() <= 7)
+                    .ok_or(("INDEX", "Invalid configuration provenance"))?;
+                contributors.extend(dependencies);
+            }
+            for stamp in contributors {
+                let path = stamp["path"]
+                    .as_str()
+                    .ok_or(("INDEX", "Invalid configuration provenance"))?;
+                let digest = stamp["hash"]
+                    .as_str()
+                    .ok_or(("INDEX", "Invalid configuration provenance"))?;
+                if path.len() > 1000
+                    || super::index_inventory::restricted(path)
+                    || super::project::external_restricted(path)
+                    || path.contains(['\\', ':'])
+                    || path.split('/').any(|p| matches!(p, "" | "." | ".."))
+                    || digest.len() != 64
+                    || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err(("INDEX", "Invalid configuration provenance"));
+                }
+                expected.insert(
+                    path.into(),
+                    Expected {
+                        hash: Some(digest.to_ascii_lowercase()),
+                        reason: None,
+                    },
+                );
+            }
+        }
+    }
     context.check()?;
     Ok(expected)
 }

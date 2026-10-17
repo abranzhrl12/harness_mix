@@ -1,8 +1,9 @@
 //! Oxc module resolution over an immutable, bounded SQLite path snapshot.
-//! There is deliberately no OS filesystem implementation or configuration read.
+//! No OS filesystem; only one validated, sanitized configuration snapshot can be read.
 use super::{Failure, INDEX, LIMIT, OperationContext, index_extract, index_inventory, sql};
 use oxc_resolver::{
     EnforceExtension, FileMetadata, FileSystem, FsCache, ResolveOptions, ResolverGeneric,
+    TsconfigOptions, TsconfigReferences,
 };
 use rusqlite::Connection;
 use std::{
@@ -16,6 +17,9 @@ use std::{
 };
 
 const ROOT: &str = r"C:\__harness_codegraph_snapshot";
+pub(super) fn virtual_path(path: &str) -> PathBuf {
+    Path::new(ROOT).join(path)
+}
 const MAX_PROBES: usize = 100_000;
 type Resolver = ResolverGeneric<FsCache<View>>;
 
@@ -24,6 +28,7 @@ struct Snapshot {
     dirs: BTreeSet<PathBuf>,
     probes: AtomicUsize,
     context: OperationContext,
+    config: Option<(PathBuf, String)>,
 }
 #[derive(Clone)]
 struct View(Arc<Snapshot>);
@@ -48,7 +53,12 @@ impl View {
 impl FileSystem for View {
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
         self.guard(path)?;
-        // Not even package.json/tsconfig contents are exposed to this adapter.
+        if let Some((selected, text)) = &self.0.config
+            && selected == path
+        {
+            return Ok(text.clone());
+        }
+        // Only the selected sanitized tsconfig can be read; never package.json or OS files.
         Err(io::ErrorKind::NotFound.into())
     }
     fn metadata(&self, path: &Path) -> io::Result<FileMetadata> {
@@ -76,6 +86,7 @@ pub(super) struct Routes {
     emitted: Resolver,
     memo: BTreeMap<(String, String, String), Option<String>>,
     memo_bytes: usize,
+    bare_directory: PathBuf,
 }
 
 fn options(extensions: &[&str], main_files: &[&str]) -> ResolveOptions {
@@ -94,7 +105,15 @@ fn options(extensions: &[&str], main_files: &[&str]) -> ResolveOptions {
 }
 
 impl Routes {
+    #[cfg(test)]
     pub(super) fn load(db: &Connection, context: &OperationContext) -> Result<Self, Failure> {
+        Self::load_config(db, context, None)
+    }
+    pub(super) fn load_config(
+        db: &Connection,
+        context: &OperationContext,
+        config: Option<&super::tsconfig::Snapshot>,
+    ) -> Result<Self, Failure> {
         let mut statement = sql(
             db.prepare("SELECT path,language FROM files ORDER BY path COLLATE BINARY LIMIT 20001")
         )?;
@@ -145,11 +164,28 @@ impl Routes {
                 }
             }
         }
+        let bare_directory = config
+            .and_then(|c| c.base.as_deref())
+            .map_or_else(|| PathBuf::from(ROOT), virtual_path);
+        for parent in bare_directory
+            .ancestors()
+            .take_while(|p| p.starts_with(ROOT))
+        {
+            dirs.insert(parent.to_owned());
+        }
+        let config = config.and_then(|c| Some((virtual_path(c.path.as_deref()?), c.json.clone()?)));
+        if let Some((path, _)) = &config {
+            files.insert(path.clone());
+            for parent in path.ancestors().skip(1).take_while(|p| p.starts_with(ROOT)) {
+                dirs.insert(parent.to_owned());
+            }
+        }
         let view = View(Arc::new(Snapshot {
             files,
             dirs,
             probes: AtomicUsize::new(0),
             context: context.clone(),
+            config,
         }));
         let cache = Arc::new(FsCache::new(view.clone()));
         let mut resolvers = BTreeMap::new();
@@ -164,12 +200,25 @@ impl Routes {
             ("javascript", vec![".js", ".jsx", ".mjs", ".cjs", ""]),
             ("jsx", vec![".jsx", ".js", ""]),
         ] {
+            let mut configured = options(&extensions, &["index"]);
+            if let Some((path, _)) = &view.0.config {
+                configured.tsconfig = Some(TsconfigOptions {
+                    config_file: path.clone(),
+                    references: TsconfigReferences::Disabled,
+                });
+            }
             resolvers.insert(
                 language.into(),
-                Resolver::new_with_cache(cache.clone(), options(&extensions, &["index"])),
+                Resolver::new_with_cache(cache.clone(), configured),
             );
         }
         let mut emitted_options = options(&[""], &[]);
+        if let Some((path, _)) = &view.0.config {
+            emitted_options.tsconfig = Some(TsconfigOptions {
+                config_file: path.clone(),
+                references: TsconfigReferences::Disabled,
+            });
+        }
         emitted_options.extension_alias = vec![
             (
                 ".js".into(),
@@ -185,6 +234,7 @@ impl Routes {
             emitted: Resolver::new_with_cache(cache, emitted_options),
             memo: BTreeMap::new(),
             memo_bytes: 0,
+            bare_directory,
         })
     }
 
@@ -195,8 +245,31 @@ impl Routes {
         language: &str,
         context: &OperationContext,
     ) -> Result<Option<String>, Failure> {
+        self.resolve_request(from, target, language, context, false)
+    }
+    pub(super) fn resolve_bare(
+        &mut self,
+        from: &str,
+        target: &str,
+        language: &str,
+        context: &OperationContext,
+    ) -> Result<Option<String>, Failure> {
+        self.resolve_request(from, target, language, context, true)
+    }
+    fn resolve_request(
+        &mut self,
+        from: &str,
+        target: &str,
+        language: &str,
+        context: &OperationContext,
+        bare: bool,
+    ) -> Result<Option<String>, Failure> {
         context.check()?;
-        let key = (from.to_owned(), target.to_owned(), language.to_owned());
+        let key = (
+            format!("{bare}:{from}"),
+            target.to_owned(),
+            language.to_owned(),
+        );
         if let Some(hit) = self.memo.get(&key) {
             return Ok(hit.clone());
         }
@@ -207,10 +280,22 @@ impl Routes {
         let resolver = self.resolvers.get(language).ok_or(INDEX)?;
         // Target is already normalized/validated by the caller. Resolve from
         // the virtual workspace root so ../ never leaves this immutable view.
-        let request = format!("./{target}");
+        let request = if bare {
+            target.to_owned()
+        } else {
+            format!("./{target}")
+        };
+        // The pinned Oxc version applies manual tsconfig paths only within its
+        // paths base. Bare requests are workspace-config-relative, not importer-
+        // relative; use that validated virtual directory, never the OS cwd.
+        let directory = if bare {
+            self.bare_directory.as_path()
+        } else {
+            Path::new(ROOT)
+        };
         let found = resolver
-            .resolve(ROOT, &request)
-            .or_else(|_| self.emitted.resolve(ROOT, &request));
+            .resolve(directory, &request)
+            .or_else(|_| self.emitted.resolve(directory, &request));
         context.check()?;
         if self.view.0.probes.load(Ordering::Relaxed) >= MAX_PROBES {
             return Err(LIMIT);
@@ -239,7 +324,12 @@ impl Routes {
                     "jsx" => &["index.jsx", "index.js"][..],
                     _ => &[][..],
                 };
-                if directory.is_some_and(|file| !allowed.contains(&file)) {
+                let bare_index = bare
+                    && Path::new(&relative)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .is_some_and(|file| file.starts_with("index.") && !allowed.contains(&file));
+                if bare_index || directory.is_some_and(|file| !allowed.contains(&file)) {
                     None
                 } else {
                     Some(relative)
@@ -255,6 +345,37 @@ impl Routes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_tsconfig_paths_and_baseurl_resolve_in_virtual_filesystem() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("tsconfig.json"), r#"{"compilerOptions":{"baseUrl":"src","paths":{"@exact":["one"],"@lib/*":["missing/*","*"]}}}"#).unwrap();
+        let config = super::super::tsconfig::Snapshot::load(
+            &super::super::Project::new(root.path()).unwrap(),
+            "tsconfig.json",
+            &OperationContext::default(),
+        )
+        .unwrap();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE files(path TEXT PRIMARY KEY,language TEXT); INSERT INTO files VALUES('src/one.ts','typescript'),('src/two.ts','typescript');").unwrap();
+        let mut routes =
+            Routes::load_config(&db, &OperationContext::default(), Some(&config)).unwrap();
+        for (request, expected) in [("@exact", "src/one.ts"), ("@lib/two", "src/two.ts")] {
+            assert_eq!(
+                routes
+                    .resolve_bare(
+                        "app.ts",
+                        request,
+                        "typescript",
+                        &OperationContext::default()
+                    )
+                    .unwrap()
+                    .as_deref(),
+                Some(expected),
+                "{request} {}",
+                config.json.as_ref().unwrap()
+            );
+        }
+    }
     fn fixture(files: &[&str], context: &OperationContext) -> Routes {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE files(path TEXT PRIMARY KEY, language TEXT)")

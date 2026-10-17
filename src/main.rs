@@ -3,6 +3,24 @@ use std::path::PathBuf;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
+    let collected: Vec<_> = args.by_ref().collect();
+    if let [root_flag, root, sync_flag, relative, config_flag, config] = collected.as_slice()
+        && root_flag == "--root"
+        && sync_flag == "--sync-file"
+        && config_flag == "--tsconfig"
+    {
+        let context = harness_domain::execution::OperationContext::default();
+        let result = agent_harness::adapters::index_store::sync_file_with_tsconfig(
+            &PathBuf::from(root),
+            relative.to_str().ok_or("source path must be UTF-8")?,
+            config.to_str().ok_or("config path must be UTF-8")?,
+            &context,
+        )
+        .map_err(|(code, message)| format!("{code}: {message}"))?;
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
+    let mut args = collected.into_iter();
     let input = (args.next(), args.next(), args.next(), args.next());
     if args.next().is_some() {
         return Err("too many command-line arguments".into());
@@ -57,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: agent-harness --root <workspace> [--persist-logs | --sync-plan | --sync | --sync-file <relative>] | --version".into(),
+                "usage: agent-harness --root <workspace> [--persist-logs | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
             );
         }
     };

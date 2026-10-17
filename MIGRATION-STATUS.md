@@ -66,7 +66,23 @@ microservicios para escalar las capacidades de este ejecutable.
 - Preservación de DACL en Windows y artefactos de recuperación ante publicación incierta.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
-### Último bloque de runtime: Oxc resolver sobre snapshot del índice
+### Último bloque: paths/baseUrl explícitos y vigencia de configuración
+
+Perfil Windows de tsconfig JSONC seleccionado por CLI, leído con límites
+y pins y entregado a Oxc como snapshot sanitizado, sin filesystem del SO. Soporta
+paths exactos/wildcard/destinos alternativos y baseUrl relativo al declarante.
+Hashes en metadata/aristas, revalidación antes de commit, invalidación/rebinding
+sin cambios de fuente y comprobación de configuración al explorar relaciones.
+Incluye extends local simple, ciclos, hasta 8 configuraciones/1 MiB agregado,
+hashes heredados, invalidación y rollback al cambiar un padre antes del commit.
+Diez pruebas tsconfig pasaron, incluida comparación con CodeGraph v1.6.2 en seis
+casos de aliases/JSONC/herencia/overrides. Clippy estricto pasó después de corregir
+cuatro avisos SQL/XLSX sin cambiar su comportamiento.
+No se habilitan bare packages por baseUrl, proyectos anidados, references,
+herencia de paquetes/arrays ni reexports. Ver [TSCONFIG-PATHS.md](TSCONFIG-PATHS.md).
+La evidencia es específica de fixtures, no certificación de paridad global.
+
+### Bloque anterior de runtime: Oxc resolver sobre snapshot del índice
 
 `index_paths.rs` integra oxc_resolver 11.0.0 en el escritor nativo Windows. Usa
 un filesystem de rutas SQLite inmutable y cerrado, sin FileSystemOs, contenidos,
