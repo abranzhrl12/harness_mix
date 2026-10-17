@@ -1,0 +1,432 @@
+use crate::adapters::{self, NativeApplication};
+mod input;
+use harness_application::{
+    Application,
+    ports::{SessionRepository, Workspace},
+};
+use harness_domain::contracts::{
+    BootstrapArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,
+};
+use harness_domain::execution::{DEFAULT_TIMEOUT, OperationContext};
+use rmcp::{
+    RoleServer, ServerHandler, ServiceExt,
+    handler::server::wrapper::Parameters,
+    model::{CallToolResult, ServerCapabilities, ServerConfig},
+    service::RequestContext,
+    tool, tool_handler, tool_router,
+};
+use std::path::Path;
+
+#[derive(Clone)]
+struct McpHarness {
+    application: NativeApplication,
+}
+
+impl McpHarness {
+    async fn call(&self, request: Request, context: RequestContext<RoleServer>) -> CallToolResult {
+        execute(&self.application, request, context.ct.cancelled()).await
+    }
+}
+
+fn response(envelope: serde_json::Value) -> CallToolResult {
+    if envelope["state"] == "ok" {
+        CallToolResult::structured(envelope)
+    } else {
+        CallToolResult::structured_error(envelope)
+    }
+}
+
+struct CancelOnDrop(OperationContext);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
+    application: &Application<W, S>,
+    request: Request,
+    cancelled: impl std::future::Future<Output = ()>,
+) -> CallToolResult {
+    let name = request.name();
+    let mutating = request.is_mutating();
+    let args = request.arguments();
+    let context = OperationContext::default();
+    // Dropping a handler (client cancellation/disconnect) also signals its worker.
+    let _cancel_on_drop = CancelOnDrop(context.clone());
+    let operation = match application.prepare(request, context.clone()) {
+        Ok(operation) => operation,
+        Err(envelope) => return response(envelope),
+    };
+    let mut worker = tokio::task::spawn_blocking(move || operation.run());
+    let envelope = tokio::select! {
+        result = &mut worker => match result { Ok(envelope) => envelope, Err(_) => application.failure(name, &args, ("INTERNAL", "operación no completada; si era edición, releer antes de reintentar")) },
+        () = cancelled => {
+            context.cancel();
+            if mutating { worker.await.unwrap_or_else(|_| application.failure(name, &args, ("EDIT_OUTCOME_UNKNOWN", "Releer archivo antes de reintentar"))) }
+            else { application.failure(name, &args, ("CANCELLED", "operación cancelada")) }
+        },
+        () = tokio::time::sleep(DEFAULT_TIMEOUT) => {
+            context.cancel();
+            if mutating { worker.await.unwrap_or_else(|_| application.failure(name, &args, ("EDIT_OUTCOME_UNKNOWN", "Releer archivo antes de reintentar"))) }
+            else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
+        },
+    };
+    // A detached worker retains its admission/session guards until it really stops.
+    response(envelope)
+}
+
+#[tool_router]
+impl McpHarness {
+    #[tool(
+        description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."
+    )]
+    async fn harness_tasks(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::TasksArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Tasks(args), context).await
+    }
+
+    #[tool(
+        description = "Resumen de sesión y actualización de objetivo/decisiones/pendientes. Hechos observados e históricos separados. No certifica vigencia ni métricas: refreshFreshness=true aún se rechaza sin actualizar estado."
+    )]
+    async fn harness_checkpoint(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::CheckpointArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Checkpoint(args), context).await
+    }
+    #[tool(
+        description = "Firmas Rust locales por AST nativo, sin Node ni CodeGraph. maxChars 1000..16000 limita JSON en unidades UTF-16; query prioriza nombres. Solo declaraciones y miembros de módulos inline/impl/trait; no relaciones."
+    )]
+    async fn harness_outline(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::OutlineArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Outline(args), context).await
+    }
+
+    #[tool(
+        description = "Leer símbolo Rust por nombre, container o symbolId vigente. Rechaza ambigüedad. view=signature no sirve para editar; full devuelve fuente exacta y hash, con cuerpos grandes en detalle."
+    )]
+    async fn harness_read_symbol(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ReadSymbolArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::ReadSymbol(args), context).await
+    }
+    #[tool(
+        description = "Reemplazo único con SHA-256 vigente y validación previa. Windows: Rust, JSON, Markdown y texto plano. Sin creación de archivos. Rechaza rutas protegidas. Una publicación iniciada se completa aunque llegue cancelación; releer tras desconexión antes de reintentar."
+    )]
+    async fn harness_replace(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Replace(args), context).await
+    }
+    #[tool(
+        description = "Verificar un crate Rust con Cargo build/test, scope relativo al workspace. Ejecuta código del proyecto; no es sandbox. Plazo 30 s y salida 2 MiB."
+    )]
+    async fn harness_verify(
+        &self,
+        Parameters(args): Parameters<VerifyArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Verify(args), context).await
+    }
+
+    #[tool(
+        description = "Bootstrap experimental Rust: reglas, capacidades y sesiones persistentes. No reemplaza todavía el harness Node."
+    )]
+    async fn harness_bootstrap(
+        &self,
+        Parameters(args): Parameters<BootstrapArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Bootstrap(args), context).await
+    }
+
+    #[tool(
+        description = "Leer hasta 100 líneas UTF-8 dentro del workspace con hash SHA-256 y hasta dos líneas de contexto por lado."
+    )]
+    async fn harness_read(
+        &self,
+        Parameters(args): Parameters<ReadArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Read(args), context).await
+    }
+
+    #[tool(
+        description = "Recuperar detalle por referencia local al proceso, con paginación UTF-16 compatible con JavaScript. Máximo 16000 caracteres."
+    )]
+    async fn harness_detail(
+        &self,
+        Parameters(args): Parameters<DetailArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Detail(args), context).await
+    }
+
+    #[tool(
+        description = "Búsqueda nativa Rust de texto literal o archivos (text/files). Respeta ignore, excluye secretos/node_modules/target, con presupuestos explícitos y detalles paginados. Sin AST ni file_size en esta etapa."
+    )]
+    async fn harness_search(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Search(args), context).await
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for McpHarness {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions("Experimental Rust harness: bootstrap, bounded reads, details and text/files search. Do not replace production configuration yet.")
+    }
+}
+
+pub async fn serve(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let service = McpHarness {
+        application: adapters::application(root)?,
+    }
+    .serve((
+        input::BoundedLines::new(tokio::io::stdin(), input::MAX_MESSAGE_BYTES),
+        tokio::io::stdout(),
+    ))
+    .await?;
+    service.waiting().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harness_application::ports::SessionContext;
+    use harness_domain::Failure;
+    use serde_json::{Value, json};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    struct WaitingWorkspace {
+        started: Mutex<Option<oneshot::Sender<()>>>,
+        finished: Mutex<Option<oneshot::Sender<()>>>,
+    }
+    impl Workspace for WaitingWorkspace {
+        fn replace(
+            &self,
+            _: &harness_domain::contracts::ReplaceArgs,
+            context: &OperationContext,
+        ) -> Result<Value, Failure> {
+            self.started
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            // Simulate cancellation after the publication has begun.
+            while context.check().is_ok() {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            self.finished
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            Ok(json!({"changed":true,"commitStatus":"committed"}))
+        }
+        fn info(&self) -> Value {
+            json!({})
+        }
+        fn rules(&self, _: &OperationContext) -> Result<String, Failure> {
+            Ok(String::new())
+        }
+        fn capabilities(&self) -> Value {
+            json!({})
+        }
+        fn read(&self, _: &ReadArgs, context: &OperationContext) -> Result<Value, Failure> {
+            self.started
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            while context.check().is_ok() {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            self.finished
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            context.check()?;
+            unreachable!()
+        }
+        fn search(&self, _: &SearchArgs, _: &OperationContext) -> Result<Value, Failure> {
+            unreachable!()
+        }
+    }
+    struct TrackingSessions(Arc<AtomicUsize>, Arc<Mutex<()>>);
+    impl SessionRepository for TrackingSessions {
+        fn workflow_gate(&mut self, _: &str) -> Result<Arc<Mutex<()>>, Failure> {
+            Ok(self.1.clone())
+        }
+        fn acquire(&mut self, _: &str) -> Result<(), Failure> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn release(&mut self, _: &str) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+        fn open(&mut self, _: Option<&str>) -> Result<SessionContext, Failure> {
+            unreachable!()
+        }
+        fn update_hashes(&mut self, _: &str, _: String, _: String) -> Result<(), Failure> {
+            unreachable!()
+        }
+    }
+
+    #[tokio::test]
+    async fn mutation_cancellation_waits_for_definitive_commit_outcome() {
+        let (started_tx, started_rx) = oneshot::channel();
+        let (finished_tx, finished_rx) = oneshot::channel();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let active = Arc::new(AtomicUsize::new(0));
+        let application = Application::new(
+            WaitingWorkspace {
+                started: Mutex::new(Some(started_tx)),
+                finished: Mutex::new(Some(finished_tx)),
+            },
+            TrackingSessions(active.clone(), Arc::default()),
+        );
+        let request = Request::Replace(harness_domain::contracts::ReplaceArgs {
+            path: "file.txt".into(),
+            hash: "unused-by-fake".into(),
+            old_text: "old".into(),
+            new_text: "new".into(),
+            session: Some("session".into()),
+        });
+        let task = tokio::spawn(async move {
+            execute(&application, request, async {
+                let _ = cancel_rx.await;
+            })
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        cancel_tx.send(()).unwrap();
+        let response = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        finished_rx.await.unwrap();
+        assert_eq!(response.structured_content.as_ref().unwrap()["state"], "ok");
+        assert_eq!(
+            response.structured_content.as_ref().unwrap()["data"]["changed"],
+            true
+        );
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancellation_and_handler_drop_stop_workers_and_release_session_leases() {
+        for abort_handler in [false, true] {
+            let (started_tx, started_rx) = oneshot::channel();
+            let (finished_tx, finished_rx) = oneshot::channel();
+            let (cancel_tx, cancel_rx) = oneshot::channel();
+            let active = Arc::new(AtomicUsize::new(0));
+            let application = Application::new(
+                WaitingWorkspace {
+                    started: Mutex::new(Some(started_tx)),
+                    finished: Mutex::new(Some(finished_tx)),
+                },
+                TrackingSessions(active.clone(), Arc::default()),
+            );
+            let recovered = application.clone();
+            let request = Request::Read(ReadArgs {
+                path: "waiting".into(),
+                start: 1,
+                end: 1,
+                session: Some("session".into()),
+            });
+            let handler = tokio::spawn(async move {
+                execute(&application, request, async {
+                    let _ = cancel_rx.await;
+                })
+                .await
+            });
+            tokio::time::timeout(Duration::from_secs(3), started_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(active.load(Ordering::SeqCst), 1);
+            if abort_handler {
+                handler.abort();
+                let _ = handler.await;
+            } else {
+                cancel_tx.send(()).unwrap();
+                let result = tokio::time::timeout(Duration::from_secs(3), handler)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.structured_content.unwrap()["state"], "cancelled");
+            }
+            tokio::time::timeout(Duration::from_secs(3), finished_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while active.load(Ordering::SeqCst) != 0 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .unwrap();
+            // All four admissions are available again after physical worker completion.
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let jobs: Result<Vec<_>, _> = (0..4)
+                        .map(|_| {
+                            recovered.prepare(
+                                Request::Detail(DetailArgs {
+                                    reference: "unused".into(),
+                                    offset: None,
+                                    max_chars: None,
+                                    session: None,
+                                }),
+                                OperationContext::default(),
+                            )
+                        })
+                        .collect();
+                    if let Ok(jobs) = jobs {
+                        drop(jobs);
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("leaked admission");
+        }
+    }
+}

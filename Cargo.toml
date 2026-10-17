@@ -1,0 +1,35 @@
+[package]
+name = "agent-harness"
+version = "0.7.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace]
+members = ["crates/domain", "crates/application"]
+default-members = [".", "crates/domain", "crates/application"]
+resolver = "3"
+
+[dependencies]
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std"] }
+uuid = { version = "1", features = ["v4"] }
+harness-domain = { path = "crates/domain", features = ["schema"] }
+harness-application = { path = "crates/application" }
+tempfile = "3"
+ignore = "0.4"
+syn = { version = "2", default-features = false, features = ["full", "parsing", "printing"] }
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }
+
+[profile.release]
+lto = "thin"
+strip = true
