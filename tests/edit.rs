@@ -36,6 +36,8 @@ fn publishes_valid_rust_json_and_text_preserving_bytes() {
             "\u{feff}fn sample() { let x = 2; }\r\n",
         ),
         ("sample.json", "{\"x\":1}\n", "1", "2", "{\"x\":2}\n"),
+        ("sample.js", "const x = 1;\n", "1", "2", "const x = 2;\n"),
+        ("sample.ts", "const x: number = 1;\n", "1", "2", "const x: number = 2;\n"),
         (
             "sample.txt",
             "🙂\r\na\r\nb\r\n",
@@ -70,7 +72,8 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
     for (path, text, old, new, code) in [
         ("bad.rs", "fn sample() {}", "{}", "{", "SYNTAX_ERROR"),
         ("bad.json", "{\"x\":1}", "1", "[", "SYNTAX_ERROR"),
-        ("bad.js", "const a = 1;", "1", "2", "PARSER_UNAVAILABLE"),
+        ("bad.js", "const a = 1;", "1", "const", "SYNTAX_ERROR"),
+        ("bad.ts", "const a: number = 1;", "1", "{", "SYNTAX_ERROR"),
         ("overlap.txt", "aaa", "aa", "b", "MATCH"),
     ] {
         std::fs::write(root.path().join(path), text).unwrap();

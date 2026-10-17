@@ -39,6 +39,7 @@ mod process_tree;
 mod project;
 mod rust_symbols;
 mod rust_syntax;
+mod ts_syntax;
 mod search;
 mod session_workflow;
 mod sessions;

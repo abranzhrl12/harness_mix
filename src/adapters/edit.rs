@@ -15,6 +15,14 @@ fn syntax(path: &str, source: &str, context: &OperationContext) -> Result<Value,
             super::rust_syntax::with_ast(source, context, |_, _| Ok(()))?;
             Ok(json!({"status":"valid","language":"rust","validation":"syntax_only"}))
         }
+        "js" | "mjs" | "cjs" | "jsx" => {
+            super::ts_syntax::validate_syntax(path, source, context)?;
+            Ok(json!({"status":"valid","language":"javascript","validation":"syntax_only"}))
+        }
+        "ts" | "mts" | "cts" | "tsx" => {
+            super::ts_syntax::validate_syntax(path, source, context)?;
+            Ok(json!({"status":"valid","language":"typescript","validation":"syntax_only"}))
+        }
         "json" => {
             serde_json::from_str::<Value>(source.strip_prefix('\u{feff}').unwrap_or(source))
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;
