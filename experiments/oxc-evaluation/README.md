@@ -2,6 +2,13 @@
 
 Fecha: 2026-10-17. Prueba de concepto, no runtime de producción.
 
+Actualización posterior: el escritor del harness ya integra Oxc semantic 0.90.0
+para llamadas directas importadas. Este experimento mantiene 0.75.0 como evidencia
+de la evaluación inicial, no como dependencia del runtime. El resolver de rutas
+Oxc se integró después en el escritor mediante una vista cerrada de rutas del
+índice; tsconfig/packages de este experimento aún no se habilitan en producción.
+Véase [el estado actual](../../MIGRACION-CODEGRAPH.md).
+
 Este crate tiene workspace y lockfile propios. No añade Oxc al ejecutable MCP,
 no cambia el extractor CodeGraph y no escribe índices SQLite. Las resoluciones
 usan un filesystem sintético en memoria; ni siquiera requieren crear archivos

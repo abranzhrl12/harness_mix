@@ -27,6 +27,263 @@ fn count(root: &Path, query: &str) -> i64 {
 }
 
 #[test]
+fn oxc_emitted_specifiers_rebind_between_ts_source_and_existing_js() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("lib.ts"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.ts");
+    fs::write(
+        root.path().join("app.ts"),
+        "import {run as execute} from './lib.js'; export function caller() { execute(); }",
+    )
+    .unwrap();
+    sync(root.path(), "app.ts");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts' AND json_extract(e.metadata,'$.moduleEngine')='oxc-resolver-11.0.0-index-snapshot'"
+        ),
+        1
+    );
+    fs::write(root.path().join("lib.js"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.js");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.js'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts'"
+        ),
+        0
+    );
+    fs::remove_file(root.path().join("lib.js")).unwrap();
+    sync(root.path(), "lib.js");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts'"
+        ),
+        1
+    );
+}
+
+#[test]
+fn oxc_relative_imports_cross_js_ts_family_and_follow_directory_priority() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::create_dir(root.path().join("lib")).unwrap();
+    fs::write(root.path().join("lib/index.ts"), "export function run() {}").unwrap();
+    sync(root.path(), "lib/index.ts");
+    fs::write(
+        root.path().join("app.tsx"),
+        "import {run as execute} from './lib'; export function caller() { execute(); }",
+    )
+    .unwrap();
+    sync(root.path(), "app.tsx");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib/index.ts'"
+        ),
+        1
+    );
+    fs::write(root.path().join("lib.tsx"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.tsx");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.tsx'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib/index.ts'"
+        ),
+        0
+    );
+}
+
+#[test]
+fn oxc_cannot_read_tsconfig_packages_or_unindexed_module_files() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("lib.ts"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.ts");
+    fs::write(root.path().join("lib.js"), "export function run() {}").unwrap(); // deliberately unindexed
+    fs::write(
+        root.path().join("tsconfig.json"),
+        r#"{"compilerOptions":{"paths":{"@lib":["lib.ts"]}}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("package.json"),
+        r##"{"imports":{"#lib":"./lib.ts"}}"##,
+    )
+    .unwrap();
+    for source in [
+        "import {run} from '@lib'; export function caller() { run(); }",
+        "import {run} from '#lib'; export function caller() { run(); }",
+        "import {run} from 'external'; export function caller() { run(); }",
+        "import {run} from './.env'; export function caller() { run(); }",
+    ] {
+        fs::write(root.path().join("app.ts"), source).unwrap();
+        sync(root.path(), "app.ts");
+        assert_eq!(
+            count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+            0
+        );
+    }
+    fs::write(
+        root.path().join("app.ts"),
+        "import {run} from './lib.js'; export function caller() { run(); }",
+    )
+    .unwrap();
+    let result = sync(root.path(), "app.ts");
+    assert_eq!(result["globalFreshnessCertified"], false);
+    // View is the index, not the OS: lib.js cannot bypass publication/hash checks.
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE path='lib.js'"
+        ),
+        0
+    );
+}
+
+#[test]
+fn semantic_import_bindings_resolve_only_the_unshadowed_call_site() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("lib.ts"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.ts");
+    fs::write(root.path().join("app.ts"), "import {run as execute} from './lib';\nfunction local(execute: () => void) { execute(); }\nexport function caller() { execute(); register(execute); }\n").unwrap();
+    sync(root.path(), "app.ts");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts' AND s.name='caller'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts' AND s.name='local'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM unresolved_refs r JOIN nodes s ON s.id=r.from_node_id WHERE r.reference_name='execute' AND r.reference_kind='calls' AND s.name='local'"
+        ),
+        1
+    );
+    // Updating the target rechecks semantic sites, not just the imported name.
+    fs::write(root.path().join("lib.ts"), "\nexport function run() {}").unwrap();
+    sync(root.path(), "lib.ts");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.ts'"
+        ),
+        1
+    );
+}
+
+#[test]
+fn semantic_block_shadowing_and_utf16_positions_are_used_in_publication() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("lib.js"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.js");
+    fs::write(root.path().join("app.js"), "\u{feff}import {run as execute} from './lib.js';\r\nexport function caller() { const text = '😀'; { const execute = () => {}; execute(); } execute(); }\r\n").unwrap();
+    sync(root.path(), "app.js");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.js'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM unresolved_refs WHERE reference_name='execute' AND reference_kind='calls'"
+        ),
+        1
+    );
+    // Replace with parameter shadowing: the former imported edge must disappear.
+    fs::write(
+        root.path().join("app.js"),
+        "import {run as execute} from './lib.js'; export function caller(execute) { execute(); }",
+    )
+    .unwrap();
+    sync(root.path(), "app.js");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND t.file_path='lib.js'"
+        ),
+        0
+    );
+}
+
+#[test]
+fn semantic_conflicting_binding_rolls_back_previous_publication() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("lib.ts"), "export function run() {}").unwrap();
+    sync(root.path(), "lib.ts");
+    fs::write(
+        root.path().join("app.ts"),
+        "import {run as execute} from './lib'; export function caller() { execute(); }",
+    )
+    .unwrap();
+    sync(root.path(), "app.ts");
+    let before: String = db(root.path())
+        .query_row(
+            "SELECT content_hash FROM files WHERE path='app.ts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    fs::write(root.path().join("app.ts"), "import {run as execute} from './lib'; const execute = () => {}; export function caller() { execute(); }").unwrap();
+    assert_eq!(
+        sync_file(root.path(), "app.ts", &OperationContext::default())
+            .unwrap_err()
+            .0,
+        "SYNC_SEMANTIC"
+    );
+    let after: String = db(root.path())
+        .query_row(
+            "SELECT content_hash FROM files WHERE path='app.ts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(before, after);
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+        1
+    );
+}
+
+#[test]
 fn named_import_alias_uses_module_not_global_homonyms() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
@@ -135,7 +392,7 @@ fn late_import_target_retries_alias_and_deletion_recovers_original_name() {
 }
 
 #[test]
-fn ambiguous_modules_and_nonexported_targets_remain_pending() {
+fn provider_module_priority_is_respected_and_nonexported_targets_remain_pending() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
     fs::create_dir(root.path().join("lib")).unwrap();
@@ -151,7 +408,7 @@ fn ambiguous_modules_and_nonexported_targets_remain_pending() {
     sync(root.path(), "app.ts");
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
-        0
+        1
     );
     fs::write(root.path().join("lib.ts"), "function run() {}").unwrap();
     sync(root.path(), "lib.ts");
@@ -200,7 +457,7 @@ fn prior_import_edges_are_rechecked_when_exports_or_module_candidates_change() {
     sync(root.path(), "lib/index.ts");
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
-        0
+        1
     );
     fs::remove_file(root.path().join("lib/index.ts")).unwrap();
     sync(root.path(), "lib/index.ts");
@@ -229,7 +486,7 @@ fn cli_resolves_relative_import_alias_with_no_node_on_path() {
     sync(root.path(), "lib.ts");
     fs::write(
         root.path().join("src/app.ts"),
-        "import {run as execute} from '../lib'; export function caller() { execute(); }",
+        "import {run as execute} from '../lib.js'; function local(execute: () => void) { execute(); } export function caller() { execute(); }",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_agent-harness"))

@@ -66,7 +66,56 @@ microservicios para escalar las capacidades de este ejecutable.
 - Preservación de DACL en Windows y artefactos de recuperación ante publicación incierta.
 - Un resultado incierto no se presenta como archivo intacto ni edición confirmada.
 
-### Evaluación reciente: Oxc para scopes y rutas JS/TS
+### Último bloque de runtime: Oxc resolver sobre snapshot del índice
+
+`index_paths.rs` integra oxc_resolver 11.0.0 en el escritor nativo Windows. Usa
+un filesystem de rutas SQLite inmutable y cerrado, sin FileSystemOs, contenidos,
+enlaces, lectura de tsconfig/package.json ni paquetes externos. Cuotas de filas,
+memoria estimada, directorios, consultas memoizadas y probes, con contexto de
+cancelación/deadline; los fallos de presupuesto provocan rollback, no resultados
+silenciosamente parciales.
+
+Perfiles de prioridades relativos contrastados con CodeGraph v1.6.2 y remapeos de
+extensiones emitidas solo después de buscar el archivo original. Imports entre
+las variantes JS/TS/JSX/TSX usan el lenguaje real del destino para comprobar
+exports. Aristas indican el motor de rutas. Nuevos archivos indexados de mayor
+prioridad cambian el destino; eliminarlos recupera el fallback bajo la misma
+transacción y revalidación de fuentes existentes.
+
+No se certifica cobertura global: no consulta archivos físicos sin indexar ni
+activa aliases de configuración, default/namespace/type-only o reexports.
+Variantes de index de directorio de Oxc sin equivalencia comprobada quedan
+pendientes. No se escribió sobre el índice original ni se cambió el MCP activo.
+
+Validación: suite completa del workspace aprobada con ocho opt-in omitidas.
+Publicación 31/31 ordinarias; cuatro unitarias nuevas de rutas aprobadas y una
+comparación opt-in con CodeGraph aprobada en once escenarios. Clippy estricto
+sigue señalando cuatro warnings SQL/XLSX ajenos al bloque.
+
+### Bloque anterior de runtime: bindings Oxc para llamadas importadas JS/TS
+
+`index_semantic.rs` integra Oxc semantic 0.90.0 en el escritor nativo Windows.
+Verifica llamadas directas por binding y posición UTF-16 compatible con CodeGraph,
+conservando IDs y extracción del proveedor. Parámetros/bloques homónimos ya no
+invalidan otras llamadas legítimas del mismo archivo; los usos como callbacks o
+miembros no se promueven a llamadas. Las aristas indican el motor de bindings.
+
+Cache acotada por transacción, chequeos cooperativos de cancelación/deadline,
+hashes de fuentes y revalidación antes del commit. Redeclaraciones conflictivas
+se rechazan con `SYNC_SEMANTIC`, conservando el rollback. No hay acceso al índice
+original ni cambio de la conexión MCP activa. Oxc resolver/tsconfig/packages
+siguen fuera del runtime; el alcance de imports sigue parcial.
+
+La familia 0.75 del experimento era incompatible con dependencias XLSX; 0.90.0
+declara Rust mínimo 1.87 y no eleva el mínimo declarado del harness. El lockfile
+ajusta bumpalo 3.19.0 y zopfli 0.8.3. No se certifica todavía el build en Rust 1.88.
+
+Validación: suite completa del workspace aprobada, siete opt-in omitidas.
+Cuatro pruebas unitarias y tres de publicación nuevas aprobadas; publicación
+28/28 ordinarias, incluyendo CLI sin Node/Git y regresiones de rollback.
+Clippy estricto solo señala cuatro warnings SQL/XLSX concurrentes, no alterados.
+
+### Evaluación anterior: Oxc para scopes y rutas JS/TS
 
 Experimento aislado en `experiments/oxc-evaluation`, sin modificar el runtime ni
 el índice original. Catorce pruebas ordinarias y una opt-in contra el proveedor
@@ -80,7 +129,7 @@ de declaraciones TS que necesita validación adicional. No certifica paridad ni
 habilita estas capacidades en el harness. Resultados, versiones, límites y
 reproducción en [el informe](experiments/oxc-evaluation/README.md).
 
-### Último bloque de runtime: imports relativos con nombre y alias JS/TS
+### Bloque anterior de runtime: imports relativos con nombre y alias JS/TS
 
 El resolver incorpora un primer subconjunto AST de imports relativos con nombre
 y alias. Restringe el destino al módulo indexado único, al mismo lenguaje y a

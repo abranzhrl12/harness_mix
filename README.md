@@ -101,7 +101,11 @@ no ambiguos, conserva llamadas entrantes al cambiar IDs por desplazamientos y
 recupera las referencias originales de destinos eliminados/renombrados. Reintenta
 referencias que encuentran una definición nueva. Incluye un primer subconjunto
 AST de imports relativos con nombre/alias JS/TS hacia funciones exportadas
-explícitamente del mismo lenguaje. Revalida fuentes y reevalúa estas aristas
+explícitamente dentro de la familia JS/TS/JSX/TSX. Oxc semantic verifica cada llamada por binding
+y posición, distinguiendo imports de parámetros/variables locales homónimos.
+Oxc resolver usa una vista cerrada de rutas del índice, con prioridades por
+lenguaje y fallback de extensiones emitidas; no lee configuraciones ni paquetes.
+Conserva extracción e IDs de CodeGraph, sin Node. Revalida fuentes y reevalúa estas aristas
 cuando cambian exports o alternativas de módulo. Sobrecargas ambiguas, receptores,
 default/namespace/type-only, reexports y resolución avanzada quedan pendientes;
 el alcance preciso está en [MIGRACION-CODEGRAPH.md](MIGRACION-CODEGRAPH.md). No hay paridad completa

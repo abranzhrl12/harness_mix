@@ -1,12 +1,15 @@
 //! Conservative JS/TS named-import scope. Uses indexed data, never probes paths.
 use super::{Failure, INDEX, LIMIT, OperationContext, Project, hash, read_source, sql};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct Sources {
     files: BTreeMap<String, Vec<u8>>,
     reserved: usize,
+    semantic: BTreeMap<String, super::super::index_semantic::Calls>,
+    semantic_reserved: usize,
+    routes: Option<super::paths::Routes>,
 }
 impl Sources {
     fn observe(
@@ -38,23 +41,35 @@ impl Sources {
         }
         Ok(true)
     }
+    #[allow(clippy::too_many_arguments)] // Existing reference location + bounded source observer.
     pub(super) fn permits(
         &mut self,
         db: &Connection,
         project: &Project,
         context: &OperationContext,
         path: &str,
-        language: &str,
         name: &str,
+        line: i64,
+        col: i64,
     ) -> Result<bool, Failure> {
         if !self.observe(db, project, context, path)? {
             return Ok(false);
         }
-        let bytes = self.files.get(path).ok_or(INDEX)?;
-        let source = std::str::from_utf8(bytes).map_err(|_| INDEX)?;
-        Ok(codegraph_native::unshadowed_import_calls(
-            source, language, name,
-        ))
+        if !self.semantic.contains_key(path) {
+            let source =
+                std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
+            let calls = super::super::index_semantic::analyze(source, path, context)?;
+            self.semantic_reserved += calls.reserved;
+            if self.semantic_reserved > 16 * 1024 * 1024 {
+                return Err(LIMIT);
+            }
+            self.semantic.insert(path.into(), calls);
+        }
+        Ok(self
+            .semantic
+            .get(path)
+            .ok_or(INDEX)?
+            .contains(name, line, col))
     }
     pub(super) fn exported(
         &mut self,
@@ -144,7 +159,14 @@ pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
         .collect()
 }
 
-pub(super) fn scope(db: &Connection, path: &str, name: &str) -> Result<Scope, Failure> {
+pub(super) fn scope(
+    db: &Connection,
+    path: &str,
+    name: &str,
+    language: &str,
+    context: &OperationContext,
+    sources: &mut Sources,
+) -> Result<Scope, Failure> {
     let mut statement = sql(db.prepare("SELECT signature FROM nodes WHERE file_path=?1 AND kind='import' ORDER BY start_line,id LIMIT 257"))?;
     let rows = sql(statement.query_map([path], |r| r.get::<_, Option<String>>(0)))?;
     let mut count = 0;
@@ -181,40 +203,19 @@ pub(super) fn scope(db: &Connection, path: &str, name: &str) -> Result<Scope, Fa
     let Some(target) = relative_module(path, &module) else {
         return Ok(Scope::Pending);
     };
-    let mut candidates = Vec::new();
-    if super::index_extract::language(&target).is_some() {
-        candidates.push(target);
-    } else {
-        // Unlike provider priority rules, multiple indexed alternatives defer.
-        for extension in [
-            ".ts",
-            ".tsx",
-            ".js",
-            ".jsx",
-            ".mts",
-            ".cts",
-            ".mjs",
-            ".cjs",
-            "/index.ts",
-            "/index.tsx",
-            "/index.js",
-            "/index.jsx",
-        ] {
-            candidates.push(format!("{target}{extension}"));
-        }
+    if sources.routes.is_none() {
+        sources.routes = Some(super::paths::Routes::load(db, context)?);
     }
-    let mut found = Vec::new();
-    for candidate in candidates {
-        let exists = sql(db.query_row("SELECT path FROM files WHERE path=?1 COLLATE BINARY AND language IN ('typescript','tsx','javascript','jsx')", params![candidate], |r| r.get::<_, String>(0)).optional())?;
-        if let Some(path) = exists {
-            found.push(path);
-        }
-    }
-    if found.len() != 1 {
+    let Some(resolved) = sources
+        .routes
+        .as_mut()
+        .ok_or(INDEX)?
+        .resolve(path, &target, language, context)?
+    else {
         return Ok(Scope::Pending);
-    }
+    };
     Ok(Scope::Binding {
-        path: found.pop().ok_or(INDEX)?,
+        path: resolved,
         name: original,
     })
 }

@@ -14,6 +14,8 @@ pub mod index_extract;
 mod index_freshness;
 mod index_inventory;
 #[cfg(windows)]
+mod index_semantic;
+#[cfg(windows)]
 pub mod index_store;
 #[cfg(not(windows))]
 pub mod index_store {

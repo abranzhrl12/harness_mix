@@ -27,6 +27,8 @@ const MAX_ROWS: usize = 20_000;
 
 #[path = "index_imports.rs"]
 mod imports;
+#[path = "index_paths.rs"]
+mod paths;
 
 /// Apply a bounded native subset of the current plan. Transactions are per
 /// file, NOT per workspace. Once any file commits, subsequent errors/cancellation
@@ -773,7 +775,7 @@ fn resolve_exact(
         "typescript" | "tsx" | "javascript" | "jsx"
     );
     let scope = if js {
-        imports::scope(db, &path, &name)?
+        imports::scope(db, &path, &name, &language, context, sources)?
     } else {
         imports::Scope::None
     };
@@ -785,23 +787,26 @@ fn resolve_exact(
         _ => (name.as_str(), None),
     };
     if imported_path.is_some()
-        && (kind != "calls" || !sources.permits(db, project, context, &path, &language, &name)?)
+        && (kind != "calls" || !sources.permits(db, project, context, &path, &name, line, col)?)
     {
         return Ok(false);
     }
     // Receivers/chains are never stripped. Named imports override global names;
     // unsupported import forms defer instead of falling back to a homonym.
-    let mut statement=sql(db.prepare("SELECT id,kind,file_path,qualified_name,visibility,is_exported FROM nodes WHERE (name=?1 COLLATE BINARY OR qualified_name=?1 COLLATE BINARY) AND language=?2 ORDER BY file_path,start_line,id LIMIT 65"))?;
-    let rows = sql(statement.query_map(params![lookup, language], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-            r.get::<_, Option<String>>(4)?,
-            r.get::<_, Option<bool>>(5)?.unwrap_or(false),
-        ))
-    }))?;
+    let mut statement=sql(db.prepare("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE (name=?1 COLLATE BINARY OR qualified_name=?1 COLLATE BINARY) AND ((?3 IS NULL AND language=?2) OR (?3 IS NOT NULL AND file_path=?3 COLLATE BINARY AND language IN ('typescript','tsx','javascript','jsx'))) ORDER BY file_path,start_line,id LIMIT 65"))?;
+    let rows = sql(
+        statement.query_map(params![lookup, language, imported_path], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<bool>>(5)?.unwrap_or(false),
+                r.get::<_, String>(6)?,
+            ))
+        }),
+    )?;
     let mut candidates = sql(rows.collect::<rusqlite::Result<Vec<_>>>())?;
     if candidates.len() > 64 {
         return Ok(false);
@@ -846,7 +851,7 @@ fn resolve_exact(
         return Ok(false);
     }
     if let Some(target) = imported_path
-        && !sources.exported(db, project, context, target, &language, lookup)?
+        && !sources.exported(db, project, context, target, &candidates[0].6, lookup)?
     {
         return Ok(false);
     }
@@ -855,7 +860,12 @@ fn resolve_exact(
     } else {
         &kind
     };
-    let metadata=json!({"refName":name,"refKind":kind,"resolvedBy":if imported_path.is_some(){"native-relative-named-import-subset"}else{"native-exact-name-subset"},"confidence":0.9}).to_string();
+    let mut metadata = json!({"refName":name,"refKind":kind,"resolvedBy":if imported_path.is_some(){"native-relative-named-import-subset"}else{"native-exact-name-subset"},"confidence":0.9});
+    if imported_path.is_some() {
+        metadata["bindingEngine"] = json!("oxc-semantic-0.90.0");
+        metadata["moduleEngine"] = json!("oxc-resolver-11.0.0-index-snapshot");
+    }
+    let metadata = metadata.to_string();
     sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')",params![from,candidates[0].0,edge_kind,line,col,metadata]))?;
     sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
     Ok(true)

@@ -14,12 +14,22 @@ automáticamente al MCP ni modifica el runtime Node activo. La publicación requ
 pines Windows para DB/sidecars y no sustituye el resolver completo del proveedor.
 
 `index_imports`, interno al escritor, limita imports relativos con nombre/alias
-JS/TS al módulo indexado único y a funciones explícitamente exportadas del mismo
-lenguaje. Helpers AST propios del entry point nativo evitan capturar nombres
-locales; los walkers upstream siguen intactos. Fuentes contribuyentes se comparan
+JS/TS al módulo elegido dentro del índice y a funciones explícitamente exportadas
+de las variantes JS/TS/JSX/TSX. Helpers AST propios del entry point nativo evitan capturar nombres
+locales en el prototipo; el escritor actual usa `index_semantic` con Oxc 0.90.0
+para comprobar bindings por referencia y posición. Cache por transacción de
+llamadas directas, conversión UTF-8 a UTF-16 y rechazo de conflictos semánticos;
+los walkers upstream siguen intactos. Fuentes contribuyentes se comparan
 con sus hashes y se revalidan antes del commit; relaciones nativas de imports se
-reintentan al cambiar módulos/exports. No implementa todavía scopes completos,
-reexports, paquetes ni configuración de aliases.
+reintentan al cambiar módulos/exports. No implementa todavía semántica completa
+entre archivos, reexports, paquetes ni configuración de aliases.
+
+`index_paths`, interno al escritor, usa oxc_resolver 11.0.0 sobre un filesystem
+inmutable de rutas del índice: sin contenidos, enlaces, FileSystemOs ni lecturas
+de configuración. Aplica perfiles por lenguaje y remapeos de extensiones emitidas
+después del archivo original. Cache, cuotas de rutas/consultas/probes y contexto
+de operación por transacción; el harness conserva las comprobaciones de fuentes
+y su revalidación antes del commit. No certifica candidatos nuevos sin indexar.
 
 Monolito modular, un ejecutable y fronteras entre crates. El objetivo es añadir
 herramientas y motores sin acoplar sus reglas al protocolo MCP o a una plataforma.

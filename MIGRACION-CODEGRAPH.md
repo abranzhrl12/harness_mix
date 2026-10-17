@@ -83,22 +83,24 @@ gramáticas ya incluidas; no incorpora un parser de imports basado en regex.
 
 Alcance inicial conservador:
 
-- Imports con nombre, rutas relativas internas y candidatos únicos en el índice.
-- Mismo lenguaje entre origen y destino; aún no une TSX con TS, por ejemplo.
+- Imports con nombre y rutas relativas internas sobre archivos del índice.
+- Destinos entre Rust y C# no se mezclan con JS/TS; dentro de JS/TS/JSX/TSX ya
+  se admiten imports entre esas variantes, por ejemplo TSX hacia TS.
 - Funciones declaradas y exportadas explícitamente con nombre, llamadas directas.
 - Comprueba el contenido del importador y destino contra sus hashes indexados,
   y lo vuelve a comprobar antes del commit cuando intervino en la resolución.
-- Si el alias aparece como parámetro, declaración u otro uso fuera de una llamada
-  directa, se difiere todo ese binding. Es una restricción deliberada, no un
-  análisis léxico completo de scopes.
+- `oxc_semantic` 0.90.0 comprueba cada llamada directa por binding y posición:
+  un parámetro o variable local homónima queda pendiente sin bloquear llamadas
+  válidas al import en otros scopes. Callbacks y accesos a miembros no se
+  convierten automáticamente en llamadas.
 - Reintenta alias pendientes cuando aparece un destino y reevalúa las aristas
   nativas de imports al publicar cambios JS/TS. Retira enlaces que dejan de ser
   válidos por cambios de exportación o nuevas alternativas de módulo.
 
 Siguen pendientes paquetes externos, default/namespace/type-only, reexports,
-aliases de tsconfig, mapeo de extensiones emitidas (`.js` a `.ts`), scopes
-completos y compatibilidad de familias de lenguajes. Varias alternativas indexadas
-se consideran ambiguas; todavía no se reproduce la prioridad de rutas del proveedor.
+aliases de tsconfig y semántica completa entre archivos. El escritor ahora aplica
+prioridades explícitas del proveedor a rutas relativas con Oxc y soporta el
+fallback de extensiones emitidas cuando no existe el archivo original.
 Los imports de otras formas bloquean el fallback global de ese archivo. El
 descubrimiento sigue siendo parcial: no prueba que no existan alternativas sin indexar.
 
@@ -112,21 +114,92 @@ contraste con CodeGraph y Clippy estricto del experimento. El resolver funciona
 sobre archivos sintéticos en memoria, sin acceso al proyecto original.
 
 `oxc_semantic` permite conservar referencias válidas a imports aunque existan
-homónimos locales en otros scopes; mejora el guard global conservador actual.
+homónimos locales en otros scopes; su integración descrita abajo sustituye el
+guard global conservador para las llamadas directas importadas.
 `oxc_resolver` resolvió relativos, índices, extensiones emitidas, tsconfig paths
 y exports condicionales de paquetes. Recomendación: reutilizar ambas piezas
 gradualmente, sin incorporar un bundler completo como Rolldown.
 
 No es un reemplazo directo: se detectó y documentó una diferencia de prioridad
 `.js`/`.ts` frente al proveedor y un caso de conflicto de bindings que requiere
-revisar redeclaraciones. Faltan adaptación de posiciones/IDs, políticas de scope,
-cancelación, snapshots reales y pruebas diferenciales antes de activarlo. No se
-han habilitado tsconfig/packages ni Oxc en el runtime activo por esta evaluación.
+revisar redeclaraciones. La evaluación inicial no habilitó capacidades del
+runtime; la integración posterior de semantic se describe a continuación.
+La integración posterior de `oxc_resolver` sobre un snapshot del índice está
+descrita abajo; tsconfig/packages permanecen fuera del alcance activo.
+
+### Integración realizada: Oxc semantic en el escritor nativo
+
+`index_semantic.rs` ya se usa desde el resolver de `--sync-file`/`--sync` en
+Windows. Oxc aporta análisis léxico de JS/TS; CodeGraph conserva la extracción,
+los IDs, las referencias originales y el formato SQLite. No añade Node ni
+modifica automáticamente la conexión MCP activa.
+
+Se analiza una vez cada importador observado por transacción y se retienen solo
+llamadas directas a imports con nombre. Los offsets UTF-8 se convierten en una
+pasada a líneas LF 1-based y columnas UTF-16 0-based, compatibles con CodeGraph.
+La pertenencia se comprueba por nombre, línea y columna; no basta una coincidencia
+de nombre en el archivo. Las aristas de imports registran el motor de bindings.
+
+Se conservan los hashes de fuentes y su revalidación antes del commit, los
+límites de 1 MiB por fuente/64 archivos observados y el rollback existente.
+Se limita el conjunto semántico a 20.000 llamadas por fuente y 16 MiB estimados
+de datos retenidos por transacción; esto no es un límite duro de RSS del parser.
+Cancelación/deadline se comprueban alrededor de parser/semantic y en recorridos;
+las llamadas internas de Oxc no se interrumpen a mitad de análisis. Conflictos
+de redeclaraciones o análisis inválido abortan con `SYNC_SEMANTIC` y rollback.
+
+La versión 0.75 del experimento chocaba con `bumpalo` requerido por XLSX. Se fijó
+la familia 0.90.0 (declara Rust mínimo 1.87), sin elevar el mínimo declarado 1.88
+del harness. Cargo ajustó `bumpalo` a 3.19.0 y `zopfli` a 0.8.3 en el lockfile.
+La validación usa el compilador instalado; no se certifica todavía Rust 1.88.
+
+El bloque semántico por sí solo no cambia la política de rutas. Siguen pendientes
+default/namespace/type-only, reexports y callbacks. Los archivos sin cambios conservan el no-op actual:
+la actualización del motor no fuerza una reconstrucción global del índice.
+
+### Integración realizada: Oxc resolver sobre el índice autorizado
+
+`index_paths.rs` integra `oxc_resolver` 11.0.0 en el escritor Windows. Su filesystem
+implementa únicamente una vista inmutable de rutas SQLite dentro de la transacción:
+no utiliza `FileSystemOs`, no lee contenidos, no sigue enlaces y no consulta
+`package.json`, `tsconfig.json`, paquetes externos ni directorios del usuario.
+El destino final sigue requiriendo lectura autorizada, hash coincidente y
+revalidación antes del commit por el harness.
+
+Resuelve extensiones y directorios de imports relativos con perfiles explícitos
+por lenguaje, contrastados con CodeGraph v1.6.2. Primero prueba las extensiones
+del proveedor y el archivo original; solo después aplica remapeos `.js` a
+`.ts`/`.tsx`/`.d.ts`, `.jsx` a `.tsx`, `.mjs` a `.mts` y `.cjs` a `.cts`, incluidos
+sus candidatos de declaraciones. No sustituye estas prioridades por defaults de
+bundler. La resolución permite destinos entre las cuatro variantes JS/TS y usa
+el lenguaje real del destino para validar sus exports.
+
+Una publicación JS/TS reevalúa las relaciones nativas de imports: un archivo de
+mayor prioridad recién indexado puede cambiar el destino de una llamada y al
+eliminarlo se recupera el fallback. Las aristas registran `moduleEngine` junto al
+motor semántico. Las sobrecargas o símbolos ambiguos dentro del módulo siguen
+pendientes; varias rutas ya no se consideran automáticamente ambiguas cuando
+hay una prioridad definida y comprobada.
+
+Límites por transacción: 20.000 filas de inventario, 40.000 directorios sintéticos,
+16 MiB estimados de rutas, 1.024 consultas distintas memoizadas, 4 MiB estimados
+de memo y 100.000 probes de filesystem. Excederlos aborta con `SYNC_LIMIT` y rollback;
+cancelación/deadline se propagan. No son un límite duro de RSS de caches de Oxc.
+
+La vista incluye solo archivos JS/TS no restringidos ya registrados en el índice:
+un archivo físico nuevo no se incorpora hasta su publicación. No prueba ausencia
+de candidatos sin indexar ni certifica cobertura global. Oxc admite más variantes
+de index de directorio que CodeGraph; las no equivalentes se dejan pendientes
+(por ejemplo, si selecciona `index.d.ts` donde el proveedor no lo admite).
+El soporte deliberadamente no activa aliases de tsconfig, exports de paquetes,
+configuraciones heredadas ni referencias fuera del workspace.
 
 ### 1. Resolver de relaciones — prioridad alta
 
 - [ ] Inventariar las reglas del resolver original y definir el alcance de paridad por lenguaje.
 - [x] Primer subconjunto de imports relativos con nombre/alias JS/TS y funciones exportadas.
+- [x] Análisis Oxc por binding/posición para llamadas directas importadas y shadowing local.
+- [x] Oxc resolver sobre snapshot del índice: rutas relativas, prioridades y remapeo de extensiones emitidas.
 - [ ] Completar imports, exportaciones, alias y rutas de módulos hasta el alcance acordado.
 - [ ] Resolver receptores, cadenas de miembros y referencias calificadas complejas.
 - [ ] Cubrir sobrecargas, herencia y reglas de visibilidad más completas.
@@ -170,6 +243,21 @@ primera entrega limitada: requieren fijar el alcance antes de prometer paridad t
 
 ## Evidencia de validación registrada
 
+Integración Oxc resolver 11.0.0: suite completa del workspace aprobada (ocho
+opt-in omitidas); 31 pruebas de publicación ordinarias y cuatro unitarias nuevas
+de rutas aprobadas. La comparación opt-in con CodeGraph aprobó once escenarios
+de prioridad/extensiones. Incluye remapeo JS/TS, imports TSX hacia TS, rebinding
+al añadir/eliminar candidatos, filesystem cerrado, cuotas y cancelación.
+Clippy estricto conserva cuatro warnings SQL/XLSX ajenos a este bloque.
+
+Integración Oxc semantic 0.90.0: suite completa del workspace aprobada con siete
+opt-in omitidas. Cuatro pruebas unitarias nuevas y tres de publicación nuevas
+aprobadas; 28 pruebas de publicación ordinarias pasan. Incluyen bindings mixtos,
+shadowing de bloque/parámetro, callbacks que no se promueven a llamadas, BOM,
+emoji/CRLF y posiciones CodeGraph, conflictos semánticos con rollback y CLI sin
+Node/Git en PATH. Clippy estricto sigue fallando únicamente por cuatro warnings
+de SQL/XLSX fuera de esta migración, no modificados.
+
 Último bloque de imports/alias: suite completa del workspace aprobada; 25 pruebas
 de integración de publicación y cinco unitarias de ese bloque aprobadas. Incluyen
 CLI con PATH vacío, shadowing, homónimos, altas/bajas, cambios de exportación,
@@ -208,8 +296,9 @@ configuración respetada, cobertura y limitaciones explícitas, recuperación
 verificada, suite integrada aprobada y ejecución real sin depender del coordinador
 Node. Hasta entonces, el nombre correcto es **sincronización nativa parcial**.
 
-Siguiente bloque recomendado: integrar bindings de `oxc_semantic` con referencias
-CodeGraph y mantener pruebas diferenciales antes de ampliar reexports o imports.
+Siguiente bloque recomendado: configuración acotada de aliases de tsconfig,
+con lectura autorizada, invalidación/revalidación y pruebas diferenciales; después
+ampliar reexports o formas de imports sin habilitar acceso libre al disco.
 
 ## Mapa de implementación
 
@@ -218,6 +307,8 @@ CodeGraph y mantener pruebas diferenciales antes de ampliar reexports o imports.
 - [index_extract.rs](src/adapters/index_extract.rs): extracción y decodificación del ABI.
 - [index_store.rs](src/adapters/index_store.rs): transacciones, publicación y resolver parcial.
 - [index_imports.rs](src/adapters/index_imports.rs): alcance de imports, observación de fuentes e invalidación.
+- [index_semantic.rs](src/adapters/index_semantic.rs): bindings Oxc y posiciones de llamadas importadas.
+- [index_paths.rs](src/adapters/index_paths.rs): Oxc resolver y filesystem cerrado del índice.
 - [index_store.rs — pruebas](tests/index_store.rs): escritura, protección y fallos.
 - [index_extract.rs — pruebas](tests/index_extract.rs): extracción y comparación opt-in.
 - [ARCHITECTURE.md](ARCHITECTURE.md): organización general del harness.
