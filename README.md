@@ -42,6 +42,10 @@ agent-harness --reindex
 
 Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `--root <proyecto>` antes de la opción. Estos comandos escriben en `.codegraph/`; `--init-index` exige que esa carpeta no exista. No hace falta un índice para leer archivos o buscar texto.
 
+## Tareas en segundo plano
+
+Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas sin bloquear la conversación. Incluye dos ejecuciones simultáneas, avisos MCP, consulta de resultados y cancelación, sin plazo de ejecución predeterminado. [Uso y límites](docs/JOBS.md).
+
 ## Límites y desarrollo
 
 Versión experimental `0.7.1-rc.1`. Puede trabajar con carpetas de distintos proyectos, pero el soporte de símbolos, grafo y verificadores depende del lenguaje; no ofrece paridad completa con CodeGraph Node. Los verificadores requieren las herramientas del lenguaje instaladas.

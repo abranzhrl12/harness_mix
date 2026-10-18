@@ -12,6 +12,7 @@ pub mod results;
 pub mod tool_contract;
 pub mod sql;
 pub mod svg;
+pub mod tasks;
 pub mod workflow;
 pub mod xlsx;
 

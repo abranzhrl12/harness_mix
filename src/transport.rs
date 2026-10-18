@@ -16,6 +16,10 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use std::path::Path;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 fn restrict_batch_schema(
     value: &mut serde_json::Value,
@@ -48,6 +52,9 @@ fn restrict_batch_schema(
 #[derive(Clone)]
 struct McpHarness {
     application: NativeApplication,
+    tasks: crate::adapters::tasks::TaskManager,
+    task_notifications: Arc<AtomicBool>,
+    task_forwarding: Arc<AtomicBool>,
 }
 
 impl McpHarness {
@@ -258,6 +265,22 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 
 #[tool_router]
 impl McpHarness {
+    #[tool(
+        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status/list/events/cancel no bloquean la conversación. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
+    )]
+    async fn harness_jobs(
+        &self,
+        Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
+    ) -> CallToolResult {
+        let arguments = serde_json::to_value(&args).expect("task arguments");
+        let result = self.tasks.handle(args).await;
+        response(harness_domain::results::Results::default().envelope(
+            "harness_jobs",
+            &arguments,
+            result,
+        ))
+    }
+
     #[tool(
         description = "Registrar/listar/revocar un alcance externo de solo lectura ligado a session durante 1 hora. grant requiere root absoluto y userAuthorized=true, solo si el usuario autorizó esa ruta para la tarea. No inferir autorización de archivos. No permite escritura, ejecución ni carpetas vecinas."
     )]
@@ -567,8 +590,60 @@ impl McpHarness {
 
 #[tool_handler(router = self.profile_router())]
 impl ServerHandler for McpHarness {
+    #[allow(deprecated)]
+    async fn set_level(
+        &self,
+        request: rmcp::model::SetLevelRequestParams,
+        _: RequestContext<RoleServer>,
+    ) -> Result<(), rmcp::ErrorData> {
+        self.task_notifications.store(
+            matches!(
+                request.level,
+                rmcp::model::LoggingLevel::Debug | rmcp::model::LoggingLevel::Info
+            ),
+            Ordering::Relaxed,
+        );
+        Ok(())
+    }
+
+    #[allow(deprecated)]
+    async fn on_initialized(&self, context: rmcp::service::NotificationContext<RoleServer>) {
+        if self.task_forwarding.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let mut events = self.tasks.subscribe();
+        let enabled = self.task_notifications.clone();
+        tokio::spawn(async move {
+            loop {
+                let event = match events.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        serde_json::json!({"kind":"events_lagged","skipped":skipped,"recovery":"harness_jobs action=events"})
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                if enabled.load(Ordering::Relaxed)
+                    && context
+                        .peer
+                        .notify_logging_message(
+                            rmcp::model::LoggingMessageNotificationParam::new(
+                                rmcp::model::LoggingLevel::Info,
+                                event,
+                            )
+                            .with_logger("harness.tasks"),
+                        )
+                        .await
+                        .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+
+    #[allow(deprecated)]
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_logging().build())
             .with_instructions(format!("Rust harness; fixed tool profile: {}. Start with harness_bootstrap, reuse data.session, then harness_explore for relationships. Only advertised tools/operations are allowed; a profile is not permission to edit, run code or reindex without user authorization.", self.application.tool_profile().name()))
     }
 }
@@ -587,16 +662,22 @@ pub async fn serve_with_logging(
     };
     let profile = harness_domain::tool_contract::ToolProfile::parse(&profile_name)
         .map_err(|(_, message)| message)?;
+    let tasks = crate::adapters::tasks::TaskManager::new(root)?;
     let service = McpHarness {
         application: adapters::application_with_logging(root, persist_logs)?
             .with_tool_profile(profile),
+        tasks: tasks.clone(),
+        task_notifications: Arc::new(AtomicBool::new(true)),
+        task_forwarding: Arc::new(AtomicBool::new(false)),
     }
     .serve((
         input::BoundedLines::new(tokio::io::stdin(), input::MAX_MESSAGE_BYTES),
         tokio::io::stdout(),
     ))
     .await?;
-    service.waiting().await?;
+    let result = service.waiting().await;
+    tasks.shutdown();
+    result?;
     Ok(())
 }
 

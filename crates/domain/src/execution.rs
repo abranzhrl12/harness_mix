@@ -20,7 +20,7 @@ pub fn valid_request_id(value: &str) -> bool {
 #[derive(Clone)]
 pub struct OperationContext {
     cancelled: Arc<AtomicBool>,
-    deadline: Instant,
+    deadline: Option<Instant>,
 }
 impl Default for OperationContext {
     fn default() -> Self {
@@ -31,7 +31,15 @@ impl OperationContext {
     pub fn with_timeout(timeout: Duration) -> Self {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
-            deadline: Instant::now() + timeout,
+            deadline: Some(Instant::now() + timeout),
+        }
+    }
+    /// Background work lives independently of an individual MCP request.
+    /// Cancellation remains available even when no execution deadline is set.
+    pub fn without_deadline() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline: None,
         }
     }
     pub fn cancel(&self) {
@@ -41,7 +49,10 @@ impl OperationContext {
         if self.cancelled.load(Ordering::Acquire) {
             return Err(("CANCELLED", "operación cancelada"));
         }
-        if Instant::now() >= self.deadline {
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             return Err(("TIMEOUT", "operación superó el plazo"));
         }
         Ok(())

@@ -20,6 +20,7 @@ pub struct ProcessSpec {
     arguments: Vec<String>,
     timeout: Duration,
     output_limit: usize,
+    background_timeout: Option<Option<Duration>>,
 }
 
 impl ProcessSpec {
@@ -52,7 +53,25 @@ impl ProcessSpec {
             arguments,
             timeout,
             output_limit,
+            background_timeout: None,
         })
+    }
+
+    /// Explicit opt-in for managed background processes. Synchronous callers
+    /// retain the existing 30-second constructor budget.
+    pub fn with_background_timeout(mut self, timeout: Option<Duration>) -> Result<Self, Failure> {
+        if timeout.is_some_and(|value| value.is_zero() || value > Duration::from_secs(86400)) {
+            return Err((
+                "PROCESS_BUDGET",
+                "Background timeout must be 1 second to 24 hours",
+            ));
+        }
+        self.background_timeout = Some(timeout);
+        Ok(self)
+    }
+
+    pub fn timeout_option(&self) -> Option<Duration> {
+        self.background_timeout.unwrap_or(Some(self.timeout))
     }
 
     pub fn program(&self) -> Program {
@@ -116,5 +135,31 @@ mod tests {
         assert_eq!(valid.arguments()[1], "path with spaces");
         assert_eq!(valid.timeout(), Duration::from_secs(30));
         assert_eq!(valid.output_limit(), 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn background_deadline_is_optional_and_separate_from_sync_budget() {
+        let unlimited = spec(vec![], 30, 1024)
+            .unwrap()
+            .with_background_timeout(None)
+            .unwrap();
+        assert_eq!(unlimited.timeout_option(), None);
+        let bounded = spec(vec![], 30, 1024)
+            .unwrap()
+            .with_background_timeout(Some(Duration::from_secs(3600)))
+            .unwrap();
+        assert_eq!(bounded.timeout_option(), Some(Duration::from_secs(3600)));
+        assert!(
+            spec(vec![], 30, 1024)
+                .unwrap()
+                .with_background_timeout(Some(Duration::ZERO))
+                .is_err()
+        );
+        assert!(
+            spec(vec![], 30, 1024)
+                .unwrap()
+                .with_background_timeout(Some(Duration::from_secs(86401)))
+                .is_err()
+        );
     }
 }

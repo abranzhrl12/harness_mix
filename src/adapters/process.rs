@@ -123,6 +123,19 @@ impl ProcessRunner for NativeProcessRunner {
         spec: &ProcessSpec,
         context: &OperationContext,
     ) -> Result<ProcessOutcome, Failure> {
+        self.run_observed(spec, context, |_, _| {})
+    }
+}
+
+impl NativeProcessRunner {
+    /// Observers must return promptly; process output remains bounded and the
+    /// observer receives only the retained prefix of each output chunk.
+    pub fn run_observed(
+        &self,
+        spec: &ProcessSpec,
+        context: &OperationContext,
+        mut observer: impl FnMut(bool, &[u8]),
+    ) -> Result<ProcessOutcome, Failure> {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
@@ -153,7 +166,7 @@ impl ProcessRunner for NativeProcessRunner {
                 .env("GIT_NO_LAZY_FETCH", "1")
                 .env("LC_ALL", "C");
         }
-        run_command(command, spec, context)
+        run_command_observed(command, spec, context, &mut observer)
     }
 }
 
@@ -215,10 +228,20 @@ fn reader(
         })
 }
 
+#[cfg(test)]
 fn run_command(
+    command: Command,
+    spec: &ProcessSpec,
+    context: &OperationContext,
+) -> Result<ProcessOutcome, Failure> {
+    run_command_observed(command, spec, context, &mut |_, _| {})
+}
+
+fn run_command_observed(
     mut command: Command,
     spec: &ProcessSpec,
     context: &OperationContext,
+    observer: &mut dyn FnMut(bool, &[u8]),
 ) -> Result<ProcessOutcome, Failure> {
     context.check()?;
     command
@@ -227,9 +250,19 @@ fn run_command(
         .stderr(Stdio::piped());
     process_tree::configure(&mut command);
     let started = Instant::now();
-    let child = command
-        .spawn()
-        .map_err(|_| ("PROCESS_SPAWN", "Could not start contained process"))?;
+    let child = command.spawn().map_err(|error| {
+        if matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+        ) {
+            (
+                "PROCESS_SPAWN_TRANSIENT",
+                "Temporary failure before process launch",
+            )
+        } else {
+            ("PROCESS_SPAWN", "Could not start contained process")
+        }
+    })?;
     let mut guard = ChildGuard {
         child,
         tree: None,
@@ -257,6 +290,7 @@ fn run_command(
     let err = reader(stderr, true, sender)
         .map_err(|_| ("PROCESS_PIPE", "Cannot create stderr reader"))?;
     let mut output = Output::new(spec);
+    let mut observed_bytes = 0usize;
     let mut ended = 0;
     let mut reason = StopReason::Exited;
     let mut stopped = false;
@@ -277,7 +311,13 @@ fn run_command(
             reason = match context.check() {
                 Err(("CANCELLED", _)) => StopReason::Cancelled,
                 Err(_) => StopReason::TimedOut,
-                Ok(()) if started.elapsed() >= spec.timeout() => StopReason::TimedOut,
+                Ok(())
+                    if spec
+                        .timeout_option()
+                        .is_some_and(|timeout| started.elapsed() >= timeout) =>
+                {
+                    StopReason::TimedOut
+                }
                 Ok(()) => reason,
             };
             if reason != StopReason::Exited {
@@ -307,6 +347,13 @@ fn run_command(
         }
         match receiver.recv_timeout(Duration::from_millis(5)) {
             Ok(Packet::Bytes(stderr, bytes)) => {
+                let retained = bytes
+                    .len()
+                    .min(spec.output_limit().saturating_sub(observed_bytes));
+                if retained > 0 {
+                    observer(stderr, &bytes[..retained]);
+                    observed_bytes += retained;
+                }
                 if !output.push(stderr, &bytes) && reason == StopReason::Exited {
                     reason = StopReason::OutputLimit;
                     tree.stop()
@@ -529,6 +576,27 @@ mod tests {
         );
         assert_eq!(result.reason, StopReason::TimedOut);
         assert!(result.elapsed < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn background_output_arrives_before_exit_and_remains_cancellable() {
+        let context = OperationContext::without_deadline();
+        let spec = ProcessSpec::new(Program::Cargo, vec![], Duration::from_secs(1), 4096)
+            .unwrap()
+            .with_background_timeout(None)
+            .unwrap();
+        assert_eq!(spec.timeout_option(), None);
+        let mut received_output = false;
+        let result =
+            run_command_observed(fixture_command("tree"), &spec, &context, &mut |_, bytes| {
+                if String::from_utf8_lossy(bytes).contains("DESCENDANT=") {
+                    received_output = true;
+                    context.cancel();
+                }
+            })
+            .unwrap();
+        assert!(received_output);
+        assert_eq!(result.reason, StopReason::Cancelled);
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub mod index_store {
 }
 pub mod index_sync;
 pub mod process;
+pub mod tasks;
 mod process_tree;
 mod project;
 mod rust_symbols;

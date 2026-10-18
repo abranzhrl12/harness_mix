@@ -130,6 +130,12 @@ impl ToolProfile {
         if let Some(tools) = result["features"]["batchTools"].as_array_mut() {
             tools.retain(|name| name.as_str().is_some_and(|name| self.allows(name)));
         }
+        if !self.allows("harness_jobs") {
+            result["features"]
+                .as_object_mut()
+                .expect("features")
+                .remove("backgroundTasks");
+        }
         result
     }
     pub fn routing(self) -> Vec<Value> {
@@ -169,6 +175,29 @@ shared_schema!(crate::contracts::DataQueryArgs, "harness_data_query");
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn background_jobs_are_advertised_only_in_full_profile() {
+        assert!(ToolProfile::Full.allows("harness_jobs"));
+        assert_eq!(
+            ToolProfile::Full.metadata()["features"]["backgroundTasks"]["tool"],
+            "harness_jobs"
+        );
+        for profile in [ToolProfile::Investigate, ToolProfile::Edit] {
+            assert!(!profile.allows("harness_jobs"));
+            assert!(
+                profile.metadata()["features"]
+                    .get("backgroundTasks")
+                    .is_none()
+            );
+            assert!(
+                profile
+                    .routing()
+                    .iter()
+                    .all(|route| route["tool"] != "harness_jobs")
+            );
+        }
+        assert!(!tool_names("node").iter().any(|name| name == "harness_jobs"));
+    }
     #[test]
     fn routing_only_advertises_available_read_workflows() {
         for backend in ["node", "rust"] {
@@ -218,7 +247,7 @@ mod tests {
             text,
             include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n")
         );
-        assert_eq!(tool_names("rust").len(), 29);
+        assert_eq!(tool_names("rust").len(), 30);
         assert_eq!(tool_names("node").len(), 31);
     }
 }

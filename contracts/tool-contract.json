@@ -103,6 +103,13 @@
         "then": "Describe the discovered exact object before a bounded read-only query."
       },
       {
+        "need": "Run verification in background and follow completion without blocking",
+        "tool": "harness_jobs",
+        "backends": ["rust"],
+        "defaults": {"action": "list"},
+        "then": "Start with verify; retain taskId and event sequence. Follow events/status or cancel. Retry only recognized transient failures; completion notifications require client support."
+      },
+      {
         "need": "Recent error or slow request",
         "tool": "harness_logs",
         "backends": [
@@ -177,7 +184,14 @@
       ],
       "exploreQuery": "exact-symbol",
       "searchSyntax": "rust-declaration-selector",
-      "symbolNavigation": ["rust", "javascript", "typescript"]
+      "symbolNavigation": ["rust", "javascript", "typescript"],
+      "backgroundTasks": {
+        "tool": "harness_jobs",
+        "actions": ["start", "status", "list", "events", "cancel"],
+        "executionDeadline": "optional",
+        "maxAttempts": 3,
+        "notifications": "client-dependent"
+      }
     }
   },
   "tools": [
@@ -276,6 +290,10 @@
         "node",
         "rust"
       ]
+    },
+    {
+      "name": "harness_jobs",
+      "backends": ["rust"]
     },
     {
       "name": "harness_logs",

@@ -162,10 +162,7 @@ fn javascript_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, 
             "--test-concurrency=1".into(),
         ]
     } else if is_ts {
-        vec![
-            "--no-warnings".into(),
-            "--check".into(),
-        ]
+        vec!["--no-warnings".into(), "--check".into()]
     } else {
         vec!["--check".into()]
     };
@@ -206,13 +203,19 @@ fn python_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
         .to_str()
         .ok_or(("PATH", "Python scope must be UTF-8"))?;
     let arguments = if matches!(args.action, Some(VerifyAction::Test)) {
-        if !target.is_dir() && (!target.is_file() || target.extension().and_then(|e| e.to_str()) != Some("py")) {
+        if !target.is_dir()
+            && (!target.is_file() || target.extension().and_then(|e| e.to_str()) != Some("py"))
+        {
             return Err((
                 "VERIFY_SCOPE",
                 "Python test requires a directory or .py test file",
             ));
         }
-        let test_dir = if target.is_dir() { &target } else { target.parent().unwrap_or(&target) };
+        let test_dir = if target.is_dir() {
+            &target
+        } else {
+            target.parent().unwrap_or(&target)
+        };
         let has_pytest = test_dir.join("pytest.ini").is_file()
             || test_dir.join("pyproject.toml").is_file()
             || test_dir.join("conftest.py").is_file()
@@ -323,6 +326,43 @@ fn go_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure>
         Duration::from_secs(30),
         2 * 1024 * 1024,
     )
+}
+
+/// Reuse the closed verifier commands and workspace validation for managed jobs.
+/// The per-call budget is deliberately replaced by the job's optional timeout.
+pub(super) fn background_plan(
+    root: &std::path::Path,
+    args: &VerifyArgs,
+    timeout: Option<Duration>,
+) -> Result<ProcessSpec, Failure> {
+    if args.session.is_some() {
+        return Err((
+            "ARGUMENT",
+            "Background verification does not attach session freshness; omit session",
+        ));
+    }
+    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    let spec = plan(&project, args)?;
+    let arguments = spec
+        .arguments()
+        .iter()
+        .map(|argument| {
+            if spec.program() == Program::Go && argument == "-timeout=20s" {
+                // Zero disables Go's own default test deadline. The job manager
+                // handles an explicitly requested execution timeout for the tree.
+                "-timeout=0".to_owned()
+            } else {
+                argument.clone()
+            }
+        })
+        .collect();
+    ProcessSpec::new(
+        spec.program(),
+        arguments,
+        Duration::from_secs(30),
+        spec.output_limit(),
+    )?
+    .with_background_timeout(timeout)
 }
 
 pub(super) fn verify(
