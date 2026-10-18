@@ -293,6 +293,18 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     Ok(result)
                 })
             }
+            Request::Move(args) => {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                    let mut result = self.workspace.move_file(&args, context)?;
+                    self.record_result(
+                        args.session.as_deref(),
+                        name,
+                        &serde_json::to_value(&args).unwrap(),
+                        &mut result,
+                    );
+                    Ok(result)
+                })
+            }
             Request::Read(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.read(&args, context)),

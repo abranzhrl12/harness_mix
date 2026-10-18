@@ -20,6 +20,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_handover | node, rust |
 | harness_jobs | rust |
 | harness_logs | node, rust |
+| harness_move | rust |
 | harness_outline | node, rust |
 | harness_process_status | node, rust |
 | harness_read | node, rust |

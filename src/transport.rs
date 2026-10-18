@@ -442,6 +442,16 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
+        description = "Mueve o renombra un archivo regular dentro del workspace: from y to relativos. Windows y mismo volumen. El destino debe estar libre y su carpeta padre debe existir. No crea carpetas; rechaza rutas protegidas y enlaces. Renombres solo de mayúsculas requieren un nombre intermedio libre. No modifica imports. changed=true confirma el movimiento; revisar index.status y verified antes de reintentar."
+    )]
+    async fn harness_move(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::MoveArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Move(args), context).await
+    }
+    #[tool(
         description = "Verificar Rust, Go, Python, JS y dotnet/csharp con sus herramientas locales. TypeScript/TSX build valida solo sintaxis nativa, sin ejecutar código ni comprobar tipos; test TS/TSX no soportado. .NET exige .csproj/.sln y SDK, sin restore. Rutas validadas, sin comandos libres. Build/test de otros lenguajes ejecuta código del proyecto; no es sandbox. Plazo 30 s/2 MiB."
     )]
     async fn harness_verify(

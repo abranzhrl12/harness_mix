@@ -33,6 +33,10 @@ impl Default for Log {
 fn code(value: Option<&str>) -> Option<&'static str> {
     value.map(|value| match value {
         "PATH" => "PATH",
+        "MOVE_EXISTS" => "MOVE_EXISTS",
+        "MOVE_IO" => "MOVE_IO",
+        "MOVE_POSTCHECK" => "MOVE_POSTCHECK",
+        "MOVE_INDEX" => "MOVE_INDEX",
         "ARGUMENT" => "ARGUMENT",
         "CONFIG_XML" => "CONFIG_XML",
         "CONFIG_JSON" => "CONFIG_JSON",

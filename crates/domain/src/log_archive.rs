@@ -46,6 +46,7 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "harness_search",
                     "harness_verify",
                     "harness_replace",
+                    "harness_move",
                     "harness_outline",
                     "harness_read_symbol",
                     "harness_tasks",
@@ -79,6 +80,10 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
             && !event["code"].as_str().is_some_and(|s| {
                 [
                     "PATH",
+                    "MOVE_EXISTS",
+                    "MOVE_IO",
+                    "MOVE_POSTCHECK",
+                    "MOVE_INDEX",
                     "ARGUMENT",
                     "QUEUE_FULL",
                     "CANCELLED",

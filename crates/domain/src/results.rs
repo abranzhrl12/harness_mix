@@ -210,6 +210,9 @@ impl Results {
             for item in items {
                 let code = item["code"].as_str().unwrap_or("UNKNOWN");
                 let (retryable, action) = match code {
+                    "MOVE_EXISTS" => (false, "choose_unused_destination"),
+                    "MOVE_IO" | "MOVE_POSTCHECK" => (false, "inspect_both_paths_before_retry"),
+                    "MOVE_INDEX" => (false, "move_completed_refresh_index_only"),
                     "TIMEOUT" | "BUSY" => (true, "check_status_then_reduce_scope"),
                     "STALE" | "HASH" | "HASH_MISMATCH" => (false, "reread_source_and_hash"),
                     "SYMBOL"

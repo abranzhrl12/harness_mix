@@ -185,7 +185,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 13), ("edit", 16)] {
+    for (profile, count) in [("investigate", 13), ("edit", 17)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 30);
+    assert_eq!(tools.len(), 31);
     assert!(
         tools
             .iter()
@@ -840,6 +840,43 @@ fn mcp_replace_publishes_and_rejects_a_stale_retry_without_node() {
 }
 
 #[test]
+#[cfg(windows)]
+fn mcp_move_roundtrip_and_non_overwrite_without_node() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("source.txt"), "original\r\n").unwrap();
+    std::fs::write(root.path().join("existing.txt"), "keep").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let moved = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_move", "arguments":{"from":"source.txt","to":"new.txt"}}),
+    );
+    assert_eq!(moved["result"]["isError"], false, "{moved}");
+    assert_eq!(
+        moved["result"]["structuredContent"]["data"]["verified"],
+        true
+    );
+    let denied = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_move", "arguments":{"from":"new.txt","to":"existing.txt"}}),
+    );
+    assert_eq!(
+        denied["result"]["structuredContent"]["diagnostics"][0]["code"],
+        "MOVE_EXISTS"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("new.txt")).unwrap(),
+        "original\r\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("existing.txt")).unwrap(),
+        "keep"
+    );
+}
+
+#[test]
 fn rust_symbol_navigation_works_over_stdio_without_node() {
     let root = tempfile::tempdir().unwrap();
     let source = "// 🙂\r\npub fn hello() -> i32 { 1 }\r\n";
@@ -981,7 +1018,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 30);
+    assert_eq!(names.len(), 31);
     let mut actual = names.clone();
     actual.sort();
     let expected = harness_domain::tool_contract::tool_names("rust");

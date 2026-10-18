@@ -19,6 +19,7 @@ mod index_semantic;
 pub mod index_store;
 #[cfg(windows)]
 pub(crate) mod index_watch;
+mod move_file;
 #[cfg(not(windows))]
 pub mod index_store {
     pub fn sync_workspace(
@@ -459,6 +460,19 @@ impl Workspace for NativeWorkspace {
             )
         })?;
         edit::replace(&self.project, args, context)
+    }
+    fn move_file(
+        &self,
+        args: &harness_domain::contracts::MoveArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let _lock = self.edit_lock.try_lock().map_err(|_| {
+            (
+                "EDIT_BUSY",
+                "Another edit or move is active; retry after it completes",
+            )
+        })?;
+        move_file::move_file(&self.project, args, context)
     }
     fn info(&self) -> Value {
         let root = self.project.root.to_string_lossy();

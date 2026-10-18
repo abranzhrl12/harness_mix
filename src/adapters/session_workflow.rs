@@ -180,6 +180,20 @@ impl Sessions {
                 &time,
                 json!({"path":path,"source":"harness-observed"}),
             );
+        } else if tool == "harness_move" && result["changed"] == true {
+            let from = bounded(&result["from"])?;
+            let to = bounded(&result["to"])?;
+            for check in &mut session.observed_checks {
+                harness_domain::freshness::invalidate(check, "harness_move_applied", &time);
+            }
+            session
+                .observed_edits
+                .retain(|item| item["path"] != from && item["path"] != to);
+            session.tasks.event(
+                "file_moved",
+                &time,
+                json!({"from":from,"to":to,"source":"harness-observed"}),
+            );
         } else if tool == "harness_verify" {
             let language = bounded(&args["language"])?;
             let scope = args["scope"].as_str().unwrap_or(".");

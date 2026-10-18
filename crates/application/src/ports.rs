@@ -169,6 +169,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Editing adapter unavailable"))
     }
+    fn move_file(
+        &self,
+        _args: &harness_domain::contracts::MoveArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Move adapter unavailable"))
+    }
     fn info(&self) -> Value;
     fn rules(&self, context: &OperationContext) -> Result<String, Failure>;
     fn capabilities(&self) -> Value;

@@ -60,7 +60,11 @@ Se mantiene la búsqueda estándar. `memchr` puede evaluarse con benchmarks, per
 la segunda aparición de `aa` en `aaa`. No hacen falta `bstr` ni `cow-utils` para
 esta mejora.
 
-## Siguiente mejora: mover archivos (pendiente)
+## Mover archivos
+
+`harness_move` ya está implementado. El contrato, las garantías y las limitaciones
+de la primera versión se describen en [move-file.md](move-file.md). La evaluación
+de diseño que motivó esa operación se conserva a continuación.
 
 Un futuro `harness_move` debe validar origen y destino dentro del workspace,
 respetar rutas protegidas, controlar enlaces y carreras, definir qué sucede si
@@ -72,4 +76,4 @@ interoperabilidad de rutas; no sustituye las comprobaciones de seguridad.
 La actualización o invalidación del índice debe contemplar el origen, el destino
 y las relaciones afectadas. Si el movimiento se completa y la actualización del
 índice falla, la respuesta debe comunicar ambos hechos. Mover archivos no implica
-reescribir imports automáticamente. Esta operación queda fuera de este cambio.
+reescribir imports automáticamente. El movimiento se implementó en un cambio posterior al multi-chunk.

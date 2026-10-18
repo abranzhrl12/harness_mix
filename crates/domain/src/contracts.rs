@@ -96,6 +96,15 @@ pub struct ReplaceArgs {
     pub session: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct MoveArgs {
+    pub from: String,
+    pub to: String,
+    pub session: Option<String>,
+}
+
 impl Serialize for ReplaceArgs {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
@@ -470,6 +479,7 @@ pub enum Request {
     Search(SearchArgs),
     Verify(VerifyArgs),
     Replace(ReplaceArgs),
+    Move(MoveArgs),
     Outline(OutlineArgs),
     ReadSymbol(ReadSymbolArgs),
     Tasks(TasksArgs),
@@ -493,6 +503,7 @@ impl Request {
         matches!(
             self,
             Self::Replace(_)
+                | Self::Move(_)
                 | Self::ExternalScope(ExternalScopeArgs {
                     action: ExternalScopeAction::Grant | ExternalScopeAction::Revoke,
                     ..
@@ -519,6 +530,7 @@ impl Request {
             Self::Search(_) => "harness_search",
             Self::Verify(_) => "harness_verify",
             Self::Replace(_) => "harness_replace",
+            Self::Move(_) => "harness_move",
             Self::Outline(_) => "harness_outline",
             Self::ReadSymbol(_) => "harness_read_symbol",
             Self::Tasks(_) => "harness_tasks",
@@ -552,6 +564,7 @@ impl Request {
             Self::Search(args) => serde_json::to_value(args),
             Self::Verify(args) => serde_json::to_value(args),
             Self::Replace(args) => serde_json::to_value(args),
+            Self::Move(args) => serde_json::to_value(args),
             Self::Outline(args) => serde_json::to_value(args),
             Self::ReadSymbol(args) => serde_json::to_value(args),
             Self::Tasks(args) => serde_json::to_value(args),

@@ -63,6 +63,7 @@ fn validates_every_child_before_execution_and_refuses_mutations_or_recursion() {
     assert_eq!(result["diagnostics"][0]["code"], "ARGUMENT");
     for tool in [
         "harness_replace",
+        "harness_move",
         "harness_verify",
         "harness_batch",
         "harness_checkpoint",

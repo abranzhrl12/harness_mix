@@ -47,6 +47,12 @@ agent-harness --reindex
 
 Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `--root <proyecto>` antes de la opción. Estos comandos escriben en `.codegraph/`; `--init-index` exige que esa carpeta no exista. No hace falta un índice para leer archivos o buscar texto.
 
+## Mover archivos
+
+`harness_move` recibe `from` y `to` relativos al proyecto. Mueve archivos sin
+sobrescribir destinos ni modificar imports y actualiza el alcance nativo del
+índice existente. [Uso y límites](docs/move-file.md).
+
 ## Tareas en segundo plano
 
 Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas en segundo plano. Incluye dos ejecuciones simultáneas, avisos MCP, historial persistente y cancelación, sin plazo de ejecución predeterminado. El cliente decide si permite seguir conversando y reaccionar a los avisos. [Uso y límites](docs/JOBS.md).
