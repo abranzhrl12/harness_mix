@@ -204,6 +204,101 @@ pub struct ReadSymbolArgs {
     pub session: Option<String>,
 }
 
+/// Local AST navigation; graph relationships remain in harness_explore.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SymbolsArgs {
+    Outline(OutlineArgs),
+    Read(ReadSymbolArgs),
+}
+
+impl SymbolsArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Outline(args) => Request::Outline(args),
+            Self::Read(args) => Request::ReadSymbol(args),
+        }
+    }
+}
+
+#[cfg(test)]
+mod symbols_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn preserves_selectors_views_scope_and_session_in_both_actions() {
+        for value in [
+            json!({"action":"outline","path":"src/lib.rs","query":"target","maxChars":2500,"externalScope":"scope","session":"s"}),
+            json!({"action":"read","path":"src/lib.rs","symbol":"target","container":"mod","symbolId":"0123456789abcdef01234567","view":"full","externalScope":"scope","session":"s"}),
+            json!({"action":"read","path":"src/lib.rs","symbol":"target","view":"signature","session":"s"}),
+        ] {
+            let request = serde_json::from_value::<SymbolsArgs>(value.clone())
+                .unwrap()
+                .into_request();
+            assert_eq!(request.name(), "harness_symbols");
+            assert!(!request.is_mutating());
+            let restored = request.arguments();
+            for (key, expected) in value.as_object().unwrap() {
+                assert_eq!(&restored[key], expected);
+            }
+            assert!(serde_json::from_value::<SymbolsArgs>(restored).is_ok());
+        }
+        let legacy_session: SymbolsArgs = serde_json::from_value(
+            json!({"action":"read","path":"x.rs","symbol":"x","sessionId":"s"}),
+        )
+        .unwrap();
+        assert_eq!(legacy_session.into_request().arguments()["session"], "s");
+    }
+
+    #[test]
+    fn rejects_incomplete_or_cross_action_arguments_and_supports_batch() {
+        for value in [
+            json!({}),
+            json!({"action":"outline"}),
+            json!({"action":"read","path":"x.rs"}),
+            json!({"action":"read","path":"x.rs","name":"x"}),
+            json!({"action":"outline","path":"x.rs","view":"full"}),
+            json!({"action":"read","path":"x.rs","symbol":"x","query":"y"}),
+            json!({"action":"delete","path":"x.rs"}),
+        ] {
+            assert!(serde_json::from_value::<SymbolsArgs>(value).is_err());
+        }
+        for action in ["outline", "read"] {
+            let mut value =
+                json!({"tool":"harness_symbols","arguments":{"action":action,"path":"x.rs"}});
+            if action == "read" {
+                value["arguments"]["symbol"] = json!("x");
+            }
+            let request = serde_json::from_value::<BatchJob>(value)
+                .unwrap()
+                .into_request(Some("s"))
+                .unwrap();
+            assert_eq!(request.arguments()["action"], action);
+            assert_eq!(request.arguments()["session"], "s");
+        }
+    }
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn symbols_schema_requires_path_and_symbol_only_for_read() {
+        let schema = serde_json::to_value(schemars::schema_for!(SymbolsArgs)).unwrap();
+        assert_eq!(schema["type"], "object");
+        let branches = schema["oneOf"].as_array().unwrap();
+        assert_eq!(branches.len(), 2);
+        for branch in branches {
+            let required = branch["required"].as_array().unwrap();
+            assert!(required.contains(&json!("path")));
+            assert_eq!(
+                required.contains(&json!("symbol")),
+                branch["properties"]["action"]["const"] == "read"
+            );
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -369,10 +464,8 @@ pub enum BatchTool {
     Read,
     #[serde(rename = "harness_search")]
     Search,
-    #[serde(rename = "harness_outline")]
-    Outline,
-    #[serde(rename = "harness_read_symbol")]
-    ReadSymbol,
+    #[serde(rename = "harness_symbols")]
+    Symbols,
     #[serde(rename = "harness_detail")]
     Detail,
     #[serde(rename = "harness_git")]
@@ -409,8 +502,9 @@ impl BatchJob {
             BatchTool::Config => serde_json::from_value(value).map(Request::Config),
             BatchTool::Read => serde_json::from_value(value).map(Request::Read),
             BatchTool::Search => serde_json::from_value(value).map(Request::Search),
-            BatchTool::Outline => serde_json::from_value(value).map(Request::Outline),
-            BatchTool::ReadSymbol => serde_json::from_value(value).map(Request::ReadSymbol),
+            BatchTool::Symbols => {
+                serde_json::from_value::<SymbolsArgs>(value).map(SymbolsArgs::into_request)
+            }
             BatchTool::Detail => serde_json::from_value(value).map(Request::Detail),
             BatchTool::Git => serde_json::from_value::<GitArgs>(value).map(GitArgs::into_request),
             BatchTool::Sql => serde_json::from_value::<crate::sql::SqlArgs>(value)
@@ -537,8 +631,7 @@ impl Request {
             Self::Verify(_) => "harness_verify",
             Self::Replace(_) => "harness_replace",
             Self::Move(_) => "harness_move",
-            Self::Outline(_) => "harness_outline",
-            Self::ReadSymbol(_) => "harness_read_symbol",
+            Self::Outline(_) | Self::ReadSymbol(_) => "harness_symbols",
             Self::Tasks(_) => "harness_tasks",
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) | Self::GitDiff(_) => "harness_git",
@@ -568,8 +661,14 @@ impl Request {
             Self::Verify(args) => serde_json::to_value(args),
             Self::Replace(args) => serde_json::to_value(args),
             Self::Move(args) => serde_json::to_value(args),
-            Self::Outline(args) => serde_json::to_value(args),
-            Self::ReadSymbol(args) => serde_json::to_value(args),
+            Self::Outline(args) => serde_json::to_value(args).map(|mut value| {
+                value["action"] = Value::String("outline".into());
+                value
+            }),
+            Self::ReadSymbol(args) => serde_json::to_value(args).map(|mut value| {
+                value["action"] = Value::String("read".into());
+                value
+            }),
             Self::Tasks(args) => serde_json::to_value(args),
             Self::Checkpoint(args) => serde_json::to_value(args),
             Self::GitStatus(args) => serde_json::to_value(args).map(|mut value| {

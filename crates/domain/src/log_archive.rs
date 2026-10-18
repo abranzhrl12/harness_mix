@@ -48,6 +48,7 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "harness_replace",
                     "harness_move",
                     "harness_outline",
+                    "harness_symbols",
                     "harness_read_symbol",
                     "harness_tasks",
                     "harness_checkpoint",

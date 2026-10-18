@@ -48,8 +48,8 @@ fn real_project_command_timings() {
                     json!({"session":session,"query":"main","filePath":"crates/api/src/main.rs","syncIndex":false}),
                 ),
                 (
-                    "harness_read_symbol",
-                    json!({"session":session,"path":"crates/api/src/main.rs","symbol":"main"}),
+                    "harness_symbols",
+                    json!({"action":"read","session":session,"path":"crates/api/src/main.rs","symbol":"main"}),
                 ),
                 (
                     "harness_search",
@@ -185,7 +185,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 12), ("edit", 16)] {
+    for (profile, count) in [("investigate", 11), ("edit", 15)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 26);
+    assert_eq!(tools.len(), 25);
     assert!(
         tools
             .iter()
@@ -970,11 +970,11 @@ fn rust_symbol_navigation_works_over_stdio_without_node() {
     let outline = server.request(
         2,
         "tools/call",
-        json!({"name":"harness_outline","arguments":{"path":"sample.rs"}}),
+        json!({"name":"harness_symbols","arguments":{"action":"outline","path":"sample.rs"}}),
     );
     assert_eq!(outline["result"]["isError"], false, "{outline}");
     let id = outline["result"]["structuredContent"]["data"]["items"][0]["symbolId"].clone();
-    let full = server.request(3,"tools/call",json!({"name":"harness_read_symbol","arguments":{"path":"sample.rs","symbol":"hello","symbolId":id}}));
+    let full = server.request(3,"tools/call",json!({"name":"harness_symbols","arguments":{"action":"read","path":"sample.rs","symbol":"hello","symbolId":id}}));
     assert_eq!(full["result"]["isError"], false, "{full}");
     assert_eq!(
         full["result"]["structuredContent"]["data"]["text"],
@@ -984,7 +984,7 @@ fn rust_symbol_navigation_works_over_stdio_without_node() {
         full["result"]["structuredContent"]["data"]["anchors"]["before"]["text"],
         "// 🙂"
     );
-    let signature = server.request(4,"tools/call",json!({"name":"harness_read_symbol","arguments":{"path":"sample.rs","symbol":"hello","symbolId":id,"view":"signature"}}));
+    let signature = server.request(4,"tools/call",json!({"name":"harness_symbols","arguments":{"action":"read","path":"sample.rs","symbol":"hello","symbolId":id,"view":"signature"}}));
     assert_eq!(
         signature["result"]["structuredContent"]["data"]["editReady"],
         false
@@ -994,12 +994,27 @@ fn rust_symbol_navigation_works_over_stdio_without_node() {
             .get("text")
             .is_none()
     );
+    let batch = server.request(40, "tools/call", json!({"name":"harness_batch","arguments":{"jobs":[
+        {"tool":"harness_symbols","arguments":{"action":"outline","path":"sample.rs"}},
+        {"tool":"harness_symbols","arguments":{"action":"read","path":"sample.rs","symbol":"hello","view":"full"}}
+    ]}}));
+    let children = &batch["result"]["structuredContent"]["data"]["results"];
+    assert_eq!(children[0]["state"], "ok", "{batch}");
+    assert_eq!(children[1]["state"], "ok", "{batch}");
+    assert_eq!(
+        children[1]["data"]["text"],
+        full["result"]["structuredContent"]["data"]["text"]
+    );
+    assert_eq!(
+        children[1]["data"]["hash"],
+        full["result"]["structuredContent"]["data"]["hash"]
+    );
     #[cfg(windows)]
     {
         let data = &full["result"]["structuredContent"]["data"];
         let edited = server.request(5,"tools/call",json!({"name":"harness_replace","arguments":{"path":"sample.rs","hash":data["hash"],"oldText":data["text"],"newText":"pub fn hello() -> i32 { 2 }"}}));
         assert_eq!(edited["result"]["isError"], false, "{edited}");
-        let stale = server.request(6,"tools/call",json!({"name":"harness_read_symbol","arguments":{"path":"sample.rs","symbol":"hello","symbolId":id}}));
+        let stale = server.request(6,"tools/call",json!({"name":"harness_symbols","arguments":{"action":"read","path":"sample.rs","symbol":"hello","symbolId":id}}));
         assert_eq!(
             stale["result"]["structuredContent"]["diagnostics"][0]["code"],
             "STALE_SYMBOL"
@@ -1102,7 +1117,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 26);
+    assert_eq!(names.len(), 25);
     let mut actual = names.clone();
     actual.sort();
     let expected = harness_domain::tool_contract::tool_names("rust");
@@ -1207,7 +1222,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     assert!(names.contains(&"harness_git"));
     assert!(!names.contains(&"harness_git_status") && !names.contains(&"harness_git_diff"));
     assert!(names.contains(&"harness_tasks") && names.contains(&"harness_checkpoint"));
-    assert!(names.contains(&"harness_outline") && names.contains(&"harness_read_symbol"));
+    assert!(names.contains(&"harness_symbols"));
+    assert!(!names.contains(&"harness_outline") && !names.contains(&"harness_read_symbol"));
     assert!(names.contains(&"harness_replace"));
     assert!(names.contains(&"harness_verify"));
     let nonrepo = server.request(

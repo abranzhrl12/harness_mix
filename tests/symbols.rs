@@ -1,6 +1,6 @@
 use agent_harness::adapters::{self, NativeApplication};
 use harness_domain::{
-    contracts::{DetailArgs, OutlineArgs, ReadSymbolArgs, Request, SymbolView},
+    contracts::{DetailArgs, OutlineArgs, ReadSymbolArgs, Request, SymbolView, SymbolsArgs},
     hash,
 };
 use serde_json::Value;
@@ -22,13 +22,16 @@ fn modest_multiline_symbol_returns_exact_body_in_one_call() {
 }
 
 fn outline(app: &NativeApplication, query: Option<&str>, max: usize) -> Value {
-    app.execute(Request::Outline(OutlineArgs {
-        external_scope: None,
-        path: "sample.rs".into(),
-        query: query.map(Into::into),
-        max_chars: Some(max),
-        session: None,
-    }))
+    app.execute(
+        SymbolsArgs::Outline(OutlineArgs {
+            external_scope: None,
+            path: "sample.rs".into(),
+            query: query.map(Into::into),
+            max_chars: Some(max),
+            session: None,
+        })
+        .into_request(),
+    )
 }
 fn read(
     app: &NativeApplication,
@@ -37,15 +40,18 @@ fn read(
     id: Option<&str>,
     signature: bool,
 ) -> Value {
-    app.execute(Request::ReadSymbol(ReadSymbolArgs {
-        external_scope: None,
-        path: "sample.rs".into(),
-        symbol: name.into(),
-        container: container.map(Into::into),
-        symbol_id: id.map(Into::into),
-        view: signature.then_some(SymbolView::Signature),
-        session: None,
-    }))
+    app.execute(
+        SymbolsArgs::Read(ReadSymbolArgs {
+            external_scope: None,
+            path: "sample.rs".into(),
+            symbol: name.into(),
+            container: container.map(Into::into),
+            symbol_id: id.map(Into::into),
+            view: signature.then_some(SymbolView::Signature),
+            session: None,
+        })
+        .into_request(),
+    )
 }
 
 #[test]

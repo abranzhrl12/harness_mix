@@ -1,7 +1,7 @@
 {
   "contractVersion": "2.1.0",
   "toolProfiles": {
-    "investigate": ["harness_bootstrap","harness_explore","harness_outline","harness_read_symbol","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
+    "investigate": ["harness_bootstrap","harness_explore","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
     "edit": ["harness_replace","harness_move","harness_verify","harness_diagnostics"]
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
@@ -70,8 +70,7 @@
         "need": "Structure in a known file",
         "tool": "harness_outline",
         "backends": [
-          "node",
-          "rust"
+          "node"
         ],
         "defaults": {
           "maxChars": 2500
@@ -82,13 +81,26 @@
         "need": "Signature or declaration location",
         "tool": "harness_read_symbol",
         "backends": [
-          "node",
-          "rust"
+          "node"
         ],
         "defaults": {
           "view": "signature"
         },
         "then": "Implementation/editing questions: request full directly, not signature then full. Reuse exact text/hash already received."
+      },
+      {
+        "need": "Structure in a known file",
+        "tool": "harness_symbols",
+        "backends": ["rust"],
+        "defaults": {"action":"outline","maxChars":2500},
+        "then": "query ranks relevant declarations; omissions remain in detail."
+      },
+      {
+        "need": "Signature or declaration location",
+        "tool": "harness_symbols",
+        "backends": ["rust"],
+        "defaults": {"action":"read","view":"signature"},
+        "then": "For implementation or editing, request view=full directly. Preserve source, docs, hash and symbolId."
       },
       {
         "need": "Filter a stored result",
@@ -186,8 +198,7 @@
         "harness_config",
         "harness_read",
         "harness_search",
-        "harness_outline",
-        "harness_read_symbol",
+        "harness_symbols",
         "harness_detail",
         "harness_git",
         "harness_sql",
@@ -343,8 +354,7 @@
     {
       "name": "harness_outline",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
@@ -364,8 +374,7 @@
     {
       "name": "harness_read_symbol",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
@@ -422,6 +431,10 @@
         "node",
         "rust"
       ]
+    },
+    {
+      "name": "harness_symbols",
+      "backends": ["rust"]
     },
     {
       "name": "harness_tasks",

@@ -38,8 +38,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_external_scope` | Parcial | Windows: archivo/carpeta, sesión, TTL, identidad y revocación; sin ejecución |
 | `harness_verify` | Parcial | Rust/Go/Python/JS/.NET SDK; .NET .csproj/.sln sin restore; falta legacy y paridad |
 | `harness_replace` | Parcial | Publicación segura en Windows; Rust/JSON/Markdown/texto |
-| `harness_outline` | Parcial | Declaraciones Rust; sin relaciones semánticas ni expansión de macros |
-| `harness_read_symbol` | Parcial | Rust, ambigüedad y detección de symbolId obsoleto |
+| `harness_symbols` | Parcial | `action=outline|read`: navegación AST Rust/JS/TS, firmas, documentación, cuerpos exactos, ambigüedad y symbolId; relaciones del grafo mediante `harness_explore` |
 | `harness_explore` | Parcial | Hasta cuatro saltos; hashes de archivos contribuyentes y modo estricto; sin sync nativo ni vigencia integral certificada |
 | `harness_tasks` | Implementado | Fases, transiciones y timeline acotado en memoria |
 | `harness_checkpoint` | Parcial | Objetivo, decisiones, pendientes e histórico; refresh e invalidación local acotados |

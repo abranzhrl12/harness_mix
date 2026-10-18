@@ -168,11 +168,14 @@ fn delivered_source_coverage_and_continuation_are_explicit() {
         .unwrap();
     assert_eq!(target["sourceStatus"], "partial");
     let next = &target["nextCall"];
-    assert_eq!(next["tool"], "harness_read_symbol");
+    assert_eq!(next["tool"], "harness_symbols");
+    assert_eq!(next["arguments"]["action"], "read");
     assert!(next["arguments"].get("session").is_none());
-    let body = app.execute(Request::ReadSymbol(
-        serde_json::from_value(next["arguments"].clone()).unwrap(),
-    ));
+    let body = app.execute(
+        serde_json::from_value::<harness_domain::contracts::SymbolsArgs>(next["arguments"].clone())
+            .unwrap()
+            .into_request(),
+    );
     assert_eq!(body["state"], "ok", "{body}");
     assert!(
         body["data"]["text"]
@@ -189,7 +192,7 @@ fn delivered_source_coverage_and_continuation_are_explicit() {
             .unwrap()
             .iter()
             .all(|d| d["sourceStatus"] == "signature_only"
-                && d["nextCall"]["tool"] == "harness_read_symbol")
+                && d["nextCall"]["tool"] == "harness_symbols")
     );
 }
 

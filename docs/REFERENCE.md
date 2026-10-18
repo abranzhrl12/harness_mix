@@ -204,7 +204,7 @@ se escriben en stderr y stdout queda reservado al protocolo.
 
 Herramientas disponibles: `harness_bootstrap`, `harness_read`, `harness_detail`
 y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` para Rust
-y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbol`
+y `harness_replace` en Windows. También `harness_symbols` (`action=outline|read`)
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git` (`action=status|diff`), `harness_doctor`, `harness_batch`
 y `harness_logs`, `harness_config`, `harness_external_scope` y `harness_explore`
@@ -736,17 +736,25 @@ sessionWarning sin ocultar el resultado real de una edición o compilación.
 
 ## Navegación Rust (0.6.0)
 
-`harness_outline` recibe `path`, `query`, `maxChars` (1000–16000; defecto 8000)
+`harness_symbols` con `action="outline"` recibe `path`, `query`, `maxChars` (1000–16000; defecto 8000)
 y `session` opcional. Devuelve firmas plegadas, contenedores, líneas, documentación,
 hash SHA-256 y symbolId. query prioriza coincidencias léxicas; no filtra el resto.
 El presupuesto cuenta la suma de items JSON en unidades UTF-16, no tokens ni el
 envelope completo. Las omisiones se conservan en detalle cuando el almacén lo admite.
 
-`harness_read_symbol` recibe `path`, `symbol`, `container`, `symbolId`, `view` y
-`session`. Rechaza nombres ambiguos; un ID anterior a un cambio de archivo produce
+`harness_symbols` con `action="read"` recibe `path`, `symbol`, `container`, `symbolId`, `view` y
+`session`. Ambas acciones admiten `externalScope`. Rechaza nombres ambiguos; un ID anterior a un cambio de archivo produce
 STALE_SYMBOL. view=signature no devuelve cuerpo/anclas y marca editReady=false.
 full devuelve un fragmento exacto del archivo, sin reimprimir AST; cuerpos de más
-de 100 líneas o 16000 bytes pasan íntegros a harness_detail con text=null.
+de 16000 bytes pasan íntegros a harness_detail con text=null.
+
+Ejemplos: `{"action":"outline","path":"src/main.rs","query":"main"}` y
+`{"action":"read","path":"src/main.rs","symbol":"main","view":"full"}`.
+`action` es obligatorio. El campo para seleccionar por nombre es `symbol`, no
+`name`. Ambas acciones están disponibles en `harness_batch` con
+`tool="harness_symbols"`. El servidor Rust sustituye `harness_outline` y
+`harness_read_symbol`; los lectores internos y sus respuestas se conservan.
+Las llamadas `nextCall` de `harness_explore` usan la misma entrada unificada.
 
 Soporta funciones, structs, enums, unions, traits, impls, módulos, tipos, constantes,
 estáticos y macro_rules con nombre; recorre módulos inline y miembros impl/trait.

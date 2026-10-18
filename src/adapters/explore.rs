@@ -825,7 +825,8 @@ pub(super) fn explore(
             if let Some(session) = &args.session {
                 arguments["session"] = json!(session);
             }
-            definition["nextCall"] = json!({"tool":"harness_read_symbol","arguments":arguments});
+            arguments["action"] = json!("read");
+            definition["nextCall"] = json!({"tool":"harness_symbols","arguments":arguments});
         }
     }
     Ok(

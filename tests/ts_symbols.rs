@@ -1,17 +1,20 @@
 //! Integration tests for JS and TS outline and read_symbol navigation.
 
 use agent_harness::adapters::{self, NativeApplication};
-use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, Request, SymbolView};
+use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, SymbolView, SymbolsArgs};
 use serde_json::Value;
 
 fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {
-    app.execute(Request::Outline(OutlineArgs {
-        external_scope: None,
-        path: path.into(),
-        query: query.map(Into::into),
-        max_chars: Some(16000),
-        session: None,
-    }))
+    app.execute(
+        SymbolsArgs::Outline(OutlineArgs {
+            external_scope: None,
+            path: path.into(),
+            query: query.map(Into::into),
+            max_chars: Some(16000),
+            session: None,
+        })
+        .into_request(),
+    )
 }
 
 fn read_symbol(
@@ -22,15 +25,18 @@ fn read_symbol(
     id: Option<&str>,
     signature: bool,
 ) -> Value {
-    app.execute(Request::ReadSymbol(ReadSymbolArgs {
-        external_scope: None,
-        path: path.into(),
-        symbol: name.into(),
-        container: container.map(Into::into),
-        symbol_id: id.map(Into::into),
-        view: signature.then_some(SymbolView::Signature),
-        session: None,
-    }))
+    app.execute(
+        SymbolsArgs::Read(ReadSymbolArgs {
+            external_scope: None,
+            path: path.into(),
+            symbol: name.into(),
+            container: container.map(Into::into),
+            symbol_id: id.map(Into::into),
+            view: signature.then_some(SymbolView::Signature),
+            session: None,
+        })
+        .into_request(),
+    )
 }
 
 #[test]

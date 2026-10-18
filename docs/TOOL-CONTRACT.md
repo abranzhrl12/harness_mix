@@ -22,10 +22,10 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_jobs | rust |
 | harness_logs | node, rust |
 | harness_move | rust |
-| harness_outline | node, rust |
+| harness_outline | node |
 | harness_process_status | node, rust |
 | harness_read | node, rust |
-| harness_read_symbol | node, rust |
+| harness_read_symbol | node |
 | harness_regression | node |
 | harness_replace | node, rust |
 | harness_search | node, rust |
@@ -35,6 +35,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_sql_search | node |
 | harness_sql_status | node |
 | harness_svg | node, rust |
+| harness_symbols | rust |
 | harness_tasks | node, rust |
 | harness_verify | node, rust |
 | harness_web_check | node |

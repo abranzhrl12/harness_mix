@@ -164,7 +164,7 @@ mod presentation_tests {
             "diagnostics":[],"omitted":{"truncated":true},"detail":{"ref":"saved","complete":false},
             "data":{"view":"full","text":"**Exploration: main**\n1\\tfn main() {}",
                 "definitions":[{"path":"a.rs","hash":"hash","symbol":{"name":"main","symbolId":"local-id"},
-                    "role":"target","sourceStatus":"partial","nextCall":{"tool":"harness_read_symbol","arguments":{"path":"a.rs","symbol":"main"}}}],
+                    "role":"target","sourceStatus":"partial","nextCall":{"tool":"harness_symbols","arguments":{"action":"read","path":"a.rs","symbol":"main"}}}],
                 "graph":{"nodes":[{"id":"one"}],"edges":[],"traversal":{"direction":"both","maxDepth":1,"limits":{"edges":160}},
                     "truncation":{"depthBoundary":true}},"contextTruncation":{"textPreview":true},
                 "unresolved":[],"indexFreshness":"not_certified","fileFreshness":{"status":"stale"},
@@ -191,10 +191,7 @@ mod presentation_tests {
         let status: Value = serde_json::from_str(status).unwrap();
         assert_eq!(status["fileFreshness"]["status"], "stale");
         assert_eq!(status["contextTruncation"]["textPreview"], true);
-        assert_eq!(
-            status["coverage"][0]["nextCall"]["tool"],
-            "harness_read_symbol"
-        );
+        assert_eq!(status["coverage"][0]["nextCall"]["tool"], "harness_symbols");
         assert_eq!(status["detail"]["ref"], "saved");
         assert_eq!(status["requestId"], "r1");
         assert_eq!(status["editReady"], false);
@@ -401,25 +398,14 @@ impl McpHarness {
         self.call(Request::Checkpoint(args), context).await
     }
     #[tool(
-        description = "Estructura local Rust/JS/TS por AST, no relaciones. Usar query con el nombre relevante y maxChars=2500 antes de ampliar. Devuelve firmas, inventario y omisiones; el detalle conserva los símbolos omitidos. maxChars 1000..16000 en UTF-16. Otros formatos requieren metadatos indexados o una lectura acotada, no reintentos de este parser."
+        description = "Símbolos locales Rust/JS/TS por AST. action=outline: path, query opcional y maxChars=2500 para inventario de firmas; detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId AST opcionales; view=signature para ubicación/firma o full para implementación/edición. Full conserva fuente exacta, documentación y hash; cuerpos grandes en detalle. Signature no sirve como oldText. Ambas acciones admiten externalScope y session. Reutilizar fuente/hash recibidos. Para relaciones del grafo usar harness_explore; otros lenguajes requieren metadatos indexados o lectura acotada."
     )]
-    async fn harness_outline(
+    async fn harness_symbols(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::OutlineArgs>,
+        Parameters(args): Parameters<harness_domain::contracts::SymbolsArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::Outline(args), context).await
-    }
-
-    #[tool(
-        description = "Símbolo local Rust/JS/TS por nombre/container/symbolId AST. Para ubicación/firma usar view=signature; si se necesita la implementación o editar, pedir full directamente. Reutilizar texto/hash ya recibidos. Ambigüedad devuelve candidatos. Full da fuente exacta y hash, con cuerpos grandes en detalle; signature no es oldText."
-    )]
-    async fn harness_read_symbol(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::ReadSymbolArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::ReadSymbol(args), context).await
+        self.call(args.into_request(), context).await
     }
     #[tool(
         description = "Reemplazo con SHA-256 vigente: oldText/newText o chunks [{oldText,newText}] (1-128, 64000 bytes acumulados). Cada bloque debe ser único en el original; sin solapamientos. Una validación y publicación del resultado completo. Windows: Rust, JS/TS/JSX/TSX, JSON, Markdown y texto plano. Sin creación de archivos. Rechaza rutas protegidas. Una publicación iniciada se completa aunque llegue cancelación; releer tras desconexión antes de reintentar."
