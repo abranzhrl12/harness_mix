@@ -1,7 +1,7 @@
 {
   "contractVersion": "2.1.0",
   "toolProfiles": {
-    "investigate": ["harness_bootstrap","harness_explore","harness_outline","harness_read_symbol","harness_search","harness_read","harness_detail","harness_data_query","harness_git_status","harness_git_diff","harness_doctor","harness_logs","harness_batch"],
+    "investigate": ["harness_bootstrap","harness_explore","harness_outline","harness_read_symbol","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
     "edit": ["harness_replace","harness_move","harness_verify","harness_diagnostics"]
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
@@ -189,8 +189,7 @@
         "harness_outline",
         "harness_read_symbol",
         "harness_detail",
-        "harness_git_status",
-        "harness_git_diff",
+        "harness_git",
         "harness_sql",
         "harness_xlsx",
         "harness_svg"
@@ -304,17 +303,19 @@
       ]
     },
     {
+      "name": "harness_git",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_git_diff",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
       "name": "harness_git_status",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {

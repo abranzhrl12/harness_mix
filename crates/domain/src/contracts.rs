@@ -315,6 +315,25 @@ pub struct GitDiffArgs {
     pub session: Option<String>,
 }
 
+/// Read-only Git operations with action-specific arguments.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum GitArgs {
+    Status(GitStatusArgs),
+    Diff(GitDiffArgs),
+}
+
+impl GitArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Status(args) => Request::GitStatus(args),
+            Self::Diff(args) => Request::GitDiff(args),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -356,10 +375,8 @@ pub enum BatchTool {
     ReadSymbol,
     #[serde(rename = "harness_detail")]
     Detail,
-    #[serde(rename = "harness_git_status")]
-    GitStatus,
-    #[serde(rename = "harness_git_diff")]
-    GitDiff,
+    #[serde(rename = "harness_git")]
+    Git,
     #[serde(rename = "harness_sql")]
     Sql,
     #[serde(rename = "harness_xlsx")]
@@ -395,8 +412,7 @@ impl BatchJob {
             BatchTool::Outline => serde_json::from_value(value).map(Request::Outline),
             BatchTool::ReadSymbol => serde_json::from_value(value).map(Request::ReadSymbol),
             BatchTool::Detail => serde_json::from_value(value).map(Request::Detail),
-            BatchTool::GitStatus => serde_json::from_value(value).map(Request::GitStatus),
-            BatchTool::GitDiff => serde_json::from_value(value).map(Request::GitDiff),
+            BatchTool::Git => serde_json::from_value::<GitArgs>(value).map(GitArgs::into_request),
             BatchTool::Sql => serde_json::from_value::<crate::sql::SqlArgs>(value)
                 .map(crate::sql::SqlArgs::into_request),
             BatchTool::Xlsx => serde_json::from_value::<crate::xlsx::XlsxArgs>(value)
@@ -525,8 +541,7 @@ impl Request {
             Self::ReadSymbol(_) => "harness_read_symbol",
             Self::Tasks(_) => "harness_tasks",
             Self::Checkpoint(_) => "harness_checkpoint",
-            Self::GitStatus(_) => "harness_git_status",
-            Self::GitDiff(_) => "harness_git_diff",
+            Self::GitStatus(_) | Self::GitDiff(_) => "harness_git",
             Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
                 "harness_sql"
             }
@@ -557,8 +572,14 @@ impl Request {
             Self::ReadSymbol(args) => serde_json::to_value(args),
             Self::Tasks(args) => serde_json::to_value(args),
             Self::Checkpoint(args) => serde_json::to_value(args),
-            Self::GitStatus(args) => serde_json::to_value(args),
-            Self::GitDiff(args) => serde_json::to_value(args),
+            Self::GitStatus(args) => serde_json::to_value(args).map(|mut value| {
+                value["action"] = Value::String("status".into());
+                value
+            }),
+            Self::GitDiff(args) => serde_json::to_value(args).map(|mut value| {
+                value["action"] = Value::String("diff".into());
+                value
+            }),
             Self::SqlStatus(args) => serde_json::to_value(args),
             Self::SqlSearch(args) => serde_json::to_value(args),
             Self::SqlDescribe(args) => serde_json::to_value(args),
@@ -635,4 +656,74 @@ pub struct LogsArgs {
     pub request_id: Option<String>,
     pub after: Option<u64>,
     pub session: Option<String>,
+}
+
+#[cfg(test)]
+mod git_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unified_git_preserves_action_options_and_read_only_admission() {
+        for value in [
+            json!({"action":"status","includeUntracked":false,"offset":5,"limit":10,"session":"s"}),
+            json!({"action":"diff","path":"deleted.txt","staged":true,"maxLines":20,"maxChars":900,"session":"s"}),
+        ] {
+            let request = serde_json::from_value::<GitArgs>(value.clone())
+                .unwrap()
+                .into_request();
+            assert_eq!(request.name(), "harness_git");
+            assert!(!request.is_mutating());
+            let restored = request.arguments();
+            for (key, expected) in value.as_object().unwrap() {
+                assert_eq!(&restored[key], expected);
+            }
+            assert!(serde_json::from_value::<GitArgs>(restored).is_ok());
+        }
+    }
+
+    #[test]
+    fn unified_git_rejects_missing_or_cross_action_fields_and_decodes_batches() {
+        for value in [
+            json!({}),
+            json!({"action":"diff"}),
+            json!({"action":"commit"}),
+            json!({"action":"status","path":"x"}),
+            json!({"action":"diff","path":"x","limit":5}),
+            json!({"action":"status","unknown":true}),
+        ] {
+            assert!(serde_json::from_value::<GitArgs>(value).is_err());
+        }
+        let job: BatchJob = serde_json::from_value(
+            json!({"tool":"harness_git","arguments":{"action":"diff","path":"x"}}),
+        )
+        .unwrap();
+        let request = job.into_request(Some("session")).unwrap();
+        assert_eq!(request.arguments()["action"], "diff");
+        assert_eq!(request.arguments()["session"], "session");
+        assert!(serde_json::from_value::<BatchTool>(json!("harness_git_status")).is_err());
+        let job: BatchJob =
+            serde_json::from_value(json!({"tool":"harness_git","arguments":{"action":"diff"}}))
+                .unwrap();
+        assert_eq!(job.into_request(None).err().unwrap().0, "ARGUMENT");
+    }
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn git_schema_has_root_object_and_action_specific_branches() {
+        let schema = serde_json::to_value(schemars::schema_for!(GitArgs)).unwrap();
+        assert_eq!(schema["type"], "object");
+        let branches = schema["oneOf"].as_array().unwrap();
+        assert_eq!(branches.len(), 2);
+        let diff = branches
+            .iter()
+            .find(|branch| branch["properties"]["action"]["const"] == "diff")
+            .unwrap();
+        assert!(
+            diff["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("path"))
+        );
+    }
 }

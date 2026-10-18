@@ -185,7 +185,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 13), ("edit", 17)] {
+    for (profile, count) in [("investigate", 12), ("edit", 16)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 27);
+    assert_eq!(tools.len(), 26);
     assert!(
         tools
             .iter()
@@ -877,6 +877,90 @@ fn mcp_move_roundtrip_and_non_overwrite_without_node() {
 }
 
 #[test]
+fn unified_git_mcp_preserves_status_diff_and_batch() {
+    let root = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        let mut command = Command::new("git");
+        for (key, _) in std::env::vars_os() {
+            if key
+                .to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("GIT_")
+            {
+                command.env_remove(key);
+            }
+        }
+        let output = command
+            .current_dir(root.path())
+            .args([
+                "-c",
+                "core.hooksPath=.no-hooks",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git fixture: {args:?}");
+    };
+    git(&["init", "--quiet"]);
+    std::fs::write(root.path().join("tracked.txt"), "before\n").unwrap();
+    git(&["add", "tracked.txt"]);
+    git(&[
+        "-c",
+        "user.name=Harness Test",
+        "-c",
+        "user.email=harness@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    ]);
+    std::fs::write(root.path().join("tracked.txt"), "staged\n").unwrap();
+    git(&["add", "tracked.txt"]);
+    std::fs::write(root.path().join("tracked.txt"), "worktree\n").unwrap();
+    std::fs::write(root.path().join("untracked.txt"), "untracked\n").unwrap();
+    let mut server = Server::start_with_runtime(root.path(), false, true);
+    server.initialize();
+    let status = server.request(2, "tools/call", json!({"name":"harness_git","arguments":{"action":"status","includeUntracked":false,"limit":1}}));
+    let status = &status["result"]["structuredContent"];
+    assert_eq!(status["state"], "ok", "{status}");
+    assert_eq!(status["data"]["entries"].as_array().unwrap().len(), 1);
+    for (id, staged, present, absent) in [
+        (3, false, "+worktree", "+staged"),
+        (4, true, "+staged", "+worktree"),
+    ] {
+        let diff = server.request(id, "tools/call", json!({"name":"harness_git","arguments":{"action":"diff","path":"tracked.txt","staged":staged}}));
+        let envelope = &diff["result"]["structuredContent"];
+        assert_eq!(envelope["state"], "ok", "{diff}");
+        let content = envelope["data"].to_string();
+        assert!(content.contains(present), "{diff}");
+        assert!(!content.contains(absent), "{diff}");
+    }
+    let batch = server.request(
+        5,
+        "tools/call",
+        json!({"name":"harness_batch","arguments":{"jobs":[
+            {"tool":"harness_git","arguments":{"action":"status"}},
+            {"tool":"harness_git","arguments":{"action":"diff","path":"tracked.txt"}}
+        ]}}),
+    );
+    assert_eq!(
+        batch["result"]["structuredContent"]["state"], "ok",
+        "{batch}"
+    );
+    let invalid = server.request(
+        6,
+        "tools/call",
+        json!({"name":"harness_git","arguments":{"action":"status","path":"tracked.txt"}}),
+    );
+    assert!(
+        invalid.get("error").is_some() || invalid["result"]["isError"] == true,
+        "{invalid}"
+    );
+}
+
+#[test]
 fn rust_symbol_navigation_works_over_stdio_without_node() {
     let root = tempfile::tempdir().unwrap();
     let source = "// 🙂\r\npub fn hello() -> i32 { 1 }\r\n";
@@ -1018,7 +1102,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 27);
+    assert_eq!(names.len(), 26);
     let mut actual = names.clone();
     actual.sort();
     let expected = harness_domain::tool_contract::tool_names("rust");
@@ -1120,7 +1204,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         assert_eq!(tool["located"], false, "{doctor}");
         assert_eq!(tool["versionChecked"], false);
     }
-    assert!(names.contains(&"harness_git_status") && names.contains(&"harness_git_diff"));
+    assert!(names.contains(&"harness_git"));
+    assert!(!names.contains(&"harness_git_status") && !names.contains(&"harness_git_diff"));
     assert!(names.contains(&"harness_tasks") && names.contains(&"harness_checkpoint"));
     assert!(names.contains(&"harness_outline") && names.contains(&"harness_read_symbol"));
     assert!(names.contains(&"harness_replace"));
@@ -1128,7 +1213,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let nonrepo = server.request(
         22,
         "tools/call",
-        json!({"name":"harness_git_status","arguments":{}}),
+        json!({"name":"harness_git","arguments":{"action":"status"}}),
     );
     assert_eq!(
         nonrepo["result"]["structuredContent"]["diagnostics"][0]["code"],

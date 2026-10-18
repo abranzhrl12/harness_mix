@@ -15,8 +15,9 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_doctor | node, rust |
 | harness_explore | node, rust |
 | harness_external_scope | node, rust |
-| harness_git_diff | node, rust |
-| harness_git_status | node, rust |
+| harness_git | rust |
+| harness_git_diff | node |
+| harness_git_status | node |
 | harness_handover | node, rust |
 | harness_jobs | rust |
 | harness_logs | node, rust |

@@ -7,3 +7,5 @@
 .agents/harness/jobs/
 .env
 .env.*
+*.csv
+experiments/**/results/

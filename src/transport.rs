@@ -360,14 +360,14 @@ impl McpHarness {
         }
     }
     #[tool(
-        description = "Estado Git de solo lectura, paginado y acotado. No fetch ni stage. Raíz Git o worktree vinculado registrado; excluye submódulos."
+        description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit; devuelve rama y cambios paginados. action=diff: path relativo obligatorio, staged (false=index:worktree, true=HEAD:index), maxLines, maxChars; devuelve hunks y patch, también para eliminados. No incluye contenido untracked. Raíz Git o worktree vinculado registrado; sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
     )]
-    async fn harness_git_status(
+    async fn harness_git(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::GitStatusArgs>,
+        Parameters(args): Parameters<harness_domain::contracts::GitArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::GitStatus(args), context).await
+        self.call(args.into_request(), context).await
     }
     #[tool(
         description = "Relaciones de un símbolo: preferir filePath y view=summary para firmas, relaciones compactas y límites explícitos. Grafo completo recuperable con data_query resultRef=detail.ref, sin reenviar JSON al LLM. view=full conserva la salida anterior. symbolId es CodeGraph, no AST local. direction=inbound/outbound/both; maxDepth=1..4. Solo lectura salvo syncIndex explícito. requireMatchingFiles comprueba hashes, no cobertura global. Resúmenes no sirven para editar."
@@ -378,16 +378,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Explore(args), context).await
-    }
-    #[tool(
-        description = "Diff Git textual de un archivo relativo, incluidas eliminaciones. Solo lectura; staged selecciona HEAD:index. Sin textconv/diff externo, archivos secretos ni metadatos Git. No incluye untracked."
-    )]
-    async fn harness_git_diff(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::GitDiffArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::GitDiff(args), context).await
     }
     #[tool(
         description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."

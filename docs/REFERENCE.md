@@ -206,7 +206,7 @@ Herramientas disponibles: `harness_bootstrap`, `harness_read`, `harness_detail`
 y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` para Rust
 y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbol`
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
-`harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
+`harness_git` (`action=status|diff`), `harness_doctor`, `harness_batch`
 y `harness_logs`, `harness_config`, `harness_external_scope` y `harness_explore`
 y la herramienta SQL Server nativa `harness_sql` con TDS/Tiberius directo y cuatro acciones (`status`, `search`, `describe`, `query`) seleccionadas con el campo `action`.
 
@@ -622,18 +622,25 @@ Git resuelva el mismo directorio de metadatos validado. Desactiva filtros y
 comandos externos también en la configuración por worktree.
 No hace fetch, stage, commit ni push. No es un sandbox para repositorios hostiles.
 
-`harness_git_status`: includeUntracked (true por defecto), offset=0..1000000 y
+`harness_git` con `action="status"`: includeUntracked (true por defecto), offset=0..1000000 y
 limit=1..100 (30 por defecto). Porcelain v2 con registros NUL, estado de rama,
 HEAD/unborn/detached, upstream y ahead/behind locales, entradas, contadores y
 nextOffset. Omite submódulos y agrupa directorios untracked. Hasta 6000 unidades
 UTF-16 en entradas por página; páginas omitidas quedan en detail. Una entrada
 individual que no cabe produce GIT_SIZE, sin cursor estancado.
 
-`harness_git_diff`: archivo relativo concreto (también eliminado), staged=false
+`harness_git` con `action="diff"`: path de archivo relativo concreto (también eliminado), staged=false
 (index:worktree) o true (HEAD:index), maxLines=1..500 (120), maxChars=500..12000
 (6000). Devuelve preview, hunks, indicador binario y patch completo en detail
 cuando hay recorte. No muestra contenido untracked, metadatos .git, rutas
 restringidas ni configuraciones de conexión reconocidas. No es un diff semántico.
+
+Ejemplos: `{"action":"status","limit":10}` y
+`{"action":"diff","path":"src/main.rs","staged":false}`.
+`action` es obligatorio; los campos ajenos a la acción se rechazan. Ambas acciones
+admiten `session` y `harness_batch` mediante `tool="harness_git"`. El servidor Rust
+ya no anuncia `harness_git_status` ni `harness_git_diff`; los adaptadores internos
+y los registros históricos conservan compatibilidad.
 
 Usa procesos nativos acotados, sin shell: 15 segundos y 2 MiB combinados por
 subproceso, con plazo global de operación de 30 segundos. No devuelve stdout

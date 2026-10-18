@@ -55,7 +55,18 @@ sintaxis del resultado completo y utiliza una sola publicación segura, con
 revalidación del hash antes de publicar y comprobación posterior. Si un chunk o
 la sintaxis falla antes de publicar, el original queda intacto.
 
-Se mantiene la búsqueda estándar. `memchr` puede evaluarse con benchmarks, pero
+El mapeo CRLF usa un cursor monotónico sobre los rangos ordenados: recorre el
+original una sola vez para convertir sus extremos, en lugar de empezar desde
+cero para cada chunk. Reutiliza el vector de ediciones y no añade dependencias.
+La [evaluación reproducible de rendimiento](../experiments/editing-performance/README.md)
+compara el editor anterior, el cursor y una variante con memchr. Los casos
+medidos cercanos a 1 MiB con CRLF y 128 chunks mejoraron 7,6–8,3× en la preparación
+del dominio; no incluye publicación ni parseo. Los casos LF no muestran una
+mejora consistente.
+
+Se mantiene la búsqueda estándar. La variante `memchr` no mostró una ventaja
+uniforme en las mediciones y fue más lenta en los casos de edición con 128 chunks.
+Además,
 `memmem::find_iter` no es sustituto directo: omite coincidencias solapadas, como
 la segunda aparición de `aa` en `aaa`. No hacen falta `bstr` ni `cow-utils` para
 esta mejora.

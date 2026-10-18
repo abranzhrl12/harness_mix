@@ -52,6 +52,7 @@ pub fn validate(value: &Value) -> Result<(), Failure> {
                     "harness_tasks",
                     "harness_checkpoint",
                     "harness_git_status",
+                    "harness_git",
                     "harness_git_diff",
                     "harness_doctor",
                     "harness_batch",

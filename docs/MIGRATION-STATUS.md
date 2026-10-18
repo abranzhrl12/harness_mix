@@ -43,8 +43,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_explore` | Parcial | Hasta cuatro saltos; hashes de archivos contribuyentes y modo estricto; sin sync nativo ni vigencia integral certificada |
 | `harness_tasks` | Implementado | Fases, transiciones y timeline acotado en memoria |
 | `harness_checkpoint` | Parcial | Objetivo, decisiones, pendientes e histórico; refresh e invalidación local acotados |
-| `harness_git_status` | Implementado | Solo lectura, paginado; requiere Git; admite worktrees vinculados registrados |
-| `harness_git_diff` | Implementado | Archivo concreto, staged/worktree y eliminados; sin filtros externos |
+| `harness_git` | Implementado | `action=status` paginado y `action=diff` por archivo, staged/worktree y eliminados; solo lectura, sin filtros externos; admite worktrees vinculados registrados |
 | `harness_doctor` | Implementado | Diagnóstico local, versiones opcionales y conectividad real SQL Server (`connection=true`) integrada |
 | `harness_batch` | Implementado | 1..4 lecturas concurrentes; soporta archivos, símbolos, Git, herramientas SQL y XLSX |
 | `harness_sql` | Implementado | TDS nativo directo con Tiberius; una herramienta con `action` = `status`, `search`, `describe` o `query`, de solo lectura auditada, tipos extendidos (Decimal/DateTime) y truncamiento acotado |

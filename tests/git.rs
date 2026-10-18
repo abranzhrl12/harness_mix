@@ -1,5 +1,5 @@
 use agent_harness::adapters::{self, NativeApplication};
-use harness_domain::contracts::{GitDiffArgs, GitStatusArgs, Request};
+use harness_domain::contracts::{GitArgs, GitDiffArgs, GitStatusArgs};
 use serde_json::Value;
 use std::{path::Path, process::Command};
 
@@ -36,21 +36,27 @@ fn git(root: &Path, args: &[&str]) {
     );
 }
 fn status(app: &NativeApplication, offset: usize, limit: usize) -> Value {
-    app.execute(Request::GitStatus(GitStatusArgs {
-        include_untracked: None,
-        offset: Some(offset),
-        limit: Some(limit),
-        session: None,
-    }))
+    app.execute(
+        GitArgs::Status(GitStatusArgs {
+            include_untracked: None,
+            offset: Some(offset),
+            limit: Some(limit),
+            session: None,
+        })
+        .into_request(),
+    )
 }
 fn diff(app: &NativeApplication, path: &str, staged: bool, max_lines: usize) -> Value {
-    app.execute(Request::GitDiff(GitDiffArgs {
-        path: path.into(),
-        staged: Some(staged),
-        max_lines: Some(max_lines),
-        max_chars: None,
-        session: None,
-    }))
+    app.execute(
+        GitArgs::Diff(GitDiffArgs {
+            path: path.into(),
+            staged: Some(staged),
+            max_lines: Some(max_lines),
+            max_chars: None,
+            session: None,
+        })
+        .into_request(),
+    )
 }
 fn fixture() -> tempfile::TempDir {
     let root = tempfile::Builder::new()
