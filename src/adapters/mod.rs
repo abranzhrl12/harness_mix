@@ -429,7 +429,7 @@ impl Workspace for NativeWorkspace {
         {
             languages.push("dotnet");
         }
-        json!({"root":root,"languages":languages,"manifestScope":"raíz del proyecto","indexed":self.project.root.join(".codegraph").is_dir()})
+        json!({"root":root,"languages":languages,"implementationVersion":env!("CARGO_PKG_VERSION"),"manifestScope":"raíz del proyecto","indexed":self.project.root.join(".codegraph").is_dir()})
     }
     fn rules(&self, context: &OperationContext) -> Result<String, Failure> {
         let relative = ".agents/rules/00-mandatory-tools.md";

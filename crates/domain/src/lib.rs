@@ -3,16 +3,17 @@ pub mod contracts;
 pub mod editing;
 pub mod execution;
 pub mod freshness;
+pub mod handover;
 pub mod log_archive;
 pub mod navigation;
 pub mod process;
 pub mod process_output;
 pub mod results;
+pub mod tool_contract;
 pub mod sql;
+pub mod svg;
 pub mod workflow;
 pub mod xlsx;
-pub mod svg;
-pub mod handover;
 
 pub type Failure = (&'static str, &'static str);
 

@@ -251,11 +251,13 @@ pub struct DiagnosticsArgs {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DataQueryArgs {
     pub path: Option<String>,
     pub data: Option<Value>,
+    /// Stored JSON root from a previous detail, subject to the same TTL.
+    #[serde(rename = "resultRef")]
+    pub result_ref: Option<String>,
     pub query: String,
     #[serde(rename = "maxChars")]
     pub max_chars: Option<usize>,
@@ -339,10 +341,17 @@ impl BatchJob {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ExploreArgs {
     pub query: String,
+    /// Summary returns signatures and graph counts; detail retains the graph.
+    pub view: Option<ExploreView>,
+    #[serde(rename = "filePath")]
+    pub file_path: Option<String>,
+    pub container: Option<String>,
+    /// CodeGraph node id from exploration candidates, not a local AST symbol id.
+    #[serde(rename = "symbolId")]
+    pub symbol_id: Option<String>,
     /// Explicit authorization to write the existing native index before querying.
     /// Omitted/false preserves read-only exploration; no index is created implicitly.
     #[serde(rename = "syncIndex")]
@@ -361,6 +370,13 @@ pub struct ExploreArgs {
     #[serde(rename = "requireMatchingFiles")]
     pub require_matching_files: Option<bool>,
     pub session: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExploreView {
+    Summary,
+    Full,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]

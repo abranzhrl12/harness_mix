@@ -1,0 +1,40 @@
+# Shared harness contract
+
+Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
+
+| Tool | Backends |
+| --- | --- |
+| harness_batch | node, rust |
+| harness_bootstrap | node, rust |
+| harness_browser | node |
+| harness_checkpoint | node, rust |
+| harness_config | node, rust |
+| harness_data_query | rust |
+| harness_detail | node, rust |
+| harness_diagnostics | node, rust |
+| harness_doctor | node, rust |
+| harness_explore | node, rust |
+| harness_external_scope | node, rust |
+| harness_git_diff | node, rust |
+| harness_git_status | node, rust |
+| harness_handover | node, rust |
+| harness_logs | node, rust |
+| harness_outline | node, rust |
+| harness_process_status | node, rust |
+| harness_read | node, rust |
+| harness_read_symbol | node, rust |
+| harness_regression | node |
+| harness_replace | node, rust |
+| harness_search | node, rust |
+| harness_sql_describe | node, rust |
+| harness_sql_query | node, rust |
+| harness_sql_search | node, rust |
+| harness_sql_status | node, rust |
+| harness_svg | node, rust |
+| harness_tasks | node, rust |
+| harness_verify | node, rust |
+| harness_web_check | node |
+| harness_xlsx_inspect | node, rust |
+| harness_xlsx_read | node, rust |
+
+Schemas for explore and data_query are consumed directly by native MCP. Node integration must consume the same definitions; backend differences remain explicit.

@@ -1,10 +1,76 @@
-//! Ultra-fast embedded JMESPath data query adapter.
-//! Queries, slices, filters and projects structured data (JSON, TOML) in memory in < 0.1ms without external processes.
+//! Bounded JSON projection. Redact before evaluating queries or storing results.
 
 use super::project::Project;
 use harness_domain::{Failure, contracts::DataQueryArgs, execution::OperationContext};
 use serde_json::{Value, json};
 use std::path::Path;
+
+fn redact(
+    value: &mut Value,
+    depth: usize,
+    visited: &mut usize,
+    context: &OperationContext,
+) -> Result<(), Failure> {
+    *visited += 1;
+    if depth > 64 || *visited > 10000 {
+        return Err(("QUERY_LIMIT", "JSON exceeds depth/node budget"));
+    }
+    context.check()?;
+    match value {
+        Value::Object(map) => {
+            for (key, value) in map {
+                let key: String = key
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .flat_map(char::to_lowercase)
+                    .collect();
+                if [
+                    "password",
+                    "passwd",
+                    "pwd",
+                    "secret",
+                    "token",
+                    "apikey",
+                    "authorization",
+                    "connectionstring",
+                    "credential",
+                    "privatekey",
+                ]
+                .iter()
+                .any(|s| key.contains(s))
+                {
+                    *value = json!("[REDACTED]");
+                } else {
+                    redact(value, depth + 1, visited, context)?;
+                }
+            }
+        }
+        Value::Array(items) => {
+            for value in items {
+                redact(value, depth + 1, visited, context)?;
+            }
+        }
+        Value::String(text) => {
+            let lower = text.to_ascii_lowercase();
+            if [
+                "password=",
+                "password:",
+                "pwd=",
+                "bearer ",
+                "authorization:",
+                "-----begin private key",
+                "-----begin rsa private key",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+            {
+                *text = "[REDACTED]".into();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 pub fn handle_data_query(
     project: &Project,
@@ -17,8 +83,13 @@ pub fn handle_data_query(
         return Err(("ARGUMENT", "query es obligatorio (1–4096 caracteres)"));
     }
 
-    if args.path.is_none() && args.data.is_none() {
-        return Err(("ARGUMENT", "Indicar path o data"));
+    if usize::from(args.path.is_some()) + usize::from(args.data.is_some()) != 1
+        || args.result_ref.is_some()
+    {
+        return Err((
+            "ARGUMENT",
+            "Use exactly one of path, data or resultRef (resolved by application)",
+        ));
     }
 
     let max_chars = args.max_chars.unwrap_or(8000);
@@ -26,7 +97,7 @@ pub fn handle_data_query(
         return Err(("ARGUMENT", "maxChars: 500–32000"));
     }
 
-    let input_value: Value = if let Some(path) = &args.path {
+    let mut input_value: Value = if let Some(path) = &args.path {
         context.check()?;
         let bytes = project.bytes_with_context(path, context)?;
         let ext = Path::new(path)
@@ -58,32 +129,52 @@ pub fn handle_data_query(
 
     context.check()?;
 
+    if serde_json::to_vec(&input_value)
+        .map_err(|_| ("QUERY_LIMIT", "JSON cannot be measured"))?
+        .len()
+        > 1024 * 1024
+    {
+        return Err(("QUERY_LIMIT", "JSON input exceeds 1 MiB"));
+    }
+    redact(&mut input_value, 0, &mut 0, context)?;
+
     // Compile JMESPath expression
-    let expr = jmespath::compile(&args.query)
-        .map_err(|_| ("QUERY_SYNTAX", "Error en la sintaxis de la consulta JMESPath"))?;
+    let expr = jmespath::compile(&args.query).map_err(|_| {
+        (
+            "QUERY_SYNTAX",
+            "Error en la sintaxis de la consulta JMESPath",
+        )
+    })?;
 
     // Search input value
     let result = expr
         .search(&input_value)
         .map_err(|_| ("QUERY_EVAL", "Error al evaluar la consulta JMESPath"))?;
+    context.check()?;
 
-    let result_json: Value = serde_json::to_value(&*result)
-        .map_err(|_| ("INTERNAL", "No se pudo serializar el resultado de la consulta"))?;
+    let mut result_json: Value = serde_json::to_value(&*result).map_err(|_| {
+        (
+            "INTERNAL",
+            "No se pudo serializar el resultado de la consulta",
+        )
+    })?;
+    redact(&mut result_json, 0, &mut 0, context)?;
 
     let serialized = serde_json::to_string(&result_json).unwrap_or_default();
-    let truncated = serialized.len() > max_chars;
+    let truncated = harness_domain::results::utf16_len(&serialized) > max_chars;
 
     let response_data = if truncated {
         json!({
             "truncated": true,
-            "query": args.query,
-            "preview": &serialized[..max_chars],
+            "preview": harness_domain::results::prefix(&serialized, max_chars),
+            "_detail": {"result": result_json},
+            "redaction": "sensitive-key-heuristic-v1",
             "message": "El resultado excede maxChars; refine la consulta agregando slice [0:10] o proyecciones más específicas"
         })
     } else {
         json!({
             "truncated": false,
-            "query": args.query,
+            "redaction": "sensitive-key-heuristic-v1",
             "result": result_json
         })
     };

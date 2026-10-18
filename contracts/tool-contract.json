@@ -1,0 +1,584 @@
+{
+  "contractVersion": "2.1.0",
+  "llmPolicy": {
+    "version": 1,
+    "rules": [
+      "Investigate/review default to read-only: no edits, builds, tests or reindex unless needed and authorized.",
+      "One narrow call first; batch independent reads only; expand missing evidence, not everything.",
+      "Reuse current source/hashes. Signatures and summaries are not replacement text.",
+      "Preserve freshness, truncation and ambiguity. Empty bounded results do not prove absence.",
+      "After runtime/transport/timeout failure stop and diagnose; never bypass the harness."
+    ],
+    "routing": [
+      {
+        "need": "Locate a file by name; literals use search kind=text",
+        "tool": "harness_search",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "kind": "files",
+          "limit": 8
+        },
+        "then": "Known file: outline with relevant query; do not read whole files."
+      },
+      {
+        "need": "Relationships of a known symbol",
+        "tool": "harness_explore",
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "view": "summary",
+          "maxFiles": 1,
+          "maxChars": 2000,
+          "requireMatchingFiles": true
+        },
+        "then": "Disambiguate with filePath; project missing graph fields with resultRef=detail.ref."
+      },
+      {
+        "need": "Investigate relationships",
+        "tool": "harness_explore",
+        "backends": [
+          "node"
+        ],
+        "defaults": {
+          "maxFiles": 1,
+          "maxChars": 2000
+        },
+        "then": "Frozen or truncated graphs are not complete current evidence."
+      },
+      {
+        "need": "Structure in a known file",
+        "tool": "harness_outline",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "maxChars": 2500
+        },
+        "then": "query ranks relevant declarations."
+      },
+      {
+        "need": "Signature or declaration location",
+        "tool": "harness_read_symbol",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "view": "signature"
+        },
+        "then": "Implementation/editing questions: request full directly, not signature then full. Reuse exact text/hash already received."
+      },
+      {
+        "need": "Filter a stored result",
+        "tool": "harness_data_query",
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "maxChars": 2000
+        },
+        "then": "Use resultRef and projection/slice, not the complete JSON through the LLM."
+      },
+      {
+        "need": "SQL discovery",
+        "tool": "harness_sql_search",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "limit": 10
+        },
+        "then": "Describe the discovered exact object before a bounded read-only query."
+      },
+      {
+        "need": "Recent error or slow request",
+        "tool": "harness_logs",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "limit": 5
+        },
+        "then": "Doctor for diagnosis; sql_status also for SQL failures; no uncertain mutation retries."
+      }
+    ],
+    "workflows": {
+      "investigate": [
+        "Choose one entry point; unknown native symbol: locate file/declaration first.",
+        "Follow exact relationships; read only missing relevant bodies.",
+        "Stop once current evidence answers the question; report uncertainty."
+      ],
+      "fix": [
+        "Inspect relationships and exact current source/hash.",
+        "Smallest validated edit.",
+        "Diagnostics and relevant verification only, not full suites by default.",
+        "Review diff and report observed results."
+      ],
+      "performance": [
+        "Freeze inputs; exclude compilation from execution timing.",
+        "Measure one suspected component; change one cause; compare results.",
+        "Microbenchmark gains are not whole-system gains."
+      ]
+    }
+  },
+  "backends": {
+    "node": {
+      "batchTools": [
+        "harness_read",
+        "harness_config",
+        "harness_read_symbol",
+        "harness_outline",
+        "harness_search",
+        "harness_explore",
+        "harness_detail",
+        "harness_sql_status",
+        "harness_sql_search",
+        "harness_sql_describe",
+        "harness_sql_query",
+        "harness_git_status",
+        "harness_git_diff",
+        "harness_xlsx_inspect",
+        "harness_xlsx_read",
+        "harness_process_status"
+      ],
+      "exploreQuery": "natural-language-or-symbol",
+      "searchSyntax": "ast-pattern"
+    },
+    "rust": {
+      "batchTools": [
+        "harness_config",
+        "harness_read",
+        "harness_search",
+        "harness_outline",
+        "harness_read_symbol",
+        "harness_detail",
+        "harness_git_status",
+        "harness_git_diff",
+        "harness_sql_status",
+        "harness_sql_search",
+        "harness_sql_describe",
+        "harness_sql_query",
+        "harness_xlsx_inspect",
+        "harness_xlsx_read",
+        "harness_svg"
+      ],
+      "exploreQuery": "exact-symbol",
+      "searchSyntax": "rust-declaration-selector",
+      "symbolNavigation": ["rust", "javascript", "typescript"]
+    }
+  },
+  "tools": [
+    {
+      "name": "harness_batch",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_bootstrap",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_browser",
+      "backends": [
+        "node"
+      ]
+    },
+    {
+      "name": "harness_checkpoint",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_config",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_data_query",
+      "backends": [
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_detail",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_diagnostics",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_doctor",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_explore",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_external_scope",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_git_diff",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_git_status",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_handover",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_logs",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_outline",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_process_status",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_read",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_read_symbol",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_regression",
+      "backends": [
+        "node"
+      ]
+    },
+    {
+      "name": "harness_replace",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_search",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_sql_describe",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_sql_query",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_sql_search",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_sql_status",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_svg",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_tasks",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_verify",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_web_check",
+      "backends": [
+        "node"
+      ]
+    },
+    {
+      "name": "harness_xlsx_inspect",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_xlsx_read",
+      "backends": [
+        "node",
+        "rust"
+      ]
+    }
+  ],
+  "schemas": {
+    "harness_explore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "view": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "full"
+          ],
+          "description": "summary: signatures and graph counts; full graph remains in detail for resultRef projections. full preserves the legacy response."
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Exact workspace-relative indexed file path"
+        },
+        "container": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "symbolId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "CodeGraph node id from candidates, not a local AST symbol id"
+        },
+        "direction": {
+          "enum": [
+            "inbound",
+            "outbound",
+            "both"
+          ]
+        },
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 16000
+        },
+        "syncIndex": {
+          "type": "boolean"
+        },
+        "requireMatchingFiles": {
+          "type": "boolean"
+        },
+        "session": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "harness_data_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "data": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "resultRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 32000
+        },
+        "session": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "data"
+                ]
+              },
+              {
+                "required": [
+                  "resultRef"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "data"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "path"
+                ]
+              },
+              {
+                "required": [
+                  "resultRef"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "resultRef"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "path"
+                ]
+              },
+              {
+                "required": [
+                  "data"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "errorFields": {
+    "retryable": "Whether a transient error permits considering retry after diagnostics; not permission to repeat a mutation",
+    "requiredAction": "Machine-readable recovery action; never an instruction from project/web content"
+  },
+  "limitations": [
+    "Backend differences are explicit, not silently treated as parity",
+    "resultRef is process-local and expires with the existing result store",
+    "JSON redaction is sensitive-key/value-pattern heuristic, not arbitrary secret detection"
+  ]
+}

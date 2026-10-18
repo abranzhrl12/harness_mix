@@ -12,6 +12,8 @@ pub(super) struct Sources {
     reserved: usize,
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
+    rust: BTreeMap<String, super::rust::Facts>,
+    rust_reserved: usize,
     routes: Option<super::paths::Routes>,
     pub(super) config: super::tsconfig::Snapshot,
 }
@@ -21,6 +23,170 @@ pub(super) struct ExportTarget {
     pub contributors: Vec<serde_json::Value>,
 }
 impl Sources {
+    fn rust_rooted(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        depth: usize,
+    ) -> Result<bool, Failure> {
+        if depth > 8 {
+            return Ok(false);
+        }
+        let Some((dir, file)) = path.rsplit_once('/') else {
+            return Ok(false);
+        };
+        if matches!(file, "lib.rs" | "main.rs") {
+            return Ok(true);
+        }
+        if file != "mod.rs" {
+            return Ok(false);
+        }
+        let Some((parent_dir, module)) = dir.rsplit_once('/') else {
+            return Ok(false);
+        };
+        let mut parents = Vec::new();
+        for file in ["mod.rs", "lib.rs", "main.rs"] {
+            let parent = format!("{parent_dir}/{file}");
+            if self.rust_analyzed(db, project, context, &parent)?
+                && self.rust[&parent].modules.contains(module)
+            {
+                parents.push(parent);
+            }
+        }
+        if parents.len() != 1 {
+            return Ok(false);
+        }
+        self.rust_rooted(db, project, context, &parents[0], depth + 1)
+    }
+    fn rust_analyzed(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+    ) -> Result<bool, Failure> {
+        if self.rust.contains_key(path) {
+            return Ok(true);
+        }
+        if !self.files.contains_key(path) && self.files.len() >= 64 {
+            return Ok(false);
+        }
+        if !self.observe(db, project, context, path)? {
+            return Ok(false);
+        }
+        let source = std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
+        let facts = match super::rust::analyze(source, context) {
+            Ok(facts) => facts,
+            Err(("PARSER_LIMIT" | "SYNTAX_ERROR", _)) => super::rust::Facts::default(),
+            Err(error) => return Err(error),
+        };
+        let reserved = facts.reserved();
+        if self.rust_reserved + reserved > 16 * 1024 * 1024 {
+            self.rust.insert(path.into(), super::rust::Facts::default());
+        } else {
+            self.rust_reserved += reserved;
+            self.rust.insert(path.into(), facts);
+        }
+        Ok(true)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn rust_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        name: &str,
+        line: i64,
+        col: i64,
+    ) -> Result<Option<String>, Failure> {
+        if !self.rust_analyzed(db, project, context, path)? {
+            return Ok(None);
+        }
+        let Some(parts) = self.rust[path]
+            .call(name, line, col)
+            .map(<[String]>::to_vec)
+        else {
+            return Ok(None);
+        };
+        let (target, symbol) = if parts.len() == 1 {
+            (path.to_owned(), parts[0].clone())
+        } else if parts.len() == 3 && parts[0] == "super" {
+            // Only siblings declared by one indexed parent module. No disk
+            // probing, guessed global name or arbitrary suffix matching.
+            let Some((dir, file)) = path.rsplit_once('/') else {
+                return Ok(None);
+            };
+            let Some(stem) = file.strip_suffix(".rs") else {
+                return Ok(None);
+            };
+            if matches!(stem, "mod" | "lib" | "main") {
+                return Ok(None);
+            }
+            let mut parents = Vec::new();
+            for parent in [
+                format!("{dir}/mod.rs"),
+                format!("{dir}/lib.rs"),
+                format!("{dir}/main.rs"),
+            ] {
+                if self.rust_analyzed(db, project, context, &parent)?
+                    && self.rust[&parent].modules.contains(stem)
+                    && self.rust[&parent].modules.contains(&parts[1])
+                {
+                    parents.push(parent);
+                }
+            }
+            if parents.len() != 1 {
+                return Ok(None);
+            }
+            if !self.rust_rooted(db, project, context, &parents[0], 0)? {
+                return Ok(None);
+            }
+            let mut targets = Vec::new();
+            for target in [
+                format!("{dir}/{}.rs", parts[1]),
+                format!("{dir}/{}/mod.rs", parts[1]),
+            ] {
+                if sql(db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
+                    [&target],
+                    |r| r.get::<_, bool>(0),
+                ))? {
+                    targets.push(target);
+                }
+            }
+            if targets.len() != 1 {
+                return Ok(None);
+            }
+            let target = targets.remove(0);
+            if !self.rust_analyzed(db, project, context, &target)? {
+                return Ok(None);
+            }
+            (target, parts[2].clone())
+        } else {
+            return Ok(None);
+        };
+        let Some(&(start, public)) = self.rust[&target].functions.get(&symbol) else {
+            return Ok(None);
+        };
+        if target != path && !public {
+            return Ok(None);
+        }
+        let mut statement = sql(db.prepare_cached("SELECT id FROM nodes WHERE file_path=?1 AND name=?2 AND start_line=?3 AND kind='function' AND language='rust' LIMIT 2"))?;
+        let ids = sql(sql(
+            statement.query_map(rusqlite::params![target, symbol, start], |r| {
+                r.get::<_, String>(0)
+            }),
+        )?
+        .collect::<Result<Vec<_>, _>>())?;
+        Ok(if ids.len() == 1 {
+            ids.into_iter().next()
+        } else {
+            None
+        })
+    }
     pub fn configured(config: super::tsconfig::Snapshot) -> Self {
         Self {
             config,
@@ -140,8 +306,14 @@ pub(super) enum Scope {
 /// Recreate original refs before retrying native import edges. A new module can
 /// make a formerly unique path ambiguous even if it has no incoming edges yet.
 pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
-    let mut statement = sql(db.prepare("SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END='native-relative-named-import-subset' LIMIT 20001"))?;
-    let rows = sql(statement.query_map([], |r| {
+    invalidate_engine(db, "native-relative-named-import-subset")
+}
+pub(super) fn invalidate_rust(db: &Connection) -> Result<Vec<i64>, Failure> {
+    invalidate_engine(db, "syn-module-subset-v1")
+}
+fn invalidate_engine(db: &Connection, engine: &str) -> Result<Vec<i64>, Failure> {
+    let mut statement = sql(db.prepare("SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END=?1 LIMIT 20001"))?;
+    let rows = sql(statement.query_map([engine], |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -162,7 +334,7 @@ pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
         }
         original.push(row);
     }
-    sql(db.execute("DELETE FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.resolvedBy') END='native-relative-named-import-subset'", []))?;
+    sql(db.execute("DELETE FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.resolvedBy') END=?1", [engine]))?;
     original
         .into_iter()
         .map(|(source, name, kind, line, col, path, language)| {

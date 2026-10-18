@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
@@ -29,7 +32,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(root), Some(option), None)
             if flag == "--root" && option == "--reindex" =>
         {
-            let context = harness_domain::execution::OperationContext::default();
+            // A bounded multi-file rebuild is not a single MCP request. Keep
+            // cancellation/deadline checks, but allow the CLI batch five minutes.
+            let context = harness_domain::execution::OperationContext::with_timeout(
+                std::time::Duration::from_secs(300),
+            );
             let result = agent_harness::adapters::index_store::rebuild_workspace(
                 &PathBuf::from(root),
                 &context,
@@ -94,7 +101,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             (PathBuf::from(root), true)
         }
-        (None, None, None, None) => (std::env::current_dir()?, false),
+        (None, None, None, None) => {
+            let root = auto_detect_workspace().unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            (root, false)
+        }
         (Some(flag), None, None, None) if flag == "--version" => {
             println!("agent-harness {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
@@ -106,4 +116,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     agent_harness::transport::serve_with_logging(&root, persist_logs).await
+}
+
+fn auto_detect_workspace() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // 1. Check IDE and CLI standard environment variables
+    for var in [
+        "WORKSPACE_ROOT",
+        "VSCODE_CWD",
+        "INIT_CWD",
+        "PROJECT_ROOT",
+        "ANTIGRAVITY_WORKSPACE",
+        "GEMINI_WORKSPACE",
+    ] {
+        if let Some(val) = std::env::var_os(var) {
+            let path = PathBuf::from(val);
+            if path.is_dir() {
+                return Ok(path);
+            }
+        }
+    }
+    // 2. Inspect current directory or walk up until finding a git or agents root
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut curr = cwd.clone();
+        loop {
+            if curr.join(".git").exists() || curr.join(".agents").exists() {
+                return Ok(curr);
+            }
+            if !curr.pop() {
+                break;
+            }
+        }
+        return Ok(cwd);
+    }
+    Err("Cannot detect workspace root".into())
 }

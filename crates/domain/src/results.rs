@@ -64,6 +64,15 @@ pub fn prefix(text: &str, max_units: usize) -> &str {
 }
 
 impl Results {
+    pub fn value(&mut self, id: &str) -> Result<Value, Failure> {
+        self.prune();
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or(("DETAIL", "detalle vencido, descartado o inexistente"))?;
+        serde_json::from_str(&entry.text).map_err(|_| ("DETAIL", "stored result is not valid JSON"))
+    }
     fn remove_oldest(&mut self) {
         if let Some(entry) = self.entries.pop_front() {
             self.bytes -= entry.text.len();
@@ -141,7 +150,7 @@ impl Results {
         if let Some(language) = args.get("language").filter(|v| v.is_string()) {
             scope["language"] = language.clone();
         }
-        let (state, mut data, diagnostics, omitted, detail) = match result {
+        let (state, mut data, mut diagnostics, omitted, detail) = match result {
             Err((code, message)) => (
                 match code {
                     "CANCELLED" => "cancelled",
@@ -197,6 +206,39 @@ impl Results {
                 (state, data, diagnostics, omitted, detail)
             }
         };
+        if let Some(items) = diagnostics.as_array_mut() {
+            for item in items {
+                let code = item["code"].as_str().unwrap_or("UNKNOWN");
+                let (retryable, action) = match code {
+                    "TIMEOUT" | "BUSY" => (true, "check_status_then_reduce_scope"),
+                    "STALE" | "HASH" | "HASH_MISMATCH" => (false, "reread_source_and_hash"),
+                    "SYMBOL"
+                    | "AMBIGUOUS"
+                    | "AMBIGUOUS_SYMBOL"
+                    | "STALE_SYMBOL"
+                    | "TARGET_NOT_RESOLVED" => {
+                        (false, "select_exact_target_from_candidates_or_outline")
+                    }
+                    "DETAIL" => (
+                        false,
+                        "obtain_new_result_reference_without_repeating_mutations",
+                    ),
+                    "ARGUMENT" | "RANGE" | "QUERY_SYNTAX" => (false, "correct_arguments"),
+                    "PATH" => (false, "select_authorized_workspace_relative_path"),
+                    "QUERY_LIMIT" | "GRAPH_LIMIT" | "SYNC_LIMIT" => (false, "reduce_scope"),
+                    "INDEX" | "INDEX_STALE" | "INDEX_UNCHECKED" => {
+                        (false, "inspect_index_status_and_freshness")
+                    }
+                    "SQL_CONFIG" | "SQL_CONNECTION" => (false, "inspect_sql_status"),
+                    "CANCELLED" => (false, "resume_only_if_requested"),
+                    _ => (false, "inspect_diagnostics_before_retry"),
+                };
+                if let Some(map) = item.as_object_mut() {
+                    map.entry("retryable").or_insert(json!(retryable));
+                    map.entry("requiredAction").or_insert(json!(action));
+                }
+            }
+        }
         if data.get("language") == args.get("language") {
             data.as_object_mut().expect("object").remove("language");
         }

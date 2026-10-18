@@ -238,9 +238,22 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Diagnostics(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.diagnostics(&args, context)),
-            Request::DataQuery(args) => self
+            Request::DataQuery(mut args) => self
                 .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.data_query(&args, context)),
+                .and_then(|()| {
+                    if let Some(reference) = args.result_ref.take() {
+                        if args.path.is_some() || args.data.is_some() {
+                            return Err(("ARGUMENT", "Use exactly one of path, data or resultRef"));
+                        }
+                        args.data = Some(
+                            self.results
+                                .lock()
+                                .map_err(|_| ("INTERNAL", "Results unavailable"))?
+                                .value(&reference)?,
+                        );
+                    }
+                    self.workspace.data_query(&args, context)
+                }),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),
@@ -508,8 +521,14 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let unchanged = session.rules_hash.as_ref() == Some(&rules_hash)
             && !args.include_rules.unwrap_or(false);
         let available = self.workspace.capabilities();
-        let capabilities_hash = hash(available.to_string().as_bytes());
+        let contract = harness_domain::tool_contract::metadata("rust");
+        let capabilities_hash = hash(
+            json!({"executables":available,"contract":contract})
+                .to_string()
+                .as_bytes(),
+        );
         let same_capabilities = session.capabilities_hash.as_ref() == Some(&capabilities_hash);
+        let compact_reuse = !is_new && !session.restored && same_capabilities && unchanged;
         context.check()?;
         self.sessions
             .lock()
@@ -521,30 +540,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         result["capabilitiesHash"] = json!(capabilities_hash);
         result["sessionRestored"] = json!(session.restored);
         result["implementation"] = json!("rust-experimental");
+        result["toolContract"] = contract;
+        result["backend"] = json!({"name":"rust","version":result.get("implementationVersion").cloned().unwrap_or(Value::Null)});
         result["logging"] = self.metrics.logs.status();
-        result["supportedTools"] = json!([
-            "harness_explore",
-            "harness_bootstrap",
-            "harness_read",
-            "harness_detail",
-            "harness_search",
-            "harness_verify",
-            "harness_replace",
-            "harness_outline",
-            "harness_read_symbol",
-            "harness_tasks",
-            "harness_checkpoint",
-            "harness_git_status",
-            "harness_git_diff",
-            "harness_doctor",
-            "harness_batch",
-            "harness_logs",
-            "harness_config",
-            "harness_external_scope"
-        ]);
+        result["supportedTools"] = json!(harness_domain::tool_contract::tool_names("rust"));
         result["limitations"] = json!([
-            "Edición Windows solo Rust/JSON/texto; navegación de símbolos solo Rust, sin SQL ni otros parsers",
-            "Explore: relaciones de un índice CodeGraph existente, sin sincronización ni vigencia certificada; definición local solo Rust",
+            "Edición y navegación dependen del lenguaje y backend; consultar las capacidades declaradas de cada herramienta",
+            "Explore: índice existente con selectores exactos; syncIndex es opt-in y no certifica cobertura global",
             "Búsqueda text/files/file_size y syntax de declaraciones Rust (kind[:nombre]); sin patrones AST generales. Scopes Windows solo lectura",
             "Refresh solo de cobertura local; métricas por instancia, no históricas ni específicas de sesión",
             "Verificación Rust/Go/Python/JavaScript/.NET parcial; .NET exige .csproj/.sln, SDK y restore previo. Ejecuta código del proyecto, no es sandbox",
@@ -558,23 +560,12 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if let Some(warning) = session.persistence_warning {
             result["persistenceWarning"] = warning;
         }
-        if is_new || args.include_rules.unwrap_or(false) {
-            result["routing"] = json!([
-                {"need":"relaciones indexadas de un símbolo exacto; no certifica frescura del índice","tool":"harness_explore"},
-                {"need":"plan declarado y timeline observado de sesión","tool":"harness_tasks"},
-                {"need":"sección XML/JSON redactada, sin valores originales","tool":"harness_config"},
-                {"need":"leer una ruta externa expresamente autorizada por el usuario; requiere sesión y consentimiento real","tool":"harness_external_scope"},
-                {"need":"eventos recientes sin argumentos ni contenido","tool":"harness_logs"},
-                {"need":"1–4 lecturas independientes, nunca pasos dependientes","tool":"harness_batch"},
-                {"need":"diagnóstico local sin builds; versiones opcionales","tool":"harness_doctor"},
-                {"need":"estado Git paginado sin mutaciones","tool":"harness_git_status"},
-                {"need":"diff textual de un archivo sin filtros externos","tool":"harness_git_diff"},
-                {"need":"objetivo, decisiones y resumen histórico sin certificar vigencia","tool":"harness_checkpoint"},
-                {"need":"firmas de declaraciones Rust por nombre","tool":"harness_outline"},
-                {"need":"cuerpo exacto de símbolo Rust con hash","tool":"harness_read_symbol","chooseView":"full | signature"},
-                {"need":"fragmento de hasta 100 líneas con hash SHA-256","tool":"harness_read"},
-                {"need":"texto literal, nombres de archivos o conteo de líneas sin contenido","tool":"harness_search","chooseKind":"text | files | file_size"},
-                {"need":"recuperar detalles paginados sin repetir la operación","tool":"harness_detail"}]);
+        if is_new || args.include_rules.unwrap_or(false) || !same_capabilities {
+            result["routing"] = json!(harness_domain::tool_contract::routing("rust"));
+            result["workflow"] =
+                harness_domain::tool_contract::manifest()["llmPolicy"]["workflows"].clone();
+            result["usageRules"] =
+                harness_domain::tool_contract::manifest()["llmPolicy"]["rules"].clone();
         }
         if same_capabilities {
             result["capabilitiesUnchanged"] = json!(true);
@@ -589,6 +580,21 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 result["truncated"] = json!(true);
                 result["_detail"] = json!({"rules":rules});
             }
+        }
+        if compact_reuse {
+            // The contract/rules hash was checked above; retain a retrievable
+            // catalog without resending the same tool lists and policy text.
+            let catalog = json!({"supportedTools":result["supportedTools"],"toolContract":result["toolContract"],"executionPolicy":result["executionPolicy"],"limitations":result["limitations"],"routing":harness_domain::tool_contract::routing("rust"),"workflow":harness_domain::tool_contract::manifest()["llmPolicy"]["workflows"],"usageRules":harness_domain::tool_contract::manifest()["llmPolicy"]["rules"]});
+            let compact = json!({"backend":"rust","contractVersion":result["toolContract"]["contractVersion"],"contractHash":result["toolContract"]["contractHash"],"unchanged":true});
+            result["toolContract"] = compact;
+            result["catalogUnchanged"] = json!(true);
+            for key in ["supportedTools", "executionPolicy", "limitations"] {
+                result
+                    .as_object_mut()
+                    .expect("bootstrap object")
+                    .remove(key);
+            }
+            result["_detail"] = json!({"catalog":catalog});
         }
         Ok(result)
     }

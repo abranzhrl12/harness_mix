@@ -563,10 +563,17 @@ process.stdout.write(JSON.stringify({mappings, target: api.resolveImportPath(inp
 fn native_writer_resolves_cross_file_calls_preserves_line_shifts_and_recovers_renames() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
-    fs::write(root.path().join("a.rs"), "pub fn target() {}\n").unwrap();
-    assert_eq!(sync(root.path(), "a.rs")["committed"], true);
-    fs::write(root.path().join("b.rs"), "pub fn caller() { target(); }\n").unwrap();
-    let result = sync(root.path(), "b.rs");
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "mod a; mod b; mod c;").unwrap();
+    sync(root.path(), "src/lib.rs");
+    fs::write(root.path().join("src/a.rs"), "pub fn target() {}\n").unwrap();
+    assert_eq!(sync(root.path(), "src/a.rs")["committed"], true);
+    fs::write(
+        root.path().join("src/b.rs"),
+        "pub fn caller() { super::a::target(); }\n",
+    )
+    .unwrap();
+    let result = sync(root.path(), "src/b.rs");
     assert_eq!(result["referencesResolved"], 1);
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
@@ -582,8 +589,8 @@ fn native_writer_resolves_cross_file_calls_preserves_line_shifts_and_recovers_re
     let before: String = db(root.path())
         .query_row("SELECT id FROM nodes WHERE name='target'", [], |r| r.get(0))
         .unwrap();
-    fs::write(root.path().join("a.rs"), "\n\npub fn target() {}\n").unwrap();
-    let shifted = sync(root.path(), "a.rs");
+    fs::write(root.path().join("src/a.rs"), "\n\npub fn target() {}\n").unwrap();
+    let shifted = sync(root.path(), "src/a.rs");
     assert_eq!(shifted["incomingEdgesRetained"], 1);
     let after: String = db(root.path())
         .query_row("SELECT id FROM nodes WHERE name='target'", [], |r| r.get(0))
@@ -593,8 +600,8 @@ fn native_writer_resolves_cross_file_calls_preserves_line_shifts_and_recovers_re
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
         1
     );
-    fs::write(root.path().join("a.rs"), "pub fn renamed() {}\n").unwrap();
-    let renamed = sync(root.path(), "a.rs");
+    fs::write(root.path().join("src/a.rs"), "pub fn renamed() {}\n").unwrap();
+    let renamed = sync(root.path(), "src/a.rs");
     assert_eq!(renamed["incomingReferencesRecovered"], 1);
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
@@ -603,28 +610,32 @@ fn native_writer_resolves_cross_file_calls_preserves_line_shifts_and_recovers_re
     assert_eq!(
         count(
             root.path(),
-            "SELECT count(*) FROM unresolved_refs WHERE reference_name='target'"
+            "SELECT count(*) FROM unresolved_refs WHERE reference_name='super::a::target'"
         ),
         1
     );
-    fs::write(root.path().join("c.rs"), "pub fn target() {}\n").unwrap();
-    assert_eq!(sync(root.path(), "c.rs")["referencesResolved"], 1);
+    fs::write(root.path().join("src/c.rs"), "pub fn target() {}\n").unwrap();
+    // A homonym in another module cannot satisfy super::a::target.
+    assert_eq!(sync(root.path(), "src/c.rs")["referencesResolved"], 0);
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
-        1
+        0
     );
-    fs::remove_file(root.path().join("c.rs")).unwrap();
-    let deleted = sync(root.path(), "c.rs");
+    fs::remove_file(root.path().join("src/c.rs")).unwrap();
+    let deleted = sync(root.path(), "src/c.rs");
     assert_eq!(deleted["deleted"], true);
     assert_eq!(deleted["synchronized"], false);
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM files WHERE path='c.rs'"),
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE path='src/c.rs'"
+        ),
         0
     );
     assert_eq!(
         count(
             root.path(),
-            "SELECT count(*) FROM unresolved_refs WHERE reference_name='target'"
+            "SELECT count(*) FROM unresolved_refs WHERE reference_name='super::a::target'"
         ),
         1
     );

@@ -20,6 +20,7 @@ fn test_data_query_direct_data_filter_and_projection() {
         path: None,
         data: Some(data),
         query: "services[?active == `true`].name".to_string(),
+        result_ref: None,
         max_chars: Some(1000),
     }));
 
@@ -51,6 +52,7 @@ fn test_data_query_from_json_file() {
         path: Some("package.json".to_string()),
         data: None,
         query: "meta.maintainers[0]".to_string(),
+        result_ref: None,
         max_chars: None,
     }));
 
@@ -70,6 +72,7 @@ fn test_data_query_invalid_syntax_error() {
         path: None,
         data: Some(json!({"a": 1})),
         query: "unclosed[?bracket".to_string(),
+        result_ref: None,
         max_chars: None,
     }));
 
@@ -90,6 +93,7 @@ fn test_data_query_truncation_when_exceeding_max_chars() {
         path: None,
         data: Some(data),
         query: "items".to_string(),
+        result_ref: None,
         max_chars: Some(500),
     }));
 

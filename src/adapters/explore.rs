@@ -90,6 +90,18 @@ fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
     let max_chars = args.max_chars.unwrap_or(12000);
     let max_depth = args.max_depth.unwrap_or(1);
     if args.query.len() > 2000
+        || args
+            .file_path
+            .as_ref()
+            .is_some_and(|p| p.len() > 4096 || p.contains('\0'))
+        || args
+            .container
+            .as_ref()
+            .is_some_and(|p| p.is_empty() || p.len() > 1000 || p.contains('\0'))
+        || args
+            .symbol_id
+            .as_ref()
+            .is_some_and(|p| p.is_empty() || p.len() > 1024 || p.contains('\0'))
         || args.query.contains('\0')
         || symbol.len() > 256
         || !identifier(symbol)
@@ -118,6 +130,9 @@ pub(super) fn synchronized(
 ) -> Result<Value, Failure> {
     context.check()?;
     validate_args(args)?;
+    if let Some(file) = &args.file_path {
+        project.target(file)?;
+    }
     let report = super::index_store::sync_workspace_all(&project.root, context)?;
     if report["selectedScopeApplied"] != true
         || report["discoveryComplete"] != true
@@ -151,11 +166,23 @@ pub(super) fn explore(
 ) -> Result<Value, Failure> {
     context.check()?;
     validate_args(args)?;
+    if let Some(file) = &args.file_path {
+        project.target(file)?;
+    }
     let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
     let max_files = args.max_files.unwrap_or(4);
     let max_chars = args.max_chars.unwrap_or(12000);
     let max_depth = args.max_depth.unwrap_or(1);
     let direction = args.direction.unwrap_or(ExploreDirection::Both);
+    let summary = matches!(
+        args.view,
+        Some(harness_domain::contracts::ExploreView::Summary)
+    );
+    let max_chars = if summary {
+        args.max_chars.unwrap_or(2000)
+    } else {
+        max_chars
+    };
     let path = project
         .target(".codegraph/codegraph.db")
         .map_err(|_| INDEX)?;
@@ -212,14 +239,48 @@ pub(super) fn explore(
     if !(1..=11).contains(&version) {
         return Err(INDEX);
     }
-    let mut search = db.prepare("SELECT id,name,kind,file_path,start_line FROM nodes WHERE name=?1 COLLATE BINARY ORDER BY file_path,start_line,id LIMIT 101").map_err(failed)?;
+    let has_qualified: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('nodes') WHERE name='qualified_name')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(failed)?;
+    if args.container.is_some() && !has_qualified {
+        return Err((
+            "ARGUMENT",
+            "This legacy index lacks qualified_name; select with filePath or symbolId",
+        ));
+    }
+    let query = if has_qualified {
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name=?1 COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||?1 COLLATE BINARY OR qualified_name=?4||'.'||?1 COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
+    } else {
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name=?1 COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL ORDER BY file_path,start_line,id LIMIT 101"
+    };
+    let mut search = db.prepare(query).map_err(failed)?;
     let mut hits = search
-        .query_map([symbol], |r| node(r, 0))
+        .query_map(
+            rusqlite::params![symbol, args.file_path, args.symbol_id, args.container],
+            |r| node(r, 0),
+        )
         .map_err(failed)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(failed)?;
+    if hits.is_empty()
+        && (args.file_path.is_some() || args.container.is_some() || args.symbol_id.is_some())
+    {
+        return Ok(
+            json!({"ok":false,"candidates":[],"diagnostics":[{"code":"TARGET_NOT_RESOLVED","message":"No indexed target matches all selectors; inspect outline or request candidates without the conflicting selector"}],"_complete":false}),
+        );
+    }
     let mut truncated = hits.len() > 100;
     hits.truncate(100);
+    let candidates: Vec<_> = hits.iter().take(20).cloned().collect();
+    let candidates_omitted = hits.len().saturating_sub(candidates.len());
+    let mut selection_limited = truncated;
+    let mut per_node_edges_limited = false;
+    let mut total_edges_limited = false;
+    let mut definitions_limited = false;
     let mut files = BTreeSet::new();
     let mut targets = Vec::new();
     for mut hit in hits {
@@ -227,6 +288,7 @@ pub(super) fn explore(
         validate_node(project, &mut hit)?;
         if !files.contains(&hit.file_path) && files.len() >= max_files || targets.len() >= 16 {
             truncated = true;
+            selection_limited = true;
             continue;
         }
         files.insert(hit.file_path.clone());
@@ -302,6 +364,7 @@ pub(super) fn explore(
             }
             if count > 20 {
                 truncated = true;
+                per_node_edges_limited = true;
                 break;
             }
             let id: i64 = row.get(0).map_err(failed)?;
@@ -315,6 +378,7 @@ pub(super) fn explore(
             }
             if !edge_ids.contains(&id) && edges.len() >= 160 {
                 truncated = true;
+                total_edges_limited = true;
                 break 'traversal;
             }
             let label = if incoming { "inbound" } else { "outbound" };
@@ -373,19 +437,24 @@ pub(super) fn explore(
                 external_scope: None,
                 path: file.clone(),
                 symbol: symbol.into(),
-                container: None,
+                container: args.container.clone(),
                 symbol_id: None,
-                view: None,
+                view: if summary {
+                    Some(harness_domain::contracts::SymbolView::Signature)
+                } else {
+                    None
+                },
                 session: None,
             },
             context,
         );
         match read {
             Ok(value) => {
-                let body = value["text"].as_str().or_else(|| value["_detail"]["text"].as_str()).unwrap_or("");
+                let body = if summary { value["symbol"]["signature"].as_str().unwrap_or("") } else { value["text"].as_str().or_else(|| value["_detail"]["text"].as_str()).unwrap_or("") };
                 let remaining = 64000usize.saturating_sub(utf16_len(&text));
-                let preview = prefix(body, remaining.min(16000));
+                let preview = prefix(body, remaining.min(if summary {512} else {16000}));
                 truncated |= utf16_len(body) > utf16_len(preview);
+                definitions_limited |= utf16_len(body) > utf16_len(preview);
                 text.push_str(&format!("\n### {file}\n{preview}\n"));
                 definitions.push(json!({"path":file,"hash":value["hash"],"symbol":value["symbol"]}));
             }
@@ -393,8 +462,12 @@ pub(super) fn explore(
             Err((code, _)) => unresolved.push(json!({"path":file,"code":code,"message":"Indexed candidate not resolved by the current local Rust parser"})),
         }
     }
-    text.push_str("\nRelaciones reportadas por el índice (no verificadas en código actual):\n");
-    for edge in edges.iter().take(20) {
+    text.push_str(if summary {
+        "\nRelaciones indexadas: ver graph.relations; grafo completo en detail.ref.\n"
+    } else {
+        "\nRelaciones reportadas por el índice (no verificadas en código actual):\n"
+    });
+    for edge in edges.iter().take(if summary { 0 } else { 20 }) {
         let source = &nodes[edge["source"].as_str().ok_or(CONTRACT)?];
         let target = &nodes[edge["target"].as_str().ok_or(CONTRACT)?];
         text.push_str(&format!(
@@ -443,15 +516,62 @@ pub(super) fn explore(
     let partial = truncated || !unresolved.is_empty() || targets.is_empty() || !matching;
     let traversal = json!({"direction":direction,"maxDepth":max_depth,"nodeDepths":depths,"expandedNodes":expanded,"depthBoundaryReached":depth_boundary,
         "limits":{"edges":160,"nodes":176,"edgesPerNodeDirection":20},"semantics":"independent directed breadth-first traversals from selected exact-name targets; depths are minimum discovered hops within scanned edges per direction, not global shortest paths"});
-    let graph = json!({"format":"codegraph-sqlite-readonly-v1","schemaVersion":version,"files":files,"nodes":nodes.values().collect::<Vec<_>>(),"edges":edges,"truncated":truncated,"traversal":traversal});
+    let truncation = json!({"targetSelection":selection_limited,"depthBoundary":depth_boundary,"perNodeEdges":per_node_edges_limited,"totalEdges":total_edges_limited,"definitions":definitions_limited,"preview":utf16_len(&text)>max_chars});
+    let graph = json!({"format":"codegraph-sqlite-readonly-v1","schemaVersion":version,"files":files,"nodes":nodes.values().collect::<Vec<_>>(),"edges":edges,"truncated":truncated,"truncation":truncation,"traversal":traversal});
+    let displayed_graph = if summary {
+        let mut kinds = BTreeMap::<String, usize>::new();
+        for edge in &edges {
+            *kinds
+                .entry(edge["kind"].as_str().unwrap_or("unknown").into())
+                .or_default() += 1;
+        }
+        let mut relations = Vec::new();
+        let mut shown = BTreeSet::new();
+        for incoming in [true, false] {
+            for edge in edges
+                .iter()
+                .filter(|edge| {
+                    targets.iter().any(|n| {
+                        if incoming {
+                            edge["target"] == n.id
+                        } else {
+                            edge["source"] == n.id
+                        }
+                    })
+                })
+                .take(4)
+            {
+                if !shown.insert(edge["id"].as_i64().ok_or(CONTRACT)?) {
+                    continue;
+                }
+                let source = &nodes[edge["source"].as_str().ok_or(CONTRACT)?];
+                let target = &nodes[edge["target"].as_str().ok_or(CONTRACT)?];
+                relations.push(json!({"source":{"name":source.name,"filePath":source.file_path,"line":source.start_line},"target":{"name":target.name,"filePath":target.file_path,"line":target.start_line},"kind":edge["kind"]}));
+            }
+        }
+        let omitted_relations = edges.len().saturating_sub(relations.len());
+        json!({"format":"codegraph-summary-v1","countsScope":"returned-subgraph-not-global", "nodeCount":nodes.len(),"edgeCount":edges.len(),"edgeKinds":kinds,
+            "relations":relations,"relationsOmitted":omitted_relations,"summaryTruncated":omitted_relations>0,
+            "targetIds":targets.iter().map(|n| &n.id).collect::<Vec<_>>(),"truncated":truncated,"truncation":truncation,
+            "direction":direction,"maxDepth":max_depth,"fullGraph":"detail.ref -> graph; use data_query resultRef for projection"})
+    } else {
+        graph.clone()
+    };
+    let displayed_candidates: Vec<_> = candidates
+        .iter()
+        .take(if summary { 5 } else { 20 })
+        .collect();
+    let displayed_candidates_omitted =
+        candidates_omitted + candidates.len() - displayed_candidates.len();
     Ok(
         json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.is_empty() {"unresolved"} else {"resolved"}},
-        "definitions":definitions,"unresolved":unresolved,"graph":graph,"relationshipSource":"codegraph-index",
+        "view":if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,
+        "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",
         "indexFreshness":"not_certified","synchronized":false,"absenceProven":false,
         "fileFreshness":freshness,"diagnostics":diagnostics,
         "synchronization":{"performed":false,"nativeIndexerAvailable":false,"reason":"native_multilanguage_indexer_not_migrated"},
         "notice":"Bounded indexed relationships, not execution traces; local definitions verified only for Rust. No exhaustive impact, absence or index freshness claims. Preview is not replacement text.",
         "truncated":truncated || utf16_len(&text)>max_chars,"_complete":!partial,
-        "_detail":{"text":text,"graph":graph,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness,"indexFreshness":"not_certified","synchronized":false}}),
+        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":graph,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness,"indexFreshness":"not_certified","synchronized":false}}),
     )
 }

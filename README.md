@@ -1,5 +1,13 @@
 # Núcleo Rust experimental
 
+## Prerelease 0.7.1-rc.1
+
+Binario Windows x86-64 sin Node/node_modules; sigue siendo una prerelease del
+núcleo Rust, no una migración completa ni un cambio automático del backend MCP.
+Las mejoras LLM y sus mediciones están en [LLM-EFFICIENCY.md](LLM-EFFICIENCY.md).
+Instalación y límites del ejecutable: [release/README.md](release/README.md).
+El código fuente se publica en Git; los binarios y checksums van en GitHub Releases.
+
 ## Repositorio independiente
 
 Este repositorio publica únicamente el núcleo Rust; la migración completa todavía

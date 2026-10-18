@@ -96,13 +96,20 @@ pub(super) fn outline(
         }
     }
     let omitted = all.len() - selected.len();
+    let mut by_kind = std::collections::BTreeMap::<&str, usize>::new();
+    for item in &all {
+        *by_kind.entry(item.kind).or_default() += 1;
+    }
     let coverage = match lang {
-        "rust" => "declarations, inline modules, impl and trait members; no local items or macro expansion",
+        "rust" => {
+            "declarations, inline modules, impl and trait members; no local items or macro expansion"
+        }
         _ => "declarations, classes, interfaces, types, enums and members; no local block items",
     };
     let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,
         "selection":{"method":if query.is_empty() {"source-order"} else {"lexical-ranking"},"maxChars":max,"usedChars":used,"unit":"JSON UTF-16 units, not tokens"},
-        "syntaxOnly":true,"language":lang,"coverage":coverage});
+        "syntaxOnly":true,"language":lang,"coverage":coverage,
+        "inventory":{"total":all.len(),"returned":selected.len(),"omitted":omitted,"byKind":by_kind}});
     if omitted > 0 {
         result["_detail"] = json!({"path":args.path,"hash":digest,"items":all});
     }

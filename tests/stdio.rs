@@ -18,7 +18,10 @@ impl Server {
         Self::start_with_logging(root, false)
     }
     fn start_with_logging(root: &std::path::Path, persist: bool) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-harness"));
+        let executable = std::env::var_os("HARNESS_NATIVE_BINARY")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_agent-harness").into());
+        let mut command = Command::new(executable);
         command.env("PATH", "").arg("--root").arg(root);
         if persist {
             command.arg("--persist-logs");
@@ -586,10 +589,22 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 28);
+    assert_eq!(names.len(), 29);
+    let mut actual = names.clone();
+    actual.sort();
+    let expected = harness_domain::tool_contract::tool_names("rust");
+    assert_eq!(actual, expected.iter().map(String::as_str).collect::<Vec<_>>());
+    for name in ["harness_explore", "harness_data_query"] {
+        let tool = listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap();
+        let shared = &harness_domain::tool_contract::manifest()["schemas"][name];
+        for field in ["properties", "required", "additionalProperties", "oneOf"] {
+            assert_eq!(tool["inputSchema"][field], shared[field], "schema drift: {name}.{field}");
+        }
+    }
     assert!(names.contains(&"harness_handover"));
     assert!(names.contains(&"harness_process_status"));
     assert!(names.contains(&"harness_diagnostics"));
+    assert!(names.contains(&"harness_data_query"));
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));

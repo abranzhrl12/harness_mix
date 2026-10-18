@@ -257,9 +257,9 @@ impl Project {
                 return Err(("PATH", "no se admiten reparse points"));
             }
         }
-        let mut bytes = Vec::new();
+        let mut bytes = Vec::with_capacity(before.len() as usize);
         let mut reader = (&file).take(limit + 1);
-        let mut chunk = [0_u8; 32768];
+        let mut chunk = [0_u8; 65536];
         loop {
             context.check()?;
             let count = reader

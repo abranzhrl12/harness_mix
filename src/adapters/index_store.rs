@@ -46,6 +46,8 @@ pub(crate) mod scope;
 mod imports;
 #[path = "index_paths.rs"]
 mod paths;
+#[path = "index_rust.rs"]
+mod rust;
 #[path = "index_tsconfig.rs"]
 pub(super) mod tsconfig;
 
@@ -856,12 +858,15 @@ fn publish(
         };
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
+    if language == "rust" {
+        refs.extend(imports::invalidate_rust(db)?);
+    }
     if refs.len() > MAX_ROWS {
         return Err(LIMIT);
     }
     // Retry pending/failed refs whose exact name became available in this file.
-    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) LIMIT 20001"))?;
-    for row in sql(statement.query_map([path], |r| r.get::<_, i64>(0)))? {
+    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) LIMIT 20001"))?;
+    for row in sql(statement.query_map(params![path, language], |r| r.get::<_, i64>(0)))? {
         refs.insert(sql(row)?);
         if refs.len() > MAX_ROWS {
             return Err(LIMIT);
@@ -955,8 +960,20 @@ fn resolve_exact(
     };
     // Receivers/chains are never stripped. Named imports override global names;
     // unsupported import forms defer instead of falling back to a homonym.
-    let mut candidates =
-        candidate_snapshot.lookup(db, lookup, &language, imported_path, context)?;
+    let rust_target = if language == "rust" && matches!(kind.as_str(), "calls" | "function_ref") {
+        let Some(target) = sources.rust_target(db, project, context, &path, &name, line, col)?
+        else {
+            return Ok(false);
+        };
+        Some(target)
+    } else {
+        None
+    };
+    let mut candidates = if let Some(target) = &rust_target {
+        vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
+    } else {
+        candidate_snapshot.lookup(db, lookup, &language, imported_path, context)?
+    };
     if candidates.len() > 64 {
         return Ok(false);
     }
@@ -968,11 +985,13 @@ fn resolve_exact(
     }
     // Cross-file private symbols require receiver/import/visibility analysis
     // outside this subset. Keep them pending rather than guessing accessibility.
-    if imported_path.is_none() {
+    if imported_path.is_none() && rust_target.is_none() {
         candidates.retain(|n| n.2 == path || n.4.as_deref() == Some("public") || n.5);
     }
     let qualified = lookup.contains('.') || lookup.contains("::");
-    if qualified {
+    if rust_target.is_some() {
+        // The Rust syntax/module proof already selected the exact declaration.
+    } else if qualified {
         candidates.retain(|n| n.3 == lookup);
     } else if imported_path.is_none() {
         let container = owner
@@ -1007,6 +1026,13 @@ fn resolve_exact(
         &kind
     };
     let mut metadata = json!({"refName":name,"refKind":kind,"resolvedBy":if imported_path.is_some(){"native-relative-named-import-subset"}else{"native-exact-name-subset"},"confidence":0.9});
+    if rust_target.is_some() {
+        metadata["resolvedBy"] = json!(if candidates[0].2 == path {
+            "syn-lexical-subset-v1"
+        } else {
+            "syn-module-subset-v1"
+        });
+    }
     if imported_path.is_some() {
         if sources.config.path.is_some() {
             metadata["tsconfig"] = sources.config.stamp();

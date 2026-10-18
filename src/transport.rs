@@ -111,7 +111,7 @@ impl McpHarness {
         self.call(Request::Logs(args), context).await
     }
     #[tool(
-        description = "1–4 lecturas independientes de archivos, símbolos o Git. Máximo 2 hijos concurrentes; admisión y plazo compartidos. No mutaciones, verify, SQL ni batches anidados. Valida todos los tipos antes de iniciar; resultados por índice, no transacción."
+        description = "1–4 lecturas independientes, incluidas SQL Server, archivos, símbolos, Git, XLSX y SVG. Máximo 2 hijos concurrentes; admisión/plazo compartidos. No mutaciones, verify ni batches anidados. Consultar toolContract.features.batchTools para la lista exacta por backend. Valida tipos antes de ejecutar; resultados por índice, no transacción."
     )]
     async fn harness_batch(
         &self,
@@ -141,7 +141,7 @@ impl McpHarness {
         self.call(Request::GitStatus(args), context).await
     }
     #[tool(
-        description = "Explorar relaciones de un símbolo exacto en un índice SQLite existente, sin Node. direction=inbound/outbound/both; maxDepth=1..4. Por defecto solo lectura. syncIndex=true autoriza actualizar el índice nativo ANTES de consultar (no crea índices); conserva el reporte de commits parciales y no consulta si sync queda incompleto. requireMatchingFiles=true exige hashes contribuyentes vigentes. No certifica cobertura global ni paridad con todos los resolvers del proveedor."
+        description = "Relaciones de un símbolo: preferir filePath y view=summary para firmas, relaciones compactas y límites explícitos. Grafo completo recuperable con data_query resultRef=detail.ref, sin reenviar JSON al LLM. view=full conserva la salida anterior. symbolId es CodeGraph, no AST local. direction=inbound/outbound/both; maxDepth=1..4. Solo lectura salvo syncIndex explícito. requireMatchingFiles comprueba hashes, no cobertura global. Resúmenes no sirven para editar."
     )]
     async fn harness_explore(
         &self,
@@ -182,7 +182,7 @@ impl McpHarness {
         self.call(Request::Checkpoint(args), context).await
     }
     #[tool(
-        description = "Firmas Rust locales por AST nativo, sin Node ni CodeGraph. maxChars 1000..16000 limita JSON en unidades UTF-16; query prioriza nombres. Solo declaraciones y miembros de módulos inline/impl/trait; no relaciones."
+        description = "Estructura local Rust/JS/TS por AST, no relaciones. Usar query con el nombre relevante y maxChars=2500 antes de ampliar. Devuelve firmas, inventario y omisiones; el detalle conserva los símbolos omitidos. maxChars 1000..16000 en UTF-16. Otros formatos requieren metadatos indexados o una lectura acotada, no reintentos de este parser."
     )]
     async fn harness_outline(
         &self,
@@ -193,7 +193,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Leer símbolo Rust por nombre, container o symbolId vigente. Rechaza ambigüedad. view=signature no sirve para editar; full devuelve fuente exacta y hash, con cuerpos grandes en detalle."
+        description = "Símbolo local Rust/JS/TS por nombre/container/symbolId AST. Para ubicación/firma usar view=signature; si se necesita la implementación o editar, pedir full directamente. Reutilizar texto/hash ya recibidos. Ambigüedad devuelve candidatos. Full da fuente exacta y hash, con cuerpos grandes en detalle; signature no es oldText."
     )]
     async fn harness_read_symbol(
         &self,
@@ -246,7 +246,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Describe columnas, tipos, definiciones o relaciones de objetos SQL Server."
+        description = "Describe un objeto exacto descubierto con sql_search. Cero filas no prueba ausencia: revisar base, esquema, nombre y visibilidad del catálogo mediante sql_status antes de concluir."
     )]
     async fn harness_sql_describe(
         &self,
@@ -378,7 +378,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Consulta, filtra y proyecta datos estructurados JSON o archivos de configuracion en memoria con JMESPath sin procesos externos. maxChars 500-32000."
+        description = "Proyectar JSON con JMESPath. Exactamente uno de path (JSON local), data o resultRef (raíz JSON almacenada, TTL del detalle). Redacta claves y patrones sensibles antes de evaluar y guardar; es heurístico, no detección universal de secretos. Límites 1 MiB/10000 nodos/profundidad 64; maxChars 500..32000 UTF-16; recorte Unicode seguro y detalle recuperable. No repite la operación original."
     )]
     async fn harness_data_query(
         &self,
