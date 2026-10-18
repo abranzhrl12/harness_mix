@@ -192,6 +192,29 @@ fn explore(app: &adapters::NativeApplication, symbol: &str, sync: bool) -> Value
 #[test]
 #[ignore = "copies real core sources into a temporary project; run acceptance explicitly"]
 fn real_core_copy_lifecycle_without_node() {
+    fn assert_sync_workspace_relation(result: &Value) {
+        let nodes = result["data"]["graph"]["nodes"].as_array().unwrap();
+        let caller = nodes
+            .iter()
+            .find(|n| n["name"] == "synchronized" && n["filePath"] == "src/adapters/explore.rs")
+            .expect("actual synchronized caller");
+        let target = nodes
+            .iter()
+            .find(|n| {
+                n["name"] == "sync_workspace_all" && n["filePath"] == "src/adapters/index_store.rs"
+            })
+            .expect("actual sync_workspace_all target");
+        assert!(
+            result["data"]["graph"]["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["kind"] == "calls"
+                    && e["source"] == caller["id"]
+                    && e["target"] == target["id"]),
+            "expected proven module-qualified call, not an arbitrary homonym: {result}"
+        );
+    }
     let original = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = tempfile::tempdir().unwrap();
     let mut files = copy_sources(&original.join("src"), &root.path().join("src"));
@@ -217,21 +240,16 @@ fn real_core_copy_lifecycle_without_node() {
     assert_eq!(first["uncheckedFiles"], 0);
     assert_eq!(first["discoveryComplete"], true);
     let app = adapters::application(root.path()).unwrap();
-    let baseline = explore(&app, "resolve_exact", false);
+    let baseline = explore(&app, "sync_workspace_all", false);
     assert_eq!(baseline["state"], "ok", "{baseline}");
     assert_eq!(
         baseline["data"]["focus"]["status"], "resolved",
         "{baseline}"
     );
-    assert!(
-        !baseline["data"]["graph"]["edges"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert_sync_workspace_relation(&baseline);
     println!(
         "{}",
-        json!({"realSymbol":"resolve_exact","status":baseline["state"],
+        json!({"realSymbol":"sync_workspace_all","status":baseline["state"],
         "edges":baseline["data"]["graph"]["edges"].as_array().unwrap().len()})
     );
 
@@ -269,8 +287,9 @@ fn real_core_copy_lifecycle_without_node() {
     assert_ne!(missing["data"]["focus"]["status"], "resolved");
     let (rebuilt, _) = cli(&exe, root.path(), "--reindex");
     assert_eq!(rebuilt["changedFilesCommitted"], files);
-    let after = explore(&app, "resolve_exact", false);
+    let after = explore(&app, "sync_workspace_all", false);
     assert_eq!(after["state"], "ok", "{after}");
+    assert_sync_workspace_relation(&after);
     println!(
         "{}",
         json!({"acceptance":"passed","addedModifiedDeleted":true,
