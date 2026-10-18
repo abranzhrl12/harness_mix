@@ -234,7 +234,7 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
         let blocked = server.request(
             4,
             "tools/call",
-            json!({"name":"harness_sql_status","arguments":{}}),
+            json!({"name":"harness_sql","arguments":{"action":"status"}}),
         );
         assert!(
             blocked.get("error").is_some() || blocked["result"]["isError"] == true,
@@ -254,7 +254,7 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
             "tools/call",
             json!({"name":"harness_batch","arguments":{"jobs":[
                 {"tool":"harness_read","arguments":{"path":"example.txt","start":1,"end":1}},
-                {"tool":"harness_sql_status","arguments":{}}
+                {"tool":"harness_sql","arguments":{"action":"status"}}
             ]}}),
         );
         assert_eq!(
@@ -1048,8 +1048,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
     assert!(names.contains(&"harness_logs"));
-    assert!(names.contains(&"harness_sql_status") && names.contains(&"harness_sql_search"));
-    assert!(names.contains(&"harness_sql_describe") && names.contains(&"harness_sql_query"));
+    assert!(names.contains(&"harness_sql"));
+    assert!(!names.iter().any(|name| name.starts_with("harness_sql_")));
     assert!(names.contains(&"harness_xlsx_inspect") && names.contains(&"harness_xlsx_read"));
     assert!(names.contains(&"harness_svg"));
     let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));

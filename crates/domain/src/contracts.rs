@@ -360,14 +360,8 @@ pub enum BatchTool {
     GitStatus,
     #[serde(rename = "harness_git_diff")]
     GitDiff,
-    #[serde(rename = "harness_sql_status")]
-    SqlStatus,
-    #[serde(rename = "harness_sql_search")]
-    SqlSearch,
-    #[serde(rename = "harness_sql_describe")]
-    SqlDescribe,
-    #[serde(rename = "harness_sql_query")]
-    SqlQuery,
+    #[serde(rename = "harness_sql")]
+    Sql,
     #[serde(rename = "harness_xlsx_inspect")]
     XlsxInspect,
     #[serde(rename = "harness_xlsx_read")]
@@ -405,10 +399,8 @@ impl BatchJob {
             BatchTool::Detail => serde_json::from_value(value).map(Request::Detail),
             BatchTool::GitStatus => serde_json::from_value(value).map(Request::GitStatus),
             BatchTool::GitDiff => serde_json::from_value(value).map(Request::GitDiff),
-            BatchTool::SqlStatus => serde_json::from_value(value).map(Request::SqlStatus),
-            BatchTool::SqlSearch => serde_json::from_value(value).map(Request::SqlSearch),
-            BatchTool::SqlDescribe => serde_json::from_value(value).map(Request::SqlDescribe),
-            BatchTool::SqlQuery => serde_json::from_value(value).map(Request::SqlQuery),
+            BatchTool::Sql => serde_json::from_value::<crate::sql::SqlArgs>(value)
+                .map(crate::sql::SqlArgs::into_request),
             BatchTool::XlsxInspect => serde_json::from_value(value).map(Request::XlsxInspect),
             BatchTool::XlsxRead => serde_json::from_value(value).map(Request::XlsxRead),
             BatchTool::Svg => serde_json::from_value(value).map(Request::Svg),
@@ -537,10 +529,9 @@ impl Request {
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) => "harness_git_status",
             Self::GitDiff(_) => "harness_git_diff",
-            Self::SqlStatus(_) => "harness_sql_status",
-            Self::SqlSearch(_) => "harness_sql_search",
-            Self::SqlDescribe(_) => "harness_sql_describe",
-            Self::SqlQuery(_) => "harness_sql_query",
+            Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
+                "harness_sql"
+            }
             Self::XlsxInspect(_) => "harness_xlsx_inspect",
             Self::XlsxRead(_) => "harness_xlsx_read",
             Self::Svg(_) => "harness_svg",

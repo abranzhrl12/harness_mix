@@ -28,10 +28,11 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_regression | node |
 | harness_replace | node, rust |
 | harness_search | node, rust |
-| harness_sql_describe | node, rust |
-| harness_sql_query | node, rust |
-| harness_sql_search | node, rust |
-| harness_sql_status | node, rust |
+| harness_sql | rust |
+| harness_sql_describe | node |
+| harness_sql_query | node |
+| harness_sql_search | node |
+| harness_sql_status | node |
 | harness_svg | node, rust |
 | harness_tasks | node, rust |
 | harness_verify | node, rust |

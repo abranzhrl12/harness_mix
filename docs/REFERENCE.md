@@ -208,7 +208,7 @@ y `harness_replace` en Windows. También `harness_outline` y `harness_read_symbo
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git_status`, `harness_git_diff`, `harness_doctor`, `harness_batch`
 y `harness_logs`, `harness_config`, `harness_external_scope` y `harness_explore`
-y las 4 herramientas SQL Server nativas (harness_sql_status, harness_sql_search, harness_sql_describe, harness_sql_query) con TDS/Tiberius directo (22 herramientas).
+y la herramienta SQL Server nativa `harness_sql` con TDS/Tiberius directo y cuatro acciones (`status`, `search`, `describe`, `query`) seleccionadas con el campo `action`.
 
 ## Configuración XML/JSON redactada
 

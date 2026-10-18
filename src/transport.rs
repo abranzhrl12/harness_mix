@@ -462,46 +462,15 @@ impl McpHarness {
         self.call(Request::Verify(args), context).await
     }
 
-    #[tool(description = "Diagnóstico y estado de la conexión a SQL Server de solo lectura.")]
-    async fn harness_sql_status(
-        &self,
-        Parameters(args): Parameters<harness_domain::sql::SqlStatusArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::SqlStatus(args), context).await
-    }
-
     #[tool(
-        description = "Búsqueda en catálogo SQL Server (tablas, vistas, columnas, procedimientos, funciones)."
+        description = "SQL Server de solo lectura. action=status diagnostica la conexión (connect:true prueba el servidor); action=search {query} busca tablas, vistas, columnas, procedimientos o funciones (objectType, schema, limit opcionales); action=describe {name} describe un objeto exacto descubierto con search (kind, sections opcionales); action=query {sql} ejecuta un SELECT validado con límite de filas y caracteres (parameters opcional). Cero filas no prueba ausencia: revisar base, esquema, nombre y visibilidad del catálogo con action=status antes de concluir."
     )]
-    async fn harness_sql_search(
+    async fn harness_sql(
         &self,
-        Parameters(args): Parameters<harness_domain::sql::SqlSearchArgs>,
+        Parameters(args): Parameters<harness_domain::sql::SqlArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::SqlSearch(args), context).await
-    }
-
-    #[tool(
-        description = "Describe un objeto exacto descubierto con sql_search. Cero filas no prueba ausencia: revisar base, esquema, nombre y visibilidad del catálogo mediante sql_status antes de concluir."
-    )]
-    async fn harness_sql_describe(
-        &self,
-        Parameters(args): Parameters<harness_domain::sql::SqlDescribeArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::SqlDescribe(args), context).await
-    }
-
-    #[tool(
-        description = "Ejecuta una consulta SELECT validada de solo lectura en SQL Server con límite de filas y caracteres."
-    )]
-    async fn harness_sql_query(
-        &self,
-        Parameters(args): Parameters<harness_domain::sql::SqlQueryArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::SqlQuery(args), context).await
+        self.call(args.into_request(), context).await
     }
 
     #[tool(

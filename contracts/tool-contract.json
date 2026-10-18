@@ -104,14 +104,21 @@
       {
         "need": "SQL discovery",
         "tool": "harness_sql_search",
-        "backends": [
-          "node",
-          "rust"
-        ],
+        "backends": ["node"],
         "defaults": {
           "limit": 10
         },
         "then": "Describe the discovered exact object before a bounded read-only query."
+      },
+      {
+        "need": "SQL discovery",
+        "tool": "harness_sql",
+        "backends": ["rust"],
+        "defaults": {
+          "action": "search",
+          "limit": 10
+        },
+        "then": "Use action=describe on the discovered exact object before a bounded read-only action=query."
       },
       {
         "need": "Run verification in background and follow completion without blocking",
@@ -185,10 +192,7 @@
         "harness_detail",
         "harness_git_status",
         "harness_git_diff",
-        "harness_sql_status",
-        "harness_sql_search",
-        "harness_sql_describe",
-        "harness_sql_query",
+        "harness_sql",
         "harness_xlsx_inspect",
         "harness_xlsx_read",
         "harness_svg"
@@ -386,31 +390,31 @@
       ]
     },
     {
+      "name": "harness_sql",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_sql_describe",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
       "name": "harness_sql_query",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
       "name": "harness_sql_search",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
       "name": "harness_sql_status",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {

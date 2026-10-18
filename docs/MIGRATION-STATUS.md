@@ -47,7 +47,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | `harness_git_diff` | Implementado | Archivo concreto, staged/worktree y eliminados; sin filtros externos |
 | `harness_doctor` | Implementado | Diagnóstico local, versiones opcionales y conectividad real SQL Server (`connection=true`) integrada |
 | `harness_batch` | Implementado | 1..4 lecturas concurrentes; soporta archivos, símbolos, Git, herramientas SQL y XLSX |
-| `harness_sql_*` | Implementado | TDS nativo directo con Tiberius; 4 herramientas (`status`, `search`, `describe`, `query`) de solo lectura auditada, tipos extendidos (Decimal/DateTime) y truncamiento acotado |
+| `harness_sql` | Implementado | TDS nativo directo con Tiberius; una herramienta con `action` = `status`, `search`, `describe` o `query`, de solo lectura auditada, tipos extendidos (Decimal/DateTime) y truncamiento acotado |
 | `harness_xlsx_*` | Implementado | Inspección (`harness_xlsx_inspect`) y lectura paginada/acotada (`harness_xlsx_read`) nativa con calamine y SHA-256 |
 | harness_svg | Implementado | Modos inspect y preview (rasterizacion PNG con resvg), seguridad y cuotas |
 | harness_handover | Implementado | Renderizado puro en dominio de resumen/ADR/PR, preview acotado a 1600 caracteres o publicacion atomica con control SHA-256 |

@@ -59,6 +59,34 @@ pub struct SqlQueryArgs {
     pub session: Option<String>,
 }
 
+/// Unified SQL Server tool. `action` selects the operation and its required fields:
+/// status {connect?}, search {query, objectType?, schema?, limit?},
+/// describe {name, kind?, sections?}, query {sql, parameters?}.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SqlArgs {
+    Status(SqlStatusArgs),
+    Search(SqlSearchArgs),
+    Describe(SqlDescribeArgs),
+    Query(SqlQueryArgs),
+}
+
+impl SqlArgs {
+    /// Maps the unified action to the existing per-operation request, so the
+    /// application layer and adapters keep a single implementation per action.
+    pub fn into_request(self) -> crate::contracts::Request {
+        use crate::contracts::Request;
+        match self {
+            Self::Status(args) => Request::SqlStatus(args),
+            Self::Search(args) => Request::SqlSearch(args),
+            Self::Describe(args) => Request::SqlDescribe(args),
+            Self::Query(args) => Request::SqlQuery(args),
+        }
+    }
+}
+
 /// Conservative preflight read-only validator for T-SQL queries.
 /// Replicates the strict rules of sql-readonly.cjs.
 pub fn assert_sql_read_only(sql: &str) -> Result<(), (&'static str, &'static str)> {
@@ -255,4 +283,78 @@ pub fn assert_sql_read_only(sql: &str) -> Result<(), (&'static str, &'static str
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod unified_tool_tests {
+    use super::*;
+    use crate::contracts::Request;
+    use serde_json::json;
+
+    fn parse(value: serde_json::Value) -> Result<SqlArgs, serde_json::Error> {
+        serde_json::from_value(value)
+    }
+
+    #[test]
+    fn each_action_maps_to_its_existing_request() {
+        let cases = [
+            (json!({"action":"status"}), "status"),
+            (json!({"action":"status","connect":true}), "status"),
+            (json!({"action":"search","query":"cliente","limit":5}), "search"),
+            (json!({"action":"describe","name":"dbo.Cliente"}), "describe"),
+            (json!({"action":"query","sql":"SELECT 1"}), "query"),
+        ];
+        for (value, action) in cases {
+            let request = parse(value).unwrap().into_request();
+            let matches = match (&request, action) {
+                (Request::SqlStatus(_), "status") => true,
+                (Request::SqlSearch(_), "search") => true,
+                (Request::SqlDescribe(_), "describe") => true,
+                (Request::SqlQuery(_), "query") => true,
+                _ => false,
+            };
+            assert!(matches, "action {action}");
+            assert_eq!(request.name(), "harness_sql");
+        }
+    }
+
+    #[test]
+    fn rejects_missing_required_fields_per_action() {
+        assert!(parse(json!({"action":"query"})).is_err());
+        assert!(parse(json!({"action":"search"})).is_err());
+        assert!(parse(json!({"action":"describe"})).is_err());
+        assert!(parse(json!({})).is_err());
+        assert!(parse(json!({"action":"drop"})).is_err());
+    }
+
+    #[test]
+    fn rejects_fields_that_belong_to_another_action() {
+        assert!(parse(json!({"action":"status","sql":"SELECT 1"})).is_err());
+        assert!(parse(json!({"action":"query","sql":"SELECT 1","query":"x"})).is_err());
+        assert!(parse(json!({"action":"search","query":"x","unknown":1})).is_err());
+    }
+
+    #[test]
+    fn accepts_session_in_every_action() {
+        for value in [
+            json!({"action":"status","session":"s"}),
+            json!({"action":"search","query":"x","session":"s"}),
+            json!({"action":"describe","name":"x","session":"s"}),
+            json!({"action":"query","sql":"SELECT 1","session":"s"}),
+        ] {
+            assert!(parse(value).is_ok());
+        }
+    }
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn schema_is_an_object_with_one_branch_per_action() {
+        let schema = serde_json::to_value(schemars::schema_for!(SqlArgs)).unwrap();
+        assert_eq!(schema["type"], "object", "MCP requires a root object schema");
+        let text = schema.to_string();
+        for action in ["status", "search", "describe", "query"] {
+            assert!(text.contains(&format!("\"{action}\"")), "schema lacks {action}");
+        }
+        assert!(schema.get("oneOf").is_some() || schema.get("anyOf").is_some());
+    }
 }
