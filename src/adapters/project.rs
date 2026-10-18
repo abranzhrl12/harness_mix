@@ -68,6 +68,15 @@ impl Project {
     }
 
     fn resolve_target(&self, relative: &str, allow_missing: bool) -> Result<PathBuf, Failure> {
+        self.resolve_target_mode(relative, allow_missing, false)
+    }
+
+    fn resolve_target_mode(
+        &self,
+        relative: &str,
+        allow_missing: bool,
+        credential: bool,
+    ) -> Result<PathBuf, Failure> {
         if relative.is_empty()
             || relative.contains([':', '\0'])
             || relative.starts_with(['/', '\\'])
@@ -99,8 +108,7 @@ impl Project {
                     {
                         return Err(("PATH", "alias o dispositivo Windows no admitido"));
                     }
-                    if name == ".env"
-                        || name.starts_with(".env.")
+                    if (!credential && (name == ".env" || name.starts_with(".env.")))
                         || ["credential", "credentials", "secret", "secrets"].contains(&base)
                         || [
                             "id_rsa",
@@ -187,6 +195,25 @@ impl Project {
     ) -> Result<Vec<u8>, Failure> {
         self.input_bytes(relative, context, limit, true)
     }
+
+    /// Internal credential resolution only. Normal read/config/search tools cannot use this path.
+    pub(super) fn credential_bytes(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+    ) -> Result<Option<Vec<u8>>, Failure> {
+        if self.external || self.single_file.is_some() {
+            return Err((
+                "PATH",
+                "Credential fallback is available only inside the primary project",
+            ));
+        }
+        let path = self.resolve_target_mode(relative, true, true)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        self.read_input_path(path, context, 64 * 1024).map(Some)
+    }
     fn input_bytes(
         &self,
         relative: &str,
@@ -203,6 +230,16 @@ impl Project {
         let limit = limit.min(MAX_FILE);
         context.check()?;
         let path = self.target(relative)?;
+        self.read_input_path(path, context, limit)
+    }
+
+    fn read_input_path(
+        &self,
+        path: PathBuf,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Vec<u8>, Failure> {
+        context.check()?;
         #[cfg(windows)]
         let _pins = if self.external {
             Some(super::edit_commit::pin_directory(

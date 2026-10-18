@@ -24,18 +24,16 @@ pub(super) fn resolve(
         Err(std::env::VarError::NotPresent) => {}
     }
     if let Some(file) = file {
-        let target = project.target_optional(file).map_err(|_| ENV_FILE)?;
-        if target.exists() {
-            let bytes =
-                project
-                    .bytes_with_limit(file, context, 64 * 1024)
-                    .map_err(|(code, _)| {
-                        if matches!(code, "CANCELLED" | "TIMEOUT") {
-                            (code, "Credential lookup interrupted")
-                        } else {
-                            ENV_FILE
-                        }
-                    })?;
+        if let Some(bytes) = project
+            .credential_bytes(file, context)
+            .map_err(|(code, _)| {
+                if matches!(code, "CANCELLED" | "TIMEOUT") {
+                    (code, "Credential lookup interrupted")
+                } else {
+                    ENV_FILE
+                }
+            })?
+        {
             let text = std::str::from_utf8(&bytes).map_err(|_| ENV_FILE)?;
             if let Some(value) = parse(text, name)? {
                 return Ok(value);
@@ -48,7 +46,7 @@ pub(super) fn resolve(
     ))
 }
 
-fn parse(text: &str, name: &str) -> Result<Option<String>, Failure> {
+pub(super) fn parse(text: &str, name: &str) -> Result<Option<String>, Failure> {
     let mut found = None;
     for line in text.trim_start_matches('\u{feff}').lines() {
         let line = line.trim();

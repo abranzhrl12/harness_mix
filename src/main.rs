@@ -11,11 +11,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --init-index            Crear un índice nuevo\n  --sync                 Sincronizar el índice existente\n  --reindex              Reextraer el índice existente\n  --sync-plan            Mostrar un plan sin modificar el índice\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda"
         );
+        println!(
+            "\nConfiguración opcional: --init-config crea .agents/harness.config.json sin sobrescribir. SQL funciona sin JSON usando una cadena en .env o variables de entorno."
+        );
         return Ok(());
     }
     if collected.first().is_some_and(|flag| {
         [
             "--init-index",
+            "--init-config",
             "--sync",
             "--reindex",
             "--sync-plan",
@@ -30,6 +34,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             0..0,
             [std::ffi::OsString::from("--root"), root.into_os_string()],
         );
+    }
+    if let [flag, root, option] = collected.as_slice()
+        && flag == "--root"
+        && option == "--init-config"
+    {
+        let result = agent_harness::adapters::database_setup::initialize(&PathBuf::from(root))
+            .map_err(|(code, message)| format!("{code}: {message}"))?;
+        println!("{}", result);
+        return Ok(());
     }
     if let [root_flag, root, sync_flag, relative, config_flag, config] = collected.as_slice()
         && root_flag == "--root"

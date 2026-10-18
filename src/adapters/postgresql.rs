@@ -91,14 +91,23 @@ fn load(project: &Project) -> Result<Option<Config>, Failure> {
     let path = project.target_optional(".agents/harness.config.json")?;
     let bytes = match std::fs::read(&path) {
         Ok(bytes) if bytes.len() <= 1024 * 1024 => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => b"{}".to_vec(),
         _ => return Err(CONFIG),
     };
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| CONFIG)?;
-    let Some(pg) = value.get("postgresql") else {
-        return Ok(None);
+    let pg = match value.get("postgresql") {
+        Some(pg) => pg.clone(),
+        None => match super::sql_discovery::discover(
+            project,
+            Some(harness_domain::sql::SqlEngine::Postgresql),
+        )? {
+            Some((_, name)) => {
+                json!({"enabled":true,"connection":{"source":"environment","name":name}})
+            }
+            None => return Ok(None),
+        },
     };
-    let mut config: Config = serde_json::from_value(pg.clone()).map_err(|_| CONFIG)?;
+    let mut config: Config = serde_json::from_value(pg).map_err(|_| CONFIG)?;
     config.fingerprint = harness_domain::hash(&bytes);
     if !(1..=200).contains(&config.max_rows)
         || !(1000..=32000).contains(&config.max_chars)
@@ -373,6 +382,7 @@ async fn catalog(
           (rows.values, rows.truncated, statement_reused, prepare_ms, read_started.elapsed().as_secs_f64() * 1000.0)
         };
         Ok(json!({"engine":"postgresql","results":rows,"truncated":truncated,
+            "tlsMode":config.tls.mode,"transportEncrypted":config.tls.mode=="verify-full",
             "count":rows.len(),"readOnly":true,"visibility":"connected_role_and_allowed_schemas",
             "connectionReused":reused,"statementReused":statement_reused,"resultCache":false,
             "protocolExchanges":if statement_reused {1} else {2},
@@ -424,10 +434,14 @@ pub(super) fn status(
         "workflow":{"discover":"search","inspect":"describe","parallelTool":"harness_batch","maxJobs":4,"maxConcurrent":2,"arbitraryQuerySupported":false},
         "connectionPooling":{"enabled":true,"maxConnections":pool::CAPACITY,"idleSeconds":60,"maxLifetimeSeconds":300}});
     result["setup"] = super::sql_policy::configuration_guide("postgresql");
-    result["transportEncrypted"] = json!(config.tls.mode == "verify-full");
+    result["transportEncrypted"] = if config.tls.mode == "verify-full" {
+        Value::Null
+    } else {
+        json!(false)
+    };
     if config.tls.mode != "verify-full" {
         result["securityWarning"] = json!(
-            "TLS is disabled: database traffic is not encrypted; enable tls.mode=verify-full for encryption and certificate validation"
+            "PostgreSQL TLS is disabled; direct remote traffic is unencrypted. Enable tls.mode=verify-full for encryption and certificate validation"
         );
     }
     result["credentialPrecedence"] = json!(["process_environment", "project_dotenv_if_configured"]);
@@ -458,6 +472,7 @@ pub(super) fn status(
         )) {
             Ok(probe) if probe["ok"] != false => {
                 result["connected"] = json!(true);
+                result["transportEncrypted"] = json!(config.tls.mode == "verify-full");
                 result["status"] = json!("ready");
                 result["server"] = probe["results"].clone();
                 result["connectionReused"] = probe["connectionReused"].clone();

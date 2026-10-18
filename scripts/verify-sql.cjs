@@ -16,7 +16,8 @@ function cargo(args) {
 
 async function main() {
   await cargo(['--lib', 'adapters::sql']);
-  await cargo(['--test', 'sqlserver', '--test', 'postgresql', '--test', 'postgresql_pool', '--test', 'llm_contract', '--', '--test-threads=1']);
+  await cargo(['--lib', 'adapters::project']);
+  await cargo(['--test', 'sqlserver', '--test', 'postgresql', '--test', 'postgresql_pool', '--test', 'llm_contract', '--test', 'database_setup', '--', '--test-threads=1']);
   if (process.env.HARNESS_SQL_LIVE_TESTS === '1') {
     if (!process.env.HARNESS_SQL_TEST_DSN) throw new Error('Dedicated HARNESS_SQL_TEST_DSN is required');
     await cargo(['--test', 'sqlserver', '--', '--ignored', '--test-threads=1']);

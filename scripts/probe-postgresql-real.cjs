@@ -6,7 +6,9 @@ const net = require('node:net');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 async function main() {
-  const [executable, envFile, outputDirectory] = process.argv.slice(2);
+  const [executable, envFile, outputDirectory, tlsMode = 'disable'] = process.argv.slice(2);
+  if (!['disable', 'verify-full'].includes(tlsMode)) throw new Error('usage');
+  const auto = process.argv.includes('--auto');
   if (!executable || !envFile || !outputDirectory) throw new Error('usage');
   const line = fs.readFileSync(envFile, 'utf8').split(/\r?\n/).find(line => /^\s*(?:export\s+)?HARNESS_SQL_CONNECTION_STRING\s*=/.test(line));
   if (!line) throw new Error('variable_missing');
@@ -24,8 +26,8 @@ async function main() {
   }));
   const output = path.resolve(outputDirectory); fs.mkdirSync(output, { recursive: true });
   const fixture = fs.mkdtempSync(path.join(output, 'readonly-probe-')); fs.mkdirSync(path.join(fixture, '.agents'));
-  fs.writeFileSync(path.join(fixture, '.agents', 'harness.config.json'), JSON.stringify({ postgresql: {
-    enabled: true, timeoutSeconds: 10, connection: { source: 'environment', name: 'HARNESS_SQL_CONNECTION_STRING' }, tls: { mode: 'verify-full' },
+  if (!auto) fs.writeFileSync(path.join(fixture, '.agents', 'harness.config.json'), JSON.stringify({ postgresql: {
+    enabled: true, timeoutSeconds: 10, connection: { source: 'environment', name: 'HARNESS_SQL_CONNECTION_STRING' }, tls: { mode: tlsMode },
   }}));
   const child = spawn(path.resolve(executable), ['--root', fixture], { env: { ...process.env, HARNESS_SQL_CONNECTION_STRING: dsn, HARNESS_INDEX_WATCH: '0' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   child.stderr.resume(); const lines = readline.createInterface({ input: child.stdout }); let seq = 0; const pending = new Map();
@@ -42,7 +44,7 @@ async function main() {
     const envelope = response.structuredContent || JSON.parse(response.content.find(c => c.type === 'text').text);
     return { elapsedMs: performance.now() - start, envelope };
   };
-  const report = { tcpConnectMs: tcp, tlsPolicy: 'verify-full-no-downgrade', harness: [] };
+  const report = { tcpConnectMs: tcp, tlsPolicy: tlsMode, configurationMode: auto ? 'auto-no-json' : 'explicit-json', harness: [] };
   try {
     await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'readonly-pg-diagnostic', version: '1' } });
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
@@ -50,18 +52,20 @@ async function main() {
     const boot = response.structuredContent || JSON.parse(response.content.find(c => c.type === 'text').text);
     const session = boot.data.session;
     for (let i = 0; i < 6; i++) {
-      const { elapsedMs, envelope } = await call({ action: 'status', engine: 'postgresql', connect: true, session });
+      const { elapsedMs, envelope } = await call({ action: 'status', ...(auto ? {} : { engine: 'postgresql' }), connect: true, session });
       report.harness.push({ elapsedMs, state: envelope.state, codes: (envelope.diagnostics || []).map(d => d.code), connectionReused: envelope.data?.connectionReused });
       if (envelope.state !== 'ok') break;
     }
     if (report.harness.every(sample => sample.state === 'ok')) {
       // libpq receives the secret only in its private environment, never in command arguments.
-      uri.searchParams.set('sslmode', 'verify-full');
-      if (!uri.searchParams.has('sslrootcert')) uri.searchParams.set('sslrootcert', 'system');
+      uri.searchParams.set('sslmode', tlsMode);
+      if (tlsMode === 'verify-full' && !uri.searchParams.has('sslrootcert')) uri.searchParams.set('sslrootcert', 'system');
       report.psql = await new Promise(resolve => {
         const start = performance.now(); let stdout = ''; let stderr = ''; let readyMs;
         const process_ = spawn('C:/Program Files/PostgreSQL/18/bin/psql.exe', ['-X', '-w', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1'], {
-          env: { ...process.env, PGDATABASE: uri.toString(), PGCONNECT_TIMEOUT: '10', PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000 -c search_path=pg_catalog', PGAPPNAME: 'harness-readonly-latency-probe' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+          env: { ...process.env, PGHOST: uri.hostname, PGPORT: uri.port || '5432', PGDATABASE: decodeURIComponent(uri.pathname.slice(1)), PGUSER: decodeURIComponent(uri.username), PGPASSWORD: decodeURIComponent(uri.password), PGSSLMODE: tlsMode,
+            ...(tlsMode === 'verify-full' ? { PGSSLROOTCERT: uri.searchParams.get('sslrootcert') || 'system' } : {}),
+            PGCONNECT_TIMEOUT: '10', PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000 -c search_path=pg_catalog', PGAPPNAME: 'harness-readonly-latency-probe' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
         });
         const timer = setTimeout(() => process_.kill(), 20000);
         process_.stdout.on('data', chunk => { stdout += chunk; if (readyMs === undefined && stdout.includes('PROBE_READY')) readyMs = performance.now() - start; });
@@ -75,6 +79,7 @@ async function main() {
     const exited = new Promise(resolve => child.once('exit', resolve)); child.stdin.end(); const timer = setTimeout(() => child.kill(), 3000);
     await exited; clearTimeout(timer); lines.close();
   }
+  report.configurationFileCreated = fs.existsSync(path.join(fixture, '.agents', 'harness.config.json'));
   fs.writeFileSync(path.join(output, 'real-diagnostic.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
 }
 main().catch(error => { console.error(['usage','variable_missing','unresolved_variable_expression','invalid_uri','not_postgresql','tcp_timeout','tcp_connect_failed','mcp_timeout','mcp_error'].includes(error.message) ? error.message : 'diagnostic_failed_details_withheld'); process.exitCode = 1; });

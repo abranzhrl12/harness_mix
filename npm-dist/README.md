@@ -1,4 +1,4 @@
-# Agent Harness 0.8.1
+# Agent Harness
 
 Native Rust MCP server for Windows x64, distributed with a small Node launcher.
 
@@ -10,6 +10,33 @@ agent-harness --version
 Configure your MCP client to launch `agent-harness` with
 `["--root", "E:/absolute/project/path"]` over stdio. Restart the connection and
 call `harness_bootstrap`, then reuse `data.session` in subsequent tools.
+
+## Database setup: no JSON required
+
+Put one connection string in the project's `.env` (never commit credentials):
+
+```dotenv
+HARNESS_SQL_CONNECTION_STRING=postgresql://USER:PASSWORD@HOST:5432/DATABASE
+```
+
+PostgreSQL URIs (`postgresql://` or `postgres://`) and SQL Server ADO strings
+(`Server=HOST;Database=DATABASE;User ID=USER;Password=PASSWORD`) are detected
+automatically. `HARNESS_PG_CONNECTION_STRING` and `DATABASE_URL` are also supported.
+Existing process environment values take precedence over `.env`. No shell code
+or variable interpolation is evaluated. Detection never opens a database connection.
+
+Global npm installation does not create files in an arbitrary project. If you
+want an optional editable configuration, run this inside the project:
+
+```powershell
+agent-harness --init-config
+```
+
+It creates `.agents/harness.config.json` without credentials and never overwrites
+an existing file. Explicit database configuration overrides auto-detection,
+including disabled engines. When both engines are available, select `engine`.
+PostgreSQL TLS defaults to `disable` as configured by the user: remote traffic is
+not encrypted. Set `tls.mode` to `verify-full` in the optional JSON to require TLS.
 
 This release adds structured SQLite index diagnostics, a larger CLI sync budget,
 compatible parameter aliases and initial PostgreSQL catalog access through
@@ -33,9 +60,9 @@ start arbitrary servers or read arbitrary log paths. Restart MCP after upgrading
 so the client refreshes its tool catalog.
 
 PostgreSQL supports `status`, `search` and column descriptions with `describe`.
-Arbitrary PostgreSQL queries and routine definitions are not enabled. Configure
-`postgresql` in the project's `.agents/harness.config.json`, use an environment
-connection source, and restart MCP. Example (connection value stays outside files):
+Arbitrary PostgreSQL queries and routine definitions are not enabled. The following
+optional advanced JSON example enables certificate-verified TLS (credentials stay
+in the environment or ignored project `.env`, not this JSON):
 
 ```json
 {
@@ -51,8 +78,8 @@ connection source, and restart MCP. Example (connection value stays outside file
 
 PostgreSQL `status` does not open a connection unless `connect:true` is supplied.
 If both database engines are enabled, supply `engine` explicitly. Use a dedicated
-reader role; TLS validates certificates and hostnames. `disable-loopback` is an
-explicit plaintext option only for local test servers. No secrets or databases
+reader role. `verify-full` validates certificates and hostnames; `disable-loopback`
+remains available for restricting plaintext to loopback. No secrets or databases
 are shipped in this package.
 
 Index reads do not certify global freshness or full CodeGraph parity. Read the
@@ -61,8 +88,9 @@ confirmed per-file commits; do not infer workspace rollback.
 
 Third-party notices for the CodeGraph kernel and Rolldown are included.
 
-Version 0.8.1 reuses up to four PostgreSQL connections and prepared catalog
-statements. Only a confirmed rollback returns a session to the pool; failed or
+Harness reuses up to four PostgreSQL connections and prepared catalog
+statements. Only a consumed ReadyForQuery returns a session to the pool; failed or
 cancelled operations discard it. Idle sessions expire, and configuration,
 credentials and CA content isolate connection identities. Query results remain
-live, including permission and schema changes; rows are not cached.
+live by default. Optional schemaCacheSeconds caches describe snapshots with an
+explicit age/TTL and refresh flag; cached permissions and DDL are not revalidated.

@@ -18,7 +18,7 @@ pub(super) fn configuration_guide(engine: &str) -> Value {
         json!({"sqlServer":{"enabled":true,"connection":{"source":"environment"}}})
     };
     json!({"configPath":".agents/harness.config.json","configSection":section,"mergeExample":config,
-        "requiredEnvironmentVariableExample":variable,"secretValuesIncluded":false,
+        "requiredEnvironmentVariableExample":variable,"secretValuesIncluded":false,"configOptional":true,
         "steps":["Merge the example into the existing project configuration; preserve other sections",
             "Set the connection variable in the MCP server process environment or configured project dotenv file; never return its value",
             "Use a least-privilege role. PostgreSQL TLS defaults to disable; set tls.mode=verify-full for encryption and certificate validation",
@@ -28,7 +28,7 @@ pub(super) fn configuration_guide(engine: &str) -> Value {
 
 pub(super) fn not_configured(engine: &str) -> Value {
     json!({"engine":engine,"configured":false,"connected":false,"status":"not_configured",
-        "diagnostics":[{"code":"SQL_NOT_CONFIGURED","message":"Enable the selected engine in .agents/harness.config.json; follow setup, then explicitly verify the connection"}],
+        "diagnostics":[{"code":"SQL_NOT_CONFIGURED","message":"Set a supported connection string in HARNESS_SQL_CONNECTION_STRING, HARNESS_PG_CONNECTION_STRING or DATABASE_URL (process environment or project .env); JSON is optional. Explicit disabled engines remain disabled.","requiredAction":"set_connection_variable","retryable":false}],
         "setup":configuration_guide(engine),"availableEngines":["sqlserver","postgresql"],
         "engineSelection":"Use engine=postgresql explicitly for PostgreSQL; its configuration section is postgresql, not postgres"})
 }

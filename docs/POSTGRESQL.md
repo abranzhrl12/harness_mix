@@ -5,7 +5,15 @@ The first implementation supports status, catalog search and column descriptions
 Arbitrary queries, routine definitions, defaults, comments, constraints and index
 descriptions are not enabled in this release. SQL Server remains supported.
 
-Add a `postgresql` section to `.agents/harness.config.json`:
+For the basic flow, no JSON is required: put HARNESS_SQL_CONNECTION_STRING,
+HARNESS_PG_CONNECTION_STRING or DATABASE_URL in the process environment or the
+project's `.env`. PostgreSQL URIs and SQL Server ADO strings are detected without
+connecting. Explicit JSON sections override discovery, including enabled:false.
+`agent-harness --init-config` optionally generates project configuration without
+credentials and never overwrites an existing file. Global npm install itself
+does not modify a project. `database.autoDetect:false` disables discovery.
+
+For advanced options, add a `postgresql` section to `.agents/harness.config.json`:
 
 ```json
 {
@@ -22,9 +30,16 @@ Add a `postgresql` section to `.agents/harness.config.json`:
 }
 ```
 
-Set the connection string in the MCP process environment, then reconnect the
-client. Do not commit the value. TLS validates the certificate chain and hostname
-using native platform trust. An optional `tls.caFile` must be a workspace-relative
+Process environment values take precedence over the configured project dotenv
+file (`connection.envFile`, default `.env`; null disables fallback). Only the named
+variable is loaded, without modifying the process environment. Dotenv is bounded
+to 64 KiB, UTF-8, single-line values, no shell execution or variable expansion;
+duplicates are rejected. Never commit credentials. PostgreSQL TLS now defaults
+to `disable`, including remote hosts, with a visible securityWarning in status.
+This is an intentional compatibility/security change. To require encryption,
+set tls.mode=verify-full as in the example above; there is no plaintext fallback
+when that mode is selected. TLS then validates the chain and hostname using
+native platform trust. An optional `tls.caFile` must be a workspace-relative
 PEM certificate path (at most 256 KiB). `disable-loopback` permits plaintext only
 for explicit localhost/loopback hosts; it cannot be combined with a CA file.
 Host-address overrides are rejected to avoid bypassing this restriction.
@@ -38,8 +53,9 @@ are not proof that an object does not exist.
 {"action":"status","engine":"postgresql","connect":false}
 ```
 
-`connect:false` (the default for both engines) checks configuration without reading the
-connection environment variable or opening a network connection. `connect:true`
+`connect:false` (the default for both engines) never opens a network connection.
+Auto-discovery reads local connection strings solely to determine the engine;
+explicit configurations do not resolve credentials in this status mode. `connect:true`
 probes the database and reports sanitized failure codes. If both SQL Server and
 PostgreSQL are enabled, every SQL operation must select an engine explicitly.
 

@@ -75,6 +75,7 @@ pub struct SqlConfig {
     pub connection_source: String,
     pub connection_path: Option<String>,
     pub connection_name: Option<String>,
+    pub env_file: Option<String>,
     pub max_rows: usize,
     pub timeout_seconds: u64,
     pub max_chars: usize,
@@ -90,6 +91,7 @@ impl Default for SqlConfig {
             connection_source: "webConfig".into(),
             connection_path: Some("Web.config".into()),
             connection_name: Some("EFAST".into()),
+            env_file: Some(".env".into()),
             max_rows: 50,
             timeout_seconds: 15,
             max_chars: 8000,
@@ -101,14 +103,14 @@ impl Default for SqlConfig {
 pub fn load_sql_config(project: &Project) -> SqlConfig {
     let config_path = project.root.join(".agents/harness.config.json");
     let Ok(bytes) = std::fs::read(config_path) else {
-        return SqlConfig::default();
+        return auto_config(project);
     };
     let Ok(val) = serde_json::from_slice::<Value>(&bytes) else {
         return SqlConfig::default();
     };
 
     let Some(sql_val) = val.get("sqlServer") else {
-        return SqlConfig::default();
+        return auto_config(project);
     };
 
     let enabled = sql_val
@@ -167,6 +169,11 @@ pub fn load_sql_config(project: &Project) -> SqlConfig {
         connection_source,
         connection_path,
         connection_name,
+        env_file: match conn.and_then(|c| c.get("envFile")) {
+            Some(Value::Null) => None,
+            Some(Value::String(file)) => Some(file.clone()),
+            _ => Some(".env".into()),
+        },
         max_rows,
         timeout_seconds,
         max_chars,
@@ -174,27 +181,23 @@ pub fn load_sql_config(project: &Project) -> SqlConfig {
     }
 }
 
+fn auto_config(project: &Project) -> SqlConfig {
+    let mut config = SqlConfig::default();
+    if let Ok(Some((_, name))) =
+        super::sql_discovery::discover(project, Some(harness_domain::sql::SqlEngine::SqlServer))
+    {
+        config.enabled = true;
+        config.connection_source = "environment".into();
+        config.connection_name = Some(name);
+    }
+    config
+}
+
 /// Extract connection string from Web.config or environment
 pub fn resolve_connection_string(project: &Project, config: &SqlConfig) -> Result<String, Failure> {
     if config.connection_source == "environment" {
-        if let Ok(val) = std::env::var("HARNESS_SQL_CONNECTION_STRING") {
-            return Ok(val);
-        }
-        // Fallback: check project root .env if not injected into process env
-        let env_path = project.root.join(".env");
-        if let Ok(content) = std::fs::read_to_string(env_path) {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if let Some(rest) = trimmed.strip_prefix("HARNESS_SQL_CONNECTION_STRING=") {
-                    let cleaned = rest.trim().trim_matches('"').trim_matches('\'');
-                    return Ok(cleaned.to_string());
-                }
-            }
-        }
-        return Err((
-            "SQL_CONFIG",
-            "Variable de entorno HARNESS_SQL_CONNECTION_STRING no definida ni encontrada en .env",
-        ));
+        return super::sql_credentials::resolve(project, config.connection_name.as_deref().unwrap_or("HARNESS_SQL_CONNECTION_STRING"), config.env_file.as_deref(), &OperationContext::default())
+            .map_err(|(code, _)| match code { "CANCELLED" | "TIMEOUT" => (code, "Credential lookup interrupted"), _ => ("SQL_CONFIG", "Set the selected SQL Server connection variable in the process environment or configured project dotenv file") });
     }
 
     let rel_path = config.connection_path.as_deref().unwrap_or("Web.config");

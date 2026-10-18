@@ -43,6 +43,7 @@ pub mod index_store {
     }
 }
 pub mod data_query;
+pub mod database_setup;
 pub mod diagnostics;
 pub mod handover;
 pub mod index_sync;
@@ -58,6 +59,7 @@ mod session_workflow;
 mod sessions;
 pub mod sql;
 mod sql_credentials;
+mod sql_discovery;
 mod sql_policy;
 mod sql_schema_cache;
 pub mod svg;

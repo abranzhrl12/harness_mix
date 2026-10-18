@@ -98,7 +98,7 @@ fn postgres_setup_is_actionable_without_credentials_or_network() {
     assert_eq!(result["data"]["setup"]["configSection"], "postgresql");
     assert_eq!(
         result["data"]["setup"]["mergeExample"]["postgresql"]["tls"]["mode"],
-        "verify-full"
+        "disable"
     );
     assert_eq!(result["diagnostics"][0]["code"], "SQL_NOT_CONFIGURED");
     let root = setup(json!({"enabled":true,"schemaCacheSeconds":301}), false);
@@ -317,7 +317,7 @@ fn postgres_live_tls_catalog_and_certificate_rejection() {
     let changed_ca = call(root.path(), json!({"action":"status","connect":true}));
     assert_eq!(changed_ca["state"], "error", "{changed_ca}");
     let untrusted = setup(
-        json!({"enabled":true,"connection":{"source":"environment","name":"HARNESS_PG_TEST_DSN"}}),
+        json!({"enabled":true,"tls":{"mode":"verify-full"},"connection":{"source":"environment","name":"HARNESS_PG_TEST_DSN"}}),
         false,
     );
     let failed = call(untrusted.path(), json!({"action":"status","connect":true}));
