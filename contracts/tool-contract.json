@@ -30,9 +30,9 @@
           "rust"
         ],
         "defaults": {
-          "view": "summary",
-          "maxFiles": 1,
-          "maxChars": 2000,
+          "view": "full",
+          "maxFiles": 4,
+          "maxChars": 12000,
           "requireMatchingFiles": true
         },
         "then": "Disambiguate with filePath; project missing graph fields with resultRef=detail.ref."
@@ -406,7 +406,8 @@
       "properties": {
         "query": {
           "type": "string",
-          "maxLength": 2000
+          "maxLength": 2000,
+          "description": "Rust: 1..4 whitespace-separated exact identifiers; explicit symbol overrides query. Use multiple names to inspect a flow; this is not natural-language or fuzzy search."
         },
         "symbol": {
           "type": "string",
@@ -419,7 +420,7 @@
             "summary",
             "full"
           ],
-          "description": "summary: signatures and graph counts; full graph remains in detail for resultRef projections. full preserves the legacy response."
+          "description": "summary: target signatures and graph counts; full graph remains in detail. full (default): numbered target bodies plus at most four direct-call neighbors, unique caller/test-file hints and explicit omissions. Related bodies are budgeted; not exhaustive impact."
         },
         "filePath": {
           "type": "string",

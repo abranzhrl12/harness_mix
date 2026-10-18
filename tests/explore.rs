@@ -9,6 +9,83 @@ use harness_domain::{
 use rusqlite::params;
 use serde_json::{Value, json};
 
+
+#[test]
+#[ignore = "opt-in retrieval comparison against an existing index; no synchronization"]
+fn compare_context_on_existing_index() {
+    let root = std::path::PathBuf::from(std::env::var_os("HARNESS_CODEGRAPH_ROOT").expect("HARNESS_CODEGRAPH_ROOT"));
+    let app = adapters::application(&root).unwrap();
+    for query in ["sync_workspace_all", "synchronized", "sync_workspace_all synchronized"] {
+        let started = std::time::Instant::now();
+        let result = explore(&app, query);
+        let text = result["data"]["text"].as_str().unwrap_or("");
+        println!("{}", json!({
+            "query": query, "elapsedMs": started.elapsed().as_millis(),
+            "state": result["state"], "diagnostics": result["diagnostics"],
+            "textChars": text.chars().count(),
+            "definitions": result["data"]["definitions"],
+            "nodes": result["data"]["graph"]["nodes"].as_array().map(Vec::len),
+            "edges": result["data"]["graph"]["edges"].as_array().map(Vec::len),
+            "freshness": result["data"]["fileFreshness"]["status"],
+            "preview": text.chars().take(1800).collect::<String>()
+        }));
+    }
+}
+
+
+#[test]
+fn context_includes_direct_callees_and_callers_and_accepts_multiple_names() {
+    let root = tempfile::tempdir().unwrap();
+    drop(graph_fixture::fixture(root.path()));
+    let app = adapters::application(root.path()).unwrap();
+    let result = explore(&app, "target");
+    assert_eq!(result["state"], "ok", "{result}");
+    let definitions = result["data"]["definitions"].as_array().unwrap();
+    assert!(definitions.iter().any(|d| d["symbol"]["name"] == "callee" && d["role"] == "related"));
+    assert!(definitions.iter().any(|d| d["symbol"]["name"] == "caller" && d["role"] == "related"));
+    let text = result["data"]["text"].as_str().unwrap();
+    assert!(text.contains("unique direct callers"));
+    assert!(text.contains("pub fn callee()"));
+    let multi = explore(&app, "target callee target");
+    assert_eq!(multi["state"], "ok", "{multi}");
+    assert_eq!(multi["data"]["contextSelection"]["requestedSymbols"], json!(["callee", "target"]));
+    assert_eq!(multi["data"]["definitions"].as_array().unwrap().iter().filter(|d| d["role"] == "target").count(), 2);
+    let mut summary = args("target");
+    summary.view = Some(harness_domain::contracts::ExploreView::Summary);
+    let compact = app.execute(Request::Explore(summary));
+    assert_eq!(compact["data"]["contextSelection"]["relatedReturned"], 0);
+    assert!(!compact["data"]["text"].as_str().unwrap().contains("pub fn callee()"));
+    assert_eq!(explore(&app, "a b c d e")["state"], "error");
+}
+
+
+#[test]
+fn context_caps_related_bodies_and_deduplicates_only_presentation() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    let mut source = std::fs::read_to_string(root.path().join("lib.rs")).unwrap();
+    for n in 0..6 {
+        let name = format!("neighbor{n}");
+        source.push_str(&format!("pub fn {name}() {{ target(); }}\n"));
+        db.execute("INSERT INTO nodes VALUES(?1,?1,'function','lib.rs',?2)", params![name, n + 4]).unwrap();
+        db.execute("INSERT INTO edges(source,target,kind) VALUES(?1,'t','calls')", [&name]).unwrap();
+    }
+    db.execute("INSERT INTO edges(source,target,kind) VALUES('c','t','calls')", []).unwrap();
+    std::fs::write(root.path().join("lib.rs"), &source).unwrap();
+    db.execute("UPDATE files SET content_hash=?1 WHERE path='lib.rs'", [harness_domain::hash(source.as_bytes())]).unwrap();
+    drop(db);
+    let app = adapters::application(root.path()).unwrap();
+    let result = explore(&app, "target");
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["contextSelection"]["relatedReturned"], 4);
+    assert_eq!(result["data"]["contextSelection"]["relatedOmitted"], 4);
+    let text = result["data"]["text"].as_str().unwrap();
+    assert_eq!(text.matches("caller (lib.rs:2) → target").count(), 1);
+    assert!(text.contains("7 unique direct callers"));
+    assert!(text.contains("related symbols omitted"));
+    assert_eq!(result["data"]["graph"]["edges"].as_array().unwrap().iter().filter(|e| e["source"] == "c" && e["kind"] == "calls").count(), 2);
+}
+
 fn args(symbol: &str) -> ExploreArgs {
     serde_json::from_value(json!({"query":symbol})).unwrap()
 }
@@ -352,6 +429,12 @@ fn exact_symbol_relations_local_definitions_and_database_remain_read_only() {
     let app = adapters::application(root.path()).unwrap();
     let result = explore(&app, "target");
     assert_eq!(result["state"], "ok", "{result}");
+    let markdown = result["data"]["text"].as_str().unwrap();
+    assert!(markdown.starts_with("**Exploration: target**"));
+    assert!(markdown.contains("**Source Code**"));
+    assert!(markdown.contains("### lib.rs:"));
+    assert!(markdown.contains("\tpub fn target()"));
+    assert!(markdown.contains("**Call paths / blast radius"));
     assert_eq!(result["data"]["focus"]["status"], "resolved");
     assert_eq!(
         result["data"]["graph"]["edges"].as_array().unwrap().len(),
@@ -376,7 +459,9 @@ fn exact_symbol_relations_local_definitions_and_database_remain_read_only() {
     std::fs::write(root.path().join("lib.rs"), "pub fn renamed() {}\n").unwrap();
     let stale = explore(&app, "target");
     assert_eq!(stale["data"]["focus"]["status"], "unresolved");
-    assert_eq!(stale["data"]["unresolved"].as_array().unwrap().len(), 1);
+    let unresolved = stale["data"]["unresolved"].as_array().unwrap();
+    assert_eq!(unresolved.len(), 3);
+    assert_eq!(unresolved.iter().filter(|d| d["role"] == "target" && d["symbol"] == "target").count(), 1);
     assert_eq!(stale["detail"]["complete"], false);
     let absent = explore(&app, "nonexistent");
     assert_eq!(absent["data"]["absenceProven"], false);

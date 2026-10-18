@@ -27,6 +27,40 @@ const BUDGET: Failure = (
     "CodeGraph query exceeded its bounded read budget",
 );
 
+// Pure presentation: no database access, source reads or traversal decisions.
+mod presentation {
+    pub(super) fn header(symbol: &str) -> String {
+        format!("**Exploration: {}**\n\nIndexed relationships; freshness is not certified.\n\n**Source Code**\n", symbol.replace(['\r', '\n'], " "))
+    }
+
+    pub(super) fn source(path: &str, start: u64, body: &str, truncated: bool) -> String {
+        // Pick a fence longer than any backtick run in untrusted source.
+        let fence = "`".repeat(body.split(|c| c != '`').map(str::len).max().unwrap_or(0).max(2) + 1);
+        let numbered = body.lines().enumerate().map(|(offset, line)| {
+            format!("{}\t{line}", start + offset as u64)
+        }).collect::<Vec<_>>().join("\n");
+        let path = path.replace(['\r', '\n', '`'], "_");
+        let notice = if truncated { "\n> Source fragment truncated; use read_symbol for exact code.\n" } else { "" };
+        format!("\n### {path}:{start}\n\n{fence}\n{numbered}\n{fence}\n{notice}")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn numbers_current_source_without_changing_line_content() {
+            let rendered = super::source("a.rs", 7, "fn a() {\r\n    b();\r\n}", false);
+            assert!(rendered.contains("7\tfn a() {\n8\t    b();\n9\t}"));
+            assert!(!rendered.contains("truncated"));
+        }
+        #[test]
+        fn source_cannot_close_its_fence_and_truncation_is_explicit() {
+            let rendered = super::source("a.rs", 1, "```\nhello", true);
+            assert!(rendered.contains("\n````\n1\t```"));
+            assert!(rendered.contains("Source fragment truncated"));
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Node {
@@ -35,6 +69,47 @@ struct Node {
     kind: String,
     file_path: String,
     start_line: i64,
+}
+
+// Selection only: deterministic, bounded, and independent of source rendering.
+fn context_nodes<'a>(targets: &[Node], nodes: &'a BTreeMap<String, Node>, edges: &[Value], max_files: usize) -> (Vec<&'a Node>, usize) {
+    let ids: BTreeSet<_> = targets.iter().map(|n| n.id.as_str()).collect();
+    let mut candidates = BTreeMap::new();
+    for edge in edges.iter().filter(|e| e["kind"] == "calls") {
+        let source = edge["source"].as_str().unwrap_or("");
+        let target = edge["target"].as_str().unwrap_or("");
+        let related = if ids.contains(source) { Some((target, 0)) }
+            else if ids.contains(target) { Some((source, 1)) } else { None };
+        if let Some((id, direction)) = related {
+            if !ids.contains(id) {
+                if let Some(node) = nodes.get(id) {
+                    let test = node.file_path.split('/').any(|p| matches!(p, "tests" | "test")) || node.name.starts_with("test_");
+                    candidates.entry((test, direction, node.file_path.as_str(), node.start_line, id)).or_insert(node);
+                }
+            }
+        }
+    }
+    let mut files: BTreeSet<_> = targets.iter().map(|n| n.file_path.as_str()).collect();
+    let mut selected = Vec::new();
+    let mut seen = BTreeSet::new();
+    // Round-robin files prevents local guards/helpers from consuming every slot
+    // before a cross-file part of the flow. Production still precedes tests.
+    let mut per_file = BTreeMap::<&str, usize>::new();
+    for test_pass in [false, true] {
+        for quota in 1..=4 {
+            for ((is_test, _, _, _, _), node) in &candidates {
+                if *is_test != test_pass || seen.contains(&node.id) || selected.len() >= 4 { continue; }
+                if per_file.get(node.file_path.as_str()).copied().unwrap_or(0) >= quota { continue; }
+                if !files.contains(node.file_path.as_str()) && files.len() >= max_files { continue; }
+                files.insert(node.file_path.as_str());
+                *per_file.entry(node.file_path.as_str()).or_default() += 1;
+                seen.insert(node.id.clone());
+                selected.push(*node);
+            }
+        }
+    }
+    let omitted = candidates.values().map(|n| &n.id).collect::<BTreeSet<_>>().len().saturating_sub(selected.len());
+    (selected, omitted)
 }
 
 fn node(row: &Row<'_>, offset: usize) -> rusqlite::Result<Node> {
@@ -84,8 +159,13 @@ fn identifier(text: &str) -> bool {
         && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
 }
 
+fn query_symbols(args: &ExploreArgs) -> Vec<&str> {
+    if let Some(symbol) = args.symbol.as_deref() { return vec![symbol]; }
+    args.query.split_whitespace().collect::<BTreeSet<_>>().into_iter().collect()
+}
+
 fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
-    let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
+    let symbols = query_symbols(args);
     let max_files = args.max_files.unwrap_or(4);
     let max_chars = args.max_chars.unwrap_or(12000);
     let max_depth = args.max_depth.unwrap_or(1);
@@ -103,15 +183,15 @@ fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
             .as_ref()
             .is_some_and(|p| p.is_empty() || p.len() > 1024 || p.contains('\0'))
         || args.query.contains('\0')
-        || symbol.len() > 256
-        || !identifier(symbol)
+        || symbols.is_empty() || symbols.len() > 4
+        || symbols.iter().any(|symbol| symbol.len() > 256 || !identifier(symbol))
         || !(1..=4).contains(&max_files)
         || !(1000..=16000).contains(&max_chars)
         || !(1..=4).contains(&max_depth)
     {
         return Err((
             "ARGUMENT",
-            "Explore requires symbol or a simple-identifier query; maxFiles 1..4, maxChars 1000..16000, maxDepth 1..4",
+            "Explore requires symbol or 1..4 whitespace-separated identifiers; maxFiles 1..4, maxChars 1000..16000, maxDepth 1..4",
         ));
     }
     Ok(())
@@ -253,14 +333,15 @@ pub(super) fn explore(
         ));
     }
     let query = if has_qualified {
-        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name=?1 COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||?1 COLLATE BINARY OR qualified_name=?4||'.'||?1 COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name IN (SELECT value FROM json_each(?1)) COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||name COLLATE BINARY OR qualified_name=?4||'.'||name COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
     } else {
-        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name=?1 COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL ORDER BY file_path,start_line,id LIMIT 101"
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name IN (SELECT value FROM json_each(?1)) COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL ORDER BY file_path,start_line,id LIMIT 101"
     };
     let mut search = db.prepare(query).map_err(failed)?;
+    let symbol_names = serde_json::to_string(&query_symbols(args)).map_err(|_| CONTRACT)?;
     let mut hits = search
         .query_map(
-            rusqlite::params![symbol, args.file_path, args.symbol_id, args.container],
+            rusqlite::params![symbol_names, args.file_path, args.symbol_id, args.container],
             |r| node(r, 0),
         )
         .map_err(failed)?
@@ -426,18 +507,26 @@ pub(super) fn explore(
     let assessment = super::index_freshness::Assessment::start(project, indexed_files, context)?;
     let mut definitions = Vec::new();
     let mut unresolved = Vec::new();
-    let mut text = format!(
-        "Símbolo: {symbol}\nRelaciones de índice CodeGraph existente; vigencia no certificada.\n"
-    );
-    for file in &files {
+    for name in query_symbols(args) {
+        if !targets.iter().any(|n| n.name == name) {
+            unresolved.push(json!({"symbol":name,"role":"target","code":"TARGET_NOT_RESOLVED","message":"No selected indexed target; not proof of global absence"}));
+        }
+    }
+    let mut text = if summary { format!("Símbolo: {symbol}\nRelaciones indexadas; vigencia no certificada.\n") } else { presentation::header(symbol) };
+    let (related_context, context_omitted) = if summary { (Vec::new(), 0) } else { context_nodes(&targets, &nodes, &edges, max_files) };
+    let related_ids: BTreeSet<_> = related_context.iter().map(|n| n.id.as_str()).collect();
+    let context_targets: Vec<_> = targets.iter().chain(related_context.iter().copied()).collect();
+    for selected in &context_targets {
+        let file = &selected.file_path;
+        let related = related_ids.contains(selected.id.as_str());
         context.check()?;
         let read = symbols::read_symbol(
             project,
             &ReadSymbolArgs {
                 external_scope: None,
                 path: file.clone(),
-                symbol: symbol.into(),
-                container: args.container.clone(),
+                symbol: selected.name.clone(),
+                container: if related { None } else { args.container.clone() },
                 symbol_id: None,
                 view: if summary {
                     Some(harness_domain::contracts::SymbolView::Signature)
@@ -452,22 +541,41 @@ pub(super) fn explore(
             Ok(value) => {
                 let body = if summary { value["symbol"]["signature"].as_str().unwrap_or("") } else { value["text"].as_str().or_else(|| value["_detail"]["text"].as_str()).unwrap_or("") };
                 let remaining = 64000usize.saturating_sub(utf16_len(&text));
-                let preview = prefix(body, remaining.min(if summary {512} else {16000}));
+                let body_budget = if summary { 512 } else if related { 2000 } else { (max_chars / targets.len().max(1)).max(1000).min(16000) };
+                let preview = prefix(body, remaining.min(body_budget));
                 truncated |= utf16_len(body) > utf16_len(preview);
                 definitions_limited |= utf16_len(body) > utf16_len(preview);
-                text.push_str(&format!("\n### {file}\n{preview}\n"));
-                definitions.push(json!({"path":file,"hash":value["hash"],"symbol":value["symbol"]}));
+                if summary {
+                    text.push_str(&format!("\n### {file}\n{preview}\n"));
+                } else {
+                    text.push_str(&presentation::source(file, value["symbol"]["start"].as_u64().unwrap_or(1), preview, utf16_len(body) > utf16_len(preview)));
+                }
+                definitions.push(json!({"path":file,"hash":value["hash"],"symbol":value["symbol"],"role":if related {"related"} else {"target"}}));
             }
             Err((code @ ("CANCELLED" | "TIMEOUT"), message)) => return Err((code, message)),
-            Err((code, _)) => unresolved.push(json!({"path":file,"code":code,"message":"Indexed candidate not resolved by the current local Rust parser"})),
+            Err((code, _)) => unresolved.push(json!({"path":file,"symbol":selected.name,"role":if related {"related"} else {"target"},"code":code,"message":"Indexed candidate not resolved by the current local parser; use outline/read_symbol with an exact selector"})),
         }
+    }
+    if !summary && context_omitted > 0 {
+        text.push_str(&format!("\n> {context_omitted} related symbols omitted by the 4-symbol/file context budget; select a name from graph and call read_symbol.\n"));
     }
     text.push_str(if summary {
         "\nRelaciones indexadas: ver graph.relations; grafo completo en detail.ref.\n"
     } else {
-        "\nRelaciones reportadas por el índice (no verificadas en código actual):\n"
+        "\n**Call paths / blast radius — indexed relationships**\n\nNot execution traces or exhaustive impact; current-source validity is reported in fileFreshness.\n"
     });
-    for edge in edges.iter().take(if summary { 0 } else { 20 }) {
+    let mut relation_keys = BTreeSet::new();
+    let mut visible_edges: Vec<_> = edges.iter().filter(|e| relation_keys.insert((e["source"].to_string(), e["target"].to_string(), e["kind"].to_string()))).collect();
+    visible_edges.sort_by_key(|e| (e["kind"] != "calls", e["source"].to_string(), e["target"].to_string()));
+    if !summary {
+        for selected in &targets {
+            let callers: BTreeSet<_> = visible_edges.iter().filter(|e| e["kind"] == "calls" && e["target"] == selected.id).filter_map(|e| e["source"].as_str()).collect();
+            let tests: BTreeSet<_> = callers.iter().filter_map(|id| nodes.get(*id)).filter(|n| n.file_path.split('/').any(|p| matches!(p, "tests" | "test")) || n.name.starts_with("test_")).map(|n| n.file_path.as_str()).collect();
+            text.push_str(&format!("- {}: {} unique direct callers in returned graph; test files: {}.\n", selected.name, callers.len(), if tests.is_empty() { "none identified (not proof of absence)".to_owned() } else { tests.into_iter().collect::<Vec<_>>().join(", ") }));
+        }
+        text.push_str("\n**Relationships (calls first)**\n");
+    }
+    for edge in visible_edges.iter().take(if summary { 0 } else { 20 }) {
         let source = &nodes[edge["source"].as_str().ok_or(CONTRACT)?];
         let target = &nodes[edge["target"].as_str().ok_or(CONTRACT)?];
         text.push_str(&format!(
@@ -480,6 +588,12 @@ pub(super) fn explore(
             target.start_line,
             edge["kind"].as_str().ok_or(CONTRACT)?
         ));
+    }
+    if !summary && visible_edges.len() > 20 {
+        text.push_str(&format!("\n> {} additional relationships omitted from text; available in graph/detail.\n", visible_edges.len() - 20));
+    }
+    if !summary && (truncated || !unresolved.is_empty()) {
+        text.push_str("\n> Partial context: inspect truncation and unresolved before drawing absence conclusions.\n");
     }
     let definition_hashes = definitions
         .iter()
@@ -513,7 +627,7 @@ pub(super) fn explore(
         ]
     };
     let preview = prefix(&text, max_chars);
-    let partial = truncated || !unresolved.is_empty() || targets.is_empty() || !matching;
+    let partial = truncated || context_omitted > 0 || !unresolved.is_empty() || targets.is_empty() || !matching;
     let traversal = json!({"direction":direction,"maxDepth":max_depth,"nodeDepths":depths,"expandedNodes":expanded,"depthBoundaryReached":depth_boundary,
         "limits":{"edges":160,"nodes":176,"edgesPerNodeDirection":20},"semantics":"independent directed breadth-first traversals from selected exact-name targets; depths are minimum discovered hops within scanned edges per direction, not global shortest paths"});
     let truncation = json!({"targetSelection":selection_limited,"depthBoundary":depth_boundary,"perNodeEdges":per_node_edges_limited,"totalEdges":total_edges_limited,"definitions":definitions_limited,"preview":utf16_len(&text)>max_chars});
@@ -564,8 +678,9 @@ pub(super) fn explore(
     let displayed_candidates_omitted =
         candidates_omitted + candidates.len() - displayed_candidates.len();
     Ok(
-        json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.is_empty() {"unresolved"} else {"resolved"}},
+        json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") {"resolved"} else {"unresolved"}},
         "view":if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,
+        "contextSelection":{"requestedSymbols":query_symbols(args),"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls; production before tests; ambiguous local bodies are not guessed"},
         "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",
         "indexFreshness":"not_certified","synchronized":false,"absenceProven":false,
         "fileFreshness":freshness,"diagnostics":diagnostics,

@@ -116,7 +116,8 @@ mod tests {
             ));
         }
         text.push_str("\nSchemas for explore and data_query are consumed directly by native MCP. Node integration must consume the same definitions; backend differences remain explicit.\n");
-        assert_eq!(text, include_str!("../../../docs/TOOL-CONTRACT.md"));
+        // Git may check Markdown out as CRLF on Windows; compare content, not checkout line endings.
+        assert_eq!(text, include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n"));
         assert_eq!(tool_names("rust").len(), 29);
         assert_eq!(tool_names("node").len(), 31);
     }
