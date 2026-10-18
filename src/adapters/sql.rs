@@ -107,8 +107,21 @@ pub fn load_sql_config(project: &Project) -> SqlConfig {
 /// Extract connection string from Web.config or environment
 pub fn resolve_connection_string(project: &Project, config: &SqlConfig) -> Result<String, Failure> {
     if config.connection_source == "environment" {
-        return std::env::var("HARNESS_SQL_CONNECTION_STRING")
-            .map_err(|_| ("SQL_CONFIG", "Variable de entorno HARNESS_SQL_CONNECTION_STRING no definida"));
+        if let Ok(val) = std::env::var("HARNESS_SQL_CONNECTION_STRING") {
+            return Ok(val);
+        }
+        // Fallback: check project root .env if not injected into process env
+        let env_path = project.root.join(".env");
+        if let Ok(content) = std::fs::read_to_string(env_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("HARNESS_SQL_CONNECTION_STRING=") {
+                    let cleaned = rest.trim().trim_matches('"').trim_matches('\'');
+                    return Ok(cleaned.to_string());
+                }
+            }
+        }
+        return Err(("SQL_CONFIG", "Variable de entorno HARNESS_SQL_CONNECTION_STRING no definida ni encontrada en .env"));
     }
 
     let rel_path = config.connection_path.as_deref().unwrap_or("Web.config");

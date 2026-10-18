@@ -1,0 +1,14 @@
+{
+  "sqlServer": {
+    "enabled": true,
+    "backend": "tiberius",
+    "defaultSchema": "dbo",
+    "maxRows": 50,
+    "timeoutSeconds": 15,
+    "maxChars": 8000,
+    "schemaCacheSeconds": 300,
+    "connection": {
+      "source": "environment"
+    }
+  }
+}
