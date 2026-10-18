@@ -1,5 +1,5 @@
-//! Server-scoped background verification with bounded concurrency and replayable events.
-use super::{process::NativeProcessRunner, verify};
+//! Durable background verification with bounded concurrency and replayable events.
+use super::{process::NativeProcessRunner, tasks_store::Store, verify};
 use harness_domain::{
     Failure,
     contracts::VerifyArgs,
@@ -45,6 +45,8 @@ struct State {
     journal: VecDeque<Value>,
     sequence: u64,
     closed: bool,
+    store: Option<Store>,
+    persistence_error: Option<Failure>,
 }
 struct Task {
     id: String,
@@ -56,37 +58,165 @@ struct Task {
     configuration: Value,
 }
 fn terminal(status: &str) -> bool {
-    matches!(status, "succeeded" | "failed" | "cancelled" | "timed_out")
+    matches!(
+        status,
+        "succeeded" | "failed" | "cancelled" | "timed_out" | "interrupted"
+    )
 }
 impl Task {
     fn value(&self) -> Value {
         json!({"taskId":self.id,"status":self.status,"attempt":self.attempt,"configuration":self.configuration,"result":self.result})
     }
 }
+fn persistence_error(state: &State) -> Value {
+    state
+        .persistence_error
+        .map(|(code, message)| json!({"code":code,"message":message}))
+        .unwrap_or(Value::Null)
+}
+fn restore(snapshot: Value, state: &mut State) -> Result<(), Failure> {
+    let invalid = ("TASK_STORE_FORMAT", "Invalid persisted job state");
+    state.sequence = snapshot["cursor"].as_u64().ok_or(invalid)?;
+    state.journal = snapshot["events"]
+        .as_array()
+        .ok_or(invalid)?
+        .iter()
+        .cloned()
+        .collect();
+    let values = snapshot["tasks"].as_array().ok_or(invalid)?;
+    if values.len() > MAX_RETAINED
+        || state.journal.len() > MAX_EVENTS
+        || state.sequence >= i64::MAX as u64
+    {
+        return Err(invalid);
+    }
+    let mut previous = 0;
+    for event in &state.journal {
+        let cursor = event["cursor"].as_u64().ok_or(invalid)?;
+        if cursor <= previous || cursor > state.sequence {
+            return Err(invalid);
+        }
+        previous = cursor;
+    }
+    let mut ids = std::collections::HashSet::new();
+    for value in values {
+        let status = match value["status"].as_str().ok_or(invalid)? {
+            "queued" => "queued",
+            "running" => "running",
+            "retry_wait" => "retry_wait",
+            "succeeded" => "succeeded",
+            "failed" => "failed",
+            "cancelled" => "cancelled",
+            "timed_out" => "timed_out",
+            "interrupted" => "interrupted",
+            _ => return Err(invalid),
+        };
+        let attempt =
+            u8::try_from(value["attempt"].as_u64().ok_or(invalid)?).map_err(|_| invalid)?;
+        let id = value["taskId"].as_str().ok_or(invalid)?.to_string();
+        if !harness_domain::execution::valid_request_id(&id)
+            || attempt > 3
+            || !value["configuration"].is_object()
+            || !ids.insert(id.clone())
+        {
+            return Err(invalid);
+        }
+        serde_json::from_value::<VerifyArgs>(value["configuration"]["verify"].clone())
+            .map_err(|_| invalid)?;
+        let maximum = value["configuration"]["maxAttempts"].as_u64().unwrap_or(1);
+        if !(1..=3).contains(&maximum) || u64::from(attempt) > maximum {
+            return Err(invalid);
+        }
+        state.tasks.push_back(Task {
+            id,
+            status,
+            attempt,
+            configuration: value["configuration"].clone(),
+            result: (!value["result"].is_null()).then(|| value["result"].clone()),
+            context: OperationContext::without_deadline(),
+            wake: Arc::new(Notify::new()),
+        });
+    }
+    Ok(())
+}
 impl Inner {
-    fn emit_locked(&self, state: &mut State, id: &str, kind: &str, data: Value) {
+    fn snapshot(state: &State) -> Value {
+        json!({"tasks":state.tasks.iter().map(Task::value).collect::<Vec<_>>(),"events":state.journal,"cursor":state.sequence})
+    }
+    fn fail_persistence(state: &mut State, error: Failure) {
+        state.persistence_error = Some(error);
+        for task in &state.tasks {
+            if !terminal(task.status) {
+                task.context.cancel();
+                task.wake.notify_one();
+            }
+        }
+    }
+    fn persist(state: &mut State) -> Result<(), Failure> {
+        if let Some(error) = state.persistence_error {
+            return Err(error);
+        }
+        let snapshot = Self::snapshot(state);
+        if let Some(store) = &mut state.store {
+            if let Err(error) = store.save(&snapshot) {
+                Self::fail_persistence(state, error);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    fn emit_locked(
+        &self,
+        state: &mut State,
+        id: &str,
+        kind: &str,
+        data: Value,
+    ) -> Result<(), Failure> {
+        if let Some(error) = state.persistence_error {
+            return Err(error);
+        }
+        if state.sequence >= i64::MAX as u64 - 1 {
+            let error = ("TASK_STORE_FORMAT", "Background job event cursor exhausted");
+            Self::fail_persistence(state, error);
+            return Err(error);
+        }
         state.sequence += 1;
         let event = json!({"cursor":state.sequence,"taskId":id,"kind":kind,"data":data});
-        if state.journal.len() == MAX_EVENTS {
-            state.journal.pop_front();
-        }
+        let evicted = if state.journal.len() == MAX_EVENTS {
+            state.journal.pop_front()
+        } else {
+            None
+        };
         state.journal.push_back(event.clone());
+        if let Err(error) = Self::persist(state) {
+            state.journal.pop_back();
+            if let Some(event) = evicted {
+                state.journal.push_front(event);
+            }
+            state.sequence -= 1;
+            // This control notice deliberately has no durable journal cursor.
+            // Subscribers must consult status/list and see persistenceError.
+            let _ = self.events.send(json!({"kind":"persistence_error","durable":false,"data":{"code":error.0,"message":error.1},"recovery":"Inspect harness_jobs status or list for persistenceError; restart after restoring writable storage"}));
+            return Err(error);
+        }
         let _ = self.events.send(event);
+        Ok(())
     }
-    fn update(&self, id: &str, status: &'static str, attempt: u8, result: Option<Value>) {
+    fn update(&self, id: &str, status: &'static str, attempt: u8, result: Option<Value>) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(task) = state.tasks.iter_mut().find(|t| t.id == id) {
             task.status = status;
             task.attempt = attempt;
             task.result = result;
             let data = task.value();
-            self.emit_locked(&mut state, id, "state", data);
+            return self.emit_locked(&mut state, id, "state", data).is_ok();
         }
+        false
     }
     fn output(&self, id: &str, stderr: bool, bytes: &[u8]) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         // Output is bounded by the runner; each event is capped to one pipe read.
-        self.emit_locked(&mut state, id, "output", json!({"stream":if stderr {"stderr"} else {"stdout"},"text":String::from_utf8_lossy(bytes),"textLossy":std::str::from_utf8(bytes).is_err()}));
+        let _ = self.emit_locked(&mut state, id, "output", json!({"stream":if stderr {"stderr"} else {"stdout"},"text":String::from_utf8_lossy(bytes),"textLossy":std::str::from_utf8(bytes).is_err()}));
     }
 }
 impl TaskManager {
@@ -99,17 +229,66 @@ impl TaskManager {
             ));
         }
         let (events, _) = broadcast::channel(MAX_EVENTS);
-        Ok(Self {
+        let mut state = State::default();
+        match Store::open_existing(&root) {
+            Ok(Some(store)) => match store
+                .load()
+                .and_then(|snapshot| restore(snapshot, &mut state))
+            {
+                Ok(()) => state.store = Some(store),
+                Err(error) => {
+                    state.tasks.clear();
+                    state.journal.clear();
+                    state.sequence = 0;
+                    state.store = Some(store);
+                    state.persistence_error = Some(error);
+                }
+            },
+            Ok(None) => {}
+            Err(error) => state.persistence_error = Some(error),
+        }
+        let manager = Self {
             inner: Arc::new(Inner {
                 root,
-                state: Mutex::new(State::default()),
+                state: Mutex::new(state),
                 permits: Arc::new(Semaphore::new(2)),
                 events,
                 executor: Arc::new(|root, spec, context, observer| {
                     NativeProcessRunner::new(root)?.run_observed(spec, context, observer)
                 }),
             }),
-        })
+        };
+        {
+            let mut state = manager
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if state.persistence_error.is_none() {
+                let ids: Vec<_> = state
+                    .tasks
+                    .iter()
+                    .filter(|t| !terminal(t.status))
+                    .map(|t| t.id.clone())
+                    .collect();
+                for id in ids {
+                    let task = state.tasks.iter_mut().find(|t| t.id == id).unwrap();
+                    task.status = "interrupted";
+                    task.result = Some(
+                        json!({"error":"TASK_INTERRUPTED","message":"Server restarted before task completion; task was not rerun"}),
+                    );
+                    let data = task.value();
+                    if manager
+                        .inner
+                        .emit_locked(&mut state, &id, "state", data)
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(manager)
     }
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.inner.events.subscribe()
@@ -150,7 +329,7 @@ impl TaskManager {
                     .lock()
                     .map_err(|_| ("INTERNAL", "Task registry unavailable"))?;
                 Ok(
-                    json!({"tasks":state.tasks.iter().map(|t| json!({"taskId":t.id,"status":t.status,"attempt":t.attempt})).collect::<Vec<_>>(),"cursor":state.sequence,"concurrency":2}),
+                    json!({"tasks":state.tasks.iter().map(|t| json!({"taskId":t.id,"status":t.status,"attempt":t.attempt})).collect::<Vec<_>>(),"cursor":state.sequence,"concurrency":2,"persistenceError":persistence_error(&state)}),
                 )
             }
             "events" => {
@@ -179,7 +358,7 @@ impl TaskManager {
                     .and_then(|e| e["cursor"].as_u64())
                     .unwrap_or(state.sequence);
                 Ok(
-                    json!({"events":events,"cursor":cursor,"latestCursor":state.sequence,"hasMore":state.journal.iter().any(|e| e["cursor"].as_u64().unwrap_or(0)>cursor && args.task_id.as_ref().is_none_or(|id| e["taskId"] == *id)),"oldestCursor":oldest,"gap":after.saturating_add(1) < oldest}),
+                    json!({"events":events,"cursor":cursor,"latestCursor":state.sequence,"hasMore":state.journal.iter().any(|e| e["cursor"].as_u64().unwrap_or(0)>cursor && args.task_id.as_ref().is_none_or(|id| e["taskId"] == *id)),"oldestCursor":oldest,"gap":after.saturating_add(1) < oldest,"persistenceError":persistence_error(&state)}),
                 )
             }
             "status" | "cancel" => {
@@ -202,10 +381,12 @@ impl TaskManager {
                     task.wake.notify_one();
                     let value = task.value();
                     self.inner
-                        .emit_locked(&mut state, id, "cancel_requested", value);
+                        .emit_locked(&mut state, id, "cancel_requested", value)?;
                 }
                 let task = state.tasks.iter().find(|t| t.id == id).unwrap();
-                Ok(task.value())
+                let mut value = task.value();
+                value["persistenceError"] = persistence_error(&state);
+                Ok(value)
             }
             _ => Err(("ARGUMENT", "Unknown background task action")),
         }
@@ -234,6 +415,18 @@ impl TaskManager {
             if state.closed {
                 return Err(("TASK_SHUTDOWN", "Task service is shutting down"));
             }
+            if let Some(error) = state.persistence_error {
+                return Err(error);
+            }
+            if state.store.is_none() {
+                match Store::create(&self.inner.root) {
+                    Ok(store) => state.store = Some(store),
+                    Err(error) => {
+                        Inner::fail_persistence(&mut state, error);
+                        return Err(error);
+                    }
+                }
+            }
             if state.tasks.iter().filter(|t| !terminal(t.status)).count() >= MAX_ACTIVE {
                 return Err(("TASK_BUSY", "Background task queue is full"));
             }
@@ -257,7 +450,7 @@ impl TaskManager {
             response = task.value();
             state.tasks.push_back(task);
             self.inner
-                .emit_locked(&mut state, &id, "state", response.clone());
+                .emit_locked(&mut state, &id, "state", response.clone())?;
         }
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -305,7 +498,9 @@ async fn execute(
                 return;
             }
         };
-        inner.update(&id, "running", attempt, None);
+        if !inner.update(&id, "running", attempt, None) {
+            return;
+        }
         let work_inner = inner.clone();
         let work_id = id.clone();
         let work_context = context.clone();
@@ -336,7 +531,9 @@ async fn execute(
                 return;
             }
             Ok(Err((code, _))) if retryable(code, attempt, attempts) => {
-                inner.update(&id, "retry_wait", attempt, None);
+                if !inner.update(&id, "retry_wait", attempt, None) {
+                    return;
+                }
                 tokio::select! { _ = tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))) => {}, _ = wake.notified() => {} }
             }
             Ok(Err((code, message))) => {
@@ -703,5 +900,164 @@ mod tests {
         })
         .await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn new_and_read_queries_do_not_create_job_storage() {
+        let root = workspace();
+        let before = std::fs::read_dir(root.path()).unwrap().count();
+        let manager = TaskManager::new(root.path()).unwrap();
+        manager
+            .handle(args(json!({"action":"list"})))
+            .await
+            .unwrap();
+        manager
+            .handle(args(json!({"action":"events"})))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), before);
+    }
+    #[tokio::test]
+    async fn completed_job_and_cursor_survive_restart() {
+        let root = workspace();
+        let mut manager = TaskManager::new(root.path()).unwrap();
+        Arc::get_mut(&mut manager.inner).unwrap().executor = Arc::new(|_, _, _, observer| {
+            observer(false, b"persisted output");
+            Ok(success())
+        });
+        let task = manager
+            .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+            .await
+            .unwrap();
+        until(|| {
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .front()
+                .unwrap()
+                .status
+                == "succeeded"
+                && Arc::strong_count(&manager.inner) == 1
+        })
+        .await;
+        let cursor = manager.inner.state.lock().unwrap().sequence;
+        drop(manager);
+        let manager = TaskManager::new(root.path()).unwrap();
+        let restored = manager
+            .handle(args(json!({"action":"status","taskId":task["taskId"]})))
+            .await
+            .unwrap();
+        assert_eq!(restored["status"], "succeeded");
+        assert!(restored["persistenceError"].is_null());
+        assert_eq!(manager.inner.state.lock().unwrap().sequence, cursor);
+        assert!(
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .journal
+                .iter()
+                .any(|e| e["kind"] == "output")
+        );
+    }
+    #[tokio::test]
+    async fn recovery_marks_active_jobs_interrupted_and_persists_event() {
+        let root = workspace();
+        let id = uuid::Uuid::new_v4().to_string();
+        let store = Store::create(root.path()).unwrap();
+        store.save(&json!({"tasks":[{"taskId":id,"status":"running","attempt":1,"configuration":{"verify":{"language":"rust"}},"result":null}],"events":[],"cursor":12})).unwrap();
+        drop(store);
+        let manager = TaskManager::new(root.path()).unwrap();
+        let status = manager
+            .handle(args(json!({"action":"status","taskId":id})))
+            .await
+            .unwrap();
+        assert_eq!(status["status"], "interrupted");
+        assert_eq!(status["attempt"], 1);
+        assert_eq!(manager.inner.state.lock().unwrap().sequence, 13);
+        drop(manager);
+        let manager = TaskManager::new(root.path()).unwrap();
+        assert_eq!(
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .front()
+                .unwrap()
+                .status,
+            "interrupted"
+        );
+        assert_eq!(manager.inner.state.lock().unwrap().sequence, 13);
+    }
+    #[tokio::test]
+    async fn writer_conflict_disables_jobs_without_failing_manager_creation() {
+        let root = workspace();
+        let store = Store::create(root.path()).unwrap();
+        let manager = TaskManager::new(root.path()).unwrap();
+        let list = manager
+            .handle(args(json!({"action":"list"})))
+            .await
+            .unwrap();
+        assert!(!list["persistenceError"].is_null());
+        assert!(
+            manager
+                .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+                .await
+                .is_err()
+        );
+        drop(store);
+    }
+    #[tokio::test]
+    async fn failed_commit_cancels_work_and_does_not_publish_or_advance_cursor() {
+        let root = workspace();
+        let manager = TaskManager::new(root.path()).unwrap();
+        let _slots = manager
+            .inner
+            .permits
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        let task = manager
+            .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+            .await
+            .unwrap();
+        let mut receiver = manager.subscribe();
+        let cursor;
+        {
+            let state = manager.inner.state.lock().unwrap();
+            cursor = state.sequence;
+            state.store.as_ref().unwrap().fail_writes();
+        }
+        assert!(
+            !manager
+                .inner
+                .update(task["taskId"].as_str().unwrap(), "running", 1, None)
+        );
+        {
+            let state = manager.inner.state.lock().unwrap();
+            assert!(state.persistence_error.is_some());
+            assert_eq!(state.sequence, cursor);
+            assert!(state.tasks.front().unwrap().context.check().is_err());
+        }
+        let notice = receiver.try_recv().unwrap();
+        assert_eq!(notice["kind"], "persistence_error");
+        assert_eq!(notice["durable"], false);
+        assert!(notice.get("cursor").is_none());
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+        assert!(
+            manager
+                .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+                .await
+                .is_err()
+        );
     }
 }

@@ -13,10 +13,13 @@ struct Server {
 }
 impl Server {
     fn start(root: &std::path::Path) -> Self {
+        Self::start_with_profile(root, "full")
+    }
+    fn start_with_profile(root: &std::path::Path, profile: &str) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_agent-harness"))
             .arg("--root")
             .arg(root)
-            .env("HARNESS_TOOL_PROFILE", "full")
+            .env("HARNESS_TOOL_PROFILE", profile)
             .env_remove("CARGO_TARGET_DIR")
             .env("CARGO_BUILD_JOBS", "1")
             .stdin(Stdio::piped())
@@ -103,12 +106,165 @@ impl Server {
             self.events.push(message);
         }
     }
+    fn close(&mut self) {
+        drop(self.child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                assert!(status.success(), "server did not close cleanly: {status}");
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "server did not close after stdin EOF"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn replay(&mut self, task_id: Option<&str>, mut after: u64) -> Vec<Value> {
+        let mut events = Vec::new();
+        loop {
+            let page = self.jobs(
+                100,
+                json!({"action":"events","taskId":task_id,"after":after}),
+            );
+            events.extend(page["events"].as_array().unwrap().iter().cloned());
+            if page["hasMore"] != true {
+                return events;
+            }
+            let cursor = page["cursor"].as_u64().unwrap();
+            assert!(cursor > after, "event pagination did not advance: {page}");
+            after = cursor;
+        }
+    }
 }
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+fn fixture(root: &std::path::Path, source: &str) {
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname='durable-jobs-fixture'\nversion='0.1.0'\nedition='2024'\n[workspace]\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/lib.rs"), source).unwrap();
+}
+
+#[test]
+fn completed_job_result_and_event_cursor_survive_graceful_restart() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path(), "#[test] fn works() { assert_eq!(2+2,4); }\n");
+    let mut server = Server::start(root.path());
+    let accepted = server.jobs(
+        2,
+        json!({"action":"start","verify":{"language":"rust","action":"test"}}),
+    );
+    let task_id = accepted["taskId"].as_str().unwrap();
+    server.task_event(task_id, &["succeeded", "failed"]);
+    let completed = server.jobs(3, json!({"action":"status","taskId":task_id}));
+    assert_eq!(completed["status"], "succeeded", "{completed}");
+    assert!(completed["result"].is_object());
+    let before = server.replay(Some(task_id), 0);
+    let cursor = before.last().unwrap()["cursor"].as_u64().unwrap();
+    server.close();
+    drop(server);
+
+    // Restricted readers must never acquire the jobs writer lock.
+    let mut investigate = Server::start_with_profile(root.path(), "investigate");
+    let mut edit = Server::start_with_profile(root.path(), "edit");
+    for restricted in [&mut investigate, &mut edit] {
+        let catalog = restricted.request(2, "tools/list", json!({}));
+        assert!(
+            !catalog["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["name"] == "harness_jobs")
+        );
+    }
+    let mut restored = Server::start(root.path());
+    let status = restored.jobs(2, json!({"action":"status","taskId":task_id}));
+    assert_eq!(status, completed);
+    let health = restored.jobs(3, json!({"action":"list"}));
+    assert!(health["persistenceError"].is_null(), "{health}");
+    let replay = restored.replay(Some(task_id), 0);
+    assert_eq!(replay, before);
+    let after = restored.jobs(4, json!({"action":"events","after":cursor}));
+    assert!(after["events"].as_array().unwrap().is_empty(), "{after}");
+    let next = restored.jobs(
+        5,
+        json!({"action":"start","verify":{"language":"rust","action":"test"}}),
+    );
+    let next_id = next["taskId"].as_str().unwrap();
+    restored.task_event(next_id, &["succeeded", "failed"]);
+    let newer = restored.replay(None, cursor);
+    assert!(!newer.is_empty());
+    assert!(
+        newer
+            .iter()
+            .all(|event| event["cursor"].as_u64().unwrap() > cursor)
+    );
+    restored.close();
+    investigate.close();
+    edit.close();
+}
+
+#[test]
+fn crash_recovers_active_job_as_interrupted_without_repeating_it() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(
+        root.path(),
+        r#"#[test] fn blocked() {
+        use std::io::Write;
+        let marker = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("attempts.txt");
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(marker).unwrap();
+        writeln!(file, "executed").unwrap();
+        file.sync_all().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }"#,
+    );
+    let mut server = Server::start(root.path());
+    let accepted = server.jobs(
+        2,
+        json!({"action":"start","verify":{"language":"rust","action":"test"},"maxAttempts":3}),
+    );
+    let task_id = accepted["taskId"].as_str().unwrap();
+    server.task_event(task_id, &["running"]);
+    let marker = root.path().join("attempts.txt");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while std::fs::read_to_string(&marker).unwrap_or_default() != "executed\n" {
+        assert!(Instant::now() < deadline, "fixture test did not start");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    drop(server);
+
+    let mut restored = Server::start(root.path());
+    let recovered = restored.jobs(2, json!({"action":"status","taskId":task_id}));
+    assert_eq!(recovered["status"], "interrupted", "{recovered}");
+    assert_eq!(recovered["attempt"], 1);
+    assert_eq!(recovered["result"]["error"], "TASK_INTERRUPTED");
+    let events = restored.replay(Some(task_id), 0);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["data"]["status"] == "interrupted"),
+        "{events:?}"
+    );
+    let tasks = restored.jobs(4, json!({"action":"list"}));
+    assert!(tasks.to_string().contains("interrupted"), "{tasks}");
+    restored.close();
+    assert_eq!(
+        std::fs::read_to_string(marker).unwrap(),
+        "executed\n",
+        "recovery must not rerun code"
+    );
 }
 
 #[test]

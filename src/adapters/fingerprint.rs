@@ -15,7 +15,7 @@ const LIMIT: Failure = (
 pub(super) fn coverage() -> serde_json::Value {
     serde_json::json!({
         "kind":"local_workspace_content_v2",
-        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs",".agents/harness/native-logs"],
+        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs",".agents/harness/native-logs",".agents/harness/jobs"],
         "externalDependenciesTracked":false,"environmentTracked":false,"current":null
     })
 }
@@ -68,6 +68,7 @@ pub(super) fn capture(project: &Project, context: &OperationContext) -> Result<S
                         ".agents/harness/.state",
                         ".agents/harness/logs",
                         ".agents/harness/native-logs",
+                        ".agents/harness/jobs",
                     ]
                     .contains(&normalized.as_str()))
             {
@@ -133,6 +134,13 @@ mod tests {
         let empty = capture(&project, &ctx).unwrap();
         fs::create_dir(dir.path().join("target")).unwrap();
         fs::write(dir.path().join("target/artifact"), "ignored").unwrap();
+        assert_eq!(empty, capture(&project, &ctx).unwrap());
+        fs::create_dir_all(dir.path().join(".agents/harness/jobs")).unwrap();
+        fs::write(
+            dir.path().join(".agents/harness/jobs/jobs.db"),
+            "runtime state",
+        )
+        .unwrap();
         assert_eq!(empty, capture(&project, &ctx).unwrap());
         fs::write(dir.path().join(".env"), "not disclosed").unwrap();
         assert!(capture(&project, &ctx).is_err());

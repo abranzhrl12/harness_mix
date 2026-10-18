@@ -52,7 +52,7 @@ fn restrict_batch_schema(
 #[derive(Clone)]
 struct McpHarness {
     application: NativeApplication,
-    tasks: crate::adapters::tasks::TaskManager,
+    tasks: Option<crate::adapters::tasks::TaskManager>,
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
 }
@@ -273,7 +273,13 @@ impl McpHarness {
         Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
     ) -> CallToolResult {
         let arguments = serde_json::to_value(&args).expect("task arguments");
-        let result = self.tasks.handle(args).await;
+        let result = match &self.tasks {
+            Some(tasks) => tasks.handle(args).await,
+            None => Err((
+                "TOOL_PROFILE",
+                "Background jobs are unavailable in this tool profile",
+            )),
+        };
         response(harness_domain::results::Results::default().envelope(
             "harness_jobs",
             &arguments,
@@ -608,10 +614,13 @@ impl ServerHandler for McpHarness {
 
     #[allow(deprecated)]
     async fn on_initialized(&self, context: rmcp::service::NotificationContext<RoleServer>) {
+        let Some(tasks) = &self.tasks else {
+            return;
+        };
         if self.task_forwarding.swap(true, Ordering::AcqRel) {
             return;
         }
-        let mut events = self.tasks.subscribe();
+        let mut events = tasks.subscribe();
         let enabled = self.task_notifications.clone();
         tokio::spawn(async move {
             loop {
@@ -662,7 +671,11 @@ pub async fn serve_with_logging(
     };
     let profile = harness_domain::tool_contract::ToolProfile::parse(&profile_name)
         .map_err(|(_, message)| message)?;
-    let tasks = crate::adapters::tasks::TaskManager::new(root)?;
+    let tasks = if profile.allows("harness_jobs") {
+        Some(crate::adapters::tasks::TaskManager::new(root)?)
+    } else {
+        None
+    };
     let service = McpHarness {
         application: adapters::application_with_logging(root, persist_logs)?
             .with_tool_profile(profile),
@@ -676,7 +689,9 @@ pub async fn serve_with_logging(
     ))
     .await?;
     let result = service.waiting().await;
-    tasks.shutdown();
+    if let Some(tasks) = tasks {
+        tasks.shutdown();
+    }
     result?;
     Ok(())
 }

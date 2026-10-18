@@ -25,7 +25,7 @@ MCP normales.
 ```
 
 Estados: `queued`, `running`, `retry_wait`, `succeeded`, `failed`, `cancelled` y
-`timed_out`. Cancelar solicita detener el árbol de procesos: consulta el estado
+`timed_out` e `interrupted`. Cancelar solicita detener el árbol de procesos: consulta el estado
 terminal para confirmar el resultado. Un estado `succeeded` indica código de
 salida cero; no garantiza que el runner haya descubierto pruebas ni certifica
 vigencia de todas las fuentes.
@@ -59,8 +59,31 @@ arranque anteriores a crear el proceso, con una espera breve entre intentos.
 No se repiten automáticamente pruebas fallidas, errores de compilación,
 cancelaciones, plazos vencidos ni fallos posteriores al arranque.
 
-El estado se mantiene en memoria durante la conexión/instancia del servidor.
-Al cerrarse, harness solicita cancelar sus trabajos; no continúa como servicio
-del sistema ni restaura tareas después de reiniciar. Las verificaciones pueden
-escribir artefactos y ejecutar código del proyecto. `verify.session` no está
-admitido: estos resultados no actualizan la vigencia de una sesión histórica.
+## Persistencia y reinicios
+
+Los estados, resultados y eventos se guardan automáticamente en SQLite dentro
+de `.agents/harness/jobs/`, excluido de Git. No requiere configurar un servidor
+de base de datos. El almacenamiento se crea al lanzar el primer trabajo; abrir
+un proyecto sin trabajos previos no crea archivos de historial.
+
+Un trabajo se acepta después de guardar su estado, y los eventos se publican
+después de confirmar su escritura. Se mantienen los mismos límites de historial
+y los cursores continúan después de reiniciar. Solo una instancia del servidor
+puede escribir el historial de trabajos de un proyecto a la vez.
+
+Tras un cierre inesperado, los trabajos que estaban en cola, ejecutándose o
+esperando un reintento se recuperan como `interrupted`. No se vuelven a ejecutar
+automáticamente: podrían haber producido efectos antes del cierre. Puedes
+consultar su configuración y lanzar un trabajo nuevo de forma explícita.
+
+Si el almacenamiento no está disponible o falla al escribir, harness informa
+del error de persistencia, impide nuevos trabajos y solicita cancelar los activos.
+Un fallo durante la ejecución también genera un aviso `persistence_error` con
+`durable:false`, sin cursor: ese aviso de control no pudo guardarse en disco.
+Las demás herramientas MCP siguen disponibles. La persistencia conserva el
+seguimiento; todavía no convierte harness en un servicio que siga ejecutándose
+después de cerrar el servidor MCP.
+
+La salida almacenada puede contener contenido del proyecto. Las verificaciones
+pueden escribir artefactos y ejecutar código del proyecto. `verify.session` no
+está admitido: estos resultados no actualizan la vigencia de una sesión histórica.

@@ -4,5 +4,6 @@
 .agents/harness/.state/
 .agents/harness/logs/
 .agents/harness/native-logs/
+.agents/harness/jobs/
 .env
 .env.*

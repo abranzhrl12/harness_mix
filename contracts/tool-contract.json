@@ -190,7 +190,9 @@
         "actions": ["start", "status", "list", "events", "cancel"],
         "executionDeadline": "optional",
         "maxAttempts": 3,
-        "notifications": "client-dependent"
+        "notifications": "client-dependent",
+        "persistence": "project-local-sqlite",
+        "restartRecovery": "mark-interrupted-without-rerun"
       }
     }
   },

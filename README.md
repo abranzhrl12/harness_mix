@@ -44,7 +44,7 @@ Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `
 
 ## Tareas en segundo plano
 
-Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas sin bloquear la conversación. Incluye dos ejecuciones simultáneas, avisos MCP, consulta de resultados y cancelación, sin plazo de ejecución predeterminado. [Uso y límites](docs/JOBS.md).
+Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas sin bloquear la conversación. Incluye dos ejecuciones simultáneas, avisos MCP, historial persistente y cancelación, sin plazo de ejecución predeterminado. [Uso y límites](docs/JOBS.md).
 
 ## Límites y desarrollo
 
