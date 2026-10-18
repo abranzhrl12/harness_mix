@@ -693,16 +693,43 @@ pub async fn serve_with_logging(
     };
     let profile = harness_domain::tool_contract::ToolProfile::parse(&profile_name)
         .map_err(|(_, message)| message)?;
+    let watch_enabled = match std::env::var("HARNESS_INDEX_WATCH").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(std::env::VarError::NotPresent) => false,
+        _ => return Err("HARNESS_INDEX_WATCH must be 0 or 1".into()),
+    };
+    if watch_enabled && profile != harness_domain::tool_contract::ToolProfile::Full {
+        return Err("HARNESS_INDEX_WATCH=1 requires the full tool profile".into());
+    }
+    #[cfg(windows)]
+    let index_watch = if watch_enabled {
+        Some(
+            crate::adapters::index_watch::IndexWatch::start(root)
+                .map_err(|(code, message)| format!("{code}: {message}"))?,
+        )
+    } else {
+        None
+    };
+    #[cfg(windows)]
+    let watch_status = index_watch.as_ref().map(|watch| watch.status.clone());
+    #[cfg(not(windows))]
+    let watch_status = {
+        if watch_enabled {
+            return Err("Automatic index publication currently requires Windows".into());
+        }
+        None
+    };
     let tasks = if profile.allows("harness_jobs") {
         Some(crate::adapters::tasks::TaskManager::new(root)?)
     } else {
         None
     };
     let service = McpHarness {
-        application: adapters::application_with_logging_and_tasks(
+        application: adapters::application_with_background(
             root,
             persist_logs,
             tasks.clone(),
+            watch_status,
         )?
         .with_tool_profile(profile),
         tasks: tasks.clone(),

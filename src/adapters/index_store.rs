@@ -71,6 +71,145 @@ pub fn rebuild_workspace(root: &Path, context: &OperationContext) -> Result<Valu
     sync_workspace_with_limit(root, context, MAX_ROWS, true)
 }
 
+/// Event-driven incremental publication: no workspace inventory, one connection
+/// per bounded batch. Existing tracked files retain the full sync ignore policy.
+pub fn sync_changed_paths(
+    root: &Path,
+    paths: &BTreeSet<String>,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    if paths.len() > 1024 {
+        return Err(LIMIT);
+    }
+    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    let scope = scope::Snapshot::load(&project, context)?;
+    let mut writer = Some(writer::Writer::open(&project, context)?);
+    validate_schema(&writer.as_ref().ok_or(INDEX)?.db)?;
+    if project.root.join(".git").is_file() {
+        for path in paths {
+            let tracked: bool = sql(writer.as_ref().ok_or(INDEX)?.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
+                [path],
+                |r| r.get(0),
+            ))?;
+            if !tracked && path.split('/').any(index_inventory::excluded) {
+                continue;
+            }
+            if !tracked {
+                drop(writer);
+                return sync_workspace_all(root, context);
+            }
+        }
+    }
+    let mut changed = 0;
+    let mut processed = 0;
+    let mut skipped = 0;
+    let mut failure = None;
+    for path in paths {
+        let applied = (|| {
+            context.check()?;
+            project.target_optional(path)?;
+            scope.recheck(&project, context)?;
+            if index_extract::language(path).is_none() || index_inventory::restricted(path) {
+                return Ok(None);
+            }
+            let tracked: bool = sql(writer.as_ref().ok_or(INDEX)?.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
+                [path],
+                |r| r.get(0),
+            ))?;
+            if !tracked && path.split('/').any(index_inventory::excluded) {
+                return Ok(None);
+            }
+            if !tracked && !scope.included(path) && ignored_new_source(&project, path, context)? {
+                return Ok(None);
+            }
+            sync_file_config_reuse(root, path, None, context, || {}, false, &mut writer).map(Some)
+        })();
+        match applied {
+            Ok(Some(result)) => {
+                processed += 1;
+                changed += usize::from(result["changed"] == true);
+            }
+            Ok(None) => skipped += 1,
+            Err((code, _)) => {
+                failure = Some(
+                    json!({"code":code,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
+                );
+                break;
+            }
+        }
+    }
+    Ok(
+        json!({"mode":"sync_changed_paths","filesProcessed":processed,
+        "changedFilesCommitted":changed,"skippedFiles":skipped,"failure":failure,
+        "selectedScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
+        "globalFreshnessCertified":false,"workspaceTransactionAtomic":false}),
+    )
+}
+
+fn ignored_new_source(
+    project: &Project,
+    path: &str,
+    context: &OperationContext,
+) -> Result<bool, Failure> {
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(&project.root);
+    if project.root.join(".git").is_dir() {
+        let exclude = project.target_optional(".git/info/exclude")?;
+        if exclude.exists() {
+            let bytes = project.bytes_with_limit(".git/info/exclude", context, 128 * 1024)?;
+            let text = std::str::from_utf8(&bytes)
+                .map_err(|_| ("SYNC_IGNORE", "Invalid Git exclude file"))?;
+            for line in text.lines() {
+                builder
+                    .add_line(Some(project.root.join(".gitignore")), line)
+                    .map_err(|_| ("SYNC_IGNORE", "Invalid Git exclude pattern"))?;
+            }
+        }
+    }
+    // Same local .gitignore hierarchy as discovery, without walking or hashing
+    // unrelated sources. Config includes deliberately override discovery ignores.
+    let mut directory = String::new();
+    let components: Vec<_> = path.split('/').collect();
+    for depth in 0..components.len() {
+        if depth > 0 {
+            directory.push_str(components[depth - 1]);
+            directory.push('/');
+            // A child's .gitignore cannot resurrect a pruned parent directory.
+            let parents = builder
+                .build()
+                .map_err(|_| ("SYNC_IGNORE", "Invalid ignore rules"))?;
+            if parents
+                .matched_path_or_any_parents(project.root.join(&directory), true)
+                .is_ignore()
+            {
+                return Ok(true);
+            }
+        }
+        let ignore_path = format!("{directory}.gitignore");
+        let target = project.target_optional(&ignore_path)?;
+        match std::fs::symlink_metadata(&target) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(("SYNC_IGNORE", "Ignore file unavailable")),
+            Ok(_) => {}
+        }
+        let bytes = project.bytes_with_limit(&ignore_path, context, 128 * 1024)?;
+        let text =
+            std::str::from_utf8(&bytes).map_err(|_| ("SYNC_IGNORE", "Invalid ignore file"))?;
+        for line in text.lines() {
+            builder
+                .add_line(Some(target.clone()), line)
+                .map_err(|_| ("SYNC_IGNORE", "Invalid ignore pattern"))?;
+        }
+    }
+    let rules = builder
+        .build()
+        .map_err(|_| ("SYNC_IGNORE", "Invalid ignore rules"))?;
+    Ok(rules
+        .matched_path_or_any_parents(project.root.join(path), false)
+        .is_ignore())
+}
+
 fn sync_workspace_with_limit(
     root: &Path,
     context: &OperationContext,
@@ -80,7 +219,7 @@ fn sync_workspace_with_limit(
     context.check()?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
     let scope = scope::Snapshot::load(&project, context)?;
-    let planned = index_sync::plan_workspace(root, context)?;
+    let planned = index_sync::plan_workspace_for_sync(root, context)?;
     if planned["scope"] != scope.stamp() {
         return Err(("STALE", "Scope changed during planning"));
     }
@@ -322,14 +461,6 @@ fn sync_file_config_reuse(
     } else {
         read_source(&project, relative, context)?
     };
-    let extracted = source
-        .as_ref()
-        .map(|bytes| {
-            let text =
-                std::str::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
-            index_extract::extract(relative, text, context)
-        })
-        .transpose()?;
     let reused = writer.is_some();
     if writer.is_none() {
         *writer = Some(writer::Writer::open(&project, context)?);
@@ -356,7 +487,6 @@ fn sync_file_config_reuse(
             relative,
             language,
             source.as_deref(),
-            extracted.as_ref(),
             context,
             configuration,
         )?;
@@ -376,11 +506,12 @@ fn sync_file_config_reuse(
             ));
         }
         context.check()?;
-        let violations: bool = sql(tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)",
-            [],
-            |row| row.get(0),
-        ))?;
+        let violations: bool = result["changed"] == true
+            && sql(tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)",
+                [],
+                |row| row.get(0),
+            ))?;
         if violations {
             return Err(("SYNC_INTEGRITY", "Index foreign-key integrity check failed"));
         }
@@ -629,7 +760,6 @@ fn publish(
     path: &str,
     language: &str,
     bytes: Option<&[u8]>,
-    extracted: Option<&Value>,
     context: &OperationContext,
     configuration: (tsconfig::Snapshot, bool),
 ) -> Result<(Value, imports::Sources), Failure> {
@@ -656,10 +786,20 @@ fn publish(
                 })))
     {
         return Ok((
-            json!({"mode":"sync_file","path":path,"changed":false,"committed":false,"synchronized":false,"globalFreshnessCertified":false}),
+            json!({"mode":"sync_file","path":path,"changed":false,"extractionPerformed":false,"committed":false,"synchronized":false,"globalFreshnessCertified":false}),
             imports::Sources::configured(configuration),
         ));
     }
+    // Parse only after the authoritative transaction sees a changed digest or
+    // an extraction retry/configuration change. Duplicate watcher events are cheap.
+    let extracted_value = bytes
+        .map(|bytes| {
+            let text =
+                std::str::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
+            index_extract::extract(path, text, context)
+        })
+        .transpose()?;
+    let extracted = extracted_value.as_ref();
     let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
     let third_file:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') END IS NOT NULL AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END >= ?1 AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END < ?2)",params![format!("{path}:"),format!("{path};")],|r|r.get(0)))?;
     let synthesis_table:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synthesis_inputs' AND upper(sql) LIKE 'CREATE TABLE%')",[],|r|r.get(0)))?;
@@ -900,7 +1040,7 @@ fn publish(
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
     Ok((
-        json!({"mode":"sync_file","path":path,"changed":true,"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"importReferencesRechecked":import_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false}),
+        json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"importReferencesRechecked":import_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false}),
         import_sources,
     ))
 }

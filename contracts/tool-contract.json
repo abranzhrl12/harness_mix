@@ -5,6 +5,17 @@
     "edit": ["harness_replace","harness_verify","harness_diagnostics"]
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
+  "nativeIndexMaintenance": {
+    "activation": "HARNESS_INDEX_WATCH=1; Windows, full profile and existing compatible native index",
+    "defaultEnabled": false,
+    "requiresLlmSyncCalls": false,
+    "debounceMs": 600,
+    "maxDebounceMs": 2000,
+    "maxPendingPaths": 1024,
+    "reconcileSeconds": 300,
+    "status": "harness_doctor checks[id=index-auto-sync].details",
+    "globalFreshnessCertified": false
+  },
   "llmPolicy": {
     "version": 1,
     "rules": [

@@ -310,6 +310,27 @@ fn tool_profiles_reject_unknown_startup_configuration() {
     assert!(!root.path().join(".codegraph").exists());
 }
 
+#[test]
+fn automatic_index_writes_require_explicit_valid_configuration_and_full_profile() {
+    let root = tempfile::tempdir().unwrap();
+    for (setting, profile, expected) in [
+        ("yes", "full", "HARNESS_INDEX_WATCH must be 0 or 1"),
+        ("1", "investigate", "requires the full tool profile"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_agent-harness"))
+            .arg("--root")
+            .arg(root.path())
+            .env("HARNESS_TOOL_PROFILE", profile)
+            .env("HARNESS_INDEX_WATCH", setting)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
+        assert!(!root.path().join(".codegraph").exists());
+    }
+}
+
 impl Server {
     fn start(root: &std::path::Path) -> Self {
         Self::start_with_logging(root, false)

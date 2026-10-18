@@ -1,20 +1,26 @@
 # CHECK — estado y correcciones del harness
 
-Fecha: 2026-10-18. Windows x86-64, binario de desarrollo.
-Base auditada: `eabb7f9`; las correcciones siguientes están en el working tree.
+Fecha: 2026-10-18. Windows x86-64, suite de desarrollo y validaciones de release indicadas abajo.
+Base auditada originalmente: `eabb7f9`; las correcciones H1–H7 se conservaron en
+`dbff4d3`. Las validaciones de paquete de esta sección son cambios locales posteriores.
 
 ## Resultado actual
 
-**386 pruebas aprobadas, 0 fallidas y 18 opcionales pendientes.**
+**Suite final con sincronización automática: 389 aprobadas, 0 fallidas y 23 omitidas.**
+Se han ejecutado además siete opcionales en las validaciones indicadas abajo;
+quedan 16 opcionales pendientes. No se suman repeticiones entre compiladores.
 
 | Ejecución final | Aprobadas | Fallidas | Omitidas |
 | --- | ---: | ---: | ---: |
 | Workspace completo, código de salida 0 | 381 | 0 | 23 |
 | Cuatro verificadores reales opcionales, ejecutados aparte | 4 | 0 | 0 |
 | Aceptación con copia temporal de 76 fuentes, ejecutada aparte | 1 | 0 | 0 |
+| Diagnósticos opcionales de fases Rust y extracción release | 2 | 0 | 0 |
+| Workspace completo con Rust 1.88.0, código de salida 0 | 383 | 0 | 23 |
+| Workspace final con sincronización automática | 389 | 0 | 23 |
 
-Los cinco opcionales ejecutados aparte están entre los 23 omitidos de la primera
-fila, por eso quedan 18 sin ejecutar. Las sondas MCP adicionales también pasan.
+Los siete opcionales ejecutados aparte están entre los 23 omitidos de la primera
+fila, por eso quedan 16 sin ejecutar. Las sondas MCP adicionales también pasan.
 La auditoría inicial tenía 370 aprobadas y 3 fallidas; las tres fallidas ahora
 pasan y hay 13 casos nuevos en la suite. Esto no certifica servicios externos
 sin configurar, todas las entradas posibles ni todas las plataformas.
@@ -50,7 +56,53 @@ conexión TLS implementada, y el build TypeScript no se presenta como typecheck.
 - [ ] Verificar SQL Server con credenciales y servidor reales.
 - [ ] Certificar integración con la interfaz real del usuario.
 - [ ] Certificar paridad con el proveedor CodeGraph original.
-- [ ] Certificar MSRV 1.88, release, otras plataformas y objetivos de rendimiento.
+- [x] Compilar release Windows x64 y validar MCP, lectura, búsqueda, doctor, resultados, cancelación e historial tras reinicio.
+- [x] Generar ZIP con licencias e instrucciones, verificar SHA256 y repetir la sonda sobre el ejecutable extraído.
+- [x] Ejecutar los diagnósticos opcionales de fases Rust y extracción release.
+- [x] Compilar y ejecutar toda la suite Windows x64 con Rust 1.88.0: 383/0/23, salida 0.
+- [ ] Certificar otras plataformas y objetivos de rendimiento con presupuestos acordados.
+
+## Validación del paquete Windows
+
+La ampliación posterior de sincronización automática se describe en
+[AUTO-SYNC.md](docs/AUTO-SYNC.md). Se activa una vez con `HARNESS_INDEX_WATCH=1`,
+sin llamadas del LLM. Usa eventos nativos, agrupación de 600 ms (máximo 2 s),
+cola acotada de 1024 rutas, trabajador único y reconciliación cada cinco minutos.
+Los lotes normales solo atienden las rutas notificadas; hashes iguales evitan el
+parseo. La publicación ya no duplica la extracción con la vista previa del plan.
+Requiere Windows, perfil full e índice existente; no certifica frescura global.
+
+La compilación de esta ampliación con Rust 1.88 pasó:
+`target/audit/auto-sync-msrv-check.log` (`cargo check --locked --workspace`, salida 0).
+No se confunde esa comprobación con repetir toda la suite usando ese compilador.
+El ZIP anterior de esta sección NO incluye la ampliación automática.
+La sonda MCP de la ampliación pasó sobre el ejecutable de desarrollo final:
+`target/audit/auto-sync-final-mcp-smoke.log`. Modifica una fuente y comprueba una
+definición nueva en explore tras un lote automático, sin `syncIndex` ni `--sync`.
+También comprueba los 30 tools, doctor, lectura, búsqueda, trabajos, cancelación
+e historial tras reinicio con el watcher activado.
+La suite final pasó con 389/0/23 (`target/audit/auto-sync-final-workspace-tests.log`).
+El release optimizado también compiló y pasó esa misma sonda:
+`target/audit/auto-sync-final-release-build.log` y
+`target/audit/auto-sync-release-mcp-smoke.log`. El ejecutable actualizado está en
+`target/release/agent-harness.exe`; el ZIP anterior sigue conservado sin esta ampliación.
+
+`target/audit/production-build.log` confirma compilación release con Rust 1.99.0.
+`scripts/smoke-mcp.cjs` comprueba por JSON-RPC el catálogo de 30 herramientas,
+bootstrap, doctor, lectura, búsqueda, resultado de un trabajo TypeScript,
+cancelación de un test JavaScript y recuperación exacta de resultados e historial
+tras cerrar por EOF y reiniciar. Pasó tanto sobre el release original como sobre
+el ejecutable extraído del ZIP. Esta sonda es un cliente de protocolo de desarrollo;
+la integración con la interfaz real del usuario sigue pendiente.
+
+Paquete: `target/dist/agent-harness-0.7.1-rc.1-windows-x86_64.zip`.
+SHA256 verificado: `906f5b3dbb81b62364e47b5d27a6bcbd67d5ed4c0f71414916f821fcb3d2f12d`.
+Incluye ejecutable, README, ejemplo MCP, licencias, Cargo.lock e inventario de
+dependencias. Se conserva el staging y los binarios existentes; no se ha instalado,
+publicado ni sustituido una conexión MCP del usuario. Se empaquetó el release
+compilado a las 11:45; los cambios SQL aparecidos después en el working tree no
+están incluidos ni certificados por este ZIP. No distribuirlo como si incluyera
+esas modificaciones sin volver a compilar, empaquetar y validar con otra versión.
 
 ## Matriz de las 30 herramientas
 
@@ -108,6 +160,14 @@ Evidencia local, excluida de Git por estar bajo `target/`:
 - `target/audit/fixed-real-core-acceptance.log`: aceptación repetida tras las correcciones.
 - `target/audit/fixed-mcp-probe.json`: sonda final con aserciones de H1/H2/H6/H7 y registro 30/30.
 - `target/audit/mcp-probe.json` y `probe.cjs`: sonda JSON-RPC sin SDK externo.
+- `target/audit/release-smoke.log`: sonda ampliada sobre el binario release.
+- `target/audit/package-release.log`: generación del paquete.
+- `target/audit/packaged-release-smoke.log`: sonda sobre el ejecutable extraído; SHA256 también contrastado con el archivo de sumas.
+- `target/audit/release-extraction.log`: diagnóstico de extracción y escritura sobre fuentes temporales en release.
+- `target/audit/rust-phase-probe.log`: diagnóstico de fases Rust.
+- `target/audit/release-cli-tests.log`: 18 pruebas stdio aprobadas usando `HARNESS_NATIVE_BINARY` con el release.
+- `target/audit/release-real-core-acceptance.log`: ciclo completo de 76 fuentes con el release, aprobado; índice original sin abrir.
+- `target/audit/msrv-1.88-tests.log`: compilación y suite completa con Rust 1.88.0, 383/0/23, salida 0. Directorio de compilación independiente `target/msrv-1.88`.
 
 ## Límites y pendientes externos
 
@@ -116,20 +176,20 @@ Python 3.12.4, Go 1.27.0 y SDK .NET 9.0.300.
 SQL no tiene configuración en este checkout ni cadena de conexión disponible
 para la auditoría. No se inventaron credenciales ni se consultaron otros proyectos.
 
-Permanecen fuera de verificación completa los siguientes 18 casos opcionales
-después de ejecutar los cuatro runtimes y la aceptación temporal:
+Permanecen fuera de verificación completa los siguientes 16 casos opcionales
+después de ejecutar los cuatro runtimes, la aceptación temporal y los dos diagnósticos:
 
 | Motivo | Casos |
 | --- | --- |
 | Proveedor CodeGraph/Node, Rolldown y/o release ausentes (8) | relative_resolution_matches_codegraph_in_supported_priority_cases; extraction_matches_the_installed_codegraph_provider; import_mapping_and_unambiguous_paths_match_provider_subset; named_reexport_targets_match_full_provider_indexing; star_binding_matrix_matches_native_esm_and_rolldown_generated_bundles; alias_targets_match_installed_provider_for_supported_cases; real_core_graph_parity_review; real_core_release_vs_provider_cli |
 | Binario histórico ausente (1) | frozen_native_position_ab |
 | Índice/proyecto externo no proporcionado (7) | compare_context_on_existing_index; real_codegraph_index_can_be_read_without_running_node; real_project_summary_omissions_are_not_graph_loss; existing_native_reindex_has_proven_call_and_no_confirmed_false_pairs; real_project_command_timings; real_project_context_presentation; real_project_payload_and_log_audit |
-| Diagnósticos de fase/rendimiento (2) | rust_resolution_phase_probe; real_core_extraction_cost (requiere release) |
 
 `tests/node-compat.test.cjs` necesita el checkout Node original y su SDK.
 Los proyectos independientes `experiments/` no son parte de la suite del runtime.
 Browser, regression y web_check son del backend Node, no de este ejecutable.
-No se certifican Linux/macOS, MSRV ni todos los proveedores/clientes.
+MSRV 1.88.0 está comprobado para Windows x64 con la suite anterior.
+No se certifican Linux/macOS ni todos los proveedores/clientes.
 
 ## Rendimiento
 
@@ -147,3 +207,10 @@ de mejora o regresión de rendimiento.
 
 No existe todavía un presupuesto de CPU/RAM/latencia ni una comparación A/B
 que permita declarar todo el harness óptimo.
+
+Los diagnósticos adicionales de release sobre 76 fuentes midieron extracción
+de 847,6–920,5 ms en tres rondas, sin SQL ni resolución, y escritura completa
+por archivo de 25,37 s. La aceptación CLI con release terminó en 110,83 s
+(sync inicial 27,78 s; reindex 77,64 s) mientras se compilaban otras suites en
+paralelo. Son observaciones bajo carga, no un benchmark aislado ni una regresión
+demostrada; no se usan para fijar objetivos de rendimiento.

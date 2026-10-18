@@ -29,7 +29,7 @@ pub(super) struct Inventory {
     pub scope: serde_json::Value,
 }
 
-fn excluded(name: &str) -> bool {
+pub(super) fn excluded(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
         ".git"

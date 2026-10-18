@@ -7,6 +7,14 @@ on:
 permissions:
   contents: read
 jobs:
+  msrv:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Workspace tests on declared MSRV
+        run: cargo test --locked --workspace -- --test-threads=1
   verify-package:
     runs-on: windows-latest
     timeout-minutes: 45
@@ -25,10 +33,16 @@ jobs:
         shell: powershell
         run: |
           $archive = Get-ChildItem target/dist/agent-harness-*-windows-x86_64.zip | Select-Object -First 1
+          $sums = Join-Path $archive.DirectoryName ($archive.BaseName + '-SHA256SUMS.txt')
+          $expected = (Get-Content -LiteralPath $sums).Split(' ')[0]
+          $actual = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Release archive SHA256 mismatch.' }
           Expand-Archive -LiteralPath $archive.FullName -DestinationPath target/release-smoke
           $executable = Get-ChildItem target/release-smoke -Filter agent-harness.exe -Recurse | Select-Object -First 1
           node scripts/smoke-mcp.cjs $executable.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Packaged MCP smoke failed.' }
+          node scripts/smoke-mcp.cjs $executable.FullName --watch-index
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automatic index smoke failed.' }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64-release-candidate

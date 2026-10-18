@@ -14,6 +14,21 @@ pub fn plan_workspace(
     root: &std::path::Path,
     context: &OperationContext,
 ) -> Result<serde_json::Value, Failure> {
+    plan_workspace_inner(root, context, true)
+}
+
+pub(super) fn plan_workspace_for_sync(
+    root: &std::path::Path,
+    context: &OperationContext,
+) -> Result<serde_json::Value, Failure> {
+    plan_workspace_inner(root, context, false)
+}
+
+fn plan_workspace_inner(
+    root: &std::path::Path,
+    context: &OperationContext,
+    preview: bool,
+) -> Result<serde_json::Value, Failure> {
     use rusqlite::{OpenFlags, limits::Limit};
     use std::time::Duration;
     context.check()?;
@@ -86,8 +101,11 @@ pub fn plan_workspace(
         result
             .unchecked
             .retain(|path| !super::index_inventory::restricted(path));
-        let extraction =
-            super::index_extract::preview(&project, &result, &inventory.observations, context)?;
+        let extraction = if preview {
+            super::index_extract::preview(&project, &result, &inventory.observations, context)?
+        } else {
+            serde_json::Value::Null
+        };
         context.check()?;
         Ok(serde_json::json!({
             "mode":"plan_only", "format":"codegraph-sqlite-readonly-v1", "schemaVersion":version,

@@ -5,12 +5,16 @@ El resultado de cada ejecución y los pendientes se registran en [CHECK.md](../C
 
 ## Puertas de salida
 
-- [ ] `cargo test --locked --workspace -- --test-threads=1` termina sin fallos.
-- [ ] `cargo build --release --locked` produce el binario que se distribuirá.
-- [ ] Ese binario inicia MCP, enumera el perfil esperado y ejecuta lectura, búsqueda y doctor.
-- [ ] Una tarea permite consultar su resultado, cancelarse y recuperar su historial tras reiniciar.
+- [x] `cargo test --locked --workspace -- --test-threads=1` termina sin fallos (381/0/23; evidencia en CHECK).
+- [x] `cargo build --release --locked` produce el binario que se distribuirá.
+- [x] Ese binario inicia MCP, enumera el perfil esperado y ejecuta lectura, búsqueda y doctor.
+- [x] Una tarea permite consultar su resultado, cancelarse y recuperar su historial tras reiniciar.
 - [ ] El cliente real descubre las herramientas y completa una operación en un proyecto de prueba.
-- [ ] El paquete incluye instrucciones, licencia y SHA256; se conserva el binario anterior para volver atrás.
+- [x] El paquete incluye instrucciones, licencias y SHA256; se conservan los binarios existentes sin reemplazar instalaciones.
+
+El ZIP y su checksum están en `target/dist`. La sonda ampliada también pasó sobre
+el ejecutable extraído del ZIP. Los logs y el SHA256 exacto constan en CHECK;
+la casilla del cliente real permanece pendiente hasta probar esa conexión.
 
 Una casilla pendiente no significa una prueba aprobada. No se debe certificar un
 binario release usando únicamente pruebas de un binario de desarrollo.
@@ -31,9 +35,12 @@ reanuda automáticamente un proceso interrumpido.
 Los tres paquetes declaran Rust 1.88. La consulta local de metadatos del lockfile,
 con `cargo metadata --offline --locked --format-version 1 --filter-platform
 x86_64-pc-windows-msvc`, no encuentra dependencias seleccionadas que declaren un
-mínimo mayor. Esto comprueba declaraciones, no certifica una compilación con 1.88:
-ese toolchain no está instalado en el host de esta auditoría. Mantener la
-certificación MSRV pendiente hasta ejecutar la compilación y las pruebas con él.
+mínimo mayor. Además se instaló Rust 1.88.0 y se ejecutó
+`cargo +1.88.0 test --locked --workspace --no-fail-fast --jobs 4 --target-dir
+target/msrv-1.88 -- --test-threads=1`: 383 aprobadas, 0 fallidas y 23 omitidas,
+código de salida 0. Evidencia: `target/audit/msrv-1.88-tests.log`.
+Esto verifica el MSRV en Windows x64; no extiende esa comprobación a Linux/macOS.
+El ZIP distribuible se compiló con Rust 1.99.0, antes de los cambios SQL posteriores.
 
 Para el primer despliegue, usar el compilador realmente probado y conservar su
 versión junto al binario, el commit y el resultado de las pruebas. Validar primero

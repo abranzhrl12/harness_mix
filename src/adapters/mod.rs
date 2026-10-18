@@ -17,6 +17,8 @@ mod index_inventory;
 mod index_semantic;
 #[cfg(windows)]
 pub mod index_store;
+#[cfg(windows)]
+pub(crate) mod index_watch;
 #[cfg(not(windows))]
 pub mod index_store {
     pub fn sync_workspace(
@@ -81,6 +83,7 @@ pub struct NativeWorkspace {
     project: Project,
     edit_lock: std::sync::Mutex<()>,
     tasks: Option<tasks::TaskManager>,
+    index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
 }
 pub type NativeApplication = Application<NativeWorkspace, sessions::Sessions>;
 
@@ -99,6 +102,15 @@ pub fn application_with_logging_and_tasks(
     persist_logs: bool,
     tasks: Option<tasks::TaskManager>,
 ) -> std::io::Result<NativeApplication> {
+    application_with_background(root, persist_logs, tasks, None)
+}
+
+pub(crate) fn application_with_background(
+    root: &Path,
+    persist_logs: bool,
+    tasks: Option<tasks::TaskManager>,
+    index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
+) -> std::io::Result<NativeApplication> {
     let project = Project::new(root)?;
     let sessions = sessions::Sessions::new(project.clone());
     let log_store = persist_logs.then(|| disk_logs::DiskLogs::new(project.clone()));
@@ -109,6 +121,7 @@ pub fn application_with_logging_and_tasks(
             project,
             edit_lock: std::sync::Mutex::new(()),
             tasks,
+            index_watch,
         },
         sessions,
     ))
@@ -248,6 +261,20 @@ impl Workspace for NativeWorkspace {
         context: &OperationContext,
     ) -> Result<Value, Failure> {
         let mut result = doctor::doctor(&self.project, args, context)?;
+        let details = self
+            .index_watch
+            .as_ref()
+            .and_then(|status| status.lock().ok().map(|v| v.clone()))
+            .unwrap_or_else(|| json!({"enabled":false,"state":"disabled"}));
+        doctor::append_check(
+            &mut result,
+            json!({
+                "id":"index-auto-sync",
+                "status":if details["enabled"] != true { "skipped" } else if details["lastError"].is_null() { "ok" } else { "warning" },
+                "message":"Automatic index maintenance status; global freshness not certified",
+                "details":details
+            }),
+        );
         match &self.tasks {
             Some(tasks) => {
                 let diagnostics = tasks.diagnostics();
