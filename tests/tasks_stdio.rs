@@ -169,6 +169,37 @@ fn completed_job_result_and_event_cursor_survive_graceful_restart() {
     let completed = server.jobs(3, json!({"action":"status","taskId":task_id}));
     assert_eq!(completed["status"], "succeeded", "{completed}");
     assert!(completed["result"].is_object());
+    let legacy = server.request(
+        30,
+        "tools/call",
+        json!({"name":"harness_process_status","arguments":{"runId":task_id,"list":"recent"}}),
+    );
+    let legacy = &legacy["result"]["structuredContent"];
+    assert_eq!(legacy["state"], "ok", "{legacy}");
+    assert_eq!(legacy["data"]["run"]["state"], "succeeded");
+    assert!(
+        legacy["data"]["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|run| run["taskId"] == task_id)
+    );
+    let report = server.request(
+        31,
+        "tools/call",
+        json!({"name":"harness_doctor","arguments":{}}),
+    );
+    let report = &report["result"]["structuredContent"]["data"];
+    assert_eq!(report["mcpRegistry"]["status"], "verified", "{report}");
+    assert_eq!(report["allToolsVerified"], false);
+    let storage = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "background-jobs")
+        .unwrap();
+    assert_eq!(storage["status"], "ok", "{storage}");
+    assert_eq!(storage["details"]["readChecked"], true);
     let before = server.replay(Some(task_id), 0);
     let cursor = before.last().unwrap()["cursor"].as_u64().unwrap();
     server.close();
@@ -190,6 +221,15 @@ fn completed_job_result_and_event_cursor_survive_graceful_restart() {
     let mut restored = Server::start(root.path());
     let status = restored.jobs(2, json!({"action":"status","taskId":task_id}));
     assert_eq!(status, completed);
+    let legacy = restored.request(
+        30,
+        "tools/call",
+        json!({"name":"harness_process_status","arguments":{"runId":task_id}}),
+    );
+    assert_eq!(
+        legacy["result"]["structuredContent"]["data"]["run"]["state"], "succeeded",
+        "{legacy}"
+    );
     let health = restored.jobs(3, json!({"action":"list"}));
     assert!(health["persistenceError"].is_null(), "{health}");
     let replay = restored.replay(Some(task_id), 0);

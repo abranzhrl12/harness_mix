@@ -678,15 +678,27 @@ fn ambiguous_calls_and_receiver_qualifiers_are_kept_unresolved() {
 fn legacy_unrecoverable_incoming_edges_block_deletion_without_data_loss() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
-    fs::write(root.path().join("a.rs"), "pub fn target() {}\n").unwrap();
-    sync(root.path(), "a.rs");
-    fs::write(root.path().join("b.rs"), "pub fn caller() { target(); }\n").unwrap();
-    sync(root.path(), "b.rs");
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "mod a; mod b;\n").unwrap();
+    sync(root.path(), "src/lib.rs");
+    fs::write(root.path().join("src/a.rs"), "pub fn target() {}\n").unwrap();
+    sync(root.path(), "src/a.rs");
+    fs::write(
+        root.path().join("src/b.rs"),
+        "pub fn caller() { super::a::target(); }\n",
+    )
+    .unwrap();
+    sync(root.path(), "src/b.rs");
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+        1,
+        "the fixture must establish a proven cross-module call before removing its recovery metadata"
+    );
     db(root.path())
         .execute("UPDATE edges SET metadata=NULL WHERE kind='calls'", [])
         .unwrap();
-    fs::remove_file(root.path().join("a.rs")).unwrap();
-    let error = sync_file(root.path(), "a.rs", &OperationContext::default()).unwrap_err();
+    fs::remove_file(root.path().join("src/a.rs")).unwrap();
+    let error = sync_file(root.path(), "src/a.rs", &OperationContext::default()).unwrap_err();
     assert_eq!(error.0, "SYNC_LEGACY_REFERENCE");
     assert_eq!(
         count(
@@ -1015,22 +1027,31 @@ fn missing_index_and_non_wal_journal_do_not_create_or_modify_graphs() {
 fn workspace_sync_applies_native_additions_changes_and_explicit_deletions() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
-    fs::write(root.path().join("a.rs"), "pub fn target() {}\n").unwrap();
-    fs::write(root.path().join("b.rs"), "pub fn caller() { target(); }\n").unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "mod a; mod b;\n").unwrap();
+    fs::write(root.path().join("src/a.rs"), "pub fn target() {}\n").unwrap();
+    fs::write(
+        root.path().join("src/b.rs"),
+        "pub fn caller() { super::a::target(); }\n",
+    )
+    .unwrap();
     let result = sync_workspace(root.path(), &OperationContext::default()).unwrap();
-    assert_eq!(result["changedFilesCommitted"], 2);
+    assert_eq!(result["changedFilesCommitted"], 3);
     assert_eq!(result["selectedScopeApplied"], true);
     assert_eq!(result["synchronized"], false);
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
         1
     );
-    fs::remove_file(root.path().join("b.rs")).unwrap();
-    fs::write(root.path().join("a.rs"), "pub fn modified() {}\n").unwrap();
+    fs::remove_file(root.path().join("src/b.rs")).unwrap();
+    fs::write(root.path().join("src/a.rs"), "pub fn modified() {}\n").unwrap();
     let result = sync_workspace(root.path(), &OperationContext::default()).unwrap();
     assert_eq!(result["changedFilesCommitted"], 2);
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM files WHERE path='b.rs'"),
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE path='src/b.rs'"
+        ),
         0
     );
 }

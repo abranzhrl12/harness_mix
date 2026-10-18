@@ -511,6 +511,34 @@ fn javascript_verification_reports_missing_runtime_without_node() {
 }
 
 #[test]
+fn typescript_and_tsx_builds_work_without_node_and_do_not_execute_code() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("example.ts"),
+        "const value: number = 'not type checked'; throw new Error('not executed');",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("example.tsx"),
+        "export const view = <span/>; throw new Error('not executed');",
+    )
+    .unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    for (id, path) in [(2, "example.ts"), (3, "example.tsx")] {
+        let result = server.request(id, "tools/call", json!({"name":"harness_verify","arguments":{"language":"typescript","scope":path,"action":"build"}}));
+        let envelope = &result["result"]["structuredContent"];
+        assert_eq!(envelope["state"], "ok", "{envelope}");
+        assert_eq!(
+            envelope["data"]["verificationMode"],
+            "typescript_syntax_only"
+        );
+        assert_eq!(envelope["data"]["typeCheckPerformed"], false);
+        assert_eq!(envelope["data"]["codeExecuted"], false);
+    }
+}
+
+#[test]
 fn python_verification_reports_missing_interpreter_without_node() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("example.py"), "pass\n").unwrap();
@@ -982,7 +1010,16 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let diagnosis = &doctor["result"]["structuredContent"];
     assert_eq!(diagnosis["state"], "ok", "{doctor}");
     assert_eq!(diagnosis["data"]["versionsRequested"], false);
-    assert_eq!(diagnosis["data"]["counts"]["warning"], 7);
+    assert_eq!(diagnosis["data"]["counts"]["warning"], 8);
+    assert_eq!(diagnosis["data"]["allToolsVerified"], false);
+    assert_eq!(diagnosis["data"]["mcpRegistry"]["status"], "verified");
+    let coverage = diagnosis["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "functional-coverage")
+        .unwrap();
+    assert_eq!(coverage["status"], "warning");
     for name in [
         "tool:cargo",
         "tool:rustc",

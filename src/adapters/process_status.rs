@@ -1,11 +1,7 @@
 //! Native process status, TCP probing and HTTP loopback health checking adapter.
 //! Safe, bounded diagnostic tool; no shell, no global termination.
 
-use harness_domain::{
-    Failure,
-    contracts::ProcessStatusArgs,
-    execution::OperationContext,
-};
+use harness_domain::{Failure, contracts::ProcessStatusArgs, execution::OperationContext};
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -20,28 +16,50 @@ struct HttpUrl {
 }
 
 fn parse_health_url(raw: &str) -> Result<HttpUrl, Failure> {
+    if raw.len() > 4096
+        || !raw.is_ascii()
+        || raw
+            .bytes()
+            .any(|b| b.is_ascii_control() || b.is_ascii_whitespace() || b == b'\\')
+    {
+        return Err(("ARGUMENT", "Invalid healthUrl characters"));
+    }
+    for (index, byte) in raw.bytes().enumerate() {
+        if byte == b'%'
+            && !raw
+                .as_bytes()
+                .get(index + 1..index + 3)
+                .is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+        {
+            return Err(("ARGUMENT", "Invalid healthUrl percent escape"));
+        }
+    }
     let (scheme, rest) = raw
         .split_once("://")
         .ok_or(("ARGUMENT", "healthUrl inválida"))?;
-    if scheme != "http" && scheme != "https" {
+    if scheme == "https" {
+        return Err((
+            "UNSUPPORTED",
+            "HTTPS health probes require TLS and are not supported; use HTTP loopback",
+        ));
+    }
+    if scheme != "http" {
         return Err((
             "ARGUMENT",
             "healthUrl requiere HTTP(S) loopback sin credenciales, query ni fragmento",
         ));
     }
-    let default_port = if scheme == "https" { 443 } else { 80 };
+    let default_port = 80;
     if rest.contains('@') || rest.contains('?') || rest.contains('#') {
         return Err((
             "ARGUMENT",
             "healthUrl requiere HTTP(S) loopback sin credenciales, query ni fragmento",
         ));
     }
-    let (authority, path_part) = rest.split_once('/').map_or((rest, "/"), |(a, p)| (a, p));
-    let path = if path_part.starts_with('/') {
-        path_part.to_string()
-    } else {
-        format!("/{path_part}")
-    };
+    let (authority, path) = rest.split_once('/').map_or_else(
+        || (rest, "/".to_string()),
+        |(authority, path)| (authority, format!("/{path}")),
+    );
 
     let (host, port) = if authority.starts_with('[') {
         let (bracketed, port_part) = authority
@@ -49,14 +67,22 @@ fn parse_health_url(raw: &str) -> Result<HttpUrl, Failure> {
             .ok_or(("ARGUMENT", "healthUrl inválida"))?;
         let ip = &bracketed[1..];
         let p = if let Some(p_str) = port_part.strip_prefix(':') {
+            if p_str.is_empty() || !p_str.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(("ARGUMENT", "Invalid healthUrl port"));
+            }
             p_str
                 .parse::<u16>()
                 .map_err(|_| ("ARGUMENT", "Puerto de healthUrl inválido"))?
-        } else {
+        } else if port_part.is_empty() {
             default_port
+        } else {
+            return Err(("ARGUMENT", "Invalid trailing IPv6 authority characters"));
         };
         (ip.to_string(), p)
     } else if let Some((h, p_str)) = authority.split_once(':') {
+        if p_str.is_empty() || !p_str.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(("ARGUMENT", "Invalid healthUrl port"));
+        }
         let p = p_str
             .parse::<u16>()
             .map_err(|_| ("ARGUMENT", "Puerto de healthUrl inválido"))?;
@@ -93,10 +119,7 @@ fn validate(args: &ProcessStatusArgs) -> Result<(Option<HttpUrl>, Duration), Fai
         return Err(("ARGUMENT", "pid debe ser un entero positivo"));
     }
     if let Some(run_id) = &args.run_id
-        && (run_id.len() != 36
-            || !run_id
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() || c == '-'))
+        && !harness_domain::execution::valid_request_id(run_id)
     {
         return Err(("ARGUMENT", "runId inválido"));
     }
@@ -111,7 +134,8 @@ fn validate(args: &ProcessStatusArgs) -> Result<(Option<HttpUrl>, Duration), Fai
         return Err(("ARGUMENT", "port: 1–65535"));
     }
     if let Some(host) = &args.host
-        && host != "127.0.0.1" && host != "::1"
+        && host != "127.0.0.1"
+        && host != "::1"
     {
         return Err(("ARGUMENT", "host solo admite loopback numérico"));
     }
@@ -134,25 +158,28 @@ fn check_pid(pid: u32) -> Value {
     {
         use windows::Win32::{
             Foundation::{CloseHandle, STILL_ACTIVE},
-            System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+            System::Threading::{
+                GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            },
         };
         // SAFETY: OpenProcess called with limited query rights on numeric PID.
         unsafe {
             match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                 Ok(handle) => {
                     let mut code = 0u32;
-                    let active = GetExitCodeProcess(handle, &mut code).is_ok()
-                        && code == STILL_ACTIVE.0 as u32;
+                    let queried = GetExitCodeProcess(handle, &mut code);
                     let _ = CloseHandle(handle);
-                    if active {
+                    if queried.is_err() {
+                        json!({"pid":pid,"state":"unknown","reason":"query_failed","responsive":null})
+                    } else if code == STILL_ACTIVE.0 as u32 {
                         json!({"pid": pid, "state": "exists", "responsive": null})
                     } else {
                         json!({"pid": pid, "state": "not_running", "responsive": null})
                     }
                 }
-                Err(_) => {
-                    // Could be not found or access denied
-                    json!({"pid": pid, "state": "not_running", "responsive": null})
+                Err(error) => {
+                    let (state, reason) = windows_open_error(error.code().0 as u32 & 0xffff);
+                    json!({"pid":pid,"state":state,"reason":reason,"responsive":null})
                 }
             }
         }
@@ -172,6 +199,15 @@ fn check_pid(pid: u32) -> Value {
                 json!({"pid": pid, "state": "unknown", "reason": "probe_failed", "responsive": null})
             }
         }
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_open_error(code: u32) -> (&'static str, &'static str) {
+    match code {
+        87 | 1168 => ("not_running", "not_found"),
+        5 => ("unknown", "access_denied"),
+        _ => ("unknown", "probe_failed"),
     }
 }
 
@@ -251,8 +287,16 @@ fn probe_http(url: &HttpUrl, timeout: Duration) -> Value {
     let started = Instant::now();
     let host = &url.host;
     let port = url.port;
-    let resolved_host = if host == "localhost" { "127.0.0.1" } else { host };
-    let addr_str = format!("{resolved_host}:{port}");
+    let resolved_host = if host == "localhost" {
+        "127.0.0.1"
+    } else {
+        host
+    };
+    let addr_str = if resolved_host == "::1" {
+        format!("[{resolved_host}]:{port}")
+    } else {
+        format!("{resolved_host}:{port}")
+    };
 
     let stream = match TcpStream::connect_timeout(
         &match addr_str.parse::<SocketAddr>() {
@@ -301,9 +345,18 @@ fn probe_http(url: &HttpUrl, timeout: Duration) -> Value {
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
 
-    let path = if url.path.is_empty() { "/" } else { url.path.as_str() };
+    let path = if url.path.is_empty() {
+        "/"
+    } else {
+        url.path.as_str()
+    };
+    let authority = if host == "::1" {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
     let request_data = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: agent-harness\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: agent-harness\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
 
     let mut stream = stream;
@@ -368,6 +421,13 @@ pub fn handle_process_status(
     args: &ProcessStatusArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    handle_process_status_with_tasks(args, context, None)
+}
+pub fn handle_process_status_with_tasks(
+    args: &ProcessStatusArgs,
+    context: &OperationContext,
+    tasks: Option<&super::tasks::TaskManager>,
+) -> Result<Value, Failure> {
     context.check()?;
     let (url, timeout) = validate(args)?;
     let started = Instant::now();
@@ -380,17 +440,16 @@ pub fn handle_process_status(
         result["process"] = check_pid(pid);
     }
 
-    if let Some(run_id) = &args.run_id {
-        result["run"] = json!({
-            "runId": run_id,
-            "state": "unknown",
-            "reason": "not_retained_in_this_harness_process"
-        });
-    }
-
-    if let Some(list_filter) = args.list {
-        let _ = list_filter;
-        result["runs"] = json!([]);
+    if args.run_id.is_some() || args.list.is_some() {
+        let jobs = tasks
+            .ok_or(("UNSUPPORTED", "Managed job registry is not attached"))?
+            .process_status(args)?;
+        for (key, value) in jobs
+            .as_object()
+            .ok_or(("INTERNAL", "Invalid job status result"))?
+        {
+            result[key] = value.clone();
+        }
     }
 
     if let Some(port) = args.port {
@@ -406,8 +465,87 @@ pub fn handle_process_status(
 
     result["milliseconds"] = json!(started.elapsed().as_millis() as u64);
     result["limitations"] = json!(
-        "Point-in-time observations. PID existence does not prove responsiveness or identity (PID reuse). TCP acceptance is not application health or ownership by the requested PID. HTTP health means a 2xx status only, not body validation. Run lifecycle/exit codes cover retained children started by this harness process, not descendants or external processes."
+        "Point-in-time observations. PID existence does not prove responsiveness or identity (PID reuse). TCP acceptance is not application health or ownership by the requested PID. HTTP health means a 2xx status only, not body validation. Run IDs refer to retained harness_jobs task IDs; history survives restart and interrupted work is not rerun."
     );
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn health_urls_reject_tls_and_request_injection() {
+        assert_eq!(
+            parse_health_url("https://127.0.0.1:1/health")
+                .err()
+                .unwrap()
+                .0,
+            "UNSUPPORTED"
+        );
+        for url in [
+            "http://127.0.0.1/\r\nInjected:yes",
+            "http://127.0.0.1/has space",
+            "http://[::1]garbage/",
+            "http://[::1]:+80/",
+            "http://[::1]:80:90/",
+            "http://127.0.0.1:80junk/",
+            "http://127.0.0.1\\evil/",
+            "http://localhost@evil/",
+            "http://127.0.0.1/?x=1",
+        ] {
+            assert!(parse_health_url(url).is_err(), "{url:?}");
+        }
+        let parsed = parse_health_url("http://[::1]:1234/health").unwrap();
+        assert_eq!(parsed.host, "::1");
+        assert_eq!(parsed.port, 1234);
+        assert_eq!(parsed.path, "/health");
+    }
+    #[test]
+    fn windows_probe_errors_do_not_claim_process_absence() {
+        assert_eq!(windows_open_error(5), ("unknown", "access_denied"));
+        assert_eq!(windows_open_error(87), ("not_running", "not_found"));
+        assert_eq!(windows_open_error(1168), ("not_running", "not_found"));
+        assert_eq!(windows_open_error(12345), ("unknown", "probe_failed"));
+    }
+    #[test]
+    fn ipv6_loopback_http_uses_bracketed_socket_and_host_header() {
+        let Ok(listener) = std::net::TcpListener::bind("[::1]:0") else {
+            return;
+        };
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let started = Instant::now();
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut bytes = [0; 1024];
+                        let size = stream.read(&mut bytes).unwrap();
+                        assert!(
+                            String::from_utf8_lossy(&bytes[..size])
+                                .contains(&format!("Host: [::1]:{port}\r\n"))
+                        );
+                        stream
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                            .unwrap();
+                        break;
+                    }
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && started.elapsed() < Duration::from_secs(2) =>
+                    {
+                        std::thread::sleep(Duration::from_millis(2))
+                    }
+                    Err(error) => panic!("IPv6 HTTP probe failed: {error}"),
+                }
+            }
+        });
+        let url = parse_health_url(&format!("http://[::1]:{port}/health")).unwrap();
+        assert_eq!(probe_http(&url, Duration::from_secs(1))["healthy"], true);
+        server.join().unwrap();
+    }
 }

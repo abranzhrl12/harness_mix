@@ -2,7 +2,7 @@
 mod capabilities;
 mod config;
 mod disk_logs;
-mod doctor;
+pub(crate) mod doctor;
 mod edit;
 mod edit_commit;
 mod edit_security;
@@ -23,39 +23,44 @@ pub mod index_store {
         _: &std::path::Path,
         _: &harness_domain::execution::OperationContext,
     ) -> Result<serde_json::Value, harness_domain::Failure> {
-        Err(("UNSUPPORTED", "Native index publication requires Windows path pinning"))
+        Err((
+            "UNSUPPORTED",
+            "Native index publication requires Windows path pinning",
+        ))
     }
     pub fn sync_file(
         _: &std::path::Path,
         _: &str,
         _: &harness_domain::execution::OperationContext,
     ) -> Result<serde_json::Value, harness_domain::Failure> {
-        Err(("UNSUPPORTED", "Native index publication requires Windows path pinning"))
+        Err((
+            "UNSUPPORTED",
+            "Native index publication requires Windows path pinning",
+        ))
     }
 }
+pub mod data_query;
+pub mod diagnostics;
+pub mod handover;
 pub mod index_sync;
 pub mod process;
-pub mod tasks;
-mod tasks_store;
+pub mod process_status;
 mod process_tree;
 mod project;
 mod rust_symbols;
 mod rust_syntax;
-mod ts_syntax;
-mod ts_symbols;
 mod search;
 mod session_workflow;
 mod sessions;
-mod symbols;
-mod verify;
 pub mod sql;
-pub mod xlsx;
 pub mod svg;
-pub mod handover;
-pub mod process_status;
-pub mod diagnostics;
-pub mod data_query;
-
+mod symbols;
+pub mod tasks;
+mod tasks_store;
+mod ts_symbols;
+mod ts_syntax;
+mod verify;
+pub mod xlsx;
 
 use harness_application::{
     Application,
@@ -75,6 +80,7 @@ pub struct NativeWorkspace {
     log_store: Option<Result<disk_logs::DiskLogs, Failure>>,
     project: Project,
     edit_lock: std::sync::Mutex<()>,
+    tasks: Option<tasks::TaskManager>,
 }
 pub type NativeApplication = Application<NativeWorkspace, sessions::Sessions>;
 
@@ -85,6 +91,14 @@ pub fn application_with_logging(
     root: &Path,
     persist_logs: bool,
 ) -> std::io::Result<NativeApplication> {
+    application_with_logging_and_tasks(root, persist_logs, None)
+}
+
+pub fn application_with_logging_and_tasks(
+    root: &Path,
+    persist_logs: bool,
+    tasks: Option<tasks::TaskManager>,
+) -> std::io::Result<NativeApplication> {
     let project = Project::new(root)?;
     let sessions = sessions::Sessions::new(project.clone());
     let log_store = persist_logs.then(|| disk_logs::DiskLogs::new(project.clone()));
@@ -94,6 +108,7 @@ pub fn application_with_logging(
             log_store,
             project,
             edit_lock: std::sync::Mutex::new(()),
+            tasks,
         },
         sessions,
     ))
@@ -232,7 +247,28 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::DoctorArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        doctor::doctor(&self.project, args, context)
+        let mut result = doctor::doctor(&self.project, args, context)?;
+        match &self.tasks {
+            Some(tasks) => {
+                let diagnostics = tasks.diagnostics();
+                doctor::append_check(
+                    &mut result,
+                    json!({
+                        "id":"background-jobs", "status":diagnostics["status"],
+                        "message":"Shared job registry and existing durable history inspected; no storage created or write probe performed",
+                        "details":diagnostics
+                    }),
+                );
+            }
+            None => doctor::append_check(
+                &mut result,
+                json!({
+                    "id":"background-jobs", "status":"skipped",
+                    "message":"Background job manager not attached in this application/profile"
+                }),
+            ),
+        }
+        Ok(result)
     }
     fn git_status(
         &self,
@@ -325,7 +361,7 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::ProcessStatusArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        process_status::handle_process_status(args, context)
+        process_status::handle_process_status_with_tasks(args, context, self.tasks.as_ref())
     }
     fn diagnostics(
         &self,

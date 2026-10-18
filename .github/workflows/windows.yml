@@ -1,0 +1,38 @@
+name: Windows release candidate
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Workspace tests
+        run: cargo test --locked --workspace
+      - name: Package release candidate
+        shell: powershell
+        run: ./scripts/package-release.ps1
+      - name: Test executable extracted from archive
+        shell: powershell
+        run: |
+          $archive = Get-ChildItem target/dist/agent-harness-*-windows-x86_64.zip | Select-Object -First 1
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath target/release-smoke
+          $executable = Get-ChildItem target/release-smoke -Filter agent-harness.exe -Recurse | Select-Object -First 1
+          node scripts/smoke-mcp.cjs $executable.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged MCP smoke failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-release-candidate
+          path: |
+            target/dist/*.zip
+            target/dist/*-SHA256SUMS.txt
+          if-no-files-found: error

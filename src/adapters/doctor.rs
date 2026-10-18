@@ -140,6 +140,14 @@ fn counts(checks: &[Value]) -> (Value, &'static str) {
     (counts, health)
 }
 
+pub(crate) fn append_check(report: &mut Value, item: Value) {
+    let checks = report["checks"].as_array_mut().expect("doctor checks");
+    checks.push(item);
+    let (summary, health) = counts(checks);
+    report["counts"] = summary;
+    report["health"] = json!(health);
+}
+
 pub(super) fn doctor(
     project: &Project,
     args: &DoctorArgs,
@@ -195,22 +203,62 @@ pub(super) fn doctor(
     let mut connection = check(
         "connection:codegraph",
         "skipped",
-        "Native CodeGraph connection diagnostic not migrated; no connection attempted",
+        "Index probe not requested or index absent",
     );
     connection["requested"] = json!(args.connection.unwrap_or(false));
+    if args.connection == Some(true) && project.root.join(".codegraph").is_dir() {
+        let probe = serde_json::from_value(json!({"query":"__harness_doctor_probe__","syncIndex":false,"maxFiles":1,"maxDepth":1,"maxChars":1000}))
+            .map_err(|_| ("INTERNAL", "Invalid index diagnostic request"))?;
+        connection = match super::explore::explore(project, &probe, context) {
+            Ok(_) => check(
+                "connection:codegraph",
+                "ok",
+                "Native index opened and queried read-only; global freshness not certified",
+            ),
+            Err((code, _)) => {
+                let mut failure = check(
+                    "connection:codegraph",
+                    "error",
+                    "Native index read-only probe failed",
+                );
+                failure["code"] = json!(code);
+                failure
+            }
+        };
+        connection["requested"] = json!(true);
+    }
     checks.push(connection);
     if args.connection.unwrap_or(false) {
-        let sql_res = super::sql::status(project, &harness_domain::sql::SqlStatusArgs { connect: Some(true), session: None }, context);
+        let sql_res = super::sql::status(
+            project,
+            &harness_domain::sql::SqlStatusArgs {
+                connect: Some(true),
+                session: None,
+            },
+            context,
+        );
         match sql_res {
             Ok(val) => {
                 let connected = val["connected"].as_bool().unwrap_or(false);
                 let configured = val["configured"].as_bool().unwrap_or(false);
                 if configured && connected {
-                    checks.push(check("sql", "ok", "SQL Server connection verified successfully"));
+                    checks.push(check(
+                        "sql",
+                        "ok",
+                        "SQL Server connection verified successfully",
+                    ));
                 } else if configured {
-                    checks.push(check("sql", "warning", "SQL Server configured but verification ping failed"));
+                    checks.push(check(
+                        "sql",
+                        "warning",
+                        "SQL Server configured but verification ping failed",
+                    ));
                 } else {
-                    checks.push(check("sql", "skipped", "SQL Server not configured in harness.config.json"));
+                    checks.push(check(
+                        "sql",
+                        "skipped",
+                        "SQL Server not configured in harness.config.json",
+                    ));
                 }
             }
             Err(_) => {
@@ -220,22 +268,39 @@ pub(super) fn doctor(
     } else {
         let config = super::sql::load_sql_config(project);
         if config.enabled {
-            checks.push(check("sql", "ok", "SQL Server configured; connection verification not requested"));
+            checks.push(check(
+                "sql",
+                "ok",
+                "SQL Server configured; connection verification not requested",
+            ));
         } else {
-            checks.push(check("sql", "skipped", "SQL Server not configured in harness.config.json"));
+            checks.push(check(
+                "sql",
+                "skipped",
+                "SQL Server not configured in harness.config.json",
+            ));
         }
     }
+    checks.push(check("functional-coverage", "warning", "Not an end-to-end certification: tools, client notifications, external services and all language/platform combinations are not exercised by doctor"));
     context.check()?;
     let (counts, health) = counts(&checks);
     Ok(
         json!({"health":health,"counts":counts,"checks":checks,"milliseconds":started.elapsed().as_millis() as u64,
-        "coverage":"native_local_only","versionsRequested":versions,
-        "limitations":["No builds, tests, repairs, index sync, or configuration/secret reads",
+        "coverage":"native_local_only","healthScope":"environment_and_explicit_checks_only",
+        "functionalHealth":"not_certified","allToolsVerified":false,"versionsRequested":versions,
+        "mcpRegistry":{"status":"not_checked","reason":"Only the transport can inspect its actual advertised routes"},
+        "partialCapabilities":[
+            {"id":"health-https","status":"unsupported","reason":"HTTPS is rejected explicitly; HTTP loopback only"},
+            {"id":"typescript-verification","status":"syntax_only","reason":"Native TS/TSX syntax validation is not type checking or a TypeScript test runner"}
+        ],
+        "limitations":["No builds, tests, repairs, index sync, or raw configuration/secret output",
             "Versions default false; true runs bounded version probes (Go: version; others: --version), 2 seconds and 4 KiB each",
             "Toolchain shims may consult their manager/project selection; version probing is not a network sandbox",
             "Executable discovery uses the same absolute PATH/direct executable policy as native execution",
             "Directory presence does not validate contents, permissions, freshness, or remote transport health",
-            "CodeGraph and SQL connections remain unverified; application attaches live metrics and volatile log status"]}),
+            "CodeGraph read-only query and SQL ping run only when connection=true and prerequisites exist; neither proves all operations or freshness",
+            "Background job storage is read-checked only when a shared manager and history already exist; no writeability certification",
+            "Application attaches live metrics and log status"]}),
     )
 }
 

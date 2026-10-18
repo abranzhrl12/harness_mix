@@ -180,3 +180,29 @@ fn test_process_status_rejects_non_loopback() {
     assert_eq!(res["state"], "error");
     assert_eq!(res["diagnostics"][0]["code"], "ARGUMENT");
 }
+
+#[test]
+fn https_is_rejected_before_any_plaintext_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let args:ProcessStatusArgs=serde_json::from_value(serde_json::json!({"healthUrl":format!("https://127.0.0.1:{}/health",listener.local_addr().unwrap().port())})).unwrap();
+    let error =
+        adapters::process_status::handle_process_status(&args, &Default::default()).unwrap_err();
+    assert_eq!(error.0, "UNSUPPORTED");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
+fn standalone_run_queries_do_not_fake_empty_history() {
+    let args: ProcessStatusArgs =
+        serde_json::from_value(serde_json::json!({"list":"recent"})).unwrap();
+    assert_eq!(
+        adapters::process_status::handle_process_status(&args, &Default::default())
+            .unwrap_err()
+            .0,
+        "UNSUPPORTED"
+    );
+}

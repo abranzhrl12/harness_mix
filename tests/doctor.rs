@@ -16,6 +16,9 @@ fn diagnosis_does_not_create_state_or_claim_remote_connections() {
     let result = doctor(&app, false);
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["coverage"], "native_local_only");
+    assert_eq!(result["data"]["allToolsVerified"], false);
+    assert_eq!(result["data"]["functionalHealth"], "not_certified");
+    assert_eq!(result["data"]["mcpRegistry"]["status"], "not_checked");
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     let checks = result["data"]["checks"].as_array().unwrap();
     for id in ["connection:codegraph", "sql"] {
@@ -51,6 +54,46 @@ fn diagnosis_does_not_create_state_or_claim_remote_connections() {
         .find(|c| c["id"] == "index")
         .unwrap();
     assert_eq!(check["status"], "warning");
+}
+
+#[test]
+fn shared_jobs_diagnostic_does_not_create_storage() {
+    let root = tempfile::tempdir().unwrap();
+    let jobs = adapters::tasks::TaskManager::new(root.path()).unwrap();
+    let app = adapters::application_with_logging_and_tasks(root.path(), false, Some(jobs)).unwrap();
+    let report = doctor(&app, false);
+    let item = report["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "background-jobs")
+        .unwrap();
+    assert_eq!(item["status"], "skipped");
+    assert_eq!(item["details"]["readChecked"], false);
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn requested_index_probe_opens_a_real_index_without_syncing() {
+    let root = tempfile::tempdir().unwrap();
+    adapters::index_store::initialize(
+        root.path(),
+        &harness_domain::execution::OperationContext::default(),
+    )
+    .unwrap();
+    let db = root.path().join(".codegraph/codegraph.db");
+    let before = std::fs::read(&db).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let report = doctor(&app, false);
+    let item = report["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "connection:codegraph")
+        .unwrap();
+    assert_eq!(item["status"], "ok", "{item}");
+    assert_eq!(std::fs::read(db).unwrap(), before);
 }
 
 #[test]

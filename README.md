@@ -44,7 +44,7 @@ Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `
 
 ## Tareas en segundo plano
 
-Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas sin bloquear la conversación. Incluye dos ejecuciones simultáneas, avisos MCP, historial persistente y cancelación, sin plazo de ejecución predeterminado. [Uso y límites](docs/JOBS.md).
+Pide al asistente que use `harness_jobs` para lanzar compilaciones o pruebas en segundo plano. Incluye dos ejecuciones simultáneas, avisos MCP, historial persistente y cancelación, sin plazo de ejecución predeterminado. El cliente decide si permite seguir conversando y reaccionar a los avisos. [Uso y límites](docs/JOBS.md).
 
 ## Límites y desarrollo
 
@@ -55,4 +55,4 @@ cargo test --locked --workspace -- --test-threads=1
 agent-harness --help
 ```
 
-[Referencia completa](docs/REFERENCE.md) · [Estado y límites](docs/MIGRATION-STATUS.md) · [Arquitectura](docs/ARCHITECTURE.md) · [Distribución Windows](release/README.md)
+[Referencia completa](docs/REFERENCE.md) · [Estado y límites](docs/MIGRATION-STATUS.md) · [Salida a producción](docs/PRODUCTION.md) · [Distribución Windows](release/README.md)

@@ -4,11 +4,83 @@ use harness_domain::{
     Failure,
     contracts::{VerifyAction, VerifyArgs},
     execution::OperationContext,
-    process::{ProcessSpec, Program, StopReason},
+    process::{ProcessOutcome, ProcessSpec, Program, StopReason},
     results::{prefix, utf16_len},
 };
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+pub(super) enum BackgroundVerificationPlan {
+    Process(ProcessSpec),
+    TypeScriptSyntax,
+}
+
+fn typescript_scope(project: &Project, args: &VerifyArgs) -> Result<Option<String>, Failure> {
+    if !["javascript", "js", "typescript", "ts"]
+        .iter()
+        .any(|language| args.language.eq_ignore_ascii_case(language))
+    {
+        return Ok(None);
+    }
+    let Some(scope) = args.scope.as_deref() else {
+        return Ok(None);
+    };
+    if !std::path::Path::new(scope)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| ["ts", "tsx"].contains(&extension))
+    {
+        return Ok(None);
+    }
+    if scope.len() > 4096 {
+        return Err(("PATH", "Scope too long"));
+    }
+    if !project.target(scope)?.is_file() {
+        return Err((
+            "VERIFY_SCOPE",
+            "TypeScript scope must be an explicit .ts or .tsx file",
+        ));
+    }
+    if matches!(args.action, Some(VerifyAction::Test)) {
+        return Err((
+            "UNSUPPORTED",
+            "TypeScript/TSX test execution is not supported; build performs native syntax validation only",
+        ));
+    }
+    Ok(Some(scope.to_owned()))
+}
+
+pub(super) fn run_typescript_syntax(
+    root: &std::path::Path,
+    args: &VerifyArgs,
+    context: &OperationContext,
+) -> Result<ProcessOutcome, Failure> {
+    context.check()?;
+    let started = Instant::now();
+    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    let scope = typescript_scope(&project, args)?.ok_or((
+        "VERIFY_SCOPE",
+        "Expected an explicit TypeScript/TSX syntax check",
+    ))?;
+    let bytes = project.bytes_with_limit(&scope, context, 512 * 1024)?;
+    let source =
+        std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "TypeScript source must be UTF-8"))?;
+    let syntax = super::ts_syntax::validate_syntax(&scope, source, context);
+    let (exit_code, stderr) = match syntax {
+        Ok(()) => (Some(0), vec![]),
+        Err(("SYNTAX_ERROR", message)) => (Some(1), message.as_bytes().to_vec()),
+        Err(error) => return Err(error),
+    };
+    context.check()?;
+    Ok(ProcessOutcome {
+        exit_code,
+        stdout: vec![],
+        stderr,
+        elapsed: started.elapsed(),
+        reason: StopReason::Exited,
+        tree_termination_confirmed: true,
+    })
+}
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if args.language.eq_ignore_ascii_case("dotnet") || args.language.eq_ignore_ascii_case("csharp")
@@ -155,14 +227,18 @@ fn javascript_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, 
             "JavaScript/TypeScript scope must be a .js/.cjs/.mjs/.ts/.tsx file",
         ));
     }
+    if is_ts {
+        return Err((
+            "UNSUPPORTED",
+            "TypeScript builds use native syntax validation; TypeScript test execution is not supported",
+        ));
+    }
     let mut arguments = if matches!(args.action, Some(VerifyAction::Test)) {
         vec![
             "--test".into(),
             "--test-reporter=tap".into(),
             "--test-concurrency=1".into(),
         ]
-    } else if is_ts {
-        vec!["--no-warnings".into(), "--check".into()]
     } else {
         vec!["--check".into()]
     };
@@ -334,7 +410,13 @@ pub(super) fn background_plan(
     root: &std::path::Path,
     args: &VerifyArgs,
     timeout: Option<Duration>,
-) -> Result<ProcessSpec, Failure> {
+) -> Result<BackgroundVerificationPlan, Failure> {
+    if timeout.is_some_and(|value| value.is_zero() || value > Duration::from_secs(86400)) {
+        return Err((
+            "PROCESS_BUDGET",
+            "Background timeout must be 1 second to 24 hours",
+        ));
+    }
     if args.session.is_some() {
         return Err((
             "ARGUMENT",
@@ -342,6 +424,9 @@ pub(super) fn background_plan(
         ));
     }
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    if typescript_scope(&project, args)?.is_some() {
+        return Ok(BackgroundVerificationPlan::TypeScriptSyntax);
+    }
     let spec = plan(&project, args)?;
     let arguments = spec
         .arguments()
@@ -363,6 +448,7 @@ pub(super) fn background_plan(
         spec.output_limit(),
     )?
     .with_background_timeout(timeout)
+    .map(BackgroundVerificationPlan::Process)
 }
 
 pub(super) fn verify(
@@ -371,11 +457,20 @@ pub(super) fn verify(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     context.check()?;
-    let spec = plan(project, args)?;
-    let runner = NativeProcessRunner::new(&project.root)?;
+    let native_typescript = typescript_scope(project, args)?.is_some();
+    let spec = if native_typescript {
+        None
+    } else {
+        Some(plan(project, args)?)
+    };
     let before = super::fingerprint::capture(project, context);
     context.check()?;
-    let outcome = runner.run(&spec, context)?;
+    let outcome = if native_typescript {
+        run_typescript_syntax(&project.root, args, context)?
+    } else {
+        NativeProcessRunner::new(&project.root)?.run(spec.as_ref().unwrap(), context)?
+    };
+    let program = spec.as_ref().map(ProcessSpec::program);
     // A failed observation must not hide the tool's actual result or pretend freshness.
     let after = super::fingerprint::capture(project, context);
     let mut observation = match (&before, &after) {
@@ -394,7 +489,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":match spec.program() { Program::Go => "go", Program::Python => "python", Program::Node => "javascript", Program::Dotnet => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -408,7 +503,13 @@ pub(super) fn verify(
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });
-    if spec.program() == Program::Dotnet {
+    if native_typescript {
+        result["verificationMode"] = json!("typescript_syntax_only");
+        result["typeCheckPerformed"] = json!(false);
+        result["codeExecuted"] = json!(false);
+        result["testCountVerified"] = json!(false);
+    }
+    if program == Some(Program::Dotnet) {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "dotnet_test"
         } else {
@@ -417,7 +518,7 @@ pub(super) fn verify(
         result["testCountVerified"] = json!(false);
         result["implicitRestoreEnabled"] = json!(false);
     }
-    if spec.program() == Program::Node {
+    if program == Some(Program::Node) {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "node_test_file"
         } else {
@@ -425,7 +526,7 @@ pub(super) fn verify(
         });
         result["testCountVerified"] = json!(false);
     }
-    if spec.program() == Program::Python {
+    if program == Some(Program::Python) {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "unittest_discovery"
         } else {
@@ -684,10 +785,86 @@ mod tests {
                 action: None,
                 session: None,
             };
-            let spec = plan(&project, &args).unwrap();
-            assert_eq!(spec.program(), Program::Node);
-            assert_eq!(spec.arguments(), ["--no-warnings", "--check", "./a.ts"]);
+            assert!(plan(&project, &args).is_err());
+            assert!(matches!(
+                background_plan(root.path(), &args, None).unwrap(),
+                BackgroundVerificationPlan::TypeScriptSyntax
+            ));
         }
+    }
+
+    #[test]
+    fn typescript_and_tsx_builds_validate_syntax_without_execution_or_typechecking() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        for (scope, source) in [
+            (
+                "valid.ts",
+                "const value: number = 'not type checked'; throw new Error('must not execute');",
+            ),
+            (
+                "component.tsx",
+                "const value: number = 1; export const element = <section>{value}</section>;",
+            ),
+        ] {
+            std::fs::write(root.path().join(scope), source).unwrap();
+            let args = VerifyArgs {
+                language: "typescript".into(),
+                scope: Some(scope.into()),
+                action: Some(VerifyAction::Build),
+                session: None,
+            };
+            let result = verify(&project, &args, &OperationContext::default()).unwrap();
+            assert_eq!(result["passed"], true, "{result}");
+            assert_eq!(result["language"], "typescript");
+            assert_eq!(result["verificationMode"], "typescript_syntax_only");
+            assert_eq!(result["typeCheckPerformed"], false);
+            assert_eq!(result["codeExecuted"], false);
+            assert!(matches!(
+                background_plan(root.path(), &args, None).unwrap(),
+                BackgroundVerificationPlan::TypeScriptSyntax
+            ));
+        }
+    }
+
+    #[test]
+    fn typescript_reloads_changed_source_and_rejects_invalid_syntax_and_tests() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("check.ts");
+        std::fs::write(&path, "const value: number = 1;").unwrap();
+        let mut args = VerifyArgs {
+            language: "ts".into(),
+            scope: Some("check.ts".into()),
+            action: Some(VerifyAction::Build),
+            session: None,
+        };
+        background_plan(root.path(), &args, None).unwrap();
+        std::fs::write(&path, "const value: = 1;").unwrap();
+        let outcome =
+            run_typescript_syntax(root.path(), &args, &OperationContext::default()).unwrap();
+        assert_eq!(outcome.exit_code, Some(1));
+        assert_eq!(outcome.reason, StopReason::Exited);
+        let project = Project::new(root.path()).unwrap();
+        let result = verify(&project, &args, &OperationContext::default()).unwrap();
+        assert_eq!(result["passed"], false);
+        args.action = Some(VerifyAction::Test);
+        assert!(matches!(
+            background_plan(root.path(), &args, None),
+            Err(("UNSUPPORTED", _))
+        ));
+        assert!(matches!(
+            verify(&project, &args, &OperationContext::default()),
+            Err(("UNSUPPORTED", _))
+        ));
+        args.action = Some(VerifyAction::Build);
+        let context = OperationContext::without_deadline();
+        context.cancel();
+        assert!(matches!(
+            run_typescript_syntax(root.path(), &args, &context),
+            Err(("CANCELLED", _))
+        ));
+        std::fs::write(path, " ".repeat(512 * 1024 + 1)).unwrap();
+        assert!(run_typescript_syntax(root.path(), &args, &OperationContext::default()).is_err());
     }
 
     #[test]

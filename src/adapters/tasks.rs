@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}},
     time::Duration,
 };
 use tokio::sync::{Notify, Semaphore, broadcast};
@@ -28,7 +28,6 @@ type Executor = dyn Fn(
     + Send
     + Sync;
 
-#[derive(Clone)]
 pub struct TaskManager {
     inner: Arc<Inner>,
 }
@@ -38,6 +37,31 @@ struct Inner {
     permits: Arc<Semaphore>,
     events: broadcast::Sender<Value>,
     executor: Arc<Executor>,
+    owners: AtomicUsize,
+    workers: AtomicUsize,
+    idle: Notify,
+}
+impl Clone for TaskManager {
+    fn clone(&self) -> Self {
+        self.inner.owners.fetch_add(1, Ordering::Relaxed);
+        Self { inner: self.inner.clone() }
+    }
+}
+impl Drop for TaskManager {
+    fn drop(&mut self) {
+        // Workers own Inner directly, so they cannot keep the service alive after
+        // its last client/handler is dropped.
+        if self.inner.owners.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.shutdown();
+        }
+    }
+}
+struct WorkerGuard(Arc<Inner>);
+impl Drop for WorkerGuard {
+    fn drop(&mut self) {
+        self.0.workers.fetch_sub(1, Ordering::AcqRel);
+        self.0.idle.notify_waiters();
+    }
 }
 #[derive(Default)]
 struct State {
@@ -220,6 +244,70 @@ impl Inner {
     }
 }
 impl TaskManager {
+    pub fn diagnostics(&self) -> Value {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let read = state.store.as_ref().map(|store| store.load());
+        let error = state.persistence_error.or_else(|| {
+            read.as_ref()
+                .and_then(|result| result.as_ref().err().copied())
+        });
+        json!({"status":if error.is_some(){"error"}else if state.store.is_some(){"ok"}else{"skipped"},"storage":if error.is_some(){"error"}else if state.store.is_some(){"ready"}else{"lazy"},"persistenceError":error.map(|(code,message)|json!({"code":code,"message":message})),"retained":state.tasks.len(),"active":state.tasks.iter().filter(|t|!terminal(t.status)).count(),"cursor":state.sequence,"schemaChecked":state.store.is_some()&&error.is_none(),"readChecked":matches!(read,Some(Ok(_)))&&error.is_none(),"writeabilityChecked":false})
+    }
+    /// Read retained managed jobs without creating or modifying the durable store.
+    pub fn process_status(
+        &self,
+        args: &harness_domain::contracts::ProcessStatusArgs,
+    ) -> Result<Value, Failure> {
+        use harness_domain::contracts::ProcessListFilter;
+        let limit = args.limit.unwrap_or(10);
+        if !(1..=20).contains(&limit) {
+            return Err(("ARGUMENT", "limit: 1–20"));
+        }
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| ("INTERNAL", "Task registry unavailable"))?;
+        let describe = |task: &Task| {
+            let mut value = task.value();
+            value["runId"] = json!(task.id);
+            value["state"] = json!(task.status);
+            value
+        };
+        let mut result =
+            json!({"persistenceError":persistence_error(&state),"cursor":state.sequence});
+        if let Some(id) = &args.run_id {
+            if !harness_domain::execution::valid_request_id(id) {
+                return Err(("ARGUMENT", "Invalid runId"));
+            }
+            result["run"] = state
+                .tasks
+                .iter()
+                .find(|t| &t.id == id)
+                .map(describe)
+                .unwrap_or_else(
+                    || json!({"runId":id,"state":"unknown","reason":"not_found_or_expired"}),
+                );
+        }
+        if let Some(filter) = args.list {
+            result["runs"] = json!(
+                state
+                    .tasks
+                    .iter()
+                    .rev()
+                    .filter(|task| matches!(filter, ProcessListFilter::Recent)
+                        || !terminal(task.status))
+                    .take(limit)
+                    .map(describe)
+                    .collect::<Vec<_>>()
+            );
+        }
+        Ok(result)
+    }
     pub fn new(root: &Path) -> std::io::Result<Self> {
         let root = root.canonicalize()?;
         if !root.is_dir() {
@@ -235,7 +323,9 @@ impl TaskManager {
                 .load()
                 .and_then(|snapshot| restore(snapshot, &mut state))
             {
-                Ok(()) => state.store = Some(store),
+                Ok(()) => {
+                    state.store = Some(store);
+                }
                 Err(error) => {
                     state.tasks.clear();
                     state.journal.clear();
@@ -256,6 +346,9 @@ impl TaskManager {
                 executor: Arc::new(|root, spec, context, observer| {
                     NativeProcessRunner::new(root)?.run_observed(spec, context, observer)
                 }),
+                owners: AtomicUsize::new(1),
+                workers: AtomicUsize::new(0),
+                idle: Notify::new(),
             }),
         };
         {
@@ -302,6 +395,22 @@ impl TaskManager {
                 task.wake.notify_one();
             }
         }
+    }
+    /// Cancel and drain workers before the async runtime is stopped. A false
+    /// result means the caller's cleanup deadline elapsed, not task success.
+    pub async fn shutdown_and_wait(&self, timeout: Duration) -> bool {
+        self.shutdown();
+        tokio::time::timeout(timeout, async {
+            loop {
+                let idle = self.inner.idle.notified();
+                tokio::pin!(idle);
+                idle.as_mut().enable();
+                if self.inner.workers.load(Ordering::Acquire) == 0 {
+                    return;
+                }
+                idle.await;
+            }
+        }).await.is_ok()
     }
     pub async fn handle(&self, args: TaskArgs) -> Result<Value, Failure> {
         if args.action != "start"
@@ -451,9 +560,12 @@ impl TaskManager {
             state.tasks.push_back(task);
             self.inner
                 .emit_locked(&mut state, &id, "state", response.clone())?;
+            self.inner.workers.fetch_add(1, Ordering::AcqRel);
         }
         let inner = self.inner.clone();
+        let worker = WorkerGuard(inner.clone());
         tokio::spawn(async move {
+            let _worker = worker;
             execute(inner, id, verify_args, timeout, context, wake, attempts).await;
         });
         Ok(response)
@@ -473,6 +585,7 @@ async fn execute(
     wake: Arc<Notify>,
     attempts: u8,
 ) {
+    let verify_args = Arc::new(verify_args);
     let permit = tokio::select! {
         permit = inner.permits.clone().acquire_owned() => permit.ok(),
         _ = wake.notified() => None,
@@ -481,6 +594,7 @@ async fn execute(
         inner.update(&id, "cancelled", 0, None);
         return;
     }
+    let verify_args = Arc::new(verify_args);
     for attempt in 1..=attempts {
         if context.check().is_err() {
             inner.update(&id, "cancelled", attempt - 1, None);
@@ -503,14 +617,27 @@ async fn execute(
         }
         let work_inner = inner.clone();
         let work_id = id.clone();
-        let work_context = context.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            (work_inner.executor)(
+        let work_context = context.with_execution_timeout(timeout);
+        let work_args = verify_args.clone();
+        let syntax_only = matches!(spec, verify::BackgroundVerificationPlan::TypeScriptSyntax);
+        let result = tokio::task::spawn_blocking(move || match spec {
+            verify::BackgroundVerificationPlan::Process(spec) => (work_inner.executor)(
                 &work_inner.root,
                 &spec,
                 &work_context,
                 &mut |stderr, bytes| work_inner.output(&work_id, stderr, bytes),
-            )
+            ),
+            verify::BackgroundVerificationPlan::TypeScriptSyntax => {
+                let outcome =
+                    verify::run_typescript_syntax(&work_inner.root, &work_args, &work_context)?;
+                for chunk in outcome.stdout.chunks(8192) {
+                    work_inner.output(&work_id, false, chunk);
+                }
+                for chunk in outcome.stderr.chunks(8192) {
+                    work_inner.output(&work_id, true, chunk);
+                }
+                Ok(outcome)
+            }
         })
         .await;
         match result {
@@ -526,7 +653,14 @@ async fn execute(
                     String::from_utf8_lossy(&outcome.stdout),
                     String::from_utf8_lossy(&outcome.stderr)
                 );
-                let result = json!({"passed":status == "succeeded","code":outcome.exit_code,"milliseconds":outcome.elapsed.as_millis() as u64,"output":output.chars().take(12000).collect::<String>(),"outputTruncated":output.chars().count()>12000,"limited":outcome.reason == StopReason::OutputLimit,"treeTerminationConfirmed":outcome.tree_termination_confirmed,"verificationFreshness":"not_tracked"});
+                let mut result = json!({"passed":status == "succeeded","code":outcome.exit_code,"milliseconds":outcome.elapsed.as_millis() as u64,"output":output.chars().take(12000).collect::<String>(),"outputTruncated":output.chars().count()>12000,"limited":outcome.reason == StopReason::OutputLimit,"treeTerminationConfirmed":outcome.tree_termination_confirmed,"verificationFreshness":"not_tracked"});
+                if syntax_only {
+                    result["language"] = json!("typescript");
+                    result["verificationMode"] = json!("typescript_syntax_only");
+                    result["typeCheckPerformed"] = json!(false);
+                    result["codeExecuted"] = json!(false);
+                    result["testCountVerified"] = json!(false);
+                }
                 inner.update(&id, status, attempt, Some(result));
                 return;
             }
@@ -539,7 +673,9 @@ async fn execute(
             Ok(Err((code, message))) => {
                 inner.update(
                     &id,
-                    if context.check().is_err() {
+                    if code == "TIMEOUT" {
+                        "timed_out"
+                    } else if code == "CANCELLED" || context.check().is_err() {
                         "cancelled"
                     } else {
                         "failed"
@@ -808,6 +944,65 @@ mod tests {
         assert_eq!(running.load(Ordering::SeqCst), 0);
     }
     #[tokio::test]
+    async fn shutdown_drains_workers_and_persists_terminal_state_before_restart() {
+        let root = workspace();
+        let mut manager = TaskManager::new(root.path()).unwrap();
+        let running = Arc::new(AtomicUsize::new(0));
+        let count = running.clone();
+        Arc::get_mut(&mut manager.inner).unwrap().executor = Arc::new(move |_, _, context, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            while context.check().is_ok() {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            // Model a real runner that must reap children after cancellation.
+            std::thread::sleep(Duration::from_millis(30));
+            count.fetch_sub(1, Ordering::SeqCst);
+            Ok(ProcessOutcome { reason: StopReason::Cancelled, ..success() })
+        });
+        for _ in 0..3 {
+            manager.handle(args(json!({"action":"start","verify":{"language":"rust"}}))).await.unwrap();
+        }
+        until(|| running.load(Ordering::SeqCst) == 2).await;
+        // Cloned request handlers may be dropped without stopping the service.
+        drop(manager.clone());
+        assert!(manager.inner.state.lock().unwrap().tasks.iter().all(|t| t.context.check().is_ok()));
+        assert!(manager.shutdown_and_wait(Duration::from_secs(3)).await);
+        assert_eq!(running.load(Ordering::SeqCst), 0);
+        assert_eq!(manager.inner.workers.load(Ordering::SeqCst), 0);
+        assert!(manager.inner.state.lock().unwrap().tasks.iter().all(|t| t.status == "cancelled"));
+        drop(manager);
+        let manager = TaskManager::new(root.path()).unwrap();
+        let state = manager.inner.state.lock().unwrap();
+        assert!(state.persistence_error.is_none(), "writer lock must be released");
+        assert_eq!(state.tasks.len(), 3);
+        assert!(state.tasks.iter().all(|t| t.status == "cancelled"));
+    }
+    #[tokio::test]
+    async fn dropping_last_handler_cancels_active_job_and_releases_writer() {
+        let root = workspace();
+        let mut manager = TaskManager::new(root.path()).unwrap();
+        let running = Arc::new(AtomicUsize::new(0));
+        let count = running.clone();
+        Arc::get_mut(&mut manager.inner).unwrap().executor = Arc::new(move |_, _, context, _| {
+            count.store(1, Ordering::SeqCst);
+            while context.check().is_ok() {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            count.store(0, Ordering::SeqCst);
+            Ok(ProcessOutcome { reason: StopReason::Cancelled, ..success() })
+        });
+        manager.handle(args(json!({"action":"start","verify":{"language":"rust"}}))).await.unwrap();
+        until(|| running.load(Ordering::SeqCst) == 1).await;
+        let inner = Arc::downgrade(&manager.inner);
+        drop(manager);
+        until(|| inner.upgrade().is_none()).await;
+        assert_eq!(running.load(Ordering::SeqCst), 0);
+        let manager = TaskManager::new(root.path()).unwrap();
+        let state = manager.inner.state.lock().unwrap();
+        assert!(state.persistence_error.is_none());
+        assert_eq!(state.tasks.front().unwrap().status, "cancelled");
+    }
+    #[tokio::test]
     async fn transient_prelaunch_failures_retry_then_succeed() {
         let root = workspace();
         let mut manager = TaskManager::new(root.path()).unwrap();
@@ -951,6 +1146,21 @@ mod tests {
             .unwrap();
         assert_eq!(restored["status"], "succeeded");
         assert!(restored["persistenceError"].is_null());
+        let query: harness_domain::contracts::ProcessStatusArgs =
+            serde_json::from_value(json!({"runId":task["taskId"],"list":"recent","limit":1}))
+                .unwrap();
+        let process_status = manager.process_status(&query).unwrap();
+        assert_eq!(process_status["run"]["state"], "succeeded");
+        assert_eq!(process_status["run"]["result"]["passed"], true);
+        assert_eq!(process_status["runs"].as_array().unwrap().len(), 1);
+        let active: harness_domain::contracts::ProcessStatusArgs =
+            serde_json::from_value(json!({"list":"active"})).unwrap();
+        assert!(
+            manager.process_status(&active).unwrap()["runs"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(manager.inner.state.lock().unwrap().sequence, cursor);
         assert!(
             manager
@@ -1059,5 +1269,58 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+    #[tokio::test]
+    async fn native_typescript_jobs_parse_syntax_without_executing_code() {
+        let root = workspace();
+        std::fs::write(root.path().join("valid.tsx"),"const value: number = 1; const view = <main>{value}</main>; throw new Error('must not execute');").unwrap();
+        std::fs::write(root.path().join("invalid.ts"), "const value: = ;").unwrap();
+        let mut manager = TaskManager::new(root.path()).unwrap();
+        Arc::get_mut(&mut manager.inner).unwrap().executor =
+            Arc::new(|_, _, _, _| panic!("TypeScript syntax verification must not launch Node"));
+        let valid=manager.handle(args(json!({"action":"start","verify":{"language":"typescript","scope":"valid.tsx","action":"build"}}))).await.unwrap();
+        until(|| {
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .iter()
+                .find(|t| t.id == valid["taskId"].as_str().unwrap())
+                .is_some_and(|t| terminal(t.status))
+        })
+        .await;
+        let state = manager
+            .handle(args(json!({"action":"status","taskId":valid["taskId"]})))
+            .await
+            .unwrap();
+        assert_eq!(state["status"], "succeeded");
+        assert_eq!(
+            state["result"]["verificationMode"],
+            "typescript_syntax_only"
+        );
+        assert_eq!(state["result"]["codeExecuted"], false);
+        let invalid=manager.handle(args(json!({"action":"start","verify":{"language":"typescript","scope":"invalid.ts","action":"build"}}))).await.unwrap();
+        until(|| {
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .iter()
+                .find(|t| t.id == invalid["taskId"].as_str().unwrap())
+                .is_some_and(|t| terminal(t.status))
+        })
+        .await;
+        assert_eq!(
+            manager
+                .handle(args(json!({"action":"status","taskId":invalid["taskId"]})))
+                .await
+                .unwrap()["status"],
+            "failed"
+        );
+        assert_eq!(manager.handle(args(json!({"action":"start","verify":{"language":"typescript","scope":"valid.tsx","action":"test"}}))).await.unwrap_err().0,"UNSUPPORTED");
     }
 }

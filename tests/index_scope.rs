@@ -180,8 +180,7 @@ fn synchronized_explore_preserves_partial_commits_and_validates_before_writing()
     fs::write(root.path().join("a.rs"), "pub fn fresh() {}\n").unwrap();
     let app = agent_harness::adapters::application(root.path()).unwrap();
     let result = app.execute(Request::Explore(
-        serde_json::from_value(serde_json::json!({"query":"not an identifier","syncIndex":true}))
-            .unwrap(),
+        serde_json::from_value(serde_json::json!({"query":"fresh()","syncIndex":true})).unwrap(),
     ));
     assert_eq!(result["state"], "error");
     assert_eq!(count(root.path(), "SELECT count(*) FROM files"), 0);
@@ -193,4 +192,29 @@ fn synchronized_explore_preserves_partial_commits_and_validates_before_writing()
     assert_eq!(result["data"]["sync"]["changedFilesCommitted"], 1);
     assert_eq!(result["data"]["explorationPerformed"], false);
     assert!(result["data"]["graph"].is_null());
+}
+
+#[test]
+fn synchronized_explore_accepts_multiple_identifier_selectors() {
+    use harness_domain::contracts::Request;
+    let root = tempfile::tempdir().unwrap();
+    initialize(root.path(), &OperationContext::default()).unwrap();
+    fs::write(
+        root.path().join("lib.rs"),
+        "pub fn fresh() {}\npub fn caller(){fresh();}\n",
+    )
+    .unwrap();
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    let result = app.execute(Request::Explore(
+        serde_json::from_value(serde_json::json!({"query":"fresh caller","syncIndex":true}))
+            .unwrap(),
+    ));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["sync"]["changedFilesCommitted"], 1);
+    assert_eq!(count(root.path(), "SELECT count(*) FROM files"), 1);
+    let text = result["data"]["text"].as_str().unwrap();
+    assert!(
+        text.contains("fresh") && text.contains("caller"),
+        "{result}"
+    );
 }

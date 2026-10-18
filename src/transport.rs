@@ -328,14 +328,36 @@ impl McpHarness {
         self.call(Request::Batch(args), context).await
     }
     #[tool(
-        description = "Diagnóstico nativo de solo lectura. versions=false por defecto solo localiza ejecutables; true ejecuta --version con límites. No builds ni reparaciones. CodeGraph/conexión y SQL aún no se diagnostican."
+        description = "Diagnóstico de solo lectura del entorno, registro MCP real por perfil e historial de trabajos si existe. versions=true prueba versiones; connection=true consulta índice nativo y hace ping SQL si están disponibles. No crea almacenes, ejecuta builds ni certifica todas las funciones. Devuelve cobertura y límites explícitos."
     )]
     async fn harness_doctor(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::DoctorArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::Doctor(args), context).await
+        let mut result = self.call(Request::Doctor(args), context).await;
+        if let Some(mut envelope) = result.structured_content.take() {
+            if envelope["state"] == "ok" {
+                let mut actual: Vec<String> = self
+                    .profile_router()
+                    .map
+                    .keys()
+                    .map(|name| name.to_string())
+                    .collect();
+                let mut expected = self.application.tool_profile().tools();
+                actual.sort();
+                expected.sort();
+                let matches = actual == expected;
+                envelope["data"]["mcpRegistry"] = serde_json::json!({"status":if matches {"verified"} else {"error"},"profile":self.application.tool_profile().name(),"expected":expected,"advertised":actual});
+                adapters::doctor::append_check(
+                    &mut envelope["data"],
+                    serde_json::json!({"id":"mcp-registry","status":if matches {"ok"} else {"error"},"message":"Actual advertised MCP route names compared with the profile contract; function behavior is not certified"}),
+                );
+            }
+            response(envelope)
+        } else {
+            result
+        }
     }
     #[tool(
         description = "Estado Git de solo lectura, paginado y acotado. No fetch ni stage. Raíz Git o worktree vinculado registrado; excluye submódulos."
@@ -420,7 +442,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Verificar Rust (crate), Go (módulo), Python (.py build/directorio unittest), JS (.js/.cjs/.mjs check/test), dotnet/csharp (.csproj/.sln explícito con SDK, build/test --no-restore y servidores desactivados). No MSBuild clásico. Rutas locales validadas, sin scopes externos ni comandos/flags libres. Ejecuta código del proyecto, no es sandbox. Plazo 30 s/2 MiB."
+        description = "Verificar Rust, Go, Python, JS y dotnet/csharp con sus herramientas locales. TypeScript/TSX build valida solo sintaxis nativa, sin ejecutar código ni comprobar tipos; test TS/TSX no soportado. .NET exige .csproj/.sln y SDK, sin restore. Rutas validadas, sin comandos libres. Build/test de otros lenguajes ejecuta código del proyecto; no es sandbox. Plazo 30 s/2 MiB."
     )]
     async fn harness_verify(
         &self,
@@ -561,7 +583,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Consulta estado de procesos (existencia por pid, hijos retenidos), sondeo de puerto TCP y healthcheck HTTP(S) loopback."
+        description = "Consulta PID, trabajos persistentes compartidos (runId=taskId; list active/recent), puerto TCP y healthcheck HTTP loopback. HTTPS se rechaza explícitamente. Existencia de PID no demuestra identidad ni respuesta de la aplicación."
     )]
     async fn harness_process_status(
         &self,
@@ -677,8 +699,12 @@ pub async fn serve_with_logging(
         None
     };
     let service = McpHarness {
-        application: adapters::application_with_logging(root, persist_logs)?
-            .with_tool_profile(profile),
+        application: adapters::application_with_logging_and_tasks(
+            root,
+            persist_logs,
+            tasks.clone(),
+        )?
+        .with_tool_profile(profile),
         tasks: tasks.clone(),
         task_notifications: Arc::new(AtomicBool::new(true)),
         task_forwarding: Arc::new(AtomicBool::new(false)),

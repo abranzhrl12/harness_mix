@@ -8,7 +8,9 @@ instalar el redistribuible oficial Microsoft Visual C++ x64.
 
 ## Uso
 
-Descomprimir en una carpeta local y comprobar SHA256 con el asset SHA256SUMS.txt.
+Descomprimir en una carpeta local y comparar `Get-FileHash archivo.zip -Algorithm
+SHA256` con el asset `*-SHA256SUMS.txt`. Adaptar las dos rutas de
+`mcp.example.json` y copiar esa entrada a la configuración MCP del cliente.
 
 ```powershell
 .\agent-harness.exe --version
@@ -47,5 +49,18 @@ La configuración de SQL Server permanece local y deshabilitada/no conectada si 
 está preparada; no se incluyen secretos, índices, logs o estado de sesiones.
 
 El código del kernel CodeGraph conserva su licencia MIT en CodeGraph-LICENSE.txt.
-El lockfile del repositorio identifica las demás dependencias; no se cambia su
-licenciamiento ni se afirma una auditoría legal completa de terceros.
+ROLLDOWN-LICENSE.txt conserva los avisos de Rolldown. Cargo.lock y
+dependencies.json identifican las dependencias y sus licencias declaradas en
+metadatos; no constituyen una auditoría legal ni conceden una licencia general
+al proyecto. No se incluye código fuente, configuración local ni estado.
+
+## Generar y verificar el paquete
+
+Desde el repositorio, `powershell -File scripts/package-release.ps1` compila con
+Cargo.lock y genera ZIP y checksum en target/dist. Para reutilizar una compilación:
+`powershell -File scripts/package-release.ps1 -SkipBuild -BinaryPath RUTA_EXE`.
+El script conserva el staging y falla si ya existen artefactos de esa versión.
+Node solo se usa en desarrollo para `node scripts/smoke-mcp.cjs RUTA_EXE`; no es
+una dependencia de ejecución del paquete. CI prueba el workspace, extrae el ZIP
+y comprueba el protocolo MCP real. Los artefactos se suben a CI sin publicación
+automática ni afirmación de compatibilidad con todos los clientes MCP.

@@ -192,7 +192,25 @@
         "maxAttempts": 3,
         "notifications": "client-dependent",
         "persistence": "project-local-sqlite",
-        "restartRecovery": "mark-interrupted-without-rerun"
+        "restartRecovery": "mark-interrupted-without-rerun",
+        "processStatusRunId": "taskId"
+      },
+      "processHealth": {
+        "schemes": ["http"],
+        "https": "explicitly-unsupported",
+        "pidPermissionFailure": "unknown"
+      },
+      "typescriptVerification": {
+        "build": "native-syntax-only",
+        "extensions": ["ts", "tsx"],
+        "codeExecuted": false,
+        "typeCheckPerformed": false,
+        "test": "explicitly-unsupported"
+      },
+      "doctorCoverage": {
+        "mcpRegistry": "transport-route-comparison",
+        "jobHistory": "existing-storage-read-only",
+        "allToolsCertified": false
       }
     }
   },

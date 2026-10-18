@@ -4,6 +4,10 @@
 Usa los mismos lenguajes, scopes y comandos de verificación cerrados que
 `harness_verify`; no acepta comandos de shell arbitrarios.
 
+Para `.ts` y `.tsx`, `action: build` comprueba únicamente sintaxis con el parser
+nativo: no necesita Node, no ejecuta el archivo y no comprueba tipos.
+Los tests TypeScript/TSX se rechazan explícitamente como no soportados.
+
 ## Lanzar y seguir
 
 Argumentos de una llamada a `harness_jobs`:
@@ -23,6 +27,17 @@ MCP normales.
 {"action":"events","taskId":"<id>","after":0}
 {"action":"cancel","taskId":"<id>"}
 ```
+
+`harness_process_status` comparte este registro: `runId` acepta el mismo
+`taskId`; `list: active` y `list: recent` devuelven trabajos retenidos, también
+después de reiniciar. Para salud de servicios admite HTTP loopback; una URL
+HTTPS se rechaza explícitamente, no se convierte en HTTP sin TLS.
+
+`harness_doctor` compara el registro MCP real con el perfil y consulta el
+historial de trabajos existente sin crearlo. `connection: true` añade una
+consulta de solo lectura al índice y un ping SQL cuando están configurados.
+`allToolsVerified: false` y la cobertura indican que no certifica todas las
+operaciones, clientes o plataformas; una advertencia de cobertura es normal.
 
 Estados: `queued`, `running`, `retry_wait`, `succeeded`, `failed`, `cancelled` y
 `timed_out` e `interrupted`. Cancelar solicita detener el árbol de procesos: consulta el estado
