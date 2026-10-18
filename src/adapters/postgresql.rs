@@ -1,5 +1,6 @@
 //! PostgreSQL catalog access. Only fixed, parameterized metadata queries are exposed.
 use super::project::Project;
+use super::sql_policy::{Rows, checked};
 #[path = "postgresql_pool.rs"]
 mod pool;
 use futures_util::TryStreamExt;
@@ -10,7 +11,7 @@ use harness_domain::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{future::Future, time::Duration};
+use std::time::{Duration, Instant};
 use tokio_postgres::{
     Config as DriverConfig,
     config::{Host, SslMode},
@@ -46,11 +47,14 @@ struct Config {
     tls: Tls,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Connection {
     source: String,
     name: String,
+    #[serde(default = "default_env_file")]
+    env_file: Option<String>,
 }
+fn default_env_file() -> Option<String> { Some(".env".into()) }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Tls {
@@ -60,7 +64,7 @@ struct Tls {
 impl Default for Tls {
     fn default() -> Self {
         Self {
-            mode: "verify-full".into(),
+            mode: "disable".into(),
             ca_file: None,
         }
     }
@@ -97,6 +101,7 @@ fn load(project: &Project) -> Result<Option<Config>, Failure> {
     if !(1..=200).contains(&config.max_rows)
         || !(1000..=32000).contains(&config.max_chars)
         || !(1..=120).contains(&config.timeout_seconds)
+        || config.schema_cache_seconds.is_some_and(|ttl| ttl > 300)
         || config.allowed_schemas.is_empty()
         || config.allowed_schemas.len() > 16
         || !config.allowed_schemas.contains(&config.default_schema)
@@ -104,7 +109,8 @@ fn load(project: &Project) -> Result<Option<Config>, Failure> {
             .allowed_schemas
             .iter()
             .any(|s| s.is_empty() || s.len() > 63 || s.contains('\0'))
-        || !["verify-full", "disable-loopback"].contains(&config.tls.mode.as_str())
+        || !["verify-full", "disable", "disable-loopback"].contains(&config.tls.mode.as_str())
+        || (config.tls.mode != "verify-full" && config.tls.ca_file.is_some())
     {
         return Err(CONFIG);
     }
@@ -119,7 +125,7 @@ fn required(project: &Project) -> Result<Config, Failure> {
         .ok_or(("PG_CONFIG", "PostgreSQL is not enabled"))
 }
 
-fn driver_config(config: &Config) -> Result<(DriverConfig, String), Failure> {
+fn driver_config(project: &Project, config: &Config, context: &OperationContext) -> Result<(DriverConfig, String), Failure> {
     let connection = config.connection.as_ref().ok_or(CONFIG)?;
     if connection.source != "environment"
         || connection.name.is_empty()
@@ -130,12 +136,7 @@ fn driver_config(config: &Config) -> Result<(DriverConfig, String), Failure> {
     {
         return Err(CONFIG);
     }
-    let dsn = std::env::var(&connection.name).map_err(|_| {
-        (
-            "PG_CREDENTIALS",
-            "PostgreSQL connection environment variable is unavailable",
-        )
-    })?;
+    let dsn = super::sql_credentials::resolve(project, &connection.name, connection.env_file.as_deref(), context)?;
     let mut driver: DriverConfig = dsn.parse().map_err(|_| {
         (
             "PG_CONNECTION_CONFIG",
@@ -164,10 +165,17 @@ fn driver_config(config: &Config) -> Result<(DriverConfig, String), Failure> {
             ));
         }
         driver.ssl_mode(SslMode::Disable);
+    } else if config.tls.mode == "disable" {
+        driver.ssl_mode(SslMode::Disable);
     } else {
         driver.ssl_mode(SslMode::Require);
     }
     driver.connect_timeout(Duration::from_secs(config.timeout_seconds));
+    // Session policy travels in the startup packet, not a SET round-trip on every read.
+    // It is verified after authentication before exposing this connection to catalog calls.
+    let options = driver.get_options().unwrap_or("").to_owned();
+    driver.options(format!("{options}  -c default_transaction_read_only=on -c search_path=pg_catalog -c statement_timeout={} -c lock_timeout={}",
+        config.timeout_seconds * 1000, (config.timeout_seconds * 1000).min(2000)));
     if driver.get_application_name().is_none() {
         driver.application_name(format!("agent-harness:{}", std::process::id()));
     }
@@ -217,20 +225,6 @@ fn pg_error(error: tokio_postgres::Error) -> Failure {
     }
 }
 
-async fn checked<F, T>(future: F, context: &OperationContext) -> Result<T, Failure>
-where
-    F: Future<Output = Result<T, Failure>>,
-{
-    tokio::pin!(future);
-    loop {
-        context.check()?;
-        tokio::select! {
-            result = &mut future => return result,
-            _ = tokio::time::sleep(Duration::from_millis(25)) => {}
-        }
-    }
-}
-
 async fn catalog(
     project: &Project,
     config: &Config,
@@ -239,7 +233,8 @@ async fn catalog(
     params: &[&(dyn ToSql + Sync)],
     limit: usize,
 ) -> Result<Value, Failure> {
-    let (driver, credential_identity) = driver_config(config)?;
+    let (driver, credential_identity) = driver_config(project, config, context)?;
+    let started = Instant::now();
     let certificate = certificate(project, config)?;
     let context = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
     // Rotate on workspace, credentials, configuration or CA content changes. No secrets are retained as keys.
@@ -250,8 +245,11 @@ async fn catalog(
         certificate.as_deref().map(harness_domain::hash)
     ])
     .to_string();
+    let pool_started = Instant::now();
     let mut lease = pool::checkout(harness_domain::hash(identity.as_bytes()), &context).await?;
+    let pool_wait_ms = pool_started.elapsed().as_secs_f64() * 1000.0;
     let reused = lease.reused;
+    let connect_started = Instant::now();
     if lease.connection.is_none() {
         let connector = tls(certificate.as_deref())?;
         let (client, connection) = checked(
@@ -264,52 +262,84 @@ async fn catalog(
             tokio::spawn(connection),
             connector,
         ));
+        let entry = lease.connection.as_ref().expect("connected lease");
+        let probe = checked(async {
+            entry.client.simple_query("SELECT pg_catalog.current_setting('default_transaction_read_only'), pg_catalog.current_setting('transaction_read_only'), pg_catalog.current_setting('search_path'), (SELECT setting FROM pg_catalog.pg_settings WHERE name='statement_timeout'), (SELECT setting FROM pg_catalog.pg_settings WHERE name='lock_timeout')").await.map_err(pg_error)
+        }, &context).await?;
+        let policy = probe
+            .iter()
+            .find_map(|message| match message {
+                tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+                _ => None,
+            })
+            .ok_or((
+                "PG_SESSION_POLICY",
+                "Unable to verify PostgreSQL read-only session policy",
+            ))?;
+        let timeout = (config.timeout_seconds * 1000).to_string();
+        let lock_timeout = (config.timeout_seconds * 1000).min(2000).to_string();
+        if policy.get(0) != Some("on")
+            || policy.get(1) != Some("on")
+            || policy.get(2) != Some("pg_catalog")
+            || policy.get(3) != Some(timeout.as_str())
+            || policy.get(4) != Some(lock_timeout.as_str())
+        {
+            return Err((
+                "PG_SESSION_POLICY",
+                "PostgreSQL read-only, timeout or search-path session policy could not be verified",
+            ));
+        }
     }
+    let connection_ms = if reused {
+        0.0
+    } else {
+        connect_started.elapsed().as_secs_f64() * 1000.0
+    };
     let entry = lease.connection.as_mut().expect("connected lease");
     let cancel = entry.client.cancel_token();
     let connector = entry.connector.clone();
     let result = checked(async {
-        let transaction = entry.client.build_transaction().read_only(true).start().await.map_err(pg_error)?;
-        transaction.batch_execute(&format!("SET LOCAL statement_timeout = {}; SET LOCAL lock_timeout = {}; SET LOCAL search_path = pg_catalog;",
-            config.timeout_seconds * 1000, (config.timeout_seconds * 1000).min(2000))).await.map_err(pg_error)?;
-        let (rows, truncated, statement_reused) = {
+        let (rows, truncated, statement_reused, prepare_ms, read_ms) = {
           let cached = entry.statements.get(sql).cloned();
           let statement_reused = cached.is_some();
+          let prepare_started = Instant::now();
           let statement = match cached {
               Some(statement) => statement,
               None => {
-                  let statement = transaction.prepare(sql).await.map_err(pg_error)?;
+                  let statement = entry.client.prepare(sql).await.map_err(pg_error)?;
                   if entry.statements.len() == 8 { entry.statements.clear(); }
                   entry.statements.insert(sql, statement.clone());
                   statement
               }
           };
-          let stream = transaction.query_raw(&statement, params.iter().copied()).await.map_err(pg_error)?;
+          let prepare_ms = prepare_started.elapsed().as_secs_f64() * 1000.0;
+          let read_started = Instant::now();
+          let stream = entry.client.query_raw(&statement, params.iter().copied()).await.map_err(pg_error)?;
           tokio::pin!(stream);
-          let mut rows = Vec::new();
-          let mut used = 0;
-          let mut truncated = false;
+          let mut rows = Rows::new(limit, config.max_chars);
+          let mut accepting = true;
           while let Some(row) = stream.try_next().await.map_err(pg_error)? {
             context.check()?;
-            if rows.len() == limit { truncated = true; break }
+            // Every exposed catalog query has a bounded LIMIT (or exactly one row).
+            // Drain the bounded remainder through ReadyForQuery, without retaining excess rows.
+            if !accepting { continue; }
             let mut value = serde_json::Map::new();
             for (index, column) in row.columns().iter().enumerate() {
                 let cell: Option<String> = row.try_get(index).map_err(|_| ("PG_RESULT", "Unexpected catalog column type"))?;
                 value.insert(column.name().into(), cell.map(Value::String).unwrap_or(Value::Null));
             }
-            let mut value = Value::Object(value);
-            super::data_query::redact(&mut value, 0, &mut 0, &context)?;
-            let size = value.to_string().len();
-            if used + size > config.max_chars { truncated = true; break }
-            used += size;
-            rows.push(value);
+            accepting = rows.push(Value::Object(value), &context)?;
           }
-          (rows, truncated, statement_reused)
+          (rows.values, rows.truncated, statement_reused, prepare_ms, read_started.elapsed().as_secs_f64() * 1000.0)
         };
-        transaction.rollback().await.map_err(pg_error)?;
         Ok(json!({"engine":"postgresql","results":rows,"truncated":truncated,
             "count":rows.len(),"readOnly":true,"visibility":"connected_role_and_allowed_schemas",
             "connectionReused":reused,"statementReused":statement_reused,"resultCache":false,
+            "protocolExchanges":if statement_reused {1} else {2},
+            "transactionMode":"implicit_read_only","transactionCompletion":"ready_for_query",
+            "connectionPolicyProbe":!reused,
+            "timings":{"poolWaitMs":pool_wait_ms,"connectionSetupMs":connection_ms,
+                "statementPrepareMs":prepare_ms,"queryAndReadMs":read_ms,"totalMs":started.elapsed().as_secs_f64()*1000.0},
             "globalFreshnessCertified":false}))
     }, &context).await;
     if result.is_err() {
@@ -325,12 +355,13 @@ async fn catalog(
         }
         // A successful CancelRequest write does not acknowledge server completion.
         return Ok(
-            json!({"ok":false,"timedOut":code=="TIMEOUT","cancelled":code=="CANCELLED",
+            json!({"ok":false,"timedOut":super::sql_policy::timed_out(code),"cancelled":code=="CANCELLED",
             "diagnostics":diagnostics,"engine":"postgresql","connectionReused":reused,"connectionDiscarded":true,
             "cancellationRequestSent":sent,"serverCancellationConfirmed":false}),
         );
     }
-    // Only confirmed rollback makes the lease eligible for reuse. All other exits discard it.
+    // RowStream yields None only after ReadyForQuery, confirming the implicit transaction ended.
+    // Any failure before that point discards the session, including timeouts/cancellation.
     lease.reusable = true;
     result
 }
@@ -342,22 +373,38 @@ pub(super) fn status(
 ) -> Result<Value, Failure> {
     context.check()?;
     let Some(config) = load(project)?.filter(|c| c.enabled) else {
-        return Ok(
-            json!({"engine":"postgresql","configured":false,"connected":false,"status":"not_configured"}),
-        );
+        return Ok(super::sql_policy::not_configured("postgresql"));
     };
     let mut result = json!({"engine":"postgresql","configured":true,"connected":false,"status":"configured_unverified",
         "defaultSchema":config.default_schema,"allowedSchemas":config.allowed_schemas,"maxRows":config.max_rows,
         "maxChars":config.max_chars,"timeoutSeconds":config.timeout_seconds,"tlsMode":config.tls.mode,
-        "supportedActions":["status","search","describe"],"querySupported":false,"schemaCacheEnabled":false,
+        "supportedActions":["status","search","describe"],"querySupported":false,"schemaCacheEnabled":config.schema_cache_seconds.unwrap_or(0)>0,
+        "schemaCache":{"ttlSeconds":config.schema_cache_seconds.unwrap_or(0),"maxEntries":super::sql_schema_cache::CAPACITY,"scope":"process","refreshSupported":true,"permissionFreshness":"cached_snapshot_when_hit"},
         "schemaCacheSecondsRequested":config.schema_cache_seconds,"readOnly":true,
+        "workflow":{"discover":"search","inspect":"describe","parallelTool":"harness_batch","maxJobs":4,"maxConcurrent":2,"arbitraryQuerySupported":false},
         "connectionPooling":{"enabled":true,"maxConnections":pool::CAPACITY,"idleSeconds":60,"maxLifetimeSeconds":300}});
+    result["setup"] = super::sql_policy::configuration_guide("postgresql");
+    result["transportEncrypted"] = json!(config.tls.mode == "verify-full");
+    if config.tls.mode != "verify-full" {
+        result["securityWarning"] = json!("TLS is disabled: database traffic is not encrypted; enable tls.mode=verify-full for encryption and certificate validation");
+    }
+    result["credentialPrecedence"] = json!(["process_environment", "project_dotenv_if_configured"]);
+    result["dotenvFile"] = json!(config.connection.as_ref().and_then(|c| c.env_file.as_deref()));
+    if let Some(connection) = config.connection.as_ref().filter(|c| {
+        c.name.len() <= 128
+            && c.name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    }) {
+        result["connectionEnvironmentVariable"] = json!(connection.name);
+        result["setup"]["requiredEnvironmentVariable"] = json!(connection.name);
+    }
     if args.connect == Some(true) {
         match pool::run(catalog(
             project,
             &config,
             context,
-            "SELECT current_database()::text AS database, current_user::text AS role, current_setting('server_version')::text AS version",
+            "SELECT current_database()::text AS database, current_user::text AS role, current_setting('server_version')::text AS version, current_setting('transaction_read_only')::text AS read_only",
             &[],
             1,
         )) {
@@ -367,13 +414,25 @@ pub(super) fn status(
                 result["server"] = probe["results"].clone();
                 result["connectionReused"] = probe["connectionReused"].clone();
             }
-            Ok(probe) => return Ok(probe),
-            Err((code, message)) => {
+            Ok(probe) => {
                 result["ok"] = json!(false);
-                result["timedOut"] = json!(code == "TIMEOUT");
-                result["cancelled"] = json!(code == "CANCELLED");
                 result["status"] = json!("verification_failed");
-                result["diagnostics"] = json!([{"code":code,"message":message}]);
+                for field in [
+                    "diagnostics",
+                    "timedOut",
+                    "cancelled",
+                    "connectionReused",
+                    "connectionDiscarded",
+                    "cancellationRequestSent",
+                    "serverCancellationConfirmed",
+                ] {
+                    if let Some(value) = probe.get(field) {
+                        result[field] = value.clone();
+                    }
+                }
+            }
+            Err((code, message)) => {
+                super::sql_policy::verification_failed(&mut result, code, message);
             }
         }
     }
@@ -465,15 +524,105 @@ pub(super) fn describe(
         .split_once('.')
         .unwrap_or((&config.default_schema, &args.name));
     let selected_schema = schema(&config, Some(selected_schema))?;
+    if name.is_empty() || name.contains('.') || selected_schema.is_empty() {
+        return Err((
+            "ARGUMENT",
+            "Use an exact ordinary schema.object name; discover names with harness_sql search",
+        ));
+    }
     let count = (config.max_rows + 1) as i64;
-    let mut result = pool::run(catalog(
-        project,
-        &config,
-        context,
-        DESCRIBE,
-        &[&selected_schema, &name, &count],
-        config.max_rows,
-    ))?;
+    let ttl = config.schema_cache_seconds.unwrap_or(0);
+    let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+    let mut result = pool::run(async {
+        let key = if ttl > 0 {
+            let (_, credentials) = driver_config(project, &config, &timed)?;
+            let ca = certificate(project, &config)?;
+            Some(harness_domain::hash(
+                json!([
+                    project.root,
+                    config.fingerprint,
+                    credentials,
+                    ca.as_deref().map(harness_domain::hash),
+                    selected_schema,
+                    name,
+                    DESCRIBE
+                ])
+                .to_string()
+                .as_bytes(),
+            ))
+        } else {
+            None
+        };
+        let gate = key.as_deref().map(super::sql_schema_cache::gate);
+        let _guard = match &gate {
+            Some(gate) => Some(checked(async { Ok(gate.lock().await) }, &timed).await?),
+            None => None,
+        };
+        if let Some(key) = &key {
+            if args.refresh == Some(true) {
+                super::sql_schema_cache::invalidate(key);
+            } else if let Some((mut result, age)) = super::sql_schema_cache::get(key) {
+                timed.check()?;
+                result
+                    .as_object_mut()
+                    .expect("catalog object")
+                    .remove("connectionReused");
+                result
+                    .as_object_mut()
+                    .expect("catalog object")
+                    .remove("statementReused");
+                result
+                    .as_object_mut()
+                    .expect("catalog object")
+                    .remove("timings");
+                result["protocolExchanges"] = json!(0);
+                for field in [
+                    "transactionMode",
+                    "transactionCompletion",
+                    "connectionPolicyProbe",
+                ] {
+                    result
+                        .as_object_mut()
+                        .expect("catalog object")
+                        .remove(field);
+                }
+                result["resultCache"] = json!(true);
+                result["databaseAccess"] = json!(false);
+                result["schemaCache"] = json!({"enabled":true,"hit":true,"ageMs":age,"ttlSeconds":ttl,
+                    "freshness":"ttl_snapshot","permissionsRevalidated":false});
+                return Ok(result);
+            }
+        }
+        let mut result = catalog(
+            project,
+            &config,
+            &timed,
+            DESCRIBE,
+            &[&selected_schema, &name, &count],
+            config.max_rows,
+        )
+        .await?;
+        if result["ok"] == false {
+            result["schemaCache"] = json!({"enabled":ttl>0,"hit":false,"freshness":"unavailable","permissionsRevalidated":false});
+            return Ok(result);
+        }
+        // Never retain failures, empty visibility or incomplete/truncated schemas.
+        if result["ok"] != false
+            && result["truncated"] != true
+            && result["count"].as_u64().is_some_and(|n| n > 0)
+        {
+            result["schemaHash"] = json!(harness_domain::hash(
+                result["results"].to_string().as_bytes()
+            ));
+            if let Some(key) = key {
+                super::sql_schema_cache::insert(key, result.clone(), Duration::from_secs(ttl));
+            }
+        }
+        result["databaseAccess"] = json!(true);
+        result["schemaCache"] = json!({"enabled":ttl>0,"hit":false,"ageMs":0,"ttlSeconds":ttl,
+            "freshness":"live_statement_snapshot","permissionsRevalidated":true});
+        Ok::<Value, Failure>(result)
+    })?;
     result["sections"] = json!(["columns"]);
     result["omittedSections"] = json!([
         "defaults",

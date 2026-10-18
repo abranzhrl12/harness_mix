@@ -88,6 +88,158 @@ fn invalid_config_is_reported_without_returning_its_contents() {
 }
 
 #[test]
+fn postgres_setup_is_actionable_without_credentials_or_network() {
+    let root = setup(json!({"enabled":false}), false);
+    let result = call(
+        root.path(),
+        json!({"action":"status","engine":"postgresql"}),
+    );
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["setup"]["configSection"], "postgresql");
+    assert_eq!(
+        result["data"]["setup"]["mergeExample"]["postgresql"]["tls"]["mode"],
+        "verify-full"
+    );
+    assert_eq!(result["diagnostics"][0]["code"], "SQL_NOT_CONFIGURED");
+    let root = setup(json!({"enabled":true,"schemaCacheSeconds":301}), false);
+    assert_eq!(
+        call(
+            root.path(),
+            json!({"action":"status","engine":"postgresql"})
+        )["diagnostics"][0]["code"],
+        "PG_CONFIG"
+    );
+    let root = setup(
+        json!({"enabled":true,"schemaCacheSeconds":60,
+        "connection":{"source":"environment","name":"HARNESS_TEST_MISSING_PG_DSN"}}),
+        false,
+    );
+    let result = call(
+        root.path(),
+        json!({"action":"status","engine":"postgresql"}),
+    );
+    assert_eq!(result["data"]["schemaCacheEnabled"], true);
+    assert_eq!(
+        result["data"]["connectionEnvironmentVariable"],
+        "HARNESS_TEST_MISSING_PG_DSN"
+    );
+    assert_eq!(result["data"]["workflow"]["parallelTool"], "harness_batch");
+}
+
+#[test]
+#[ignore = "dedicated fixture/admin only; creates a unique table to test cached metadata, DDL, revocation and refresh"]
+fn postgres_live_schema_cache_coalesces_batch_and_refreshes_safely() {
+    let name = format!("harness_cache_{}", uuid::Uuid::new_v4().simple());
+    admin(&format!(
+        "CREATE TABLE public.{name}(id integer); GRANT SELECT ON public.{name} TO harness_reader"
+    ));
+    let root = setup(
+        json!({"enabled":true,"schemaCacheSeconds":60,
+        "tls":{"mode":"disable-loopback"},"connection":{"source":"environment","name":"HARNESS_PG_TEST_LOOPBACK_DSN"}}),
+        false,
+    );
+    let request =
+        json!({"action":"describe","engine":"postgresql","name":format!("public.{name}")});
+    let app = adapters::application(root.path()).unwrap();
+    let batch = app.execute(Request::Batch(serde_json::from_value(json!({"jobs":
+        (0..4).map(|_| json!({"tool":"harness_sql","arguments":request.clone()})).collect::<Vec<_>>()
+    })).unwrap()));
+    assert_eq!(batch["state"], "ok", "{batch}");
+    let results = batch["data"]["results"].as_array().unwrap();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| r["data"]["schemaCache"]["hit"] == true)
+            .count(),
+        3,
+        "{batch}"
+    );
+    let hit = call(root.path(), request.clone());
+    assert_eq!(hit["data"]["schemaCache"]["hit"], true, "{hit}");
+    assert_eq!(hit["data"]["protocolExchanges"], 0);
+    assert_eq!(hit["data"]["databaseAccess"], false);
+    assert_eq!(hit["data"]["schemaCache"]["permissionsRevalidated"], false);
+    assert!(hit["data"].get("timings").is_none());
+    admin(&format!("ALTER TABLE public.{name} ADD COLUMN label text"));
+    assert_eq!(call(root.path(), request.clone())["data"]["count"], 1);
+    let mut refresh = request.clone();
+    refresh["refresh"] = json!(true);
+    let fresh = call(root.path(), refresh.clone());
+    assert_eq!(fresh["data"]["count"], 2, "{fresh}");
+    assert_eq!(fresh["data"]["protocolExchanges"], 1);
+    assert_eq!(fresh["data"]["transactionCompletion"], "ready_for_query");
+    let status = call(root.path(), json!({"action":"status","connect":true}));
+    assert_eq!(status["data"]["server"][0]["read_only"], "on", "{status}");
+    assert_ne!(fresh["data"]["schemaHash"], hit["data"]["schemaHash"]);
+    admin(&format!(
+        "REVOKE SELECT ON public.{name} FROM harness_reader"
+    ));
+    // Opt-in snapshots explicitly retain old visibility until TTL/refresh, never claim live permission checks.
+    assert_eq!(call(root.path(), request.clone())["data"]["count"], 2);
+    let revoked = call(root.path(), refresh);
+    assert_eq!(revoked["data"]["count"], 0, "{revoked}");
+    assert_eq!(
+        call(root.path(), request)["data"]["schemaCache"]["hit"],
+        false
+    );
+    admin(&format!("DROP TABLE public.{name}"));
+}
+
+#[test]
+#[ignore = "dedicated PostgreSQL fixture; validates TTL expiry, config rotation and no cache of truncated schemas"]
+fn postgres_live_schema_cache_expires_and_rotates() {
+    let config = |ttl, rows| {
+        json!({"enabled":true,"schemaCacheSeconds":ttl,"maxRows":rows,
+        "tls":{"mode":"disable-loopback"},"connection":{"source":"environment","name":"HARNESS_PG_TEST_LOOPBACK_DSN"}})
+    };
+    let root = setup(config(1, 50), false);
+    let request = json!({"action":"describe","name":"public.harness_catalog_fixture"});
+    assert_eq!(
+        call(root.path(), request.clone())["data"]["schemaCache"]["hit"],
+        false
+    );
+    assert_eq!(
+        call(root.path(), request.clone())["data"]["schemaCache"]["hit"],
+        true
+    );
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(
+        call(root.path(), request.clone())["data"]["schemaCache"]["hit"],
+        false
+    );
+    std::fs::write(
+        root.path().join(".agents/harness.config.json"),
+        json!({"postgresql":config(60,1)}).to_string(),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        let partial = call(root.path(), request.clone());
+        assert_eq!(partial["state"], "ok", "{partial}");
+        assert_eq!(partial["omitted"]["truncated"], true);
+        assert_eq!(partial["data"]["schemaCache"]["hit"], false);
+    }
+}
+
+#[test]
+#[ignore = "dedicated fixture; HARNESS_PG_TEST_POLICY_DSN intentionally requests unsafe startup defaults"]
+fn postgres_live_startup_policy_overrides_unsafe_dsn_defaults() {
+    let root = setup(
+        json!({"enabled":true,"tls":{"mode":"disable-loopback"},
+        "connection":{"source":"environment","name":"HARNESS_PG_TEST_POLICY_DSN"}}),
+        false,
+    );
+    let result = call(root.path(), json!({"action":"status","connect":true}));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["server"][0]["read_only"], "on", "{result}");
+    let described = call(
+        root.path(),
+        json!({"action":"describe","name":"public.harness_catalog_fixture"}),
+    );
+    assert_eq!(described["state"], "ok", "{described}");
+    assert_eq!(described["data"]["transactionMode"], "implicit_read_only");
+}
+
+#[test]
 #[ignore = "requires a dedicated PostgreSQL catalog fixture and HARNESS_PG_TEST_DSN"]
 fn postgres_live_catalog() {
     // The dedicated fixture must contain public.harness_catalog_fixture (id, label).

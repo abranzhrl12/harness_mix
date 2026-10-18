@@ -281,7 +281,7 @@ fn llm_bootstrap_reports_actual_registry_and_sql_batch_support() {
         result["data"]["backend"]["version"],
         env!("CARGO_PKG_VERSION")
     );
-    assert_eq!(result["data"]["toolContract"]["contractVersion"], "2.2.0");
+    assert_eq!(result["data"]["toolContract"]["contractVersion"], "2.3.0");
     assert_eq!(
         result["data"]["supportedTools"].as_array().unwrap().len(),
         28

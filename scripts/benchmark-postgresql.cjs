@@ -41,18 +41,21 @@ async function main() {
       describe: { action: 'describe', engine: 'postgresql', name: 'public.harness_catalog_fixture' }
     };
     for (const [operation, args] of Object.entries(requests)) {
-      const times = []; let reused = 0; let preparedReused = 0;
+      const times = []; let reused = 0; let preparedReused = 0; let cacheHits = 0; const phases = {};
       for (let i = 0; i < count; i++) {
         const start = performance.now();
         const data = await call('harness_sql', { ...args, session });
         const elapsed = performance.now() - start;
         assert(data.count > 0, 'Fixture must be visible to the test reader');
         times.push(elapsed); reused += Number(data.connectionReused === true); preparedReused += Number(data.statementReused === true);
+        cacheHits += Number(data.schemaCache?.hit === true);
+        if (i > 0 && data.timings) for (const [phase, duration] of Object.entries(data.timings)) (phases[phase] ||= []).push(duration);
       }
       const sorted = times.slice(1).sort((a, b) => a - b);
       measures[operation] = { iterations: count, coldMs: times[0], warmMedianMs: sorted[Math.floor(sorted.length / 2)],
         warmP95Ms: sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * .95) - 1)],
-        totalMs: times.reduce((a, b) => a + b, 0), connectionsReused: reused, statementsReused: preparedReused, samplesMs: times };
+        totalMs: times.reduce((a, b) => a + b, 0), connectionsReused: reused, statementsReused: preparedReused, cacheHits,
+        warmPhaseMediansMs: Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [phase, samples.sort((a,b) => a-b)[Math.floor(samples.length/2)]])), samplesMs: times };
     }
     const result = { executable: path.resolve(executable), binarySha256, iterations: count, transport: 'MCP stdio', timestamp: new Date().toISOString(), measures };
     fs.writeFileSync(path.resolve(output), JSON.stringify(result, null, 2) + '\n');

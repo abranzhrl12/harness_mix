@@ -1,5 +1,5 @@
 {
-  "contractVersion": "2.2.0",
+  "contractVersion": "2.3.0",
   "toolProfiles": {
     "investigate": ["harness_bootstrap","harness_explore","harness_impact","harness_patch_preview","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
     "edit": ["harness_replace","harness_move","harness_verify","harness_diagnostics"]
@@ -151,7 +151,7 @@
           "action": "search",
           "limit": 10
         },
-        "then": "Use action=describe on the discovered exact object before a bounded read-only action=query."
+        "then": "Inspect exact objects with action=describe; never guess columns. Batch independent SQL describes with harness_batch jobs tool=harness_sql (1..4 jobs, max concurrency 2). PostgreSQL arbitrary query is unavailable; opt-in schemaCacheSeconds 0..300 caches describe snapshots, refresh=true bypasses and replaces them. Cached permissions/DDL are not revalidated."
       },
       {
         "need": "Run verification in background and follow completion without blocking",
@@ -223,6 +223,8 @@
         "querySupported": false,
         "configSection": "postgresql",
         "connectDefault": false,
+        "schemaCache": {"config":"schemaCacheSeconds","defaultSeconds":0,"maxSeconds":300,"scope":"process","maxEntries":64,"refreshArgument":"refresh","cachedPermissionsRevalidated":false},
+        "batch": {"tool":"harness_batch","childTool":"harness_sql","maxJobs":4,"maxConcurrent":2,"sharedSnapshot":false},
         "tlsDefault": "verify-full",
         "unencryptedMode": "disable-loopback",
         "ambiguousEngine": "explicit-selector-required"

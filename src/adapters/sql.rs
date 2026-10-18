@@ -2,7 +2,9 @@
 //! Reads configuration from .agents/harness.config.json or Web.config,
 //! and handles sql_status, sql_search, sql_describe, and sql_query.
 
+use super::sql_policy::{Rows, checked};
 use crate::adapters::project::Project;
+use futures_util::TryStreamExt;
 use harness_domain::{
     Failure,
     execution::OperationContext,
@@ -13,24 +15,36 @@ use harness_domain::{
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::time::Duration;
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 pub(super) fn block_on_safe<F, T>(future: F) -> T
 where
-    F: std::future::Future<Output = T>,
+    F: std::future::Future<Output = T> + Send,
+    T: Send,
 {
     match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(future)),
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build standalone runtime for batch thread");
-            rt.block_on(future)
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(|| handle.block_on(future))
         }
+        Ok(_) => std::thread::scope(|scope| {
+            scope
+                .spawn(|| block_on_safe_standalone(future))
+                .join()
+                .expect("SQL worker panicked")
+        }),
+        Err(_) => block_on_safe_standalone(future),
     }
+}
+
+fn block_on_safe_standalone<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build standalone SQL runtime")
+        .block_on(future)
 }
 
 fn select_engine(
@@ -114,15 +128,18 @@ pub fn load_sql_config(project: &Project) -> SqlConfig {
     let max_rows = sql_val
         .get("maxRows")
         .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+        .unwrap_or(50)
+        .clamp(1, 200) as usize;
     let timeout_seconds = sql_val
         .get("timeoutSeconds")
         .and_then(|v| v.as_u64())
-        .unwrap_or(15);
+        .unwrap_or(15)
+        .clamp(1, 120);
     let max_chars = sql_val
         .get("maxChars")
         .and_then(|v| v.as_u64())
-        .unwrap_or(8000) as usize;
+        .unwrap_or(8000)
+        .clamp(1000, 32000) as usize;
     let schema_cache_seconds = sql_val
         .get("schemaCacheSeconds")
         .and_then(|v| v.as_u64())
@@ -288,8 +305,7 @@ async fn connect(
     let conn_str = resolve_connection_string(project, config)?;
     let t_config = parse_connection_string(&conn_str)?;
 
-    let tcp = TcpStream::connect(t_config.get_addr()).await.map_err(|e| {
-        eprintln!("SQL connection failed: {e}");
+    let tcp = TcpStream::connect(t_config.get_addr()).await.map_err(|_| {
         (
             "SQL_CONNECTION",
             "No se pudo conectar al servidor SQL; verifique la IP y puerto",
@@ -298,79 +314,123 @@ async fn connect(
 
     let client = Client::connect(t_config, tcp.compat_write())
         .await
-        .map_err(|e| {
-            eprintln!("SQL handshake/login failed: {e}");
-            (
-                "SQL_AUTH",
-                "Fallo de autenticación o protocolo al conectar a SQL Server",
-            )
-        })?;
+        .map_err(sql_error)?;
 
     Ok(client)
+}
+
+/// Never return driver text: it may contain SQL, identifiers or credentials.
+fn sql_error(error: tiberius::error::Error) -> Failure {
+    match error.code() {
+        Some(18456 | 18452) => ("SQL_AUTH", "SQL Server authentication failed"),
+        Some(229 | 230 | 262 | 297 | 916) => {
+            ("SQL_PERMISSION", "SQL Server login lacks permission")
+        }
+        Some(1222) => ("SQL_LOCK_TIMEOUT", "SQL Server lock wait timed out"),
+        Some(1205) => (
+            "SQL_DEADLOCK",
+            "SQL Server selected this operation as deadlock victim",
+        ),
+        _ => match error {
+            tiberius::error::Error::Tls(_) => (
+                "SQL_TLS",
+                "SQL Server TLS negotiation or certificate validation failed",
+            ),
+            tiberius::error::Error::Io { .. } => ("SQL_CONNECTION", "SQL Server transport failed"),
+            _ => (
+                "SQL_QUERY",
+                "SQL Server operation failed; driver details withheld",
+            ),
+        },
+    }
+}
+
+fn operation_failed((code, message): Failure) -> Value {
+    json!({"ok":false,"engine":"sqlserver","timedOut":super::sql_policy::timed_out(code),"cancelled":code=="CANCELLED",
+        "diagnostics":[{"code":code,"message":message}],"connectionReused":false,
+        "connectionDisposition":"closed_if_opened","cancellationRequestSent":false,"serverCancellationConfirmed":false})
 }
 
 pub fn status(
     project: &Project,
     args: &SqlStatusArgs,
-    _context: &OperationContext,
+    context: &OperationContext,
 ) -> Result<Value, Failure> {
     if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return super::postgresql::status(project, args, _context);
+        return super::postgresql::status(project, args, context);
     }
+    context.check()?;
     let config = load_sql_config(project);
     if !config.enabled {
-        return Ok(json!({
-            "configured": false,
-            "status": "not_configured"
-        }));
+        return Ok(super::sql_policy::not_configured("sqlserver"));
     }
 
-    let should_connect = args.connect.unwrap_or(true);
+    let should_connect = args.connect.unwrap_or(false);
     let mut connection_verified = false;
+    let mut failure = None;
 
     if should_connect {
         let project_clone = project.clone();
         let config_clone = config.clone();
-        let res = block_on_safe(async move {
-            let mut client = connect(&project_clone, &config_clone).await?;
-            let row = client
-                .query("SELECT 1 AS connection_ok", &[])
-                .await
-                .map_err(|_| ("SQL_QUERY", "SELECT 1 ping failed"))?
-                .into_row()
-                .await
-                .map_err(|_| ("SQL_QUERY", "Fallo al leer fila de prueba"))?;
-            if row.is_some() {
-                Ok::<(), Failure>(())
-            } else {
-                Err(("SQL_QUERY", "SELECT 1 no devolvió filas"))
-            }
-        });
+        let timed =
+            context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+        let res = block_on_safe(checked(
+            async move {
+                let mut client = connect(&project_clone, &config_clone).await?;
+                let row = client
+                    .query("SELECT 1 AS connection_ok", &[])
+                    .await
+                    .map_err(sql_error)?
+                    .into_row()
+                    .await
+                    .map_err(sql_error)?;
+                if row.is_some() {
+                    Ok::<(), Failure>(())
+                } else {
+                    Err(("SQL_QUERY", "SELECT 1 no devolvió filas"))
+                }
+            },
+            &timed,
+        ));
         connection_verified = res.is_ok();
+        failure = res.err();
     }
 
-    Ok(json!({
+    let mut result = json!({
+        "engine": "sqlserver",
         "configured": true,
-        "status": if !should_connect || connection_verified { "ready" } else { "verification_failed" },
+        "status": if connection_verified { "ready" } else if should_connect { "verification_failed" } else { "configured_unverified" },
         "connected": connection_verified,
         "backend": "tiberius (native Rust)",
         "defaultSchema": config.default_schema,
         "connectionSource": config.connection_source,
         "connectionName": config.connection_name,
         "maxRows": config.max_rows,
+        "maxChars": config.max_chars,
         "timeoutSeconds": config.timeout_seconds,
         "readOnly": true,
+        "readOnlyEnforcement": "lexical_preflight_and_login_permissions",
+        "querySupported": true,
+        "supportedActions": ["status", "search", "describe", "query"],
+        "schemaCacheEnabled": false,
         "permissionBoundary": "SQL login permissions"
-    }))
+    });
+    if let Some((code, message)) = failure {
+        super::sql_policy::verification_failed(&mut result, code, message);
+        result["connectionDisposition"] = json!("closed_if_opened");
+        result["serverCancellationConfirmed"] = json!(false);
+        result["setup"] = super::sql_policy::configuration_guide("sqlserver");
+    }
+    Ok(result)
 }
 
 pub fn search(
     project: &Project,
     args: &SqlSearchArgs,
-    _context: &OperationContext,
+    context: &OperationContext,
 ) -> Result<Value, Failure> {
     if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return super::postgresql::search(project, args, _context);
+        return super::postgresql::search(project, args, context);
     }
     let config = load_sql_config(project);
     if !config.enabled {
@@ -385,7 +445,7 @@ pub fn search(
         return Err(("ARGUMENT", "Buscar esquema con 1–128 caracteres"));
     }
 
-    let limit = args.limit.unwrap_or(20).clamp(1, 50);
+    let limit = args.limit.unwrap_or(20).clamp(1, 50).min(config.max_rows);
     let schema = args.schema.as_deref().unwrap_or(&config.default_schema);
 
     let types_clause = match args.object_type {
@@ -406,47 +466,55 @@ pub fn search(
            AND (s.name = @P1 OR @P1 = '') \
            AND (o.name LIKE @P2 ESCAPE '~' OR EXISTS (SELECT 1 FROM sys.columns AS c WHERE c.object_id = o.object_id AND c.name LIKE @P2 ESCAPE '~')) \
          ORDER BY s.name, o.name",
-        limit, types_clause
+        limit + 1,
+        types_clause
     );
 
-    let escaped_query = format!("%{}%", query.replace(['~', '%', '_', '['], "~$0"));
+    let escaped_query = format!("%{}%", escape_like(query));
     let schema_param = schema.to_string();
 
     let project_clone = project.clone();
     let config_clone = config.clone();
 
-    let rows_data = block_on_safe(async move {
-        let mut client = connect(&project_clone, &config_clone).await?;
-        let stream = client
-            .query(sql.as_str(), &[&schema_param, &escaped_query])
-            .await
-            .map_err(|e| {
-                eprintln!("Search query error: {e}");
-                ("SQL_QUERY", "Error al ejecutar búsqueda en catálogo SQL")
-            })?;
+    let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+    let rows_data = match block_on_safe(checked(
+        async {
+            let mut client = connect(&project_clone, &config_clone).await?;
+            let stream = client
+                .query(sql.as_str(), &[&schema_param, &escaped_query])
+                .await
+                .map_err(sql_error)?;
 
-        let rows = stream
-            .into_first_result()
-            .await
-            .map_err(|_| ("SQL_QUERY", "Error al procesar filas de búsqueda"))?;
-
-        let mut list = Vec::new();
-        for r in rows {
-            let schema: Option<&str> = r.get(0);
-            let name: Option<&str> = r.get(1);
-            let kind: Option<&str> = r.get(2);
-            list.push(json!({
-                "schema": schema.unwrap_or(""),
-                "name": name.unwrap_or(""),
-                "kind": kind.unwrap_or("")
-            }));
-        }
-        Ok::<Vec<Value>, Failure>(list)
-    })?;
+            let mut rows = stream.into_row_stream();
+            let mut list = Rows::new(limit, config.max_chars);
+            while let Some(r) = rows.try_next().await.map_err(sql_error)? {
+                let schema: Option<&str> = r.get(0);
+                let name: Option<&str> = r.get(1);
+                let kind: Option<&str> = r.get(2);
+                if !list.push(
+                    json!({
+                        "schema": schema.unwrap_or(""),
+                        "name": name.unwrap_or(""),
+                        "kind": kind.unwrap_or("")
+                    }),
+                    &timed,
+                )? {
+                    break;
+                }
+            }
+            Ok::<Rows, Failure>(list)
+        },
+        &timed,
+    )) {
+        Ok(value) => value,
+        Err(error) => return Ok(operation_failed(error)),
+    };
 
     Ok(json!({
-        "results": rows_data,
-        "count": rows_data.len(),
+        "engine": "sqlserver",
+        "count": rows_data.values.len(),
+        "results": rows_data.values,
+        "truncated": rows_data.truncated,
         "query": query,
         "schema": schema
     }))
@@ -455,10 +523,16 @@ pub fn search(
 pub fn describe(
     project: &Project,
     args: &SqlDescribeArgs,
-    _context: &OperationContext,
+    context: &OperationContext,
 ) -> Result<Value, Failure> {
     if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return super::postgresql::describe(project, args, _context);
+        return super::postgresql::describe(project, args, context);
+    }
+    if args.refresh == Some(true) {
+        return Err((
+            "SQL_CACHE_UNAVAILABLE",
+            "refresh is available only for PostgreSQL schema snapshots; SQL Server describe always reads live",
+        ));
     }
     let config = load_sql_config(project);
     if !config.enabled {
@@ -473,64 +547,100 @@ pub fn describe(
     }
 
     let kind = args.kind.as_ref().unwrap_or(&SqlDescribeKind::Relation);
+    if matches!(kind, SqlDescribeKind::Routine)
+        && args
+            .sections
+            .as_ref()
+            .is_some_and(|sections| !sections.is_empty())
+    {
+        return Err((
+            "SQL_DESCRIBE_SECTION",
+            "SQL Server routine describe does not support sections",
+        ));
+    }
+    if args
+        .sections
+        .as_ref()
+        .is_some_and(|sections| sections.iter().any(|s| s != "columns"))
+    {
+        return Err((
+            "SQL_DESCRIBE_SECTION",
+            "SQL Server relation describe supports columns only",
+        ));
+    }
     let name_str = args.name.clone();
     let project_clone = project.clone();
     let config_clone = config.clone();
 
-    let result_data = block_on_safe(async move {
-        let mut client = connect(&project_clone, &config_clone).await?;
-        match kind {
-            SqlDescribeKind::Routine => {
-                let sql = "SELECT OBJECT_DEFINITION(OBJECT_ID(@P1)) AS def";
-                let stream = client
-                    .query(sql, &[&name_str])
-                    .await
-                    .map_err(|_| ("SQL_QUERY", "Fallo al consultar definición de rutina"))?;
-                let rows = stream
-                    .into_first_result()
-                    .await
-                    .map_err(|_| ("SQL_QUERY", "Fallo al leer resultado"))?;
-                let def: Option<&str> = rows.first().and_then(|r| r.get(0));
-                Ok::<Value, Failure>(json!({
-                    "name": name_str,
-                    "kind": "routine",
-                    "definition": def.unwrap_or("No definition available")
-                }))
-            }
-            SqlDescribeKind::Relation => {
-                let sql = "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE \
-                               FROM INFORMATION_SCHEMA.COLUMNS \
-                               WHERE TABLE_NAME = @P1 \
-                               ORDER BY ORDINAL_POSITION";
-                let stream = client
-                    .query(sql, &[&name_str])
-                    .await
-                    .map_err(|_| ("SQL_QUERY", "Fallo al consultar columnas de tabla"))?;
-                let rows = stream
-                    .into_first_result()
-                    .await
-                    .map_err(|_| ("SQL_QUERY", "Fallo al leer resultado"))?;
-                let mut cols = Vec::new();
-                for r in rows {
-                    let c_name: Option<&str> = r.get(0);
-                    let c_type: Option<&str> = r.get(1);
-                    let c_len: Option<i32> = r.get(2);
-                    let c_null: Option<&str> = r.get(3);
-                    cols.push(json!({
-                        "column": c_name.unwrap_or(""),
-                        "type": c_type.unwrap_or(""),
-                        "maxLength": c_len,
-                        "nullable": c_null.unwrap_or("") == "YES"
-                    }));
+    let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+    let result_data = match block_on_safe(checked(
+        async {
+            let mut client = connect(&project_clone, &config_clone).await?;
+            match kind {
+                SqlDescribeKind::Routine => {
+                    let sql = "SELECT OBJECT_DEFINITION(OBJECT_ID(@P1)) AS def";
+                    let stream = client.query(sql, &[&name_str]).await.map_err(sql_error)?;
+                    let row = stream.into_row().await.map_err(sql_error)?;
+                    let def: Option<&str> = row.as_ref().and_then(|r| r.try_get(0).ok().flatten());
+                    let mut bounded = Rows::new(1, config.max_chars);
+                    bounded.push(
+                        json!({"definition":def.unwrap_or("No definition available")}),
+                        &timed,
+                    )?;
+                    Ok::<Value, Failure>(json!({
+                        "engine": "sqlserver",
+                        "name": name_str,
+                        "kind": "routine",
+                        "definition": bounded.values.first().map(|v| v["definition"].clone()).unwrap_or(Value::Null),
+                        "truncated": bounded.truncated
+                    }))
                 }
-                Ok::<Value, Failure>(json!({
-                    "name": name_str,
-                    "kind": "relation",
-                    "columns": cols
-                }))
+                SqlDescribeKind::Relation => {
+                    let (schema_name, relation_name) = name_str
+                        .split_once('.')
+                        .unwrap_or((&config.default_schema, &name_str));
+                    let sql = "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE \
+                               FROM INFORMATION_SCHEMA.COLUMNS \
+                               WHERE TABLE_NAME = @P1 AND TABLE_SCHEMA = @P2 \
+                               ORDER BY ORDINAL_POSITION";
+                    let stream = client
+                        .query(sql, &[&relation_name, &schema_name])
+                        .await
+                        .map_err(sql_error)?;
+                    let mut rows = stream.into_row_stream();
+                    let mut cols = Rows::new(config.max_rows, config.max_chars);
+                    while let Some(r) = rows.try_next().await.map_err(sql_error)? {
+                        let c_name: Option<&str> = r.get(0);
+                        let c_type: Option<&str> = r.get(1);
+                        let c_len: Option<i32> = r.get(2);
+                        let c_null: Option<&str> = r.get(3);
+                        if !cols.push(
+                            json!({
+                                "column": c_name.unwrap_or(""),
+                                "type": c_type.unwrap_or(""),
+                                "maxLength": c_len,
+                                "nullable": c_null.unwrap_or("") == "YES"
+                            }),
+                            &timed,
+                        )? {
+                            break;
+                        }
+                    }
+                    Ok::<Value, Failure>(json!({
+                        "engine": "sqlserver",
+                        "name": name_str,
+                        "kind": "relation",
+                        "columns": cols.values,
+                        "truncated": cols.truncated
+                    }))
+                }
             }
-        }
-    })?;
+        },
+        &timed,
+    )) {
+        Ok(value) => value,
+        Err(error) => return Ok(operation_failed(error)),
+    };
 
     Ok(result_data)
 }
@@ -538,7 +648,7 @@ pub fn describe(
 pub fn query(
     project: &Project,
     args: &SqlQueryArgs,
-    _context: &OperationContext,
+    context: &OperationContext,
 ) -> Result<Value, Failure> {
     if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
         return Err((
@@ -556,104 +666,162 @@ pub fn query(
 
     assert_sql_read_only(&args.sql)?;
 
-    let sql_str = args.sql.clone();
+    let (sql_str, parameters) = parameters::prepare(&args.sql, args.parameters.as_ref())?;
     let max_rows = config.max_rows;
     let project_clone = project.clone();
     let config_clone = config.clone();
 
-    let output = block_on_safe(async move {
-        let mut client = connect(&project_clone, &config_clone).await?;
-        let stream = client.simple_query(&sql_str).await.map_err(|e| {
-            eprintln!("SQL execution error: {e}");
-            ("SQL_QUERY", "Error al ejecutar la consulta en SQL Server")
-        })?;
-
-        let results = stream
-            .into_first_result()
-            .await
-            .map_err(|_| ("SQL_QUERY", "Error procesando resultados de la consulta"))?;
-
-        let mut rows_out = Vec::new();
-        for (idx, row) in results.into_iter().enumerate() {
-            if idx >= max_rows {
-                break;
+    let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+    let output = match block_on_safe(checked(
+        async {
+            let mut client = connect(&project_clone, &config_clone).await?;
+            let mut query = tiberius::Query::new(sql_str);
+            for value in parameters {
+                parameters::bind(&mut query, value);
             }
-            let mut row_map = serde_json::Map::new();
-            for (col_idx, col) in row.columns().iter().enumerate() {
-                let col_name = col.name();
-                let val_str = match row.try_get::<&str, _>(col_idx) {
-                    Ok(Some(s)) => Value::String(s.to_string()),
-                    Ok(None) => Value::Null,
-                    Err(_) => match row.try_get::<i32, _>(col_idx) {
-                        Ok(Some(n)) => json!(n),
+            let stream = query.query(&mut client).await.map_err(sql_error)?;
+
+            let mut results = stream.into_row_stream();
+            let mut rows_out = Rows::new(max_rows, config.max_chars);
+            while let Some(row) = results.try_next().await.map_err(sql_error)? {
+                if row.result_index() != 0 {
+                    break;
+                }
+                let mut row_map = serde_json::Map::new();
+                for (col_idx, col) in row.columns().iter().enumerate() {
+                    let col_name = col.name();
+                    let val_str = match row.try_get::<&str, _>(col_idx) {
+                        Ok(Some(s)) => Value::String(s.to_string()),
                         Ok(None) => Value::Null,
-                        Err(_) => match row.try_get::<i64, _>(col_idx) {
+                        Err(_) => match row.try_get::<i32, _>(col_idx) {
                             Ok(Some(n)) => json!(n),
                             Ok(None) => Value::Null,
-                            Err(_) => match row.try_get::<f64, _>(col_idx) {
-                                Ok(Some(f)) => json!(f),
+                            Err(_) => match row.try_get::<i64, _>(col_idx) {
+                                Ok(Some(n)) => json!(n),
                                 Ok(None) => Value::Null,
-                                Err(_) => match row.try_get::<bool, _>(col_idx) {
-                                    Ok(Some(b)) => json!(b),
+                                Err(_) => match row.try_get::<f64, _>(col_idx) {
+                                    Ok(Some(f)) => json!(f),
                                     Ok(None) => Value::Null,
-                                    Err(_) => {
-                                        match row.try_get::<chrono::NaiveDateTime, _>(col_idx) {
-                                            Ok(Some(dt)) => Value::String(
-                                                dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
-                                            ),
-                                            Ok(None) => Value::Null,
-                                            Err(_) => match row
-                                                .try_get::<chrono::NaiveDate, _>(col_idx)
-                                            {
-                                                Ok(Some(d)) => {
-                                                    Value::String(d.format("%Y-%m-%d").to_string())
-                                                }
+                                    Err(_) => match row.try_get::<bool, _>(col_idx) {
+                                        Ok(Some(b)) => json!(b),
+                                        Ok(None) => Value::Null,
+                                        Err(_) => {
+                                            match row.try_get::<chrono::NaiveDateTime, _>(col_idx) {
+                                                Ok(Some(dt)) => Value::String(
+                                                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                                                ),
                                                 Ok(None) => Value::Null,
                                                 Err(_) => match row
-                                                    .try_get::<rust_decimal::Decimal, _>(col_idx)
+                                                    .try_get::<chrono::NaiveDate, _>(col_idx)
                                                 {
-                                                    Ok(Some(dec)) => json!(dec),
+                                                    Ok(Some(d)) => Value::String(
+                                                        d.format("%Y-%m-%d").to_string(),
+                                                    ),
                                                     Ok(None) => Value::Null,
-                                                    Err(_) => {
-                                                        match row.try_get::<i16, _>(col_idx) {
-                                                            Ok(Some(n)) => json!(n),
-                                                            Ok(None) => Value::Null,
-                                                            Err(_) => match row
-                                                                .try_get::<u8, _>(col_idx)
-                                                            {
+                                                    Err(_) => match row
+                                                        .try_get::<rust_decimal::Decimal, _>(
+                                                            col_idx,
+                                                        ) {
+                                                        Ok(Some(dec)) => json!(dec),
+                                                        Ok(None) => Value::Null,
+                                                        Err(_) => {
+                                                            match row.try_get::<i16, _>(col_idx) {
                                                                 Ok(Some(n)) => json!(n),
                                                                 Ok(None) => Value::Null,
-                                                                Err(_) => Value::String(
-                                                                    "[data]".to_string(),
-                                                                ),
-                                                            },
+                                                                Err(_) => match row
+                                                                    .try_get::<u8, _>(col_idx)
+                                                                {
+                                                                    Ok(Some(n)) => json!(n),
+                                                                    Ok(None) => Value::Null,
+                                                                    Err(_) => Value::String(
+                                                                        "[data]".to_string(),
+                                                                    ),
+                                                                },
+                                                            }
                                                         }
-                                                    }
+                                                    },
                                                 },
-                                            },
+                                            }
                                         }
-                                    }
+                                    },
                                 },
                             },
                         },
-                    },
-                };
-                row_map.insert(col_name.to_string(), val_str);
+                    };
+                    row_map.insert(col_name.to_string(), val_str);
+                }
+                if !rows_out.push(Value::Object(row_map), &timed)? {
+                    break;
+                }
             }
-            rows_out.push(Value::Object(row_map));
-        }
 
-        Ok::<Vec<Value>, Failure>(rows_out)
-    })?;
-
-    let full_json = serde_json::to_string(&output).unwrap_or_default();
-    let max_chars = config.max_chars;
-    let truncated = full_json.len() > max_chars;
+            Ok::<Rows, Failure>(rows_out)
+        },
+        &timed,
+    )) {
+        Ok(value) => value,
+        Err(error) => return Ok(operation_failed(error)),
+    };
 
     Ok(json!({
-        "rowCount": output.len(),
-        "rows": if truncated { Value::Array(output.into_iter().take(5).collect()) } else { Value::Array(output) },
-        "truncated": truncated,
-        "readOnlyVerified": true
+        "engine": "sqlserver",
+        "rowCount": output.values.len(),
+        "rows": output.values,
+        "truncated": output.truncated,
+        "readOnlyVerified": false,
+        "readOnlyPreflightPassed": true,
+        "readOnlyEnforcement": "lexical_preflight_and_login_permissions",
+        "connectionDiscarded": true,
+        "serverCancellationConfirmed": false
     }))
+}
+
+#[path = "sql_parameters.rs"]
+mod parameters;
+
+fn escape_like(query: &str) -> String {
+    let mut output = String::with_capacity(query.len());
+    for c in query.chars() {
+        if matches!(c, '~' | '%' | '_' | '[') {
+            output.push('~');
+        }
+        output.push(c);
+    }
+    output
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    #[test]
+    fn literal_like_wildcards_are_escaped_without_replacement_templates() {
+        assert_eq!(escape_like("a%_~[é"), "a~%~_~~~[é");
+    }
+    #[test]
+    fn driver_error_text_is_never_exposed() {
+        assert_eq!(
+            sql_error(tiberius::error::Error::Tls(
+                "private connection details".into()
+            ))
+            .0,
+            "SQL_TLS"
+        );
+        let failure = sql_error(tiberius::error::Error::Protocol(
+            "SELECT private value".into(),
+        ));
+        assert!(!failure.1.contains("private"));
+        let output = operation_failed(("TIMEOUT", "operation deadline exceeded"));
+        assert_eq!(output["timedOut"], true);
+        assert_eq!(output["serverCancellationConfirmed"], false);
+    }
+    #[tokio::test]
+    async fn sync_bridge_handles_current_thread_runtime() {
+        assert_eq!(
+            block_on_safe(async {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                42
+            }),
+            42
+        );
+    }
 }

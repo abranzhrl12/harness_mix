@@ -1,5 +1,5 @@
 //! Process-local, bounded PostgreSQL sessions on one managed Tokio runtime.
-//! A lease is reusable only after its caller confirms transaction rollback.
+//! A lease is reusable only after its caller confirms the implicit transaction's ReadyForQuery.
 use harness_domain::{Failure, execution::OperationContext};
 use std::{
     collections::HashMap,

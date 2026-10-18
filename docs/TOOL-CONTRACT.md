@@ -1,6 +1,6 @@
 # Shared harness contract
 
-Generated from `contracts/tool-contract.json`. Contract version: 2.2.0.
+Generated from `contracts/tool-contract.json`. Contract version: 2.3.0.
 
 | Tool | Backends |
 | --- | --- |

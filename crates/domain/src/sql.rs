@@ -58,6 +58,8 @@ pub struct SqlDescribeArgs {
     pub name: String,
     pub kind: Option<SqlDescribeKind>,
     pub sections: Option<Vec<String>>,
+    /// PostgreSQL: bypass and replace an opt-in schema-cache entry; never use stale fallback.
+    pub refresh: Option<bool>,
     pub session: Option<String>,
 }
 

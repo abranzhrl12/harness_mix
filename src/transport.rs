@@ -348,7 +348,7 @@ impl McpHarness {
         self.call(Request::Logs(args), context).await
     }
     #[tool(
-        description = "1–4 lecturas independientes, incluidas SQL Server, archivos, símbolos, Git, XLSX y SVG. Máximo 2 hijos concurrentes; admisión/plazo compartidos. No mutaciones, verify ni batches anidados. Consultar toolContract.features.batchTools para la lista exacta por backend. Valida tipos antes de ejecutar; resultados por índice, no transacción."
+        description = "1–4 lecturas independientes: SQL PostgreSQL/SQL Server mediante tool=harness_sql, archivos, símbolos, Git, XLSX y SVG. Para describir varias tablas usa jobs con action=describe, engine y name exactos; hasta 2 hijos concurrentes, plazo/admisión compartidos. No mutaciones, verify ni batches anidados. Valida tipos antes de ejecutar; resultados por índice, no snapshot transaccional compartido."
     )]
     async fn harness_batch(
         &self,
@@ -472,7 +472,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "SQL de solo lectura; engine=sqlserver|postgresql (obligatorio si ambos están habilitados). status {connect:true} prueba conexión; PostgreSQL connect:false u omitido no abre red. search {query,objectType?,schema?,limit?} descubre catálogos. describe {name,kind?,sections?} describe objetos exactos. PostgreSQL: descripción de columnas; rutinas mediante search; query arbitraria aún no disponible. SQL Server conserva query {sql,parameters?}. Cero filas no demuestra ausencia: revisar base, esquema y permisos."
+        description = "SQL: engine=sqlserver|postgresql (obligatorio si ambos habilitados). status no conecta por defecto; connect:true verifica y muestra diagnósticos/setup. search {query,objectType?,schema?,limit?} descubre nombres. describe {name,kind?,sections?,refresh?}: inspecciona columnas antes de formular SQL; no adivines columnas. PostgreSQL: caché opt-in schemaCacheSeconds 0..300, refresh:true fuerza lectura viva; cache hit no revalida permisos ni DDL. Varias tablas independientes: harness_batch con jobs tool=harness_sql/action=describe (1..4, concurrencia 2). PG query arbitraria NO disponible; SQL Server query {sql,parameters?} enlaza parámetros. Cero filas no prueba ausencia."
     )]
     async fn harness_sql(
         &self,
