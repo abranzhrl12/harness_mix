@@ -1,0 +1,18 @@
+[package]
+name = "harness-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[[bin]]
+name = "agent-cli"
+path = "src/main.rs"
+
+[dependencies]
+harness-domain = { path = "../domain" }
+harness-ports = { path = "../ports" }
+harness-application = { path = "../application" }
+harness-infra-llm = { path = "../infra-llm" }
+harness-infra-storage = { path = "../infra-storage" }
+harness-adapter-tui = { path = "../adapter-tui" }

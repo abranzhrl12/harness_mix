@@ -210,6 +210,16 @@ pub(super) fn doctor(
         let probe = serde_json::from_value(json!({"query":"__harness_doctor_probe__","syncIndex":false,"maxFiles":1,"maxDepth":1,"maxChars":1000}))
             .map_err(|_| ("INTERNAL", "Invalid index diagnostic request"))?;
         connection = match super::explore::explore(project, &probe, context) {
+            Ok(result) if result["ok"] == false => {
+                let mut failure = check(
+                    "connection:codegraph",
+                    "error",
+                    "Native index read-only probe failed",
+                );
+                failure["code"] = json!("INDEX");
+                failure["details"] = result["indexDiagnostic"].clone();
+                failure
+            }
             Ok(_) => check(
                 "connection:codegraph",
                 "ok",
@@ -232,6 +242,7 @@ pub(super) fn doctor(
         let sql_res = super::sql::status(
             project,
             &harness_domain::sql::SqlStatusArgs {
+                engine: Some(harness_domain::sql::SqlEngine::SqlServer),
                 connect: Some(true),
                 session: None,
             },
@@ -279,6 +290,37 @@ pub(super) fn doctor(
                 "skipped",
                 "SQL Server not configured in harness.config.json",
             ));
+        }
+    }
+    match super::postgresql::status(
+        project,
+        &harness_domain::sql::SqlStatusArgs {
+            engine: Some(harness_domain::sql::SqlEngine::Postgresql),
+            connect: args.connection,
+            session: None,
+        },
+        context,
+    ) {
+        Ok(details) => {
+            let status = if details["configured"] == false {
+                "skipped"
+            } else if details["ok"] == false {
+                "error"
+            } else {
+                "ok"
+            };
+            let mut entry = check(
+                "postgresql",
+                status,
+                "PostgreSQL configuration and optional read-only connection probe",
+            );
+            entry["details"] = details;
+            checks.push(entry);
+        }
+        Err((code, message)) => {
+            let mut entry = check("postgresql", "error", message);
+            entry["code"] = json!(code);
+            checks.push(entry);
         }
     }
     checks.push(check("functional-coverage", "warning", "Not an end-to-end certification: tools, client notifications, external services and all language/platform combinations are not exercised by doctor"));

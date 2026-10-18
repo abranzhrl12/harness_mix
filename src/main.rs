@@ -83,7 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         (Some(flag), Some(root), Some(option), None) if flag == "--root" && option == "--sync" => {
-            let context = harness_domain::execution::OperationContext::default();
+            // CLI batches need a workspace budget independent of MCP's 30s request deadline.
+            let context = harness_domain::execution::OperationContext::with_timeout(
+                std::time::Duration::from_secs(300),
+            );
             let result = agent_harness::adapters::index_store::sync_workspace_all(
                 &PathBuf::from(root),
                 &context,

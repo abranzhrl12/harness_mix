@@ -5,7 +5,7 @@ use harness_domain::{Failure, contracts::DataQueryArgs, execution::OperationCont
 use serde_json::{Value, json};
 use std::path::Path;
 
-fn redact(
+pub(super) fn redact(
     value: &mut Value,
     depth: usize,
     visited: &mut usize,

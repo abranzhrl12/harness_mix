@@ -82,14 +82,33 @@ async function main() {
     start();
     await initialize();
     const listed = await request('tools/list', {});
-    assert.equal(listed.result?.tools.length, 30, JSON.stringify(listed));
+    const contract = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'contracts', 'tool-contract.json'), 'utf8'));
+    const expectedTools = contract.tools.filter(tool => tool.backends.includes('rust')).map(tool => tool.name).sort();
+    assert.deepEqual(listed.result?.tools.map(tool => tool.name).sort(), expectedTools);
     const bootstrap = await call('harness_bootstrap', {});
     assert(bootstrap.session, 'Bootstrap must provide persistent session');
     await call('harness_doctor', { session: bootstrap.session });
     const read = await call('harness_read', { path: 'sample.ts', start: 1, end: 1, session: bootstrap.session });
     assert(JSON.stringify(read).includes('answer'), JSON.stringify(read));
+    const counted = await call('harness_read', { path: 'sample.ts', start: 1, lines: 1, session: bootstrap.session });
+    assert.equal(counted.text, read.text);
+    const preview = await call('harness_patch_preview', {
+      path: 'sample.ts', hash: read.hash, oldText: '42', newText: '43', session: bootstrap.session
+    });
+    assert.equal(preview.published, false);
+    assert.equal(preview.baseHash, read.hash);
+    assert.equal(preview.syntax.status, 'valid');
+    assert(preview.patch.includes('+export const answer: number = 43;'), JSON.stringify(preview));
+    assert.equal((await call('harness_read', { path: 'sample.ts', start: 1, lines: 1 })).hash, read.hash);
     const search = await call('harness_search', { kind: 'text', query: 'answer', session: bootstrap.session });
     assert(JSON.stringify(search).includes('sample.ts'), JSON.stringify(search));
+    const aliasSearch = await call('harness_search', { kind: 'text', pattern: 'answer', session: bootstrap.session });
+    assert(JSON.stringify(aliasSearch).includes('sample.ts'), JSON.stringify(aliasSearch));
+    const aliasBatch = await call('harness_batch', { jobs: [{ tool: 'read', arguments: { path: 'sample.ts', start: 1, lines: 1 } }], session: bootstrap.session });
+    assert(JSON.stringify(aliasBatch).includes('answer'), JSON.stringify(aliasBatch));
+    const postgres = await call('harness_sql', { action: 'status', engine: 'postgresql', connect: false, session: bootstrap.session });
+    assert.equal(postgres.engine, 'postgresql');
+    assert.equal(postgres.configured, false);
     if (watchIndex) {
       const waitForIndex = async predicate => {
         const deadline = Date.now() + 30000;
@@ -105,15 +124,23 @@ async function main() {
         throw new Error('Automatic index maintenance did not converge: ' + JSON.stringify(lastStatus));
       };
       await waitForIndex(status => status.state === 'idle');
-      fs.writeFileSync(path.join(root, 'sample.ts'), 'export function automaticallyIndexed(): number { return 42; }\n');
+      fs.writeFileSync(path.join(root, 'sample.ts'), 'export function automaticallyIndexed(): number { return 42; }\nexport function caller(): number { return automaticallyIndexed(); }\n');
       await waitForIndex(status => status.state === 'idle' && status.batches >= 1);
       const indexed = await call('harness_explore', { query: 'automaticallyIndexed', filePath: 'sample.ts' });
       assert(indexed.definitions?.some(definition => definition.symbol?.name === 'automaticallyIndexed'), JSON.stringify(indexed));
+      const impact = await call('harness_impact', { file: 'sample.ts', symbol: 'automaticallyIndexed', requireMatchingFiles: true });
+      assert.equal(impact.focus.status, 'resolved');
+      assert(impact.counts.directCallers >= 1, JSON.stringify(impact));
+      assert.equal(impact.absenceProven, false);
       console.log('PASS: automatic index update visible over MCP without syncIndex or --sync');
     }
     const started = await call('harness_jobs', { action: 'start', verify: { language: 'typescript', action: 'build', scope: 'sample.ts' } });
     const completed = await waitFor(started.taskId, ['succeeded']);
     assert(completed.result, JSON.stringify(completed));
+    const observed = await call('harness_observe', { taskId: started.taskId, filter: 'ERROR|panic', lines: 20 });
+    assert.equal(observed.taskId, started.taskId);
+    assert(Array.isArray(observed.lines), JSON.stringify(observed));
+    assert(Number.isSafeInteger(observed.cursor), JSON.stringify(observed));
     const slow = await call('harness_jobs', { action: 'start', verify: { language: 'javascript', action: 'test', scope: 'slow.test.cjs' } });
     await waitFor(slow.taskId, ['running']);
     await call('harness_jobs', { action: 'cancel', taskId: slow.taskId });
@@ -126,7 +153,7 @@ async function main() {
     assert.deepEqual(await call('harness_jobs', { action: 'status', taskId: started.taskId }), completed);
     assert.equal((await call('harness_jobs', { action: 'status', taskId: slow.taskId })).status, 'cancelled');
     assert.deepEqual(await call('harness_jobs', { action: 'events', after: 0 }), history);
-    console.log('PASS: packaged executable MCP initialize, 30 tools, bootstrap, doctor, read, search, job result, cancellation, history after restart');
+    console.log(`PASS: packaged executable MCP initialize, ${expectedTools.length} tools, bootstrap, doctor, patch preview without writes, job observation, parameter aliases, PostgreSQL status, job result, cancellation, history after restart`);
   } finally {
     await stop();
     // Only remove the unique fixture directory created by this script.

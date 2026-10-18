@@ -1,0 +1,10 @@
+[package]
+name = "harness-infra-storage"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+harness-domain = { path = "../domain" }
+harness-ports = { path = "../ports" }

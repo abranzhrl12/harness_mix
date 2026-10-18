@@ -46,6 +46,7 @@ pub mod data_query;
 pub mod diagnostics;
 pub mod handover;
 pub mod index_sync;
+mod postgresql;
 pub mod process;
 pub mod process_status;
 mod process_tree;
@@ -447,6 +448,13 @@ impl Workspace for NativeWorkspace {
             context,
             |project, _| symbols::read_symbol(project, args, context),
         )
+    }
+    fn patch_preview(
+        &self,
+        args: &harness_domain::contracts::ReplaceArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        edit::preview(&self.project, args, context)
     }
     fn replace(
         &self,

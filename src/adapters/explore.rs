@@ -16,7 +16,7 @@ use std::{
 
 const INDEX: Failure = (
     "INDEX",
-    "CodeGraph index unavailable, unsupported, busy or invalid; no raw database diagnostics returned",
+    "CodeGraph index access failed; inspect data.indexDiagnostic for the cause, path and schema",
 );
 const CONTRACT: Failure = (
     "GRAPH_CONTRACT",
@@ -303,6 +303,27 @@ pub(super) fn explore(
     args: &ExploreArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    let diagnostic = std::cell::RefCell::new(json!({
+        "databasePath": project.root.join(".codegraph/codegraph.db"),
+        "stage": "filesystem", "expectedSchemaVersion": {"min":1,"max":11},
+        "globalFreshnessCertified": false
+    }));
+    match explore_inner(project, args, context, &diagnostic) {
+        Err(("INDEX", message)) => Ok(json!({
+            "ok":false, "explorationPerformed":false,
+            "diagnostics":[{"code":"INDEX","message":message}],
+            "indexDiagnostic":diagnostic.into_inner()
+        })),
+        result => result,
+    }
+}
+
+fn explore_inner(
+    project: &Project,
+    args: &ExploreArgs,
+    context: &OperationContext,
+    diagnostic: &std::cell::RefCell<Value>,
+) -> Result<Value, Failure> {
     context.check()?;
     validate_args(args)?;
     if let Some(file) = &args.file_path {
@@ -323,10 +344,21 @@ pub(super) fn explore(
         max_chars
     };
     let path = project
-        .target(".codegraph/codegraph.db")
-        .map_err(|_| INDEX)?;
-    let metadata = std::fs::metadata(&path).map_err(|_| INDEX)?;
+        .target_optional(".codegraph/codegraph.db")
+        .map_err(|_| {
+            diagnostic.borrow_mut()["cause"] = json!("database_path_rejected");
+            INDEX
+        })?;
+    let metadata = std::fs::metadata(&path).map_err(|error| {
+        diagnostic.borrow_mut()["cause"] = json!(match error.kind() {
+            std::io::ErrorKind::NotFound => "database_missing",
+            std::io::ErrorKind::PermissionDenied => "permission_denied",
+            _ => "metadata_unavailable",
+        });
+        INDEX
+    })?;
     if !metadata.is_file() || metadata.len() > 512 * 1024 * 1024 {
+        diagnostic.borrow_mut()["cause"] = json!("database_type_or_size_rejected");
         return Err(INDEX);
     }
     for suffix in ["-wal", "-shm", "-journal"] {
@@ -337,7 +369,23 @@ pub(super) fn explore(
     #[cfg(windows)]
     let _pins = super::edit_commit::pin_directory(project, path.parent().ok_or(INDEX)?)?;
     let started = Instant::now();
-    let failed = |_| {
+    let failed = |error: rusqlite::Error| {
+        let mut details = diagnostic.borrow_mut();
+        if let rusqlite::Error::SqliteFailure(code, _) = &error {
+            details["sqliteCode"] = json!(format!("{:?}", code.code));
+            details["sqliteExtendedCode"] = json!(code.extended_code);
+            details["cause"] = json!(match code.code {
+                rusqlite::ErrorCode::DatabaseBusy => "database_busy",
+                rusqlite::ErrorCode::DatabaseLocked => "database_locked",
+                rusqlite::ErrorCode::DatabaseCorrupt => "database_corrupt",
+                rusqlite::ErrorCode::NotADatabase => "not_a_database",
+                rusqlite::ErrorCode::PermissionDenied | rusqlite::ErrorCode::CannotOpen =>
+                    "database_inaccessible",
+                _ => "sqlite_operation_failed",
+            });
+        } else {
+            details["cause"] = json!("schema_or_value_contract_mismatch");
+        }
         context.check().err().unwrap_or_else(|| {
             if started.elapsed() >= Duration::from_secs(5) {
                 BUDGET
@@ -346,6 +394,7 @@ pub(super) fn explore(
             }
         })
     };
+    diagnostic.borrow_mut()["stage"] = json!("sqlite_open");
     let db = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -368,14 +417,18 @@ pub(super) fn explore(
     db.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; BEGIN;").map_err(failed)?;
     // Refuse views and virtual-table substitutions; this adapter supports only
     // the installed CodeGraph table contract, not arbitrary SQLite databases.
+    diagnostic.borrow_mut()["stage"] = json!("schema_validation");
     let tables: i64 = db.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('schema_versions','nodes','edges') AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'", [], |r| r.get(0)).map_err(failed)?;
     if tables != 3 {
+        diagnostic.borrow_mut()["cause"] = json!("required_tables_missing_or_unsupported");
         return Err(INDEX);
     }
     let version: i64 = db
         .query_row("SELECT max(version) FROM schema_versions", [], |r| r.get(0))
         .map_err(failed)?;
+    diagnostic.borrow_mut()["actualSchemaVersion"] = json!(version);
     if !(1..=11).contains(&version) {
+        diagnostic.borrow_mut()["cause"] = json!("unsupported_schema_version");
         return Err(INDEX);
     }
     let has_qualified: bool = db
@@ -391,6 +444,7 @@ pub(super) fn explore(
             "This legacy index lacks qualified_name; select with filePath or symbolId",
         ));
     }
+    diagnostic.borrow_mut()["stage"] = json!("graph_query");
     let query = if has_qualified {
         "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name IN (SELECT value FROM json_each(?1)) COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||name COLLATE BINARY OR qualified_name=?4||'.'||name COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
     } else {

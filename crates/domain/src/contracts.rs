@@ -15,6 +15,7 @@ pub struct BootstrapArgs {
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[serde(try_from = "ReadInput")]
 pub struct ReadArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
@@ -22,6 +23,46 @@ pub struct ReadArgs {
     pub start: usize,
     pub end: usize,
     pub session: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(extend("oneOf" = [
+    {"required":["end"],"not":{"required":["lines"]}},
+    {"required":["lines"],"not":{"required":["end"]}}
+])))]
+struct ReadInput {
+    #[serde(rename = "externalScope")]
+    external_scope: Option<String>,
+    path: String,
+    start: usize,
+    end: Option<usize>,
+    /// Number of lines starting at start; mutually exclusive with end.
+    lines: Option<usize>,
+    session: Option<String>,
+}
+
+impl TryFrom<ReadInput> for ReadArgs {
+    type Error = String;
+    fn try_from(input: ReadInput) -> Result<Self, Self::Error> {
+        let end = match (input.end, input.lines) {
+            (Some(end), None) => end,
+            (None, Some(count)) if count > 0 && count <= 100 => input
+                .start
+                .checked_add(count - 1)
+                .ok_or("read range overflow")?,
+            (Some(_), Some(_)) => return Err("use either end or lines, not both".into()),
+            _ => return Err("provide end or lines (1..100)".into()),
+        };
+        Ok(Self {
+            external_scope: input.external_scope,
+            path: input.path,
+            start: input.start,
+            end,
+            session: input.session,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,7 +94,7 @@ pub struct SearchArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
     pub kind: Kind,
-    #[serde(default)]
+    #[serde(default, alias = "pattern")]
     pub query: String,
     #[serde(rename = "minLines")]
     pub min_lines: Option<usize>,
@@ -460,9 +501,9 @@ pub struct DataQueryArgs {
 pub enum BatchTool {
     #[serde(rename = "harness_config")]
     Config,
-    #[serde(rename = "harness_read")]
+    #[serde(rename = "harness_read", alias = "read")]
     Read,
-    #[serde(rename = "harness_search")]
+    #[serde(rename = "harness_search", alias = "search")]
     Search,
     #[serde(rename = "harness_symbols")]
     Symbols,
@@ -567,6 +608,8 @@ pub enum ExploreDirection {
 }
 
 pub enum Request {
+    Impact(crate::assistance::ImpactArgs),
+    PatchPreview(ReplaceArgs),
     Explore(ExploreArgs),
     ExternalScope(ExternalScopeArgs),
     Config(ConfigArgs),
@@ -618,6 +661,8 @@ impl Request {
     }
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Impact(_) => "harness_impact",
+            Self::PatchPreview(_) => "harness_patch_preview",
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
             Self::Config(_) => "harness_config",
@@ -648,6 +693,8 @@ impl Request {
     }
     pub fn arguments(&self) -> Value {
         match self {
+            Self::Impact(args) => serde_json::to_value(args),
+            Self::PatchPreview(args) => serde_json::to_value(args),
             Self::Explore(args) => serde_json::to_value(args),
             Self::ExternalScope(args) => serde_json::to_value(args),
             Self::Config(args) => serde_json::to_value(args),

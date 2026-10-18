@@ -1,4 +1,5 @@
 //! Transport-independent contracts, hashes and result policy. No filesystem or MCP SDK.
+pub mod assistance;
 pub mod contracts;
 pub mod editing;
 pub mod execution;

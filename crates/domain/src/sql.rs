@@ -1,10 +1,19 @@
 //! SQL Server contracts and strict read-only query policy.
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum SqlEngine {
+    SqlServer,
+    Postgresql,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlStatusArgs {
+    pub engine: Option<SqlEngine>,
     pub connect: Option<bool>,
     pub session: Option<String>,
 }
@@ -24,6 +33,7 @@ pub enum SqlObjectType {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlSearchArgs {
+    pub engine: Option<SqlEngine>,
     pub query: String,
     pub limit: Option<usize>,
     #[serde(rename = "objectType")]
@@ -44,6 +54,7 @@ pub enum SqlDescribeKind {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlDescribeArgs {
+    pub engine: Option<SqlEngine>,
     pub name: String,
     pub kind: Option<SqlDescribeKind>,
     pub sections: Option<Vec<String>>,
@@ -54,6 +65,7 @@ pub struct SqlDescribeArgs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlQueryArgs {
+    pub engine: Option<SqlEngine>,
     pub sql: String,
     pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
     pub session: Option<String>,
@@ -300,8 +312,14 @@ mod unified_tool_tests {
         let cases = [
             (json!({"action":"status"}), "status"),
             (json!({"action":"status","connect":true}), "status"),
-            (json!({"action":"search","query":"cliente","limit":5}), "search"),
-            (json!({"action":"describe","name":"dbo.Cliente"}), "describe"),
+            (
+                json!({"action":"search","query":"cliente","limit":5}),
+                "search",
+            ),
+            (
+                json!({"action":"describe","name":"dbo.Cliente"}),
+                "describe",
+            ),
             (json!({"action":"query","sql":"SELECT 1"}), "query"),
         ];
         for (value, action) in cases {
@@ -350,10 +368,16 @@ mod unified_tool_tests {
     #[test]
     fn schema_is_an_object_with_one_branch_per_action() {
         let schema = serde_json::to_value(schemars::schema_for!(SqlArgs)).unwrap();
-        assert_eq!(schema["type"], "object", "MCP requires a root object schema");
+        assert_eq!(
+            schema["type"], "object",
+            "MCP requires a root object schema"
+        );
         let text = schema.to_string();
         for action in ["status", "search", "describe", "query"] {
-            assert!(text.contains(&format!("\"{action}\"")), "schema lacks {action}");
+            assert!(
+                text.contains(&format!("\"{action}\"")),
+                "schema lacks {action}"
+            );
         }
         assert!(schema.get("oneOf").is_some() || schema.get("anyOf").is_some());
     }

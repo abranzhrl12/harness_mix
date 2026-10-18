@@ -275,6 +275,16 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     }
                     self.workspace.data_query(&args, context)
                 }),
+            Request::Impact(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| {
+                    let exploration = args.exploration()?;
+                    self.workspace.explore(&exploration, context)
+                        .map(|result| harness_domain::assistance::impact(&args, result))
+                }),
+            Request::PatchPreview(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.patch_preview(&args, context)),
             Request::Outline(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.outline(&args, context)),

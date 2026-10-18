@@ -1,0 +1,35 @@
+{
+  "name": "@abranzhrl1212/agent-harness",
+  "version": "0.8.1",
+  "description": "High-performance native Rust MCP server for AI code assistants",
+  "main": "bin/run.js",
+  "bin": {
+    "agent-harness": "bin/run.js",
+    "@abranzhrl1212/agent-harness": "bin/run.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/verify-package.cjs",
+    "CodeGraph-LICENSE.txt",
+    "ROLLDOWN-LICENSE.txt"
+  ],
+  "scripts": {
+    "prepublishOnly": "node scripts/verify-package.cjs"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "author": "abranzhrl1212",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agent",
+    "rust",
+    "harness",
+    "codegraph"
+  ]
+}

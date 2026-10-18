@@ -1,4 +1,6 @@
 //! Durable background verification with bounded concurrency and replayable events.
+#[path = "observe.rs"]
+mod observe;
 use super::{process::NativeProcessRunner, tasks_store::Store, verify};
 use harness_domain::{
     Failure,

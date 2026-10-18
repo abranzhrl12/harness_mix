@@ -1,7 +1,7 @@
 {
-  "contractVersion": "2.1.0",
+  "contractVersion": "2.2.0",
   "toolProfiles": {
-    "investigate": ["harness_bootstrap","harness_explore","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
+    "investigate": ["harness_bootstrap","harness_explore","harness_impact","harness_patch_preview","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
     "edit": ["harness_replace","harness_move","harness_verify","harness_diagnostics"]
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
@@ -27,6 +27,27 @@
       "After runtime/transport/timeout failure stop and diagnose; never bypass the harness."
     ],
     "routing": [
+      {
+        "need": "Assess indexed callers before renaming or changing a signature",
+        "tool": "harness_impact",
+        "backends": ["rust"],
+        "defaults": {"maxDepth":1,"limit":20},
+        "then": "Use file and exact symbol. Inspect ambiguity, freshness and graph limits; locations are caller declarations."
+      },
+      {
+        "need": "Preview a replacement and syntax diagnostics without publishing",
+        "tool": "harness_patch_preview",
+        "backends": ["rust"],
+        "defaults": {},
+        "then": "Same arguments as harness_replace. Apply the reviewed replacement using baseHash; stale sources are rejected."
+      },
+      {
+        "need": "Inspect recent errors and stack context from a background verification job",
+        "tool": "harness_observe",
+        "backends": ["rust"],
+        "defaults": {"lines":20,"before":2,"after":2},
+        "then": "Use taskId and regex filter. Follow cursor; inspect gap, truncated and outputLimited."
+      },
       {
         "need": "Locate a file by name; literals use search kind=text",
         "tool": "harness_search",
@@ -194,6 +215,20 @@
       "searchSyntax": "ast-pattern"
     },
     "rust": {
+      "postgresql": {
+        "tool": "harness_sql",
+        "engine": "postgresql",
+        "actions": ["status", "search", "describe"],
+        "describeSections": ["columns"],
+        "querySupported": false,
+        "configSection": "postgresql",
+        "connectDefault": false,
+        "tlsDefault": "verify-full",
+        "unencryptedMode": "disable-loopback",
+        "ambiguousEngine": "explicit-selector-required"
+      },
+      "indexDiagnostics": "data.indexDiagnostic: databasePath, stage, cause, schema versions and sanitized SQLite codes",
+      "parameterCompatibility": {"search":"pattern aliases query", "read":"lines is a count, mutually exclusive with end", "batchAliases":["read","search"]},
       "batchTools": [
         "harness_config",
         "harness_read",
@@ -337,6 +372,10 @@
       ]
     },
     {
+      "name": "harness_impact",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_jobs",
       "backends": ["rust"]
     },
@@ -352,10 +391,18 @@
       "backends": ["rust"]
     },
     {
+      "name": "harness_observe",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_outline",
       "backends": [
         "node"
       ]
+    },
+    {
+      "name": "harness_patch_preview",
+      "backends": ["rust"]
     },
     {
       "name": "harness_process_status",

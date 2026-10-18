@@ -262,6 +262,39 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 
 #[tool_router]
 impl McpHarness {
+    #[tool(description = "Preview a hash-checked replacement without publishing. Same arguments and syntax validation as harness_replace. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation.")]
+    async fn harness_patch_preview(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::PatchPreview(args), context).await
+    }
+
+    #[tool(description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims.")]
+    async fn harness_impact(
+        &self,
+        Parameters(args): Parameters<harness_domain::assistance::ImpactArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Impact(args), context).await
+    }
+
+    #[tool(description = "Tail retained output of a harness_jobs task. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths.")]
+    async fn harness_observe(
+        &self,
+        Parameters(args): Parameters<harness_domain::assistance::ObserveArgs>,
+    ) -> CallToolResult {
+        let arguments = serde_json::to_value(&args).expect("observe arguments");
+        let result = match &self.tasks {
+            Some(tasks) => tasks.observe(&args),
+            None => Err(("TOOL_PROFILE", "Job observation unavailable in this profile")),
+        };
+        response(harness_domain::results::Results::default().envelope(
+            "harness_observe", &arguments, result,
+        ))
+    }
+
     #[tool(
         description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status/list/events/cancel no bloquean la conversación. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
     )]
@@ -439,7 +472,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "SQL Server de solo lectura. action=status diagnostica la conexión (connect:true prueba el servidor); action=search {query} busca tablas, vistas, columnas, procedimientos o funciones (objectType, schema, limit opcionales); action=describe {name} describe un objeto exacto descubierto con search (kind, sections opcionales); action=query {sql} ejecuta un SELECT validado con límite de filas y caracteres (parameters opcional). Cero filas no prueba ausencia: revisar base, esquema, nombre y visibilidad del catálogo con action=status antes de concluir."
+        description = "SQL de solo lectura; engine=sqlserver|postgresql (obligatorio si ambos están habilitados). status {connect:true} prueba conexión; PostgreSQL connect:false u omitido no abre red. search {query,objectType?,schema?,limit?} descubre catálogos. describe {name,kind?,sections?} describe objetos exactos. PostgreSQL: descripción de columnas; rutinas mediante search; query arbitraria aún no disponible. SQL Server conserva query {sql,parameters?}. Cero filas no demuestra ausencia: revisar base, esquema y permisos."
     )]
     async fn harness_sql(
         &self,

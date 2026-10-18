@@ -271,14 +271,16 @@ fn sync_workspace_with_limit(
     #[cfg(windows)]
     let mut writer = None;
     for path in paths.iter().take(max_files) {
-        let applied = scope.recheck(&project, context).and_then(|()| {
+        // Bound each file without extending the owner's deadline or losing cancellation.
+        let file_context = context.with_execution_timeout(Some(std::time::Duration::from_secs(60)));
+        let applied = scope.recheck(&project, &file_context).and_then(|()| {
             #[cfg(windows)]
             {
-                sync_file_config_reuse(root, path, None, context, || {}, rebuild, &mut writer)
+                sync_file_config_reuse(root, path, None, &file_context, || {}, rebuild, &mut writer)
             }
             #[cfg(not(windows))]
             {
-                sync_file(root, path, context)
+                sync_file(root, path, &file_context)
             }
         });
         match applied {
@@ -289,9 +291,9 @@ fn sync_workspace_with_limit(
                     results.push(result);
                 }
             }
-            Err((code, _)) => {
+            Err((code, message)) => {
                 failure = Some(
-                    json!({"path":path,"code":code,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
+                    json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
                 );
                 break;
             }

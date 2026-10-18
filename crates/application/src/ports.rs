@@ -162,6 +162,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Symbol adapter unavailable"))
     }
+    fn patch_preview(
+        &self,
+        _args: &harness_domain::contracts::ReplaceArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Patch preview adapter unavailable"))
+    }
     fn replace(
         &self,
         _args: &harness_domain::contracts::ReplaceArgs,
