@@ -427,7 +427,7 @@ o un escaneo unknown no revive un check invalidado; una nueva ejecución añade 
 check nuevo. Las evaluaciones positivas siguen siendo por respuesta, sin current=true.
 Los restaurados llevan historical=true y current=null; el formato Node v1 no cambia.
 El refresh conserva gate/lease y escanea fuera del mutex global. Este refresh de
-verificaciones no tiene watcher (el watcher opt-in del índice se describe en AUTO-SYNC.md),
+verificaciones no tiene watcher (el watcher automático del índice se describe en AUTO-SYNC.md),
 dependencias por archivo ni cobertura de inputs externos, entorno o toolchain.
 Validación de este bloque: 139 pruebas Rust aprobadas, cuatro opt-in omitidas,
 dos pruebas diferenciales con Node aprobadas, Clippy sin warnings y formato

@@ -1,4 +1,4 @@
-//! Opt-in filesystem-driven incremental index maintenance. No LLM requests.
+//! Filesystem-driven incremental index maintenance. No LLM requests.
 use super::{index_extract, index_inventory, index_store, project::Project};
 use harness_domain::{Failure, execution::OperationContext};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};

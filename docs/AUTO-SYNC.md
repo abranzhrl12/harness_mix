@@ -1,7 +1,7 @@
 # Índice automático en segundo plano
 
-Windows x64. Activación explícita una sola vez, perfil MCP `full`, índice nativo
-compatible ya existente. No necesita llamadas de sincronización del LLM.
+Windows x64. Activado por defecto en el perfil MCP `full`, con índice nativo
+compatible ya existente. No necesita variables de entorno ni llamadas de sincronización del LLM.
 
 Para un proyecto nuevo, crear primero el índice:
 
@@ -9,18 +9,22 @@ Para un proyecto nuevo, crear primero el índice:
 .\agent-harness.exe --root E:\proyecto --init-index
 ```
 
-En la entrada MCP del proyecto, añadir `env` y reiniciar la conexión:
+La entrada MCP habitual basta; reiniciar la conexión después de actualizar el ejecutable:
 
 ```json
 {
   "command": "C:/herramientas/agent-harness.exe",
-  "args": ["--root", "E:/proyecto"],
-  "env": { "HARNESS_INDEX_WATCH": "1", "HARNESS_TOOL_PROFILE": "full" }
+  "args": ["--root", "E:/proyecto"]
 }
 ```
 
-`HARNESS_INDEX_WATCH=0` o ausente conserva el comportamiento anterior. Un valor
-inválido o un perfil restringido con watcher activado impide iniciar el servidor.
+`HARNESS_INDEX_WATCH=0` lo desactiva. Sin variable, los perfiles restringidos no
+inician el watcher. `HARNESS_INDEX_WATCH=1` exige iniciarlo: un índice ausente,
+un fallo de watcher o un perfil restringido impiden arrancar en ese modo explícito.
+En el modo automático por defecto, un índice ausente o un fallo de arranque del
+watcher se informa en doctor y el servidor sigue disponible; corregir la causa
+y reiniciar la conexión para activarlo. No se crea el índice implícitamente.
+Un valor distinto de 0 o 1 es inválido.
 El watcher nunca crea ni migra un índice y no edita archivos fuente. Vive mientras
 está abierto el servidor MCP; no instala un servicio Windows.
 

@@ -270,7 +270,7 @@ impl Workspace for NativeWorkspace {
             &mut result,
             json!({
                 "id":"index-auto-sync",
-                "status":if details["enabled"] != true { "skipped" } else if details["lastError"].is_null() { "ok" } else { "warning" },
+                "status":if !details["lastError"].is_null() { "warning" } else if details["enabled"] != true { "skipped" } else { "ok" },
                 "message":"Automatic index maintenance status; global freshness not certified",
                 "details":details
             }),

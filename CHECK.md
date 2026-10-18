@@ -65,8 +65,9 @@ conexión TLS implementada, y el build TypeScript no se presenta como typecheck.
 ## Validación del paquete Windows
 
 La ampliación posterior de sincronización automática se describe en
-[AUTO-SYNC.md](docs/AUTO-SYNC.md). Se activa una vez con `HARNESS_INDEX_WATCH=1`,
-sin llamadas del LLM. Usa eventos nativos, agrupación de 600 ms (máximo 2 s),
+[AUTO-SYNC.md](docs/AUTO-SYNC.md). Activa por defecto en Windows con perfil full
+e índice existente; `HARNESS_INDEX_WATCH=0` la desactiva. No requiere llamadas
+del LLM. Usa eventos nativos, agrupación de 600 ms (máximo 2 s),
 cola acotada de 1024 rutas, trabajador único y reconciliación cada cinco minutos.
 Los lotes normales solo atienden las rutas notificadas; hashes iguales evitan el
 parseo. La publicación ya no duplica la extracción con la vista previa del plan.
@@ -76,6 +77,13 @@ La compilación de esta ampliación con Rust 1.88 pasó:
 `target/audit/auto-sync-msrv-check.log` (`cargo check --locked --workspace`, salida 0).
 No se confunde esa comprobación con repetir toda la suite usando ese compilador.
 El ZIP anterior de esta sección NO incluye la ampliación automática.
+Cambio posterior: mantenimiento activado por defecto en Windows/full con índice
+existente, sin variable de entorno. `HARNESS_INDEX_WATCH=0` lo desactiva; sin
+índice el servidor arranca sin crearlo. Validación de este cambio: 19 pruebas
+stdio aprobadas, 0 fallidas y 3 omitidas (`auto-sync-default-stdio-tests.log`),
+y sonda MCP sin `HARNESS_INDEX_WATCH` aprobada (`auto-sync-default-mcp-smoke.log`).
+Estos logs están bajo `target/audit`; el cambio del valor por defecto se compiló
+en desarrollo, no se ha regenerado el release ni el ZIP con este cambio posterior.
 La sonda MCP de la ampliación pasó sobre el ejecutable de desarrollo final:
 `target/audit/auto-sync-final-mcp-smoke.log`. Modifica una fuente y comprueba una
 definición nueva en explore tras un lote automático, sin `syncIndex` ni `--sync`.

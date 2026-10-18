@@ -367,6 +367,7 @@ impl Server {
         command.arg("--root").arg(root);
         command
             .env("HARNESS_TOOL_PROFILE", profile)
+            .env_remove("HARNESS_INDEX_WATCH")
             .env("HARNESS_MCP_EAGER_TOOLS", if eager { "1" } else { "0" });
         if context {
             command.env("HARNESS_MCP_PRESENTATION", "context");
@@ -1032,6 +1033,15 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     assert_eq!(diagnosis["state"], "ok", "{doctor}");
     assert_eq!(diagnosis["data"]["versionsRequested"], false);
     assert_eq!(diagnosis["data"]["counts"]["warning"], 8);
+    let auto_sync = diagnosis["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == "index-auto-sync")
+        .unwrap();
+    assert_eq!(auto_sync["details"]["enabled"], false);
+    assert_eq!(auto_sync["details"]["reason"], "index_missing");
+    assert!(!root.path().join(".codegraph").exists());
     assert_eq!(diagnosis["data"]["allToolsVerified"], false);
     assert_eq!(diagnosis["data"]["mcpRegistry"]["status"], "verified");
     let coverage = diagnosis["data"]["checks"]

@@ -29,10 +29,10 @@ Añade esta entrada a la configuración MCP de tu cliente; cambia únicamente la
 
 Reinicia la conexión MCP. Puedes reutilizar el mismo ejecutable en varios proyectos cambiando `--root`. No necesitas copiar este repositorio al proyecto ni crear archivos de configuración para el uso básico. El formato de registro puede variar según el cliente.
 
-Para mantener el índice automáticamente en segundo plano, añade
-`"env": { "HARNESS_INDEX_WATCH": "1" }` a esa entrada MCP. Requiere Windows,
-perfil `full` e índice existente; agrupa eventos y actualiza los archivos cambiados
-sin llamadas del LLM. Activación, funcionamiento y límites: [AUTO-SYNC](docs/AUTO-SYNC.md).
+El índice se mantiene automáticamente en segundo plano por defecto en Windows,
+con perfil `full` e índice existente. Agrupa eventos y actualiza los archivos
+cambiados sin llamadas del LLM. No requiere añadir `env` a la entrada MCP.
+`HARNESS_INDEX_WATCH=0` lo desactiva. Detalles: [AUTO-SYNC](docs/AUTO-SYNC.md).
 
 Si el cliente inicia el proceso dentro del proyecto, puedes omitir `args`: harness detecta la raíz desde las variables del entorno o busca `.git`/`.agents` desde el directorio actual. Con `--root` eliges la carpeta explícitamente.
 

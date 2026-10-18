@@ -21,8 +21,11 @@ async function main() {
   const pending = new Map();
   let next = 1;
   const start = () => {
+    const serverEnv = { ...process.env, HARNESS_TOOL_PROFILE: 'full' };
+    delete serverEnv.HARNESS_INDEX_WATCH;
+    if (!watchIndex) serverEnv.HARNESS_INDEX_WATCH = '0';
     child = spawn(executable, ['--root', root], {
-      stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, HARNESS_TOOL_PROFILE: 'full', HARNESS_INDEX_WATCH: watchIndex ? '1' : '0' }
+      stdio: ['pipe', 'pipe', 'inherit'], env: serverEnv
     });
     const failPending = error => { for (const waiter of pending.values()) waiter.reject(error); pending.clear(); };
     child.on('error', failPending);

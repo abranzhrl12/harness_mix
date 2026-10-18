@@ -6,8 +6,8 @@
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
   "nativeIndexMaintenance": {
-    "activation": "HARNESS_INDEX_WATCH=1; Windows, full profile and existing compatible native index",
-    "defaultEnabled": false,
+    "activation": "Automatic on Windows with full profile and existing compatible native index; HARNESS_INDEX_WATCH=0 disables, 1 requires startup",
+    "defaultEnabled": true,
     "requiresLlmSyncCalls": false,
     "debounceMs": 600,
     "maxDebounceMs": 2000,

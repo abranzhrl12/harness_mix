@@ -124,8 +124,8 @@ de todos los archivos procesados y hasta 32 resultados individuales; el recorte 
 informe no corta la sincronización. La API de lote `sync_workspace` conserva su
 límite de 32; la CLI usa `sync_workspace_all`.
 
-El servidor MCP puede mantener ese índice en segundo plano con
-`HARNESS_INDEX_WATCH=1`: eventos agrupados, lotes de rutas afectadas, comparación
+El servidor MCP mantiene ese índice en segundo plano por defecto en el perfil
+full (`HARNESS_INDEX_WATCH=0` lo desactiva): eventos agrupados, lotes de rutas afectadas, comparación
 de hashes antes del parseo y reconciliación periódica. Requiere Windows, perfil
 full e índice existente. Ver [AUTO-SYNC.md](AUTO-SYNC.md).
 
