@@ -3,12 +3,12 @@
 //! src/extraction/tree-sitter.ts; TS-file line references are as of the R2
 //! port. Bug-for-bug fidelity is deliberate — fix the TS side first.
 
-use crate::textutil as util;
 use super::{
     body_of, is_builtin_type, is_literal_receiver, is_react_hoc, is_variable_type,
     is_vue_collection_name, Extra, Scope, Walker,
 };
 use crate::buffers::edge_kind_index;
+use crate::textutil as util;
 use tree_sitter::Node;
 
 impl<'t> Walker<'t> {
@@ -26,7 +26,10 @@ impl<'t> Walker<'t> {
         let mut common_js_export = false;
         if name_override.is_none()
             && name == "<anonymous>"
-            && matches!(node.kind(), "arrow_function" | "function_expression" | "generator_function")
+            && matches!(
+                node.kind(),
+                "arrow_function" | "function_expression" | "generator_function"
+            )
         {
             if let Some(parent) = node.parent() {
                 if parent.kind() == "variable_declarator" {
@@ -66,7 +69,11 @@ impl<'t> Walker<'t> {
         self.extract_type_annotations(node, row);
         self.extract_decorators_for(node, row);
 
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = body_of(node) {
             self.visit_function_body(body);
         }
@@ -139,7 +146,11 @@ impl<'t> Walker<'t> {
             return;
         };
         let Some(inner) = inner_fn else { return };
-        self.stack.push(Scope { row, kind: "component", name: name.to_string() });
+        self.stack.push(Scope {
+            row,
+            kind: "component",
+            name: name.to_string(),
+        });
         if let Some(body) = body_of(inner) {
             self.visit_function_body(body);
         }
@@ -164,7 +175,11 @@ impl<'t> Walker<'t> {
         self.extract_inheritance(node, row);
         self.extract_decorators_for(node, row);
 
-        self.stack.push(Scope { row, kind: "class", name });
+        self.stack.push(Scope {
+            row,
+            kind: "class",
+            name,
+        });
         let body = resolved_body.unwrap_or(node);
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
@@ -207,7 +222,11 @@ impl<'t> Walker<'t> {
         self.extract_type_annotations(node, row);
         self.extract_decorators_for(node, row);
 
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = body_of(node) {
             self.visit_function_body(body);
         }
@@ -227,7 +246,11 @@ impl<'t> Walker<'t> {
             return;
         };
         self.extract_inheritance(node, row);
-        self.stack.push(Scope { row, kind: "interface", name });
+        self.stack.push(Scope {
+            row,
+            kind: "interface",
+            name,
+        });
         let body = body_of(node).unwrap_or(node);
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
@@ -250,9 +273,15 @@ impl<'t> Walker<'t> {
             return;
         };
         self.extract_inheritance(node, row);
-        self.stack.push(Scope { row, kind: "enum", name });
+        self.stack.push(Scope {
+            row,
+            kind: "enum",
+            name,
+        });
         for i in 0..body.named_child_count() {
-            let Some(child) = body.named_child(i) else { continue };
+            let Some(child) = body.named_child(i) else {
+                continue;
+            };
             if matches!(child.kind(), "property_identifier" | "enum_assignment") {
                 self.extract_enum_members(child);
             } else {
@@ -271,7 +300,10 @@ impl<'t> Walker<'t> {
         let mut found = false;
         for i in 0..node.named_child_count() {
             if let Some(child) = node.named_child(i) {
-                if matches!(child.kind(), "simple_identifier" | "identifier" | "property_identifier") {
+                if matches!(
+                    child.kind(),
+                    "simple_identifier" | "identifier" | "property_identifier"
+                ) {
                     let name = self.text(child).to_string();
                     self.create_node("enum_member", &name, child, Extra::default());
                     found = true;
@@ -316,21 +348,26 @@ impl<'t> Walker<'t> {
         let type_node = if is_ts_js_field {
             node.child_by_field_name("type")
         } else {
-            (0..node.named_child_count()).filter_map(|i| node.named_child(i)).find(|c| {
-                !matches!(
-                    c.kind(),
-                    "modifier"
-                        | "modifiers"
-                        | "identifier"
-                        | "accessor_list"
-                        | "accessors"
-                        | "equals_value_clause"
-                )
-            })
+            (0..node.named_child_count())
+                .filter_map(|i| node.named_child(i))
+                .find(|c| {
+                    !matches!(
+                        c.kind(),
+                        "modifier"
+                            | "modifiers"
+                            | "identifier"
+                            | "accessor_list"
+                            | "accessors"
+                            | "equals_value_clause"
+                    )
+                })
         };
         let type_text = type_node.map(|t| {
             let raw = self.text(t);
-            raw.strip_prefix(':').unwrap_or(raw).trim_start().to_string()
+            raw.strip_prefix(':')
+                .unwrap_or(raw)
+                .trim_start()
+                .to_string()
         });
         let signature = match &type_text {
             Some(t) => format!("{t} {name}"),
@@ -341,7 +378,13 @@ impl<'t> Walker<'t> {
             "property",
             &name,
             node,
-            Extra { docstring, signature: Some(signature), visibility, is_static, ..Extra::default() },
+            Extra {
+                docstring,
+                signature: Some(signature),
+                visibility,
+                is_static,
+                ..Extra::default()
+            },
         )?;
         self.extract_decorators_for(node, row);
         self.extract_type_annotations(node, row);
@@ -357,8 +400,14 @@ impl<'t> Walker<'t> {
     /// Mirrors TreeSitterExtractor.isExportedLater.
     pub(super) fn is_exported_later(&self, name: &str) -> bool {
         if name.is_empty()
-            || !name.chars().next().map(|c| c.is_ascii_alphabetic() || c == '_' || c == '$').unwrap_or(false)
-            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            || !name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                .unwrap_or(false)
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
         {
             return false;
         }
@@ -380,11 +429,15 @@ impl<'t> Walker<'t> {
         let is_exported = self.is_exported(node); // `?? false` — always present
 
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() != "variable_declarator" {
                 continue;
             }
-            let Some(name_node) = child.child_by_field_name("name") else { continue };
+            let Some(name_node) = child.child_by_field_name("name") else {
+                continue;
+            };
             let value = child.child_by_field_name("value");
 
             // Destructured patterns are skipped — except RTK Query generated
@@ -401,7 +454,10 @@ impl<'t> Walker<'t> {
 
             // Arrow/function/generator values extract as functions, named by the declarator.
             if let Some(v) = value {
-                if matches!(v.kind(), "arrow_function" | "function_expression" | "generator_function") {
+                if matches!(
+                    v.kind(),
+                    "arrow_function" | "function_expression" | "generator_function"
+                ) {
                     self.extract_function(v, None);
                     continue;
                 }
@@ -447,7 +503,9 @@ impl<'t> Walker<'t> {
             // Exported const object-of-functions / store shapes.
             let object_of_fns: Option<Node> = match value {
                 Some(v) if matches!(v.kind(), "object" | "object_expression") => Some(v),
-                Some(v) if v.kind() == "call_expression" => self.find_initializer_returned_object(v, 0),
+                Some(v) if v.kind() == "call_expression" => {
+                    self.find_initializer_returned_object(v, 0)
+                }
                 _ => None,
             };
             let has_inline_fns = object_of_fns
@@ -457,8 +515,9 @@ impl<'t> Walker<'t> {
             // create(…)` … `export default useStore` (is_exported_later), the
             // shape most React Native stores are written in. Mirrors
             // TreeSitterExtractor.isExportedLater.
-            let extract_object_methods =
-                (is_exported || self.is_exported_later(&name)) && object_of_fns.is_some() && has_inline_fns;
+            let extract_object_methods = (is_exported || self.is_exported_later(&name))
+                && object_of_fns.is_some()
+                && has_inline_fns;
 
             let rtk_endpoints = match value {
                 Some(v) if v.kind() == "call_expression" => self.find_rtk_endpoints_object(v),
@@ -497,7 +556,11 @@ impl<'t> Walker<'t> {
                 if !members_extracted_separately {
                     match var_row {
                         Some(row) => {
-                            self.stack.push(Scope { row, kind, name: name.clone() });
+                            self.stack.push(Scope {
+                                row,
+                                kind,
+                                name: name.clone(),
+                            });
                             self.visit_function_body(v);
                             self.stack.pop();
                         }
@@ -526,7 +589,9 @@ impl<'t> Walker<'t> {
     /// extractRtkHookBindings — `export const { useGetXQuery } = api`.
     fn extract_rtk_hook_bindings(&mut self, pattern: Node<'t>, is_exported: bool) {
         for i in 0..pattern.named_child_count() {
-            let Some(binding) = pattern.named_child(i) else { continue };
+            let Some(binding) = pattern.named_child(i) else {
+                continue;
+            };
             if binding.kind() != "shorthand_property_identifier_pattern" {
                 continue;
             }
@@ -551,7 +616,9 @@ impl<'t> Walker<'t> {
 
     pub(super) fn extract_object_literal_functions(&mut self, obj: Node<'t>) {
         for i in 0..obj.named_child_count() {
-            let Some(member) = obj.named_child(i) else { continue };
+            let Some(member) = obj.named_child(i) else {
+                continue;
+            };
             if member.kind() == "pair" {
                 let key = member.child_by_field_name("key");
                 let value = member.child_by_field_name("value");
@@ -588,7 +655,9 @@ impl<'t> Walker<'t> {
         }
         let args = call.child_by_field_name("arguments")?;
         for i in 0..args.named_child_count() {
-            let Some(arg) = args.named_child(i) else { continue };
+            let Some(arg) = args.named_child(i) else {
+                continue;
+            };
             if matches!(arg.kind(), "arrow_function" | "function_expression") {
                 if let Some(obj) = self.function_returned_object(arg) {
                     return Some(obj);
@@ -624,7 +693,9 @@ impl<'t> Walker<'t> {
         }
         if body.kind() == "statement_block" {
             for i in 0..body.named_child_count() {
-                let Some(stmt) = body.named_child(i) else { continue };
+                let Some(stmt) = body.named_child(i) else {
+                    continue;
+                };
                 if stmt.kind() != "return_statement" {
                     continue;
                 }
@@ -640,7 +711,9 @@ impl<'t> Walker<'t> {
 
     pub(super) fn object_has_inline_functions(&self, obj: Node) -> bool {
         for i in 0..obj.named_child_count() {
-            let Some(member) = obj.named_child(i) else { continue };
+            let Some(member) = obj.named_child(i) else {
+                continue;
+            };
             if member.kind() == "method_definition" {
                 return true;
             }
@@ -670,14 +743,20 @@ impl<'t> Walker<'t> {
         }
         let args = call.child_by_field_name("arguments")?;
         for i in 0..args.named_child_count() {
-            let Some(arg) = args.named_child(i) else { continue };
+            let Some(arg) = args.named_child(i) else {
+                continue;
+            };
             if !matches!(arg.kind(), "object" | "object_expression") {
                 continue;
             }
             for j in 0..arg.named_child_count() {
-                let Some(member) = arg.named_child(j) else { continue };
+                let Some(member) = arg.named_child(j) else {
+                    continue;
+                };
                 if member.kind() == "pair" {
-                    let Some(key) = member.child_by_field_name("key") else { continue };
+                    let Some(key) = member.child_by_field_name("key") else {
+                        continue;
+                    };
                     if self.text(key) != "endpoints" {
                         continue;
                     }
@@ -687,7 +766,9 @@ impl<'t> Walker<'t> {
                         }
                     }
                 } else if member.kind() == "method_definition" {
-                    let Some(key) = member.child_by_field_name("name") else { continue };
+                    let Some(key) = member.child_by_field_name("name") else {
+                        continue;
+                    };
                     if self.text(key) != "endpoints" {
                         continue;
                     }
@@ -700,17 +781,23 @@ impl<'t> Walker<'t> {
 
     fn extract_rtk_endpoints(&mut self, obj: Node<'t>) {
         for i in 0..obj.named_child_count() {
-            let Some(member) = obj.named_child(i) else { continue };
+            let Some(member) = obj.named_child(i) else {
+                continue;
+            };
             if member.kind() != "pair" {
                 continue;
             }
             let key = member.child_by_field_name("key");
             let value = member.child_by_field_name("value");
-            let (Some(key), Some(value)) = (key, value) else { continue };
+            let (Some(key), Some(value)) = (key, value) else {
+                continue;
+            };
             if value.kind() != "call_expression" {
                 continue;
             }
-            let Some(callee) = value.child_by_field_name("function") else { continue };
+            let Some(callee) = value.child_by_field_name("function") else {
+                continue;
+            };
             if callee.kind() != "member_expression" {
                 continue;
             }
@@ -728,10 +815,17 @@ impl<'t> Walker<'t> {
                     "function",
                     &key_name,
                     value,
-                    Extra { signature: Some(sig), ..Extra::default() },
+                    Extra {
+                        signature: Some(sig),
+                        ..Extra::default()
+                    },
                 );
                 if let Some(row) = row {
-                    self.stack.push(Scope { row, kind: "function", name: key_name });
+                    self.stack.push(Scope {
+                        row,
+                        kind: "function",
+                        name: key_name,
+                    });
                     self.visit_function_body(value);
                     self.stack.pop();
                 }
@@ -742,7 +836,9 @@ impl<'t> Walker<'t> {
     fn rtk_endpoint_handler(&self, call: Node<'t>) -> Option<Node<'t>> {
         let args = call.child_by_field_name("arguments")?;
         for i in 0..args.named_child_count() {
-            let Some(arg) = args.named_child(i) else { continue };
+            let Some(arg) = args.named_child(i) else {
+                continue;
+            };
             if !matches!(arg.kind(), "object" | "object_expression") {
                 continue;
             }
@@ -750,7 +846,9 @@ impl<'t> Walker<'t> {
             let mut query: Option<Node> = None;
             let mut first_fn: Option<Node> = None;
             for j in 0..arg.named_child_count() {
-                let Some(member) = arg.named_child(j) else { continue };
+                let Some(member) = arg.named_child(j) else {
+                    continue;
+                };
                 let mut fn_node: Option<Node> = None;
                 let mut key_name = "";
                 if member.kind() == "pair" {
@@ -808,25 +906,35 @@ impl<'t> Walker<'t> {
         let Some(callee) = callee else { return vec![] };
         let callee_name = match callee.kind() {
             "identifier" => self.text(callee),
-            "member_expression" => self.text(callee.child_by_field_name("property").unwrap_or(callee)),
+            "member_expression" => {
+                self.text(callee.child_by_field_name("property").unwrap_or(callee))
+            }
             _ => "",
         };
         if !matches!(callee_name, "defineStore" | "createStore" | "Store") {
             return vec![];
         }
-        let Some(args) = call.child_by_field_name("arguments") else { return vec![] };
+        let Some(args) = call.child_by_field_name("arguments") else {
+            return vec![];
+        };
         let mut objects = Vec::new();
         for i in 0..args.named_child_count() {
-            let Some(arg) = args.named_child(i) else { continue };
+            let Some(arg) = args.named_child(i) else {
+                continue;
+            };
             if !matches!(arg.kind(), "object" | "object_expression") {
                 continue;
             }
             for j in 0..arg.named_child_count() {
-                let Some(member) = arg.named_child(j) else { continue };
+                let Some(member) = arg.named_child(j) else {
+                    continue;
+                };
                 if member.kind() != "pair" {
                     continue;
                 }
-                let Some(key) = member.child_by_field_name("key") else { continue };
+                let Some(key) = member.child_by_field_name("key") else {
+                    continue;
+                };
                 if !is_vue_collection_name(self.text(key)) {
                     continue;
                 }
@@ -842,11 +950,15 @@ impl<'t> Walker<'t> {
 
     pub(super) fn extract_store_collection_methods(&mut self, config: Node<'t>) {
         for i in 0..config.named_child_count() {
-            let Some(member) = config.named_child(i) else { continue };
+            let Some(member) = config.named_child(i) else {
+                continue;
+            };
             if member.kind() != "pair" {
                 continue;
             }
-            let Some(key) = member.child_by_field_name("key") else { continue };
+            let Some(key) = member.child_by_field_name("key") else {
+                continue;
+            };
             if !is_vue_collection_name(self.text(key)) {
                 continue;
             }
@@ -865,7 +977,9 @@ impl<'t> Walker<'t> {
         }
         let args = call.child_by_field_name("arguments")?;
         for i in 0..args.named_child_count() {
-            let Some(arg) = args.named_child(i) else { continue };
+            let Some(arg) = args.named_child(i) else {
+                continue;
+            };
             if !matches!(arg.kind(), "arrow_function" | "function_expression") {
                 continue;
             }
@@ -879,17 +993,23 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_pinia_setup_body(&mut self, setup: Node<'t>) {
-        let Some(body) = setup.child_by_field_name("body") else { return };
+        let Some(body) = setup.child_by_field_name("body") else {
+            return;
+        };
         if body.kind() != "statement_block" {
             return;
         }
         for i in 0..body.named_child_count() {
-            let Some(stmt) = body.named_child(i) else { continue };
+            let Some(stmt) = body.named_child(i) else {
+                continue;
+            };
             if stmt.kind() == "function_declaration" {
                 self.extract_function(stmt, None);
             } else if is_variable_type(stmt.kind()) {
                 for j in 0..stmt.named_child_count() {
-                    let Some(decl) = stmt.named_child(j) else { continue };
+                    let Some(decl) = stmt.named_child(j) else {
+                        continue;
+                    };
                     if decl.kind() != "variable_declarator" {
                         continue;
                     }
@@ -944,14 +1064,22 @@ impl<'t> Walker<'t> {
             return;
         }
 
-        self.stack.push(Scope { row: alias_row, kind: "type_alias", name: alias_name.to_string() });
+        self.stack.push(Scope {
+            row: alias_row,
+            kind: "type_alias",
+            name: alias_name.to_string(),
+        });
         for obj_type in object_types {
             for i in 0..obj_type.named_child_count() {
-                let Some(child) = obj_type.named_child(i) else { continue };
+                let Some(child) = obj_type.named_child(i) else {
+                    continue;
+                };
                 if !matches!(child.kind(), "property_signature" | "method_signature") {
                     continue;
                 }
-                let Some(name_node) = child.child_by_field_name("name") else { continue };
+                let Some(name_node) = child.child_by_field_name("name") else {
+                    continue;
+                };
                 let member_name = self.text(name_node).to_string();
                 if member_name.is_empty() {
                     continue;
@@ -976,7 +1104,12 @@ impl<'t> Walker<'t> {
         self.stack.pop();
     }
 
-    fn extract_ts_tuple_contract_names(&mut self, value: Node<'t>, alias_row: u32, alias_name: &str) {
+    fn extract_ts_tuple_contract_names(
+        &mut self,
+        value: Node<'t>,
+        alias_row: u32,
+        alias_name: &str,
+    ) {
         let mut tuples: Vec<Node> = Vec::new();
         fn collect<'t>(n: Node<'t>, depth: u32, out: &mut Vec<Node<'t>>) {
             stack_guard!();
@@ -997,20 +1130,32 @@ impl<'t> Walker<'t> {
             return;
         }
 
-        self.stack.push(Scope { row: alias_row, kind: "type_alias", name: alias_name.to_string() });
+        self.stack.push(Scope {
+            row: alias_row,
+            kind: "type_alias",
+            name: alias_name.to_string(),
+        });
         for tuple in tuples {
             for i in 0..tuple.named_child_count() {
-                let Some(entry) = tuple.named_child(i) else { continue };
+                let Some(entry) = tuple.named_child(i) else {
+                    continue;
+                };
                 if entry.kind() != "generic_type" {
                     continue;
                 }
-                let Some(type_args) = entry.child_by_field_name("type_arguments") else { continue };
+                let Some(type_args) = entry.child_by_field_name("type_arguments") else {
+                    continue;
+                };
                 for j in 0..type_args.named_child_count() {
-                    let Some(arg) = type_args.named_child(j) else { continue };
+                    let Some(arg) = type_args.named_child(j) else {
+                        continue;
+                    };
                     if arg.kind() != "literal_type" {
                         continue;
                     }
-                    let Some(str_node) = arg.named_child(0) else { continue };
+                    let Some(str_node) = arg.named_child(0) else {
+                        continue;
+                    };
                     if str_node.kind() != "string" {
                         continue;
                     }
@@ -1052,7 +1197,9 @@ impl<'t> Walker<'t> {
         let import_text = self.text(node).trim().to_string();
         // typescriptExtractor.extractImport: the `source` field, quotes stripped
         // globally. A missing/empty module means the hook declined — no node.
-        let Some(source_field) = node.child_by_field_name("source") else { return };
+        let Some(source_field) = node.child_by_field_name("source") else {
+            return;
+        };
         let module_name: String = self
             .text(source_field)
             .chars()
@@ -1065,10 +1212,18 @@ impl<'t> Walker<'t> {
             "import",
             &module_name,
             node,
-            Extra { signature: Some(import_text), ..Extra::default() },
+            Extra {
+                signature: Some(import_text),
+                ..Extra::default()
+            },
         );
         let parent = self.top_row();
-        self.push_ref(parent, &module_name.clone(), edge_kind_index("imports").unwrap(), node);
+        self.push_ref(
+            parent,
+            &module_name.clone(),
+            edge_kind_index("imports").unwrap(),
+            node,
+        );
         self.emit_import_binding_refs(node, parent);
     }
 
@@ -1089,12 +1244,16 @@ impl<'t> Walker<'t> {
         };
 
         for i in 0..clause.named_child_count() {
-            let Some(child) = clause.named_child(i) else { continue };
+            let Some(child) = clause.named_child(i) else {
+                continue;
+            };
             match child.kind() {
                 "identifier" => push(self, Some(child)),
                 "named_imports" => {
                     for j in 0..child.named_child_count() {
-                        let Some(spec) = child.named_child(j) else { continue };
+                        let Some(spec) = child.named_child(j) else {
+                            continue;
+                        };
                         if spec.kind() != "import_specifier" {
                             continue;
                         }
@@ -1125,11 +1284,15 @@ impl<'t> Walker<'t> {
         let Some(clause) = clause else { return }; // `export * from './y'`
         let imports_kind = edge_kind_index("imports").unwrap();
         for i in 0..clause.named_child_count() {
-            let Some(spec) = clause.named_child(i) else { continue };
+            let Some(spec) = clause.named_child(i) else {
+                continue;
+            };
             if spec.kind() != "export_specifier" {
                 continue;
             }
-            let name_node = spec.child_by_field_name("name").or_else(|| spec.named_child(0));
+            let name_node = spec
+                .child_by_field_name("name")
+                .or_else(|| spec.named_child(0));
             let Some(n) = name_node else { continue };
             let name = self.text(n).to_string();
             if name.is_empty() || name == "default" {
@@ -1190,7 +1353,10 @@ impl<'t> Walker<'t> {
                         }
                     }
                     let recv_ident = receiver.filter(|r| {
-                        matches!(r.kind(), "identifier" | "simple_identifier" | "field_identifier")
+                        matches!(
+                            r.kind(),
+                            "identifier" | "simple_identifier" | "field_identifier"
+                        )
                     });
                     if let Some(r) = recv_ident {
                         let receiver_name = self.text(r);
@@ -1203,7 +1369,9 @@ impl<'t> Walker<'t> {
                         // Retain the call site for effects without guessing a
                         // project method. Mirrors the TS extraction path.
                         let chain = self.text(func).replace("?.", ".");
-                        let Some(chain) = Self::plain_member_name(&chain) else { return };
+                        let Some(chain) = Self::plain_member_name(&chain) else {
+                            return;
+                        };
                         callee_name = chain;
                     } else if let Some(field) = receiver.and_then(|r| self.this_field_of(r)) {
                         // `this.<field>.<method>()` — keep the field so the
@@ -1215,7 +1383,9 @@ impl<'t> Walker<'t> {
                         // callee as `<inner>().<method>`, or emit nothing when it
                         // is not a plain name / member chain. Mirrors
                         // TreeSitterExtractor.extractCall.
-                        let Some(inner) = self.plain_inner_callee(r) else { return };
+                        let Some(inner) = self.plain_inner_callee(r) else {
+                            return;
+                        };
                         callee_name = format!("{inner}().{method_name}");
                     } else if receiver.is_some_and(|r| !keeps_bare_receiver(r, self.src)) {
                         // An expression receiver with no static type
@@ -1255,7 +1425,10 @@ impl<'t> Walker<'t> {
         let property = receiver.child_by_field_name("property")?;
         // An ES private field (`this.#items`) keeps its `#` (#1987).
         if object.kind() != "this"
-            || !matches!(property.kind(), "property_identifier" | "private_property_identifier")
+            || !matches!(
+                property.kind(),
+                "property_identifier" | "private_property_identifier"
+            )
         {
             return None;
         }
@@ -1279,7 +1452,11 @@ impl<'t> Walker<'t> {
             matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$')
                 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
         });
-        if ok { Some(text) } else { None }
+        if ok {
+            Some(text)
+        } else {
+            None
+        }
     }
 
     pub(super) fn extract_instantiation(&mut self, node: Node<'t>) {
@@ -1316,7 +1493,12 @@ impl<'t> Walker<'t> {
         let class_name = class_name.trim().to_string();
         if !class_name.is_empty() {
             let from = self.top_row();
-            self.push_ref(from, &class_name, edge_kind_index("instantiates").unwrap(), node);
+            self.push_ref(
+                from,
+                &class_name,
+                edge_kind_index("instantiates").unwrap(),
+                node,
+            );
         }
     }
 
@@ -1325,7 +1507,9 @@ impl<'t> Walker<'t> {
     pub(super) fn extract_decorators_for(&mut self, decl: Node<'t>, decorated_row: u32) {
         // 1. Direct children (method/property style).
         for i in 0..decl.named_child_count() {
-            let Some(child) = decl.named_child(i) else { continue };
+            let Some(child) = decl.named_child(i) else {
+                continue;
+            };
             self.consider_decorator(child, decorated_row);
             if child.kind() == "modifiers" {
                 for j in 0..child.named_child_count() {
@@ -1366,22 +1550,33 @@ impl<'t> Walker<'t> {
     }
 
     fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) {
-        if !matches!(n.kind(), "decorator" | "annotation" | "marker_annotation" | "attribute") {
+        if !matches!(
+            n.kind(),
+            "decorator" | "annotation" | "marker_annotation" | "attribute"
+        ) {
             return;
         }
         let mut target: Option<Node> = None;
         for i in 0..n.named_child_count() {
-            let Some(child) = n.named_child(i) else { continue };
+            let Some(child) = n.named_child(i) else {
+                continue;
+            };
             if child.kind() == "call_expression" {
-                target = child.child_by_field_name("function").or_else(|| child.named_child(0));
+                target = child
+                    .child_by_field_name("function")
+                    .or_else(|| child.named_child(0));
                 if target.is_some() {
                     break;
                 }
             }
             if matches!(
                 child.kind(),
-                "identifier" | "member_expression" | "scoped_identifier" | "navigation_expression"
-                    | "user_type" | "type_identifier"
+                "identifier"
+                    | "member_expression"
+                    | "scoped_identifier"
+                    | "navigation_expression"
+                    | "user_type"
+                    | "type_identifier"
             ) {
                 target = Some(child);
                 break;
@@ -1409,7 +1604,12 @@ impl<'t> Walker<'t> {
         if name.is_empty() {
             return;
         }
-        self.push_ref(decorated_row, &name, edge_kind_index("decorates").unwrap(), n);
+        self.push_ref(
+            decorated_row,
+            &name,
+            edge_kind_index("decorates").unwrap(),
+            n,
+        );
     }
 
     // --- extractInheritance (TS/JS clauses) ---------------------------------------------------
@@ -1419,7 +1619,9 @@ impl<'t> Walker<'t> {
         let extends_kind = edge_kind_index("extends").unwrap();
         let implements_kind = edge_kind_index("implements").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             match child.kind() {
                 // TS `extends_clause` (the other spellings are other grammars').
                 "extends_clause" | "superclass" | "base_clause" | "extends_interfaces" => {
@@ -1428,7 +1630,10 @@ impl<'t> Walker<'t> {
                         self.push_ref(class_row, &name, extends_kind, target);
                     }
                 }
-                "implements_clause" | "class_interface_clause" | "super_interfaces" | "interfaces" => {
+                "implements_clause"
+                | "class_interface_clause"
+                | "super_interfaces"
+                | "interfaces" => {
                     for j in 0..child.named_child_count() {
                         if let Some(iface) = child.named_child(j) {
                             let name = self.text(iface).to_string();
@@ -1488,7 +1693,12 @@ impl<'t> Walker<'t> {
         if node.kind() == "type_identifier" {
             let type_name = self.text(node).to_string();
             if !type_name.is_empty() && !is_builtin_type(&type_name) {
-                self.push_ref(from_row, &type_name, edge_kind_index("references").unwrap(), node);
+                self.push_ref(
+                    from_row,
+                    &type_name,
+                    edge_kind_index("references").unwrap(),
+                    node,
+                );
             }
             return;
         }

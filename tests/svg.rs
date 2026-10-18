@@ -169,25 +169,28 @@ fn test_svg_batch_execution() {
 
     fs::write(dir.path().join("icon.svg"), VALID_SVG).unwrap();
 
-    let batch_req = Request::Batch(serde_json::from_value::<BatchArgs>(json!({
-        "jobs": [
-            {
-                "tool": "harness_svg",
-                "arguments": {
-                    "path": "icon.svg",
-                    "mode": "inspect"
+    let batch_req = Request::Batch(
+        serde_json::from_value::<BatchArgs>(json!({
+            "jobs": [
+                {
+                    "tool": "harness_svg",
+                    "arguments": {
+                        "path": "icon.svg",
+                        "mode": "inspect"
+                    }
+                },
+                {
+                    "tool": "harness_svg",
+                    "arguments": {
+                        "path": "icon.svg",
+                        "mode": "preview",
+                        "maxSize": 256
+                    }
                 }
-            },
-            {
-                "tool": "harness_svg",
-                "arguments": {
-                    "path": "icon.svg",
-                    "mode": "preview",
-                    "maxSize": 256
-                }
-            }
-        ]
-    })).unwrap());
+            ]
+        }))
+        .unwrap(),
+    );
 
     let batch_res = app.execute(batch_req);
     assert_eq!(batch_res["state"], "ok", "{batch_res}");

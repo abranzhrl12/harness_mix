@@ -114,23 +114,26 @@ fn test_xlsx_batch_execution() {
 
     fs::write(dir.path().join("reporte.xlsx"), SAMPLE_XLSX).unwrap();
 
-    let batch_req = Request::Batch(serde_json::from_value::<BatchArgs>(json!({
-        "jobs": [
-            {
-                "tool": "harness_xlsx_inspect",
-                "arguments": {
-                    "path": "reporte.xlsx"
+    let batch_req = Request::Batch(
+        serde_json::from_value::<BatchArgs>(json!({
+            "jobs": [
+                {
+                    "tool": "harness_xlsx_inspect",
+                    "arguments": {
+                        "path": "reporte.xlsx"
+                    }
+                },
+                {
+                    "tool": "harness_xlsx_read",
+                    "arguments": {
+                        "path": "reporte.xlsx",
+                        "sheet": "Metricas"
+                    }
                 }
-            },
-            {
-                "tool": "harness_xlsx_read",
-                "arguments": {
-                    "path": "reporte.xlsx",
-                    "sheet": "Metricas"
-                }
-            }
-        ]
-    })).unwrap());
+            ]
+        }))
+        .unwrap(),
+    );
 
     let batch_res = app.execute(batch_req);
     assert_eq!(batch_res["state"], "ok", "{batch_res}");

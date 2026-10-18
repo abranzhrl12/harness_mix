@@ -76,7 +76,11 @@ fn test_extended_verify_plans() {
     let app = adapters::application(root.path()).unwrap();
 
     // 1. Go recursive test plan
-    std::fs::write(root.path().join("go.mod"), "module example.com/test\n\ngo 1.22\n").unwrap();
+    std::fs::write(
+        root.path().join("go.mod"),
+        "module example.com/test\n\ngo 1.22\n",
+    )
+    .unwrap();
     let go_res = app.execute(Request::Verify(VerifyArgs {
         language: "go".into(),
         scope: Some("go.mod".into()),

@@ -182,9 +182,16 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         return_type: NONE_STR,
         extra_json: NONE_STR,
     });
-    w.nodes_meta.push(NodeMeta { kind: "file", name: base_name.to_string() });
+    w.nodes_meta.push(NodeMeta {
+        kind: "file",
+        name: base_name.to_string(),
+    });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit_node(tree.root_node());
     w.flush_fn_ref_candidates();
@@ -210,10 +217,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -222,7 +239,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "union" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "union" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -249,13 +271,21 @@ impl<'t> Walker<'t> {
         }
     }
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1;
 
         let qualified = extra.qualified_name.unwrap_or_else(|| {
@@ -305,7 +335,10 @@ impl<'t> Walker<'t> {
             return_type: ret_ref,
             extra_json: NONE_STR,
         });
-        self.nodes_meta.push(NodeMeta { kind, name: name.to_string() });
+        self.nodes_meta.push(NodeMeta {
+            kind,
+            name: name.to_string(),
+        });
         self.node_ids.push(id);
 
         let parent_row = self.top_row();
@@ -333,7 +366,12 @@ impl<'t> Walker<'t> {
             let parent_ok = self
                 .stack
                 .last()
-                .map(|s| matches!(s.kind, "file" | "class" | "module" | "struct" | "union" | "enum"))
+                .map(|s| {
+                    matches!(
+                        s.kind,
+                        "file" | "class" | "module" | "struct" | "union" | "enum"
+                    )
+                })
                 .unwrap_or(false);
             if parent_ok {
                 self.fs_values.insert(name.to_string(), row);
@@ -341,7 +379,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
         Some(row)
     }
@@ -353,7 +395,10 @@ impl<'t> Walker<'t> {
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -391,7 +436,12 @@ impl<'t> Walker<'t> {
         if rt.kind() == "reference_type" {
             rt = (0..rt.named_child_count())
                 .filter_map(|i| rt.named_child(i))
-                .find(|c| matches!(c.kind(), "type_identifier" | "scoped_type_identifier" | "generic_type"))
+                .find(|c| {
+                    matches!(
+                        c.kind(),
+                        "type_identifier" | "scoped_type_identifier" | "generic_type"
+                    )
+                })
                 .unwrap_or(rt);
         }
         if matches!(rt.kind(), "primitive_type" | "unit_type" | "tuple_type") {
@@ -403,7 +453,11 @@ impl<'t> Walker<'t> {
         if last.is_empty() || !simple_ident_re().is_match(last) {
             return None;
         }
-        Some(if last == "Self" { "self".to_string() } else { last.to_string() })
+        Some(if last == "Self" {
+            "self".to_string()
+        } else {
+            last.to_string()
+        })
     }
 
     /// rustImplTypeName (languages/rust.ts) — the implementing type's simple
@@ -526,18 +580,20 @@ impl<'t> Walker<'t> {
             let mut sibling = node.prev_named_sibling();
             while let Some(item) = sibling {
                 match item.kind() {
-                    "line_comment" | "block_comment" => {},
+                    "line_comment" | "block_comment" => {}
                     "attribute_item" => {
                         let name = item.named_child(0).and_then(|a| a.named_child(0));
                         if let Some(name) = name {
-                            let text: String = self.src[name.byte_range()].chars()
-                                .filter(|c| !c.is_whitespace()).collect();
+                            let text: String = self.src[name.byte_range()]
+                                .chars()
+                                .filter(|c| !c.is_whitespace())
+                                .collect();
                             if text == "tauri::command" {
                                 decorators = Some("tauri::command".to_string());
                                 break;
                             }
                         }
-                    },
+                    }
                     _ => break,
                 }
                 sibling = item.prev_named_sibling();
@@ -556,7 +612,9 @@ impl<'t> Walker<'t> {
             ..Extra::default() // isExported hook absent → flag not set
         };
         let kind: &'static str = if as_method { "method" } else { "function" };
-        let Some(row) = self.create_node(kind, &name, node, extra) else { return };
+        let Some(row) = self.create_node(kind, &name, node, extra) else {
+            return;
+        };
 
         // Contains edge from the owner: receiver present AND not class-like —
         // FIRST earlier-in-file struct/class/enum/trait of the receiver's name.
@@ -603,10 +661,16 @@ impl<'t> Walker<'t> {
             docstring: preceding_docstring(node, self.src),
             ..Extra::default() // no visibility/isExported on the interface path
         };
-        let Some(row) = self.create_node("trait", &name, node, extra) else { return };
+        let Some(row) = self.create_node("trait", &name, node, extra) else {
+            return;
+        };
         self.extract_inheritance(node, row);
 
-        self.stack.push(Scope { row, kind: "trait", name });
+        self.stack.push(Scope {
+            row,
+            kind: "trait",
+            name,
+        });
         let body = node.child_by_field_name("body").unwrap_or(node);
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
@@ -628,12 +692,16 @@ impl<'t> Walker<'t> {
             visibility: Some(self.visibility_of(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node(kind, &name, node, extra) else { return };
+        let Some(row) = self.create_node(kind, &name, node, extra) else {
+            return;
+        };
         self.extract_inheritance(node, row);
 
         // Unit structs have no body to walk — the node itself is the whole
         // definition.
-        let Some(body) = node.child_by_field_name("body") else { return };
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
 
         self.stack.push(Scope { row, kind, name });
         for i in 0..body.named_child_count() {
@@ -648,19 +716,29 @@ impl<'t> Walker<'t> {
     /// (name field only, payloads never walked); other children re-dispatched.
     fn extract_enum(&mut self, node: Node<'t>) {
         stack_guard!();
-        let Some(body) = node.child_by_field_name("body") else { return };
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
             visibility: Some(self.visibility_of(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("enum", &name, node, extra) else { return };
+        let Some(row) = self.create_node("enum", &name, node, extra) else {
+            return;
+        };
         self.extract_inheritance(node, row);
 
-        self.stack.push(Scope { row, kind: "enum", name });
+        self.stack.push(Scope {
+            row,
+            kind: "enum",
+            name,
+        });
         for i in 0..body.named_child_count() {
-            let Some(c) = body.named_child(i) else { continue };
+            let Some(c) = body.named_child(i) else {
+                continue;
+            };
             if c.kind() == "enum_variant" {
                 if let Some(name_node) = c.child_by_field_name("name") {
                     let vname = self.text(name_node).to_string();
@@ -697,7 +775,9 @@ impl<'t> Walker<'t> {
         let name_field = node.child_by_field_name("name");
         let mut declared: Option<(u32, String)> = None;
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() != "identifier" {
                 continue;
             }
@@ -728,7 +808,11 @@ impl<'t> Walker<'t> {
         if let Some(value) = node.child_by_field_name("value") {
             match declared {
                 Some((row, name)) => {
-                    self.stack.push(Scope { row, kind: "variable", name });
+                    self.stack.push(Scope {
+                        row,
+                        kind: "variable",
+                        name,
+                    });
                     self.visit_function_body(value);
                     self.stack.pop();
                 }
@@ -743,7 +827,12 @@ impl<'t> Walker<'t> {
     fn extract_import(&mut self, node: Node<'t>) {
         let use_arg = (0..node.named_child_count())
             .filter_map(|i| node.named_child(i))
-            .find(|c| matches!(c.kind(), "scoped_use_list" | "scoped_identifier" | "use_list" | "identifier"));
+            .find(|c| {
+                matches!(
+                    c.kind(),
+                    "scoped_use_list" | "scoped_identifier" | "use_list" | "identifier"
+                )
+            });
         let Some(use_arg) = use_arg else { return };
 
         let module_name = self.root_module(use_arg);
@@ -752,7 +841,10 @@ impl<'t> Walker<'t> {
             "import",
             &module_name.clone(),
             node,
-            Extra { signature: Some(signature), ..Extra::default() },
+            Extra {
+                signature: Some(signature),
+                ..Extra::default()
+            },
         );
         let parent = self.top_row();
         let imports_kind = edge_kind_index("imports").unwrap();
@@ -781,16 +873,29 @@ impl<'t> Walker<'t> {
     fn emit_use_binding_refs(&mut self, node: Node<'t>, from_row: u32) {
         let mut paths: Vec<(String, Node)> = Vec::new();
         fn join(prefix: &str, seg: &str) -> String {
-            if prefix.is_empty() { seg.to_string() } else { format!("{prefix}::{seg}") }
+            if prefix.is_empty() {
+                seg.to_string()
+            } else {
+                format!("{prefix}::{seg}")
+            }
         }
-        fn collect<'t>(w: &Walker<'t>, n: Node<'t>, prefix: &str, paths: &mut Vec<(String, Node<'t>)>) {
+        fn collect<'t>(
+            w: &Walker<'t>,
+            n: Node<'t>,
+            prefix: &str,
+            paths: &mut Vec<(String, Node<'t>)>,
+        ) {
             stack_guard!();
             match n.kind() {
                 "identifier" => paths.push((join(prefix, w.text(n)), n)),
                 "scoped_identifier" => {
                     let full = w.text(n).trim();
                     paths.push((
-                        if prefix.is_empty() { full.to_string() } else { format!("{prefix}::{full}") },
+                        if prefix.is_empty() {
+                            full.to_string()
+                        } else {
+                            format!("{prefix}::{full}")
+                        },
                         n,
                     ));
                 }
@@ -799,7 +904,11 @@ impl<'t> Walker<'t> {
                         .child_by_field_name("path")
                         .map(|p| w.text(p).trim().to_string())
                         .unwrap_or_default();
-                    let new_prefix = if seg.is_empty() { prefix.to_string() } else { join(prefix, &seg) };
+                    let new_prefix = if seg.is_empty() {
+                        prefix.to_string()
+                    } else {
+                        join(prefix, &seg)
+                    };
                     let list = n.child_by_field_name("list").or_else(|| {
                         (0..n.named_child_count())
                             .filter_map(|i| n.named_child(i))
@@ -887,8 +996,9 @@ impl<'t> Walker<'t> {
                                 // callee a scoped_identifier). Instance chains
                                 // keep the bare method name.
                                 let inner_fn = r.child_by_field_name("function");
-                                let reencode =
-                                    inner_fn.map(|f| f.kind() == "scoped_identifier").unwrap_or(false);
+                                let reencode = inner_fn
+                                    .map(|f| f.kind() == "scoped_identifier")
+                                    .unwrap_or(false);
                                 if reencode {
                                     let inner: String = self
                                         .text(inner_fn.unwrap())
@@ -954,7 +1064,12 @@ impl<'t> Walker<'t> {
                 callee_name = c[1].to_string();
             }
             let from = self.top_row();
-            self.push_ref_at(from, &callee_name.clone(), edge_kind_index("calls").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &callee_name.clone(),
+                edge_kind_index("calls").unwrap(),
+                node,
+            );
         }
     }
 
@@ -992,7 +1107,12 @@ impl<'t> Walker<'t> {
 
         if !class_name.is_empty() {
             let from = self.top_row();
-            self.push_ref_at(from, &class_name, edge_kind_index("instantiates").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &class_name,
+                edge_kind_index("instantiates").unwrap(),
+                node,
+            );
         }
     }
 
@@ -1000,7 +1120,9 @@ impl<'t> Walker<'t> {
     /// identifiers only (`rocket::routes![…]` is skipped); identifier runs in
     /// the token tree join with `::`, flushed on `,` and at end.
     fn extract_rust_route_macro(&mut self, node: Node<'t>) {
-        let Some(macro_name) = node.named_child(0) else { return };
+        let Some(macro_name) = node.named_child(0) else {
+            return;
+        };
         let name = self.text(macro_name);
         if name != "routes" && name != "catchers" {
             return;
@@ -1039,7 +1161,9 @@ impl<'t> Walker<'t> {
             };
         }
         for i in 0..token_tree.child_count() {
-            let Some(t) = token_tree.child(i) else { continue };
+            let Some(t) = token_tree.child(i) else {
+                continue;
+            };
             if t.kind() == "identifier" {
                 if parts.is_empty() {
                     line = t.start_position().row as u32 + 1;
@@ -1063,11 +1187,15 @@ impl<'t> Walker<'t> {
         stack_guard!();
         let extends_kind = edge_kind_index("extends").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             match child.kind() {
                 "trait_bounds" => {
                     for j in 0..child.named_child_count() {
-                        let Some(bound) = child.named_child(j) else { continue };
+                        let Some(bound) = child.named_child(j) else {
+                            continue;
+                        };
                         let type_node: Option<Node> = match bound.kind() {
                             "type_identifier" => Some(bound),
                             "generic_type" => (0..bound.named_child_count())
@@ -1137,10 +1265,17 @@ impl<'t> Walker<'t> {
         let target_row = self
             .nodes_meta
             .iter()
-            .position(|m| m.name == type_name && matches!(m.kind, "struct" | "union" | "enum" | "class"))
+            .position(|m| {
+                m.name == type_name && matches!(m.kind, "struct" | "union" | "enum" | "class")
+            })
             .map(|i| i as u32);
         if let Some(target_row) = target_row {
-            self.push_ref_at(target_row, &trait_name, edge_kind_index("implements").unwrap(), trait_node);
+            self.push_ref_at(
+                target_row,
+                &trait_name,
+                edge_kind_index("implements").unwrap(),
+                trait_node,
+            );
         }
     }
 
@@ -1168,7 +1303,12 @@ impl<'t> Walker<'t> {
         if node.kind() == "type_identifier" {
             let type_name = self.text(node).to_string();
             if !type_name.is_empty() && !is_builtin_type(&type_name) {
-                self.push_ref_at(from_row, &type_name, edge_kind_index("references").unwrap(), node);
+                self.push_ref_at(
+                    from_row,
+                    &type_name,
+                    edge_kind_index("references").unwrap(),
+                    node,
+                );
             }
             return;
         }
@@ -1350,8 +1490,12 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_item" | "function_signature_item" | "arrow_function"
-                    | "function_expression" | "lambda_literal" | "lambda_expression"
+                "function_item"
+                    | "function_signature_item"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
+                    | "lambda_expression"
             )
         {
             return;
@@ -1412,7 +1556,10 @@ impl<'t> Walker<'t> {
         // field) and let_declaration (the shadow source: `pattern` field; a
         // tuple pattern bumps every named child).
         let mut decl_counts: HashMap<&str, u32> = HashMap::new();
-        let mut bump = |decl_counts: &mut HashMap<&'t str, u32>, name_node: Option<Node<'t>>, src: &'t str, targets: &HashMap<String, u32>| {
+        let mut bump = |decl_counts: &mut HashMap<&'t str, u32>,
+                        name_node: Option<Node<'t>>,
+                        src: &'t str,
+                        targets: &HashMap<String, u32>| {
             if let Some(n) = name_node {
                 if matches!(n.kind(), "identifier" | "simple_identifier") {
                     let nm = &src[n.byte_range()];
@@ -1430,9 +1577,12 @@ impl<'t> Walker<'t> {
             }
             dvisited += 1;
             match n.kind() {
-                "const_item" | "static_item" => {
-                    bump(&mut decl_counts, n.child_by_field_name("name"), self.src, &targets)
-                }
+                "const_item" | "static_item" => bump(
+                    &mut decl_counts,
+                    n.child_by_field_name("name"),
+                    self.src,
+                    &targets,
+                ),
                 "let_declaration" => {
                     let left = n
                         .child_by_field_name("left")
@@ -1478,7 +1628,10 @@ impl<'t> Walker<'t> {
                     break;
                 }
                 visited += 1;
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -1515,8 +1668,18 @@ impl<'t> Walker<'t> {
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -1524,16 +1687,50 @@ fn is_stoplisted(name: &str) -> bool {
 fn is_literal_receiver(kind: &str) -> bool {
     matches!(
         kind,
-        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal"
-            | "template_string" | "concatenated_string" | "formatted_string" | "f_string"
-            | "line_string_literal" | "string_content" | "heredoc_body"
-            | "number" | "number_literal" | "integer" | "integer_literal" | "float"
-            | "float_literal" | "int_literal" | "decimal_integer_literal" | "real_literal"
-            | "char_literal" | "character_literal" | "rune_literal" | "regex" | "regex_literal"
-            | "true" | "false" | "boolean_literal" | "bool_literal" | "none" | "null" | "nil"
-            | "null_literal" | "undefined"
-            | "list" | "list_literal" | "array" | "array_literal" | "array_creation_expression"
-            | "dictionary" | "dict_literal" | "object" | "tuple" | "set"
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "template_string"
+            | "concatenated_string"
+            | "formatted_string"
+            | "f_string"
+            | "line_string_literal"
+            | "string_content"
+            | "heredoc_body"
+            | "number"
+            | "number_literal"
+            | "integer"
+            | "integer_literal"
+            | "float"
+            | "float_literal"
+            | "int_literal"
+            | "decimal_integer_literal"
+            | "real_literal"
+            | "char_literal"
+            | "character_literal"
+            | "rune_literal"
+            | "regex"
+            | "regex_literal"
+            | "true"
+            | "false"
+            | "boolean_literal"
+            | "bool_literal"
+            | "none"
+            | "null"
+            | "nil"
+            | "null_literal"
+            | "undefined"
+            | "list"
+            | "list_literal"
+            | "array"
+            | "array_literal"
+            | "array_creation_expression"
+            | "dictionary"
+            | "dict_literal"
+            | "object"
+            | "tuple"
+            | "set"
     )
 }
 
@@ -1542,15 +1739,72 @@ fn is_literal_receiver(kind: &str) -> bool {
 fn is_builtin_type(name: &str) -> bool {
     matches!(
         name,
-        "string" | "number" | "boolean" | "void" | "null" | "undefined" | "never" | "any"
-            | "unknown" | "object" | "symbol" | "bigint" | "true" | "false"
-            | "str" | "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" | "char"
-            | "int" | "long" | "short" | "byte" | "float" | "double"
-            | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64"
-            | "float32" | "float64" | "complex64" | "complex128" | "rune" | "error"
-            | "Int" | "Long" | "Short" | "Byte" | "Float" | "Double" | "Boolean" | "Char"
-            | "Unit" | "String" | "Any" | "AnyRef" | "AnyVal" | "Nothing" | "Null"
+        "string"
+            | "number"
+            | "boolean"
+            | "void"
+            | "null"
+            | "undefined"
+            | "never"
+            | "any"
+            | "unknown"
+            | "object"
+            | "symbol"
+            | "bigint"
+            | "true"
+            | "false"
+            | "str"
+            | "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "int"
+            | "long"
+            | "short"
+            | "byte"
+            | "float"
+            | "double"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "float32"
+            | "float64"
+            | "complex64"
+            | "complex128"
+            | "rune"
+            | "error"
+            | "Int"
+            | "Long"
+            | "Short"
+            | "Byte"
+            | "Float"
+            | "Double"
+            | "Boolean"
+            | "Char"
+            | "Unit"
+            | "String"
+            | "Any"
+            | "AnyRef"
+            | "AnyVal"
+            | "Nothing"
+            | "Null"
     )
 }
 

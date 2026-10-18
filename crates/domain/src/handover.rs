@@ -15,7 +15,25 @@ pub fn inline_escape(value: &str) -> String {
             continue;
         }
         prev_whitespace = false;
-        if matches!(ch, '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '+' | '.' | '!' | '|' | '<' | '>') {
+        if matches!(
+            ch,
+            '\\' | '`'
+                | '*'
+                | '_'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '#'
+                | '+'
+                | '.'
+                | '!'
+                | '|'
+                | '<'
+                | '>'
+        ) {
             out.push('\\');
         }
         out.push(ch);
@@ -94,7 +112,9 @@ pub fn render_handover(snapshot: &Value, kind: HandoverKind) -> String {
     }
 
     if let Some(omitted) = observed["omittedFiles"].as_u64().filter(|&n| n > 0) {
-        rows.push(format!("- {omitted} archivos adicionales fuera del resumen"));
+        rows.push(format!(
+            "- {omitted} archivos adicionales fuera del resumen"
+        ));
     }
 
     rows.push(String::new());
@@ -121,7 +141,9 @@ pub fn render_handover(snapshot: &Value, kind: HandoverKind) -> String {
     }
 
     if let Some(omitted) = observed["omittedChecks"].as_u64().filter(|&n| n > 0) {
-        rows.push(format!("- {omitted} comprobaciones adicionales fuera del resumen"));
+        rows.push(format!(
+            "- {omitted} comprobaciones adicionales fuera del resumen"
+        ));
     }
 
     rows.push(String::new());

@@ -82,7 +82,14 @@ fn is_signature_method_type(kind: &str) -> bool {
 }
 
 fn is_function_type(kind: &str) -> bool {
-    matches!(kind, "function_declaration" | "generator_function_declaration" | "arrow_function" | "function_expression" | "generator_function")
+    matches!(
+        kind,
+        "function_declaration"
+            | "generator_function_declaration"
+            | "arrow_function"
+            | "function_expression"
+            | "generator_function"
+    )
 }
 
 fn is_class_type(v: Variant, kind: &str) -> bool {
@@ -98,16 +105,50 @@ fn is_variable_type(kind: &str) -> bool {
 fn is_literal_receiver(kind: &str) -> bool {
     matches!(
         kind,
-        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal"
-            | "template_string" | "concatenated_string" | "formatted_string" | "f_string"
-            | "line_string_literal" | "string_content" | "heredoc_body"
-            | "number" | "number_literal" | "integer" | "integer_literal" | "float"
-            | "float_literal" | "int_literal" | "decimal_integer_literal" | "real_literal"
-            | "char_literal" | "character_literal" | "rune_literal" | "regex" | "regex_literal"
-            | "true" | "false" | "boolean_literal" | "bool_literal" | "none" | "null" | "nil"
-            | "null_literal" | "undefined"
-            | "list" | "list_literal" | "array" | "array_literal" | "array_creation_expression"
-            | "dictionary" | "dict_literal" | "object" | "tuple" | "set"
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "template_string"
+            | "concatenated_string"
+            | "formatted_string"
+            | "f_string"
+            | "line_string_literal"
+            | "string_content"
+            | "heredoc_body"
+            | "number"
+            | "number_literal"
+            | "integer"
+            | "integer_literal"
+            | "float"
+            | "float_literal"
+            | "int_literal"
+            | "decimal_integer_literal"
+            | "real_literal"
+            | "char_literal"
+            | "character_literal"
+            | "rune_literal"
+            | "regex"
+            | "regex_literal"
+            | "true"
+            | "false"
+            | "boolean_literal"
+            | "bool_literal"
+            | "none"
+            | "null"
+            | "nil"
+            | "null_literal"
+            | "undefined"
+            | "list"
+            | "list_literal"
+            | "array"
+            | "array_literal"
+            | "array_creation_expression"
+            | "dictionary"
+            | "dict_literal"
+            | "object"
+            | "tuple"
+            | "set"
     )
 }
 
@@ -115,21 +156,81 @@ fn is_literal_receiver(kind: &str) -> bool {
 fn is_builtin_type(name: &str) -> bool {
     matches!(
         name,
-        "string" | "number" | "boolean" | "void" | "null" | "undefined" | "never" | "any"
-            | "unknown" | "object" | "symbol" | "bigint" | "true" | "false"
-            | "str" | "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" | "char"
-            | "int" | "long" | "short" | "byte" | "float" | "double"
-            | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64"
-            | "float32" | "float64" | "complex64" | "complex128" | "rune" | "error"
-            | "Int" | "Long" | "Short" | "Byte" | "Float" | "Double" | "Boolean" | "Char"
-            | "Unit" | "String" | "Any" | "AnyRef" | "AnyVal" | "Nothing" | "Null"
+        "string"
+            | "number"
+            | "boolean"
+            | "void"
+            | "null"
+            | "undefined"
+            | "never"
+            | "any"
+            | "unknown"
+            | "object"
+            | "symbol"
+            | "bigint"
+            | "true"
+            | "false"
+            | "str"
+            | "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "int"
+            | "long"
+            | "short"
+            | "byte"
+            | "float"
+            | "double"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "float32"
+            | "float64"
+            | "complex64"
+            | "complex128"
+            | "rune"
+            | "error"
+            | "Int"
+            | "Long"
+            | "Short"
+            | "Byte"
+            | "Float"
+            | "Double"
+            | "Boolean"
+            | "Char"
+            | "Unit"
+            | "String"
+            | "Any"
+            | "AnyRef"
+            | "AnyVal"
+            | "Nothing"
+            | "Null"
     )
 }
 
 /// REACT_COMPONENT_HOCS (tree-sitter.ts, #841).
 fn is_react_hoc(callee: &str) -> bool {
-    matches!(callee, "forwardRef" | "memo" | "React.forwardRef" | "React.memo")
+    matches!(
+        callee,
+        "forwardRef" | "memo" | "React.forwardRef" | "React.memo"
+    )
 }
 
 fn is_vue_collection_name(name: &str) -> bool {
@@ -264,7 +365,11 @@ pub fn extract(file_path: &str, source: &str, language: &str) -> Result<EmitOut,
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit_node(tree.root_node());
 
@@ -296,11 +401,21 @@ impl<'t> Walker<'t> {
     }
 
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
 
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
 
     fn top_row(&self) -> u32 {
@@ -311,7 +426,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -338,25 +458,39 @@ impl<'t> Walker<'t> {
     }
 
     fn push_call_ref(&mut self, name: &str, node: Node) {
-        self.push_ref(self.top_row(), name, edge_kind_index("calls").unwrap(), node);
+        self.push_ref(
+            self.top_row(),
+            name,
+            edge_kind_index("calls").unwrap(),
+            node,
+        );
     }
 
     // --- createNode -----------------------------------------------------------
 
     /// createNode (tree-sitter.ts): id, qualified name from the scope stack,
     /// contains edge from the parent scope, value-ref bookkeeping.
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
 
         // endLine body extension: resolveBody only (TS/JS: function-valued
         // class fields whose body nests in the arrow / HOF-wrapped arrow).
         let mut end_line = node.end_position().row as u32 + 1;
-        if (kind == "function" || kind == "method") && matches!(node.kind(), "public_field_definition" | "field_definition")
+        if (kind == "function" || kind == "method")
+            && matches!(node.kind(), "public_field_definition" | "field_definition")
         {
             if let Some(body) = resolve_field_body(node) {
                 let be = body.end_position().row as u32 + 1;
@@ -440,7 +574,13 @@ impl<'t> Walker<'t> {
 
     // --- value references (captureValueRefScope / flushValueRefs) --------------
 
-    fn capture_value_ref_scope(&mut self, kind: &'static str, name: &str, row: u32, node: Node<'t>) {
+    fn capture_value_ref_scope(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        row: u32,
+        node: Node<'t>,
+    ) {
         if !self.variant.value_refs() {
             return;
         }
@@ -460,7 +600,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
     }
 
@@ -468,7 +612,8 @@ impl<'t> Walker<'t> {
         let scopes = std::mem::take(&mut self.value_scopes);
         let mut targets = std::mem::take(&mut self.fs_values);
         let counts = std::mem::take(&mut self.fs_value_counts);
-        if !self.variant.value_refs() || std::env::var("CODEGRAPH_VALUE_REFS").as_deref() == Ok("0") {
+        if !self.variant.value_refs() || std::env::var("CODEGRAPH_VALUE_REFS").as_deref() == Ok("0")
+        {
             return;
         }
         if targets.is_empty() || scopes.is_empty() || util::is_generated_file(self.file_path) {
@@ -527,7 +672,10 @@ impl<'t> Walker<'t> {
                     break;
                 }
                 visited += 1;
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -563,7 +711,9 @@ impl<'t> Walker<'t> {
     // --- function-as-value refs (#756) -----------------------------------------
 
     fn maybe_capture_fn_refs(&mut self, node: Node<'t>) {
-        let Some(mode) = fnref::dispatch(node.kind()) else { return };
+        let Some(mode) = fnref::dispatch(node.kind()) else {
+            return;
+        };
         if self.stack.is_empty() {
             return;
         }
@@ -652,8 +802,13 @@ impl<'t> Walker<'t> {
         {
             if classify_ts_class_member(node) == Member::Property {
                 let prop = self.extract_property(node);
-                if let (Some((row, name)), Some(value)) = (prop, node.child_by_field_name("value")) {
-                    self.stack.push(Scope { row, kind: "property", name });
+                if let (Some((row, name)), Some(value)) = (prop, node.child_by_field_name("value"))
+                {
+                    self.stack.push(Scope {
+                        row,
+                        kind: "property",
+                        name,
+                    });
                     self.visit_function_body(value);
                     self.stack.pop();
                 }
@@ -800,11 +955,15 @@ impl<'t> Walker<'t> {
         if !matches!(node.kind(), "arrow_function" | "function_expression") {
             return false;
         }
-        let Some(declarator) = node.parent() else { return false };
+        let Some(declarator) = node.parent() else {
+            return false;
+        };
         if declarator.kind() != "variable_declarator" {
             return false;
         }
-        let Some(value) = declarator.child_by_field_name("value") else { return false };
+        let Some(value) = declarator.child_by_field_name("value") else {
+            return false;
+        };
         if value.start_byte() != node.start_byte() || value.end_byte() != node.end_byte() {
             return false;
         }
@@ -929,12 +1088,18 @@ impl<'t> Walker<'t> {
         if let Some(name_node) = node.child_by_field_name("name") {
             return self.text(name_node).to_string();
         }
-        if matches!(node.kind(), "arrow_function" | "function_expression" | "generator_function") {
+        if matches!(
+            node.kind(),
+            "arrow_function" | "function_expression" | "generator_function"
+        ) {
             return "<anonymous>".to_string();
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -1032,7 +1197,9 @@ fn classify_ts_class_member(node: Node) -> Member {
         return Member::Method;
     }
     for i in 0..node.named_child_count() {
-        let Some(child) = node.named_child(i) else { continue };
+        let Some(child) = node.named_child(i) else {
+            continue;
+        };
         if matches!(child.kind(), "arrow_function" | "function_expression") {
             return Member::Method;
         }

@@ -67,9 +67,17 @@ const formatName = (first, last) => `${first} ${last}`;
     let items = out["data"]["items"].as_array().unwrap();
     assert_eq!(items.len(), 4); // calculateSummary, UserService, getUser, formatName
 
-    let func_item = items.iter().find(|s| s["name"] == "calculateSummary").unwrap();
+    let func_item = items
+        .iter()
+        .find(|s| s["name"] == "calculateSummary")
+        .unwrap();
     assert_eq!(func_item["kind"], "function_declaration");
-    assert!(func_item["doc"].as_str().unwrap().contains("Calculate user summary"));
+    assert!(
+        func_item["doc"]
+            .as_str()
+            .unwrap()
+            .contains("Calculate user summary")
+    );
 
     let method_item = items.iter().find(|s| s["name"] == "getUser").unwrap();
     assert_eq!(method_item["container"], "UserService");
@@ -124,17 +132,52 @@ export class Server {
     assert_eq!(out["data"]["language"], "typescript");
 
     let items = out["data"]["items"].as_array().unwrap();
-    assert!(items.iter().any(|s| s["name"] == "Config" && s["kind"] == "interface_declaration"));
-    assert!(items.iter().any(|s| s["name"] == "port" && s["container"] == "Config"));
-    assert!(items.iter().any(|s| s["name"] == "connect" && s["container"] == "Config" && s["kind"] == "method_signature"));
-    assert!(items.iter().any(|s| s["name"] == "Status" && s["kind"] == "type_alias_declaration"));
-    assert!(items.iter().any(|s| s["name"] == "Direction" && s["kind"] == "enum_declaration"));
-    assert!(items.iter().any(|s| s["name"] == "Up" && s["container"] == "Direction"));
-    assert!(items.iter().any(|s| s["name"] == "Server" && s["kind"] == "class_declaration"));
-    assert!(items.iter().any(|s| s["name"] == "start" && s["container"] == "Server"));
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Config" && s["kind"] == "interface_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "port" && s["container"] == "Config")
+    );
+    assert!(items.iter().any(|s| s["name"] == "connect"
+        && s["container"] == "Config"
+        && s["kind"] == "method_signature"));
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Status" && s["kind"] == "type_alias_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Direction" && s["kind"] == "enum_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Up" && s["container"] == "Direction")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Server" && s["kind"] == "class_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "start" && s["container"] == "Server")
+    );
 
     // Read symbol with container
     let read_start = read_symbol(&app, "server.ts", "start", Some("Server"), None, false);
     assert_eq!(read_start["state"], "ok");
-    assert!(read_start["data"]["text"].as_str().unwrap().contains("start(): void"));
+    assert!(
+        read_start["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("start(): void")
+    );
 }

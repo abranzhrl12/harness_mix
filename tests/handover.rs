@@ -48,14 +48,19 @@ fn test_handover_preview_summary_and_file_export() {
     assert!(file_path.exists());
     let content = fs::read_to_string(&file_path).unwrap();
     assert!(content.contains("# Resumen de sesión"));
-    assert_eq!(export_data["hash"], harness_domain::hash(content.as_bytes()));
+    assert_eq!(
+        export_data["hash"],
+        harness_domain::hash(content.as_bytes())
+    );
 
     // 4. Handover overwrite failure if expected_hash mismatch
     let bad_overwrite = app.execute(Request::Handover(HandoverArgs {
         session: session_id,
         kind: Some(HandoverKind::Summary),
         target_file: Some(target_file.to_string()),
-        expected_hash: Some("0000000000000000000000000000000000000000000000000000000000000000".to_string()),
+        expected_hash: Some(
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        ),
     }));
     assert_eq!(bad_overwrite["state"], "error");
     assert_eq!(bad_overwrite["diagnostics"][0]["code"], "STALE");

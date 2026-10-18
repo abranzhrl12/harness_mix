@@ -37,7 +37,13 @@ fn publishes_valid_rust_json_and_text_preserving_bytes() {
         ),
         ("sample.json", "{\"x\":1}\n", "1", "2", "{\"x\":2}\n"),
         ("sample.js", "const x = 1;\n", "1", "2", "const x = 2;\n"),
-        ("sample.ts", "const x: number = 1;\n", "1", "2", "const x: number = 2;\n"),
+        (
+            "sample.ts",
+            "const x: number = 1;\n",
+            "1",
+            "2",
+            "const x: number = 2;\n",
+        ),
         (
             "sample.txt",
             "🙂\r\na\r\nb\r\n",
