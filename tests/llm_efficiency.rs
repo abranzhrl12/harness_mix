@@ -14,11 +14,15 @@ fn explore(app: &adapters::NativeApplication, view: &str, session: &str) -> Valu
     ))
 }
 fn project(app: &adapters::NativeApplication, result: &Value, expression: &str) -> Value {
+    let mut arguments = json!({"query":expression,"maxChars":16000});
+    if result["detail"]["ref"].is_string() {
+        arguments["resultRef"] = result["detail"]["ref"].clone();
+    } else {
+        // Modest full symbols now arrive inline instead of requiring detail.
+        arguments["data"] = result["data"].clone();
+    }
     let response = app.execute(Request::DataQuery(
-        serde_json::from_value(json!({
-            "resultRef":result["detail"]["ref"],"query":expression,"maxChars":16000
-        }))
-        .unwrap(),
+        serde_json::from_value(arguments).unwrap(),
     ));
     assert_eq!(response["state"], "ok", "{response}");
     response["data"]["result"].clone()
@@ -153,7 +157,7 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["defaults"]["view"] == "summary")
+            .any(|r| r["tool"] == "harness_explore" && r["defaults"]["view"] == "full")
     );
     assert!(units(&warm) < units(&refreshed) / 2);
     println!(

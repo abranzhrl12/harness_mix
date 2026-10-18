@@ -5,6 +5,8 @@ use serde_json::Value;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BootstrapArgs {
+    /// Reuse data.session from bootstrap. sessionId is accepted for compatibility.
+    #[serde(alias = "sessionId")]
     pub session: Option<String>,
     #[serde(rename = "includeRules")]
     pub include_rules: Option<bool>,
@@ -124,6 +126,8 @@ pub struct ReadSymbolArgs {
     #[serde(rename = "symbolId")]
     pub symbol_id: Option<String>,
     pub view: Option<SymbolView>,
+    /// Copy data.session from bootstrap.
+    #[serde(alias = "sessionId")]
     pub session: Option<String>,
 }
 
@@ -369,6 +373,7 @@ pub struct ExploreArgs {
     /// This does not certify full index coverage or freshness.
     #[serde(rename = "requireMatchingFiles")]
     pub require_matching_files: Option<bool>,
+    #[serde(alias = "sessionId")]
     pub session: Option<String>,
 }
 

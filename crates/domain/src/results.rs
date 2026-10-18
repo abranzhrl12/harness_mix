@@ -231,6 +231,7 @@ impl Results {
                     }
                     "SQL_CONFIG" | "SQL_CONNECTION" => (false, "inspect_sql_status"),
                     "CANCELLED" => (false, "resume_only_if_requested"),
+                    "TOOL_PROFILE" => (false, "request_explicit_authorization_for_profile_restart"),
                     _ => (false, "inspect_diagnostics_before_retry"),
                 };
                 if let Some(map) = item.as_object_mut() {

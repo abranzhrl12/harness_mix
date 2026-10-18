@@ -4,6 +4,129 @@ use serde_json::{Value, json};
 #[path = "support/codegraph.rs"]
 mod graph_fixture;
 
+#[test]
+fn llm_session_name_and_copyable_example_work_without_translation() {
+    let root = tempfile::tempdir().unwrap();
+    drop(graph_fixture::fixture(root.path()));
+    let app = adapters::application(root.path()).unwrap();
+    let boot = app.execute(Request::Bootstrap(
+        serde_json::from_value(json!({})).unwrap(),
+    ));
+    let session = boot["data"]["session"].as_str().unwrap();
+    assert_eq!(boot["data"]["sessionId"], session);
+    let mut example = boot["data"]["exampleCall"]["arguments"].clone();
+    assert_eq!(example["session"], session);
+    assert!(example.get("sessionId").is_none());
+    example["query"] = json!("target");
+    let args: harness_domain::contracts::ExploreArgs =
+        serde_json::from_value(example.clone()).unwrap();
+    let response = app.execute(Request::Explore(args));
+    assert_eq!(response["state"], "ok", "{response}");
+    assert_eq!(response["data"]["focus"]["status"], "resolved");
+
+    // Accept the exact mistake observed in Antigravity, without silently changing a session.
+    let value = example.as_object_mut().unwrap().remove("session").unwrap();
+    example["sessionId"] = value;
+    let legacy: harness_domain::contracts::ExploreArgs =
+        serde_json::from_value(example.clone()).unwrap();
+    assert_eq!(legacy.session.as_deref(), Some(session));
+    assert_eq!(app.execute(Request::Explore(legacy))["state"], "ok");
+    example["session"] = json!("conflicting-session");
+    assert!(serde_json::from_value::<harness_domain::contracts::ExploreArgs>(example).is_err());
+    let reused = app.execute(Request::Bootstrap(
+        serde_json::from_value(json!({"sessionId":session})).unwrap(),
+    ));
+    assert_eq!(reused["data"]["session"], session);
+    assert_eq!(reused["data"]["rulesUnchanged"], true);
+}
+
+#[test]
+fn investigation_profile_filters_bootstrap_and_blocks_operations_before_execution() {
+    use harness_domain::tool_contract::ToolProfile;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("example.txt"), "old").unwrap();
+    let app = adapters::application(root.path())
+        .unwrap()
+        .with_tool_profile(ToolProfile::Investigate);
+    let boot = app.execute(Request::Bootstrap(
+        serde_json::from_value(json!({})).unwrap(),
+    ));
+    assert_eq!(boot["data"]["toolProfile"], "investigate");
+    assert_eq!(boot["data"]["supportedTools"].as_array().unwrap().len(), 13);
+    assert_eq!(
+        boot["data"]["supportedTools"],
+        boot["data"]["toolContract"]["tools"]
+    );
+    assert!(boot["data"]["workflow"].get("fix").is_none());
+    for name in boot["data"]["toolContract"]["features"]["batchTools"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(ToolProfile::Investigate.allows(name.as_str().unwrap()));
+    }
+    let edit = app.execute(Request::Replace(
+        serde_json::from_value(json!({
+            "path":"example.txt","hash":harness_domain::hash(b"old"),"oldText":"old","newText":"new"
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(edit["diagnostics"][0]["code"], "TOOL_PROFILE");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("example.txt")).unwrap(),
+        "old"
+    );
+    let sync = app.execute(Request::Explore(
+        serde_json::from_value(json!({"query":"main","syncIndex":true})).unwrap(),
+    ));
+    assert_eq!(sync["diagnostics"][0]["code"], "TOOL_PROFILE");
+    assert!(!root.path().join(".codegraph").exists());
+    let batch = app.execute(Request::Batch(
+        serde_json::from_value(json!({"jobs":[
+            {"tool":"harness_read","arguments":{"path":"example.txt","start":1,"end":1}},
+            {"tool":"harness_sql_status","arguments":{}}
+        ]}))
+        .unwrap(),
+    ));
+    assert_eq!(batch["diagnostics"][0]["code"], "TOOL_PROFILE");
+    let logs = app.execute(Request::Logs(
+        serde_json::from_value(json!({"tool":"harness_read","limit":10})).unwrap(),
+    ));
+    assert!(
+        logs["data"]["events"].as_array().unwrap().is_empty(),
+        "no child should start"
+    );
+}
+
+#[test]
+fn edit_profile_adds_validated_edits_without_enabling_sql() {
+    use harness_domain::tool_contract::ToolProfile;
+    assert!(ToolProfile::parse("typo").is_err());
+    assert_eq!(ToolProfile::Full.tools().len(), 29);
+    assert_eq!(ToolProfile::Edit.tools().len(), 16);
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("example.txt"), "old").unwrap();
+    let app = adapters::application(root.path())
+        .unwrap()
+        .with_tool_profile(ToolProfile::Edit);
+    let edit = app.execute(Request::Replace(
+        serde_json::from_value(json!({
+            "path":"example.txt","hash":harness_domain::hash(b"old"),"oldText":"old","newText":"new"
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(edit["state"], "ok", "{edit}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("example.txt")).unwrap(),
+        "new"
+    );
+    let sql = app.execute(Request::SqlStatus(
+        serde_json::from_value(json!({})).unwrap(),
+    ));
+    assert_eq!(sql["diagnostics"][0]["code"], "TOOL_PROFILE");
+    assert!(ToolProfile::Edit.allows("harness_verify"));
+    assert!(ToolProfile::Edit.allows("harness_diagnostics"));
+}
+
 fn query(app: &adapters::NativeApplication, args: Value) -> Value {
     app.execute(Request::DataQuery(serde_json::from_value(args).unwrap()))
 }

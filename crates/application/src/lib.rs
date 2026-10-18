@@ -22,6 +22,7 @@ pub struct Application<W, S> {
     results: Arc<Mutex<Results>>,
     admission: Arc<admission::Admission>,
     metrics: Arc<metrics::Metrics>,
+    tool_profile: harness_domain::tool_contract::ToolProfile,
 }
 
 /// Owns admission before it is submitted to any worker pool; drop always frees it.
@@ -78,6 +79,7 @@ impl<W, S> Clone for Application<W, S> {
             results: self.results.clone(),
             admission: self.admission.clone(),
             metrics: self.metrics.clone(),
+            tool_profile: self.tool_profile,
         }
     }
 }
@@ -96,7 +98,19 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             results: Arc::default(),
             admission: Arc::default(),
             metrics: Arc::new(metrics::Metrics::with_logs(logs)),
+            tool_profile: harness_domain::tool_contract::ToolProfile::Full,
         }
+    }
+
+    pub fn with_tool_profile(
+        mut self,
+        profile: harness_domain::tool_contract::ToolProfile,
+    ) -> Self {
+        self.tool_profile = profile;
+        self
+    }
+    pub fn tool_profile(&self) -> harness_domain::tool_contract::ToolProfile {
+        self.tool_profile
     }
 
     /// A single boundary for every transport: session admission, execution and envelope.
@@ -117,6 +131,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         context: OperationContext,
     ) -> Result<Operation<W, S>, Value> {
         let request_id = harness_domain::execution::new_request_id();
+        if let Err(failure) = self.tool_profile.check(&request) {
+            self.metrics
+                .rejected_with_id(request.name(), failure.0, &request_id);
+            let mut output = self.failure(request.name(), &request.arguments(), failure);
+            output["requestId"] = json!(request_id);
+            return Err(output);
+        }
         let permit = context
             .check()
             .and_then(|()| {
@@ -521,7 +542,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let unchanged = session.rules_hash.as_ref() == Some(&rules_hash)
             && !args.include_rules.unwrap_or(false);
         let available = self.workspace.capabilities();
-        let contract = harness_domain::tool_contract::metadata("rust");
+        let contract = self.tool_profile.metadata();
         let capabilities_hash = hash(
             json!({"executables":available,"contract":contract})
                 .to_string()
@@ -535,7 +556,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             .map_err(|_| ("INTERNAL", "sesiones no disponibles"))?
             .update_hashes(&session.id, rules_hash.clone(), capabilities_hash.clone())?;
         let mut result = self.workspace.info();
+        result["session"] = json!(session.id);
+        // Keep the old response key for existing clients; new examples use one name both ways.
         result["sessionId"] = json!(session.id);
+        result["sessionUsage"] = json!(
+            "Copy data.session into the session argument of later calls. sessionId is a legacy response alias."
+        );
+        result["exampleCall"] = json!({"tool":"harness_explore","arguments":{"query":"main","session":session.id},"note":"Replace main with the exact symbol you want; other arguments have read-only context defaults."});
         result["rulesHash"] = json!(rules_hash);
         result["capabilitiesHash"] = json!(capabilities_hash);
         result["sessionRestored"] = json!(session.restored);
@@ -543,7 +570,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         result["toolContract"] = contract;
         result["backend"] = json!({"name":"rust","version":result.get("implementationVersion").cloned().unwrap_or(Value::Null)});
         result["logging"] = self.metrics.logs.status();
-        result["supportedTools"] = json!(harness_domain::tool_contract::tool_names("rust"));
+        result["supportedTools"] = json!(self.tool_profile.tools());
+        result["toolProfile"] = json!(self.tool_profile.name());
         result["limitations"] = json!([
             "Edición y navegación dependen del lenguaje y backend; consultar las capacidades declaradas de cada herramienta",
             "Explore: índice existente con selectores exactos; syncIndex es opt-in y no certifica cobertura global",
@@ -561,9 +589,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             result["persistenceWarning"] = warning;
         }
         if is_new || args.include_rules.unwrap_or(false) || !same_capabilities {
-            result["routing"] = json!(harness_domain::tool_contract::routing("rust"));
-            result["workflow"] =
-                harness_domain::tool_contract::manifest()["llmPolicy"]["workflows"].clone();
+            result["routing"] = json!(self.tool_profile.routing());
+            result["workflow"] = self.tool_profile.workflows();
             result["usageRules"] =
                 harness_domain::tool_contract::manifest()["llmPolicy"]["rules"].clone();
         }

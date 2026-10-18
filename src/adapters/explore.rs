@@ -30,17 +30,34 @@ const BUDGET: Failure = (
 // Pure presentation: no database access, source reads or traversal decisions.
 mod presentation {
     pub(super) fn header(symbol: &str) -> String {
-        format!("**Exploration: {}**\n\nIndexed relationships; freshness is not certified.\n\n**Source Code**\n", symbol.replace(['\r', '\n'], " "))
+        format!(
+            "**Exploration: {}**\n\nIndexed relationships; freshness is not certified.\n\n**Source Code**\n",
+            symbol.replace(['\r', '\n'], " ")
+        )
     }
 
     pub(super) fn source(path: &str, start: u64, body: &str, truncated: bool) -> String {
         // Pick a fence longer than any backtick run in untrusted source.
-        let fence = "`".repeat(body.split(|c| c != '`').map(str::len).max().unwrap_or(0).max(2) + 1);
-        let numbered = body.lines().enumerate().map(|(offset, line)| {
-            format!("{}\t{line}", start + offset as u64)
-        }).collect::<Vec<_>>().join("\n");
+        let fence = "`".repeat(
+            body.split(|c| c != '`')
+                .map(str::len)
+                .max()
+                .unwrap_or(0)
+                .max(2)
+                + 1,
+        );
+        let numbered = body
+            .lines()
+            .enumerate()
+            .map(|(offset, line)| format!("{}\t{line}", start + offset as u64))
+            .collect::<Vec<_>>()
+            .join("\n");
         let path = path.replace(['\r', '\n', '`'], "_");
-        let notice = if truncated { "\n> Source fragment truncated; use read_symbol for exact code.\n" } else { "" };
+        let notice = if truncated {
+            "\n> Source fragment truncated; use read_symbol for exact code.\n"
+        } else {
+            ""
+        };
         format!("\n### {path}:{start}\n\n{fence}\n{numbered}\n{fence}\n{notice}")
     }
 
@@ -72,19 +89,41 @@ struct Node {
 }
 
 // Selection only: deterministic, bounded, and independent of source rendering.
-fn context_nodes<'a>(targets: &[Node], nodes: &'a BTreeMap<String, Node>, edges: &[Value], max_files: usize) -> (Vec<&'a Node>, usize) {
+fn context_nodes<'a>(
+    targets: &[Node],
+    nodes: &'a BTreeMap<String, Node>,
+    edges: &[Value],
+    max_files: usize,
+) -> (Vec<&'a Node>, usize) {
     let ids: BTreeSet<_> = targets.iter().map(|n| n.id.as_str()).collect();
     let mut candidates = BTreeMap::new();
     for edge in edges.iter().filter(|e| e["kind"] == "calls") {
         let source = edge["source"].as_str().unwrap_or("");
         let target = edge["target"].as_str().unwrap_or("");
-        let related = if ids.contains(source) { Some((target, 0)) }
-            else if ids.contains(target) { Some((source, 1)) } else { None };
+        let related = if ids.contains(source) {
+            Some((target, 0))
+        } else if ids.contains(target) {
+            Some((source, 1))
+        } else {
+            None
+        };
         if let Some((id, direction)) = related {
             if !ids.contains(id) {
                 if let Some(node) = nodes.get(id) {
-                    let test = node.file_path.split('/').any(|p| matches!(p, "tests" | "test")) || node.name.starts_with("test_");
-                    candidates.entry((test, direction, node.file_path.as_str(), node.start_line, id)).or_insert(node);
+                    let test = node
+                        .file_path
+                        .split('/')
+                        .any(|p| matches!(p, "tests" | "test"))
+                        || node.name.starts_with("test_");
+                    candidates
+                        .entry((
+                            test,
+                            direction,
+                            node.file_path.as_str(),
+                            node.start_line,
+                            id,
+                        ))
+                        .or_insert(node);
                 }
             }
         }
@@ -98,9 +137,15 @@ fn context_nodes<'a>(targets: &[Node], nodes: &'a BTreeMap<String, Node>, edges:
     for test_pass in [false, true] {
         for quota in 1..=4 {
             for ((is_test, _, _, _, _), node) in &candidates {
-                if *is_test != test_pass || seen.contains(&node.id) || selected.len() >= 4 { continue; }
-                if per_file.get(node.file_path.as_str()).copied().unwrap_or(0) >= quota { continue; }
-                if !files.contains(node.file_path.as_str()) && files.len() >= max_files { continue; }
+                if *is_test != test_pass || seen.contains(&node.id) || selected.len() >= 4 {
+                    continue;
+                }
+                if per_file.get(node.file_path.as_str()).copied().unwrap_or(0) >= quota {
+                    continue;
+                }
+                if !files.contains(node.file_path.as_str()) && files.len() >= max_files {
+                    continue;
+                }
                 files.insert(node.file_path.as_str());
                 *per_file.entry(node.file_path.as_str()).or_default() += 1;
                 seen.insert(node.id.clone());
@@ -108,7 +153,12 @@ fn context_nodes<'a>(targets: &[Node], nodes: &'a BTreeMap<String, Node>, edges:
             }
         }
     }
-    let omitted = candidates.values().map(|n| &n.id).collect::<BTreeSet<_>>().len().saturating_sub(selected.len());
+    let omitted = candidates
+        .values()
+        .map(|n| &n.id)
+        .collect::<BTreeSet<_>>()
+        .len()
+        .saturating_sub(selected.len());
     (selected, omitted)
 }
 
@@ -160,8 +210,14 @@ fn identifier(text: &str) -> bool {
 }
 
 fn query_symbols(args: &ExploreArgs) -> Vec<&str> {
-    if let Some(symbol) = args.symbol.as_deref() { return vec![symbol]; }
-    args.query.split_whitespace().collect::<BTreeSet<_>>().into_iter().collect()
+    if let Some(symbol) = args.symbol.as_deref() {
+        return vec![symbol];
+    }
+    args.query
+        .split_whitespace()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
@@ -183,8 +239,11 @@ fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
             .as_ref()
             .is_some_and(|p| p.is_empty() || p.len() > 1024 || p.contains('\0'))
         || args.query.contains('\0')
-        || symbols.is_empty() || symbols.len() > 4
-        || symbols.iter().any(|symbol| symbol.len() > 256 || !identifier(symbol))
+        || symbols.is_empty()
+        || symbols.len() > 4
+        || symbols
+            .iter()
+            .any(|symbol| symbol.len() > 256 || !identifier(symbol))
         || !(1..=4).contains(&max_files)
         || !(1000..=16000).contains(&max_chars)
         || !(1..=4).contains(&max_depth)
@@ -506,16 +565,28 @@ pub(super) fn explore(
     }
     let assessment = super::index_freshness::Assessment::start(project, indexed_files, context)?;
     let mut definitions = Vec::new();
+    let mut delivered_symbols = BTreeSet::new();
     let mut unresolved = Vec::new();
     for name in query_symbols(args) {
         if !targets.iter().any(|n| n.name == name) {
             unresolved.push(json!({"symbol":name,"role":"target","code":"TARGET_NOT_RESOLVED","message":"No selected indexed target; not proof of global absence"}));
         }
     }
-    let mut text = if summary { format!("Símbolo: {symbol}\nRelaciones indexadas; vigencia no certificada.\n") } else { presentation::header(symbol) };
-    let (related_context, context_omitted) = if summary { (Vec::new(), 0) } else { context_nodes(&targets, &nodes, &edges, max_files) };
+    let mut text = if summary {
+        format!("Símbolo: {symbol}\nRelaciones indexadas; vigencia no certificada.\n")
+    } else {
+        presentation::header(symbol)
+    };
+    let (related_context, context_omitted) = if summary {
+        (Vec::new(), 0)
+    } else {
+        context_nodes(&targets, &nodes, &edges, max_files)
+    };
     let related_ids: BTreeSet<_> = related_context.iter().map(|n| n.id.as_str()).collect();
-    let context_targets: Vec<_> = targets.iter().chain(related_context.iter().copied()).collect();
+    let context_targets: Vec<_> = targets
+        .iter()
+        .chain(related_context.iter().copied())
+        .collect();
     for selected in &context_targets {
         let file = &selected.file_path;
         let related = related_ids.contains(selected.id.as_str());
@@ -526,7 +597,11 @@ pub(super) fn explore(
                 external_scope: None,
                 path: file.clone(),
                 symbol: selected.name.clone(),
-                container: if related { None } else { args.container.clone() },
+                container: if related {
+                    None
+                } else {
+                    args.container.clone()
+                },
                 symbol_id: None,
                 view: if summary {
                     Some(harness_domain::contracts::SymbolView::Signature)
@@ -539,6 +614,8 @@ pub(super) fn explore(
         );
         match read {
             Ok(value) => {
+                let identity = (file.clone(), value["hash"].to_string(), value["symbol"]["symbolId"].to_string());
+                if !delivered_symbols.insert(identity) { continue; }
                 let body = if summary { value["symbol"]["signature"].as_str().unwrap_or("") } else { value["text"].as_str().or_else(|| value["_detail"]["text"].as_str()).unwrap_or("") };
                 let remaining = 64000usize.saturating_sub(utf16_len(&text));
                 let body_budget = if summary { 512 } else if related { 2000 } else { (max_chars / targets.len().max(1)).max(1000).min(16000) };
@@ -550,7 +627,8 @@ pub(super) fn explore(
                 } else {
                     text.push_str(&presentation::source(file, value["symbol"]["start"].as_u64().unwrap_or(1), preview, utf16_len(body) > utf16_len(preview)));
                 }
-                definitions.push(json!({"path":file,"hash":value["hash"],"symbol":value["symbol"],"role":if related {"related"} else {"target"}}));
+                definitions.push(json!({"path":file,"hash":value["hash"],"symbol":value["symbol"],"role":if related {"related"} else {"target"},
+                    "_bodyComplete":!summary && utf16_len(body) == utf16_len(preview),"_textEnd":utf16_len(&text)}));
             }
             Err((code @ ("CANCELLED" | "TIMEOUT"), message)) => return Err((code, message)),
             Err((code, _)) => unresolved.push(json!({"path":file,"symbol":selected.name,"role":if related {"related"} else {"target"},"code":code,"message":"Indexed candidate not resolved by the current local parser; use outline/read_symbol with an exact selector"})),
@@ -565,13 +643,51 @@ pub(super) fn explore(
         "\n**Call paths / blast radius — indexed relationships**\n\nNot execution traces or exhaustive impact; current-source validity is reported in fileFreshness.\n"
     });
     let mut relation_keys = BTreeSet::new();
-    let mut visible_edges: Vec<_> = edges.iter().filter(|e| relation_keys.insert((e["source"].to_string(), e["target"].to_string(), e["kind"].to_string()))).collect();
-    visible_edges.sort_by_key(|e| (e["kind"] != "calls", e["source"].to_string(), e["target"].to_string()));
+    let mut visible_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            relation_keys.insert((
+                e["source"].to_string(),
+                e["target"].to_string(),
+                e["kind"].to_string(),
+            ))
+        })
+        .collect();
+    visible_edges.sort_by_key(|e| {
+        (
+            e["kind"] != "calls",
+            e["source"].to_string(),
+            e["target"].to_string(),
+        )
+    });
     if !summary {
         for selected in &targets {
-            let callers: BTreeSet<_> = visible_edges.iter().filter(|e| e["kind"] == "calls" && e["target"] == selected.id).filter_map(|e| e["source"].as_str()).collect();
-            let tests: BTreeSet<_> = callers.iter().filter_map(|id| nodes.get(*id)).filter(|n| n.file_path.split('/').any(|p| matches!(p, "tests" | "test")) || n.name.starts_with("test_")).map(|n| n.file_path.as_str()).collect();
-            text.push_str(&format!("- {}: {} unique direct callers in returned graph; test files: {}.\n", selected.name, callers.len(), if tests.is_empty() { "none identified (not proof of absence)".to_owned() } else { tests.into_iter().collect::<Vec<_>>().join(", ") }));
+            let callers: BTreeSet<_> = visible_edges
+                .iter()
+                .filter(|e| e["kind"] == "calls" && e["target"] == selected.id)
+                .filter_map(|e| e["source"].as_str())
+                .collect();
+            let tests: BTreeSet<_> = callers
+                .iter()
+                .filter_map(|id| nodes.get(*id))
+                .filter(|n| {
+                    n.file_path
+                        .split('/')
+                        .any(|p| matches!(p, "tests" | "test"))
+                        || n.name.starts_with("test_")
+                })
+                .map(|n| n.file_path.as_str())
+                .collect();
+            text.push_str(&format!(
+                "- {}: {} unique direct callers in returned graph; test files: {}.\n",
+                selected.name,
+                callers.len(),
+                if tests.is_empty() {
+                    "none identified (not proof of absence)".to_owned()
+                } else {
+                    tests.into_iter().collect::<Vec<_>>().join(", ")
+                }
+            ));
         }
         text.push_str("\n**Relationships (calls first)**\n");
     }
@@ -590,7 +706,10 @@ pub(super) fn explore(
         ));
     }
     if !summary && visible_edges.len() > 20 {
-        text.push_str(&format!("\n> {} additional relationships omitted from text; available in graph/detail.\n", visible_edges.len() - 20));
+        text.push_str(&format!(
+            "\n> {} additional relationships omitted from text; available in graph/detail.\n",
+            visible_edges.len() - 20
+        ));
     }
     if !summary && (truncated || !unresolved.is_empty()) {
         text.push_str("\n> Partial context: inspect truncation and unresolved before drawing absence conclusions.\n");
@@ -627,11 +746,18 @@ pub(super) fn explore(
         ]
     };
     let preview = prefix(&text, max_chars);
-    let partial = truncated || context_omitted > 0 || !unresolved.is_empty() || targets.is_empty() || !matching;
+    let partial = truncated
+        || context_omitted > 0
+        || !unresolved.is_empty()
+        || targets.is_empty()
+        || !matching;
     let traversal = json!({"direction":direction,"maxDepth":max_depth,"nodeDepths":depths,"expandedNodes":expanded,"depthBoundaryReached":depth_boundary,
         "limits":{"edges":160,"nodes":176,"edgesPerNodeDirection":20},"semantics":"independent directed breadth-first traversals from selected exact-name targets; depths are minimum discovered hops within scanned edges per direction, not global shortest paths"});
-    let truncation = json!({"targetSelection":selection_limited,"depthBoundary":depth_boundary,"perNodeEdges":per_node_edges_limited,"totalEdges":total_edges_limited,"definitions":definitions_limited,"preview":utf16_len(&text)>max_chars});
-    let graph = json!({"format":"codegraph-sqlite-readonly-v1","schemaVersion":version,"files":files,"nodes":nodes.values().collect::<Vec<_>>(),"edges":edges,"truncated":truncated,"truncation":truncation,"traversal":traversal});
+    // Graph coverage must not depend on the amount of source rendered for the client.
+    // Reaching the requested depth is reported separately, not proof of dropped edges.
+    let graph_limited = selection_limited || per_node_edges_limited || total_edges_limited;
+    let truncation = json!({"targetSelection":selection_limited,"depthBoundary":depth_boundary,"perNodeEdges":per_node_edges_limited,"totalEdges":total_edges_limited});
+    let graph = json!({"format":"codegraph-sqlite-readonly-v1","schemaVersion":version,"files":files,"nodes":nodes.values().collect::<Vec<_>>(),"edges":edges,"truncated":graph_limited,"truncation":truncation,"traversal":traversal});
     let displayed_graph = if summary {
         let mut kinds = BTreeMap::<String, usize>::new();
         for edge in &edges {
@@ -665,28 +791,54 @@ pub(super) fn explore(
         }
         let omitted_relations = edges.len().saturating_sub(relations.len());
         json!({"format":"codegraph-summary-v1","countsScope":"returned-subgraph-not-global", "nodeCount":nodes.len(),"edgeCount":edges.len(),"edgeKinds":kinds,
-            "relations":relations,"relationsOmitted":omitted_relations,"summaryTruncated":omitted_relations>0,
-            "targetIds":targets.iter().map(|n| &n.id).collect::<Vec<_>>(),"truncated":truncated,"truncation":truncation,
+            "relations":relations,"relationsOmitted":omitted_relations,"relationsOmittedScope":"summary_display_only","summaryTruncated":omitted_relations>0,
+            "targetIds":targets.iter().map(|n| &n.id).collect::<Vec<_>>(),"truncated":graph_limited,"truncation":truncation,
             "direction":direction,"maxDepth":max_depth,"fullGraph":"detail.ref -> graph; use data_query resultRef for projection"})
     } else {
         graph.clone()
     };
+    let context_truncation = json!({"definitionBodies":definitions_limited,"textPreview":utf16_len(&text)>max_chars,
+        "relatedBodies":context_omitted>0,"summaryRelations":displayed_graph["summaryTruncated"]==true});
     let displayed_candidates: Vec<_> = candidates
         .iter()
         .take(if summary { 5 } else { 20 })
         .collect();
     let displayed_candidates_omitted =
         candidates_omitted + candidates.len() - displayed_candidates.len();
+    for definition in &mut definitions {
+        let complete = definition["_bodyComplete"] == true
+            && definition["_textEnd"]
+                .as_u64()
+                .is_some_and(|end| end <= max_chars as u64);
+        definition.as_object_mut().unwrap().remove("_bodyComplete");
+        definition.as_object_mut().unwrap().remove("_textEnd");
+        definition["sourceStatus"] = json!(if complete {
+            "complete"
+        } else if summary {
+            "signature_only"
+        } else {
+            "partial"
+        });
+        if !complete {
+            let mut arguments = json!({"path":definition["path"],"symbol":definition["symbol"]["name"],
+                "symbolId":definition["symbol"]["symbolId"],"view":"full"});
+            if let Some(session) = &args.session {
+                arguments["session"] = json!(session);
+            }
+            definition["nextCall"] = json!({"tool":"harness_read_symbol","arguments":arguments});
+        }
+    }
     Ok(
         json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") {"resolved"} else {"unresolved"}},
-        "view":if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,
+        "view":if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
+        "reuseGuidance":"Use complete definitions already present in your context; do not read them again unless missing or changed. For partial/signature_only definitions use nextCall only when the missing body is needed. Hashes identify the observed source, not future freshness. Numbered Markdown is not replacement text.",
         "contextSelection":{"requestedSymbols":query_symbols(args),"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls; production before tests; ambiguous local bodies are not guessed"},
         "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",
         "indexFreshness":"not_certified","synchronized":false,"absenceProven":false,
         "fileFreshness":freshness,"diagnostics":diagnostics,
-        "synchronization":{"performed":false,"nativeIndexerAvailable":false,"reason":"native_multilanguage_indexer_not_migrated"},
-        "notice":"Bounded indexed relationships, not execution traces; local definitions verified only for Rust. No exhaustive impact, absence or index freshness claims. Preview is not replacement text.",
-        "truncated":truncated || utf16_len(&text)>max_chars,"_complete":!partial,
-        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":graph,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness,"indexFreshness":"not_certified","synchronized":false}}),
+        "synchronization":{"performed":false,"nativeIndexerAvailable":true,"supportedLanguages":["rust","csharp","javascript","typescript","jsx","tsx"],"reason":"syncIndex_not_requested"},
+        "notice":"Bounded indexed relationships, not execution traces. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. No exhaustive impact, absence or index freshness claims. Indexer availability does not grant write authorization. Preview is not replacement text.",
+        "truncated":truncated || utf16_len(&text)>max_chars || context_omitted>0 || displayed_graph["summaryTruncated"]==true,"_complete":!partial,
+        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness,"indexFreshness":"not_certified","synchronized":false}}),
     )
 }

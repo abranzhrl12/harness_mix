@@ -562,9 +562,17 @@ Los motivos no incluyen mensajes crudos del indexador ni de SQLite.
 `indexFreshness` permanece not_certified: estas comprobaciones no buscan archivos
 nuevos/no indexados, no revalidan semánticamente las aristas ni dan una instantánea
 atómica de todo el workspace. Los cambios intermedios revertidos pueden escapar
-a las observaciones. La sincronización nativa multilenguaje sigue pendiente;
-`synchronization` indica performed=false/nativeIndexerAvailable=false. El lector
+a las observaciones. Existe indexación nativa para los lenguajes declarados en
+`synchronization.supportedLanguages`, sin paridad completa con CodeGraph.
+En una lectura normal, `performed=false` y `nativeIndexerAvailable=true`;
+sincronizar requiere autorización explícita y un perfil que lo permita. El lector
 no actualiza hashes del proveedor para hacer parecer vigente un grafo obsoleto.
+
+`graph.truncated` solo indica límites de selección de objetivos o aristas.
+`graph.truncation.depthBoundary` informa que se alcanzó la profundidad solicitada,
+sin demostrar por sí solo pérdida de relaciones. Los recortes de cuerpos, texto,
+vecinos y resumen se distinguen en `contextTruncation`; `relationsOmitted` tiene
+alcance `summary_display_only` y no elimina aristas del grafo guardado.
 
 Límites: base de hasta 512 MiB, consulta de 5 segundos cooperativos y deadline
 compartido de 30 segundos para la operación; espera SQLite de 100 ms, caché de

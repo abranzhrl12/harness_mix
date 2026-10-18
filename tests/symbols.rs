@@ -5,6 +5,22 @@ use harness_domain::{
 };
 use serde_json::Value;
 
+#[test]
+fn modest_multiline_symbol_returns_exact_body_in_one_call() {
+    let root = tempfile::tempdir().unwrap();
+    let text = format!(
+        "fn readable() {{\n{}}}",
+        "    let _ = \"🙂\";\n".repeat(120)
+    );
+    std::fs::write(root.path().join("sample.rs"), &text).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let result = read(&app, "readable", None, None, false);
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["text"], text);
+    assert!(result["detail"].is_null());
+    assert_eq!(result["data"]["hash"], hash(text.as_bytes()));
+}
+
 fn outline(app: &NativeApplication, query: Option<&str>, max: usize) -> Value {
     app.execute(Request::Outline(OutlineArgs {
         external_scope: None,
@@ -85,7 +101,7 @@ fn large_symbols_and_budgeted_outlines_are_recoverable_by_detail() {
     let root = tempfile::tempdir().unwrap();
     let text = format!(
         "fn large() {{\n{}\n}}\n{}",
-        "    let _ = \"🙂\";\n".repeat(120),
+        "    let _ = \"🙂\";\n".repeat(120) + &format!("    // {}\n", "é".repeat(8000)),
         (0..60)
             .map(|i| format!("fn method_{i}() {{}}\n"))
             .collect::<String>()

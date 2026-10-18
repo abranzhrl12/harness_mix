@@ -50,6 +50,103 @@ pub fn routing(backend: &str) -> Vec<Value> {
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolProfile {
+    #[default]
+    Full,
+    Investigate,
+    Edit,
+}
+impl ToolProfile {
+    pub fn parse(name: &str) -> Result<Self, crate::Failure> {
+        match name {
+            "full" => Ok(Self::Full),
+            "investigate" => Ok(Self::Investigate),
+            "edit" => Ok(Self::Edit),
+            _ => Err((
+                "TOOL_PROFILE",
+                "HARNESS_TOOL_PROFILE must be full, investigate or edit",
+            )),
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Investigate => "investigate",
+            Self::Edit => "edit",
+        }
+    }
+    pub fn allows(self, name: &str) -> bool {
+        self == Self::Full
+            || manifest()["toolProfiles"]["investigate"]
+                .as_array()
+                .expect("profile")
+                .iter()
+                .any(|v| v == name)
+            || self == Self::Edit
+                && manifest()["toolProfiles"]["edit"]
+                    .as_array()
+                    .expect("profile")
+                    .iter()
+                    .any(|v| v == name)
+    }
+    pub fn tools(self) -> Vec<String> {
+        tool_names("rust")
+            .into_iter()
+            .filter(|n| self.allows(n))
+            .collect()
+    }
+    pub fn check(self, request: &crate::contracts::Request) -> Result<(), crate::Failure> {
+        use crate::contracts::Request;
+        let denied = (
+            "TOOL_PROFILE",
+            "Tool or operation is not allowed by this server profile; request an explicitly authorized server restart with the required profile",
+        );
+        if !self.allows(request.name()) {
+            return Err(denied);
+        }
+        if self != Self::Full {
+            if let Request::Explore(args) = request {
+                if args.sync_index == Some(true) {
+                    return Err(denied);
+                }
+            }
+            if let Request::Batch(args) = request {
+                // Reject the whole batch before any child can execute.
+                for job in &args.jobs {
+                    let name = serde_json::to_value(&job.tool).map_err(|_| denied)?;
+                    if !self.allows(name.as_str().unwrap_or("")) {
+                        return Err(denied);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn metadata(self) -> Value {
+        let mut result = metadata("rust");
+        result["tools"] = json!(self.tools());
+        result["toolProfile"] = json!(self.name());
+        if let Some(tools) = result["features"]["batchTools"].as_array_mut() {
+            tools.retain(|name| name.as_str().is_some_and(|name| self.allows(name)));
+        }
+        result
+    }
+    pub fn routing(self) -> Vec<Value> {
+        routing("rust")
+            .into_iter()
+            .filter(|r| r["tool"].as_str().is_some_and(|n| self.allows(n)))
+            .collect()
+    }
+    pub fn workflows(self) -> Value {
+        let mut value = manifest()["llmPolicy"]["workflows"].clone();
+        if self == Self::Investigate {
+            value.as_object_mut().expect("workflows").remove("fix");
+        }
+        value
+    }
+}
+
 #[cfg(feature = "schema")]
 macro_rules! shared_schema {
     ($ty:ty, $name:literal) => {
@@ -117,7 +214,10 @@ mod tests {
         }
         text.push_str("\nSchemas for explore and data_query are consumed directly by native MCP. Node integration must consume the same definitions; backend differences remain explicit.\n");
         // Git may check Markdown out as CRLF on Windows; compare content, not checkout line endings.
-        assert_eq!(text, include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n"));
+        assert_eq!(
+            text,
+            include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n")
+        );
         assert_eq!(tool_names("rust").len(), 29);
         assert_eq!(tool_names("node").len(), 31);
     }

@@ -165,7 +165,10 @@ pub(super) fn read_symbol(
         );
     }
     let body = &text[item.bytes.clone()];
-    let large = item.end - item.start + 1 > 100 || body.len() > 16000;
+    // Full-symbol reads are bounded by bytes, not formatting: a modest 101-line
+    // function should not require an extra detail round-trip solely for line count.
+    // harness_read keeps its separate 100-line fragment limit.
+    let large = body.len() > 16000;
     let mut result = json!({"path":args.path,"hash":digest,"symbol":item,"anchors":anchors(&text,item.start,item.end),
         "text":if large { None } else { Some(body) },"truncated":large,"syntaxOnly":true});
     if large {

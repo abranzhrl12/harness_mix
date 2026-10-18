@@ -1,10 +1,16 @@
 {
   "contractVersion": "2.1.0",
+  "toolProfiles": {
+    "investigate": ["harness_bootstrap","harness_explore","harness_outline","harness_read_symbol","harness_search","harness_read","harness_detail","harness_data_query","harness_git_status","harness_git_diff","harness_doctor","harness_logs","harness_batch"],
+    "edit": ["harness_replace","harness_verify","harness_diagnostics"]
+  },
+  "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
   "llmPolicy": {
     "version": 1,
     "rules": [
       "Investigate/review default to read-only: no edits, builds, tests or reindex unless needed and authorized.",
       "One narrow call first; batch independent reads only; expand missing evidence, not everything.",
+      "Rust bootstrap: copy data.session into the session argument of later calls. Start from exampleCall and change only query; sessionId is a legacy response alias.",
       "Reuse current source/hashes. Signatures and summaries are not replacement text.",
       "Preserve freshness, truncation and ambiguity. Empty bounded results do not prove absence.",
       "After runtime/transport/timeout failure stop and diagnose; never bypass the harness."
@@ -470,7 +476,8 @@
         "session": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Copy data.session from harness_bootstrap. Use this same session for subsequent calls; omit only to start without session context."
         }
       }
     },

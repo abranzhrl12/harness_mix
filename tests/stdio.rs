@@ -13,16 +13,345 @@ struct Server {
     messages: mpsc::Receiver<String>,
 }
 
+#[test]
+#[ignore = "opt-in read-only timings on an authorized existing project; no index writes"]
+fn real_project_command_timings() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("HARNESS_BENCH_ROOT").expect("HARNESS_BENCH_ROOT"),
+    );
+    for round in 0..3 {
+        let started = std::time::Instant::now();
+        let mut server = Server::start_with_runtime(&root, false, true);
+        server.initialize();
+        println!(
+            "{}",
+            json!({"round":round,"operation":"startup_and_mcp_initialize","milliseconds":started.elapsed().as_secs_f64()*1000.0})
+        );
+        let started = std::time::Instant::now();
+        let boot = server.request(
+            2,
+            "tools/call",
+            json!({"name":"harness_bootstrap","arguments":{}}),
+        );
+        let boot = &boot["result"]["structuredContent"];
+        assert_eq!(boot["state"], "ok", "{boot}");
+        let session = boot["data"]["session"].as_str().unwrap();
+        println!(
+            "{}",
+            json!({"round":round,"operation":"bootstrap_initial","milliseconds":started.elapsed().as_secs_f64()*1000.0,"responseBytes":serde_json::to_vec(boot).unwrap().len()})
+        );
+        for repetition in 0..5 {
+            for (tool, arguments) in [
+                ("harness_bootstrap", json!({"session":session})),
+                (
+                    "harness_explore",
+                    json!({"session":session,"query":"main","filePath":"crates/api/src/main.rs","syncIndex":false}),
+                ),
+                (
+                    "harness_read_symbol",
+                    json!({"session":session,"path":"crates/api/src/main.rs","symbol":"main"}),
+                ),
+                (
+                    "harness_search",
+                    json!({"session":session,"kind":"files","query":"main.rs","scope":"crates/api/src","limit":4}),
+                ),
+            ] {
+                let started = std::time::Instant::now();
+                let response =
+                    server.request(3, "tools/call", json!({"name":tool,"arguments":arguments}));
+                let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+                let envelope = &response["result"]["structuredContent"];
+                assert_eq!(envelope["state"], "ok", "{tool}: {envelope}");
+                println!(
+                    "{}",
+                    json!({"round":round,"repetition":repetition,"operation":tool,"milliseconds":elapsed,"responseBytes":serde_json::to_vec(envelope).unwrap().len(),"timings":envelope["data"]["timings"]})
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "opt-in response/log audit on an authorized project; read-only"]
+fn real_project_payload_and_log_audit() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("HARNESS_BENCH_ROOT").expect("HARNESS_BENCH_ROOT"),
+    );
+    let mut server = Server::start_with_runtime(&root, false, true);
+    server.initialize();
+    let boot = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_bootstrap","arguments":{}}),
+    );
+    let session = boot["result"]["structuredContent"]["data"]["session"]
+        .as_str()
+        .unwrap();
+    let mut previous_graph = None;
+    for budget in [6000, 12000] {
+        let result = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"main","filePath":"crates/api/src/main.rs","maxFiles":2,"maxChars":budget,"syncIndex":false,"session":session}}));
+        let envelope = &result["result"]["structuredContent"];
+        assert_eq!(envelope["state"], "ok", "{envelope}");
+        let request_id = envelope["requestId"].as_str().unwrap();
+        let logs = server.request(4, "tools/call", json!({"name":"harness_logs","arguments":{"requestId":request_id,"limit":10,"session":session}}));
+        assert_eq!(logs["result"]["structuredContent"]["state"], "ok");
+        let events = logs["result"]["structuredContent"]["data"]["events"]
+            .as_array()
+            .unwrap();
+        let completed = events
+            .iter()
+            .find(|e| e["requestId"] == request_id && e["kind"] == "completed")
+            .expect("correlated terminal log");
+        assert_eq!(completed["state"], "ok", "{completed}");
+        let data = &envelope["data"];
+        let graph = json!({"nodes":data["graph"]["nodes"],"edges":data["graph"]["edges"]});
+        if let Some(previous) = &previous_graph {
+            assert_eq!(previous, &graph);
+        }
+        previous_graph = Some(graph);
+        let definitions = data["definitions"].as_array().unwrap();
+        println!(
+            "{}",
+            json!({
+                "maxChars":budget,"nativeLogMicros":completed["durationMicros"],"logState":completed["state"],
+                "wireBytes":serde_json::to_vec(&result).unwrap().len(),
+                "structuredBytes":serde_json::to_vec(envelope).unwrap().len(),
+                "textChannelBytes":serde_json::to_vec(&result["result"]["content"]).unwrap().len(),
+                "markdownBytes":data["text"].as_str().unwrap().len(),
+                "graphBytes":serde_json::to_vec(&data["graph"]).unwrap().len(),
+                "definitionMetadataBytes":serde_json::to_vec(&data["definitions"]).unwrap().len(),
+                "completeBodies":definitions.iter().filter(|d| d["sourceStatus"]=="complete").count(),
+                "partialBodies":definitions.iter().filter(|d| d["sourceStatus"]=="partial").count(),
+                "previewTruncated":data["contextTruncation"]["textPreview"],
+                "nodeCount":data["graph"]["nodes"].as_array().unwrap().len(),
+                "edgeCount":data["graph"]["edges"].as_array().unwrap().len()
+            })
+        );
+    }
+}
+
+#[test]
+#[ignore = "opt-in comparison of client presentations; existing project, read-only"]
+fn real_project_context_presentation() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("HARNESS_BENCH_ROOT").expect("HARNESS_BENCH_ROOT"),
+    );
+    let mut original_graph = None;
+    for context in [false, true] {
+        let mut server = Server::start_with_presentation(&root, false, true, context);
+        server.initialize();
+        let boot = server.request(
+            2,
+            "tools/call",
+            json!({"name":"harness_bootstrap","arguments":{}}),
+        );
+        let session = boot["result"]["structuredContent"]["data"]["session"]
+            .as_str()
+            .unwrap();
+        let response = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"main","filePath":"crates/api/src/main.rs","maxFiles":2,"maxChars":12000,"syncIndex":false,"session":session}}));
+        let envelope = &response["result"]["structuredContent"];
+        assert_eq!(envelope["state"], "ok", "{envelope}");
+        let data = &envelope["data"];
+        let graph = json!({"nodes":data["graph"]["nodes"],"edges":data["graph"]["edges"]});
+        if let Some(original) = &original_graph {
+            assert_eq!(original, &graph);
+        }
+        original_graph = Some(graph);
+        let text = response["result"]["content"][0]["text"].as_str().unwrap();
+        if context {
+            assert!(text.starts_with("## Graph context"));
+            assert!(text.find("sourceStatus").unwrap() < text.find("**Source Code**").unwrap());
+            assert!(
+                text.find("**Call paths / blast radius").unwrap()
+                    < text.find("**Source Code**").unwrap()
+            );
+            assert!(text.contains("not_certified"));
+            assert!(text.contains(envelope["requestId"].as_str().unwrap()));
+            assert!(text.contains("sourceStatus"));
+        } else {
+            assert_eq!(serde_json::from_str::<Value>(text).unwrap(), *envelope);
+        }
+        println!(
+            "{}",
+            json!({"presentation":if context {"context"} else {"legacy"},
+            "wireBytes":serde_json::to_vec(&response).unwrap().len(),
+            "textChannelBytes":text.len(),"structuredBytes":serde_json::to_vec(envelope).unwrap().len(),
+            "nodeCount":data["graph"]["nodes"].as_array().unwrap().len(),
+            "edgeCount":data["graph"]["edges"].as_array().unwrap().len(),
+            "completeBodies":data["definitions"].as_array().unwrap().iter().filter(|d| d["sourceStatus"]=="complete").count()})
+        );
+    }
+}
+
+#[test]
+fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
+    for (profile, count) in [("investigate", 13), ("edit", 16)] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("example.txt"), "old").unwrap();
+        let mut server =
+            Server::start_with_profile(root.path(), false, false, false, profile, true);
+        server.initialize();
+        let catalog = server.request(2, "tools/list", json!({}));
+        let tools = catalog["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), count);
+        assert_eq!(
+            tools
+                .iter()
+                .filter(|t| t["_meta"]["antigravity/alwaysLoad"] == true)
+                .count(),
+            2
+        );
+        assert!(
+            !tools
+                .iter()
+                .any(|t| t["name"].as_str().unwrap().starts_with("harness_sql"))
+        );
+        let batch_schema =
+            tools.iter().find(|t| t["name"] == "harness_batch").unwrap()["inputSchema"].to_string();
+        assert!(!batch_schema.contains("harness_sql"));
+        assert!(batch_schema.contains("harness_read"));
+        assert_eq!(
+            tools.iter().any(|t| t["name"] == "harness_replace"),
+            profile == "edit"
+        );
+        let boot = server.request(
+            3,
+            "tools/call",
+            json!({"name":"harness_bootstrap","arguments":{}}),
+        );
+        let data = &boot["result"]["structuredContent"]["data"];
+        assert_eq!(data["toolProfile"], profile);
+        let mut actual: Vec<_> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        let mut declared: Vec<_> = data["supportedTools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        actual.sort();
+        declared.sort();
+        assert_eq!(actual, declared);
+        let blocked = server.request(
+            4,
+            "tools/call",
+            json!({"name":"harness_sql_status","arguments":{}}),
+        );
+        assert!(
+            blocked.get("error").is_some() || blocked["result"]["isError"] == true,
+            "{blocked}"
+        );
+        let sync = server.request(
+            5,
+            "tools/call",
+            json!({"name":"harness_explore","arguments":{"query":"main","syncIndex":true}}),
+        );
+        assert_eq!(
+            sync["result"]["structuredContent"]["diagnostics"][0]["code"],
+            "TOOL_PROFILE"
+        );
+        let batch = server.request(
+            6,
+            "tools/call",
+            json!({"name":"harness_batch","arguments":{"jobs":[
+                {"tool":"harness_read","arguments":{"path":"example.txt","start":1,"end":1}},
+                {"tool":"harness_sql_status","arguments":{}}
+            ]}}),
+        );
+        assert_eq!(
+            batch["result"]["structuredContent"]["diagnostics"][0]["code"],
+            "TOOL_PROFILE"
+        );
+        let logs = server.request(
+            7,
+            "tools/call",
+            json!({"name":"harness_logs","arguments":{"tool":"harness_read","limit":10}}),
+        );
+        assert!(
+            logs["result"]["structuredContent"]["data"]["events"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("example.txt")).unwrap(),
+            "old"
+        );
+        assert!(!root.path().join(".codegraph").exists());
+    }
+}
+
+#[test]
+fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
+    let root = tempfile::tempdir().unwrap();
+    let mut server = Server::start_with_profile(root.path(), false, false, false, "full", false);
+    server.initialize();
+    let catalog = server.request(2, "tools/list", json!({}));
+    let tools = catalog["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 29);
+    assert!(
+        tools
+            .iter()
+            .all(|t| t["_meta"]["antigravity/alwaysLoad"] != true)
+    );
+}
+
+#[test]
+fn tool_profiles_reject_unknown_startup_configuration() {
+    let root = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-harness"))
+        .arg("--root")
+        .arg(root.path())
+        .env("HARNESS_TOOL_PROFILE", "investigate-typo")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("HARNESS_TOOL_PROFILE must be"));
+    assert!(!root.path().join(".codegraph").exists());
+}
+
 impl Server {
     fn start(root: &std::path::Path) -> Self {
         Self::start_with_logging(root, false)
     }
     fn start_with_logging(root: &std::path::Path, persist: bool) -> Self {
+        Self::start_with_runtime(root, persist, false)
+    }
+    fn start_with_runtime(root: &std::path::Path, persist: bool, keep_path: bool) -> Self {
+        Self::start_with_presentation(root, persist, keep_path, false)
+    }
+    fn start_with_presentation(
+        root: &std::path::Path,
+        persist: bool,
+        keep_path: bool,
+        context: bool,
+    ) -> Self {
+        Self::start_with_profile(root, persist, keep_path, context, "full", true)
+    }
+    fn start_with_profile(
+        root: &std::path::Path,
+        persist: bool,
+        keep_path: bool,
+        context: bool,
+        profile: &str,
+        eager: bool,
+    ) -> Self {
         let executable = std::env::var_os("HARNESS_NATIVE_BINARY")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| env!("CARGO_BIN_EXE_agent-harness").into());
         let mut command = Command::new(executable);
-        command.env("PATH", "").arg("--root").arg(root);
+        if !keep_path {
+            command.env("PATH", "");
+        }
+        command.arg("--root").arg(root);
+        command
+            .env("HARNESS_TOOL_PROFILE", profile)
+            .env("HARNESS_MCP_EAGER_TOOLS", if eager { "1" } else { "0" });
+        if context {
+            command.env("HARNESS_MCP_PRESENTATION", "context");
+        } else {
+            command.env_remove("HARNESS_MCP_PRESENTATION");
+        }
         if persist {
             command.arg("--persist-logs");
         }
@@ -593,12 +922,23 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let mut actual = names.clone();
     actual.sort();
     let expected = harness_domain::tool_contract::tool_names("rust");
-    assert_eq!(actual, expected.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(
+        actual,
+        expected.iter().map(String::as_str).collect::<Vec<_>>()
+    );
     for name in ["harness_explore", "harness_data_query"] {
-        let tool = listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap();
+        let tool = listed["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap();
         let shared = &harness_domain::tool_contract::manifest()["schemas"][name];
         for field in ["properties", "required", "additionalProperties", "oneOf"] {
-            assert_eq!(tool["inputSchema"][field], shared[field], "schema drift: {name}.{field}");
+            assert_eq!(
+                tool["inputSchema"][field], shared[field],
+                "schema drift: {name}.{field}"
+            );
         }
     }
     assert!(names.contains(&"harness_handover"));
@@ -723,6 +1063,31 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let session = boot["result"]["structuredContent"]["data"]["sessionId"]
         .as_str()
         .unwrap();
+    assert_eq!(
+        boot["result"]["structuredContent"]["data"]["session"],
+        session
+    );
+    let alias_boot = server.request(
+        93,
+        "tools/call",
+        json!({"name":"harness_bootstrap","arguments":{"sessionId":session}}),
+    );
+    assert_eq!(alias_boot["result"]["isError"], false, "{alias_boot}");
+    assert_eq!(
+        alias_boot["result"]["structuredContent"]["data"]["session"],
+        session
+    );
+    let alias_explore = server.request(
+        94,
+        "tools/call",
+        json!({"name":"harness_explore","arguments":{"sessionId":session,"query":"main"}}),
+    );
+    // No index in this fixture: an application error, not a JSON-RPC argument rejection.
+    assert!(alias_explore.get("error").is_none(), "{alias_explore}");
+    assert_eq!(
+        alias_explore["result"]["structuredContent"]["state"],
+        "error"
+    );
     let read = server.request(4, "tools/call", json!({"name":"harness_read","arguments":{"session":session,"path":"example.txt","start":1,"end":2}}));
     assert_eq!(
         read["result"]["structuredContent"]["data"]["text"],
