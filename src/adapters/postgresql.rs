@@ -54,7 +54,9 @@ struct Connection {
     #[serde(default = "default_env_file")]
     env_file: Option<String>,
 }
-fn default_env_file() -> Option<String> { Some(".env".into()) }
+fn default_env_file() -> Option<String> {
+    Some(".env".into())
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Tls {
@@ -125,7 +127,11 @@ fn required(project: &Project) -> Result<Config, Failure> {
         .ok_or(("PG_CONFIG", "PostgreSQL is not enabled"))
 }
 
-fn driver_config(project: &Project, config: &Config, context: &OperationContext) -> Result<(DriverConfig, String), Failure> {
+fn driver_config(
+    project: &Project,
+    config: &Config,
+    context: &OperationContext,
+) -> Result<(DriverConfig, String), Failure> {
     let connection = config.connection.as_ref().ok_or(CONFIG)?;
     if connection.source != "environment"
         || connection.name.is_empty()
@@ -136,7 +142,12 @@ fn driver_config(project: &Project, config: &Config, context: &OperationContext)
     {
         return Err(CONFIG);
     }
-    let dsn = super::sql_credentials::resolve(project, &connection.name, connection.env_file.as_deref(), context)?;
+    let dsn = super::sql_credentials::resolve(
+        project,
+        &connection.name,
+        connection.env_file.as_deref(),
+        context,
+    )?;
     let mut driver: DriverConfig = dsn.parse().map_err(|_| {
         (
             "PG_CONNECTION_CONFIG",
@@ -225,6 +236,35 @@ fn pg_error(error: tokio_postgres::Error) -> Failure {
     }
 }
 
+struct ConnectionPlan {
+    driver: DriverConfig,
+    certificate: Option<Vec<u8>>,
+    identity: String,
+}
+fn connection_plan(
+    project: &Project,
+    config: &Config,
+    context: &OperationContext,
+) -> Result<ConnectionPlan, Failure> {
+    let (driver, credentials) = driver_config(project, config, context)?;
+    let certificate = certificate(project, config)?;
+    let identity = harness_domain::hash(
+        json!([
+            project.root,
+            config.fingerprint,
+            credentials,
+            certificate.as_deref().map(harness_domain::hash)
+        ])
+        .to_string()
+        .as_bytes(),
+    );
+    Ok(ConnectionPlan {
+        driver,
+        certificate,
+        identity,
+    })
+}
+
 async fn catalog(
     project: &Project,
     config: &Config,
@@ -232,21 +272,21 @@ async fn catalog(
     sql: &'static str,
     params: &[&(dyn ToSql + Sync)],
     limit: usize,
+    plan: Option<ConnectionPlan>,
 ) -> Result<Value, Failure> {
-    let (driver, credential_identity) = driver_config(project, config, context)?;
     let started = Instant::now();
-    let certificate = certificate(project, config)?;
     let context = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
-    // Rotate on workspace, credentials, configuration or CA content changes. No secrets are retained as keys.
-    let identity = json!([
-        project.root,
-        config.fingerprint,
-        credential_identity,
-        certificate.as_deref().map(harness_domain::hash)
-    ])
-    .to_string();
+    // The cache identity and actual connection use one immutable credential/CA snapshot.
+    let ConnectionPlan {
+        driver,
+        certificate,
+        identity,
+    } = match plan {
+        Some(plan) => plan,
+        None => connection_plan(project, config, &context)?,
+    };
     let pool_started = Instant::now();
-    let mut lease = pool::checkout(harness_domain::hash(identity.as_bytes()), &context).await?;
+    let mut lease = pool::checkout(identity, &context).await?;
     let pool_wait_ms = pool_started.elapsed().as_secs_f64() * 1000.0;
     let reused = lease.reused;
     let connect_started = Instant::now();
@@ -386,10 +426,17 @@ pub(super) fn status(
     result["setup"] = super::sql_policy::configuration_guide("postgresql");
     result["transportEncrypted"] = json!(config.tls.mode == "verify-full");
     if config.tls.mode != "verify-full" {
-        result["securityWarning"] = json!("TLS is disabled: database traffic is not encrypted; enable tls.mode=verify-full for encryption and certificate validation");
+        result["securityWarning"] = json!(
+            "TLS is disabled: database traffic is not encrypted; enable tls.mode=verify-full for encryption and certificate validation"
+        );
     }
     result["credentialPrecedence"] = json!(["process_environment", "project_dotenv_if_configured"]);
-    result["dotenvFile"] = json!(config.connection.as_ref().and_then(|c| c.env_file.as_deref()));
+    result["dotenvFile"] = json!(
+        config
+            .connection
+            .as_ref()
+            .and_then(|c| c.env_file.as_deref())
+    );
     if let Some(connection) = config.connection.as_ref().filter(|c| {
         c.name.len() <= 128
             && c.name
@@ -407,6 +454,7 @@ pub(super) fn status(
             "SELECT current_database()::text AS database, current_user::text AS role, current_setting('server_version')::text AS version, current_setting('transaction_read_only')::text AS read_only",
             &[],
             1,
+            None,
         )) {
             Ok(probe) if probe["ok"] != false => {
                 result["connected"] = json!(true);
@@ -486,6 +534,7 @@ pub(super) fn search(
         sql,
         &[&selected_schema, &args.query, &kind, &count],
         limit,
+        None,
     ))?;
     result["objectTypeDefault"] =
         json!("relations; specify function/procedure/column for other catalogs");
@@ -534,21 +583,12 @@ pub(super) fn describe(
     let ttl = config.schema_cache_seconds.unwrap_or(0);
     let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
     let mut result = pool::run(async {
+        let plan = connection_plan(project, &config, &timed)?;
         let key = if ttl > 0 {
-            let (_, credentials) = driver_config(project, &config, &timed)?;
-            let ca = certificate(project, &config)?;
             Some(harness_domain::hash(
-                json!([
-                    project.root,
-                    config.fingerprint,
-                    credentials,
-                    ca.as_deref().map(harness_domain::hash),
-                    selected_schema,
-                    name,
-                    DESCRIBE
-                ])
-                .to_string()
-                .as_bytes(),
+                json!([plan.identity, selected_schema, name, DESCRIBE])
+                    .to_string()
+                    .as_bytes(),
             ))
         } else {
             None
@@ -600,6 +640,7 @@ pub(super) fn describe(
             DESCRIBE,
             &[&selected_schema, &name, &count],
             config.max_rows,
+            Some(plan),
         )
         .await?;
         if result["ok"] == false {

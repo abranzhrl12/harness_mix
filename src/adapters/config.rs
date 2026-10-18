@@ -171,9 +171,7 @@ fn raw_iis_section(
 
     while let Some(start_rel) = lower_source[search_idx..].find(&open_tag) {
         let tag_start = search_idx + start_rel;
-        let char_after = source[tag_start + open_tag.len()..]
-            .chars()
-            .next();
+        let char_after = source[tag_start + open_tag.len()..].chars().next();
 
         if let Some(ch) = char_after
             && (ch.is_whitespace() || ch == '>' || ch == '/')
@@ -182,7 +180,10 @@ fn raw_iis_section(
             let tag_end = tag_start + tag_end_rel;
             if source[tag_start..=tag_end].ends_with("/>") {
                 if matched_span.is_some() {
-                    return Err(("AMBIGUOUS_SECTION", "Multiple sections match; select an unambiguous section"));
+                    return Err((
+                        "AMBIGUOUS_SECTION",
+                        "Multiple sections match; select an unambiguous section",
+                    ));
                 }
                 matched_span = Some((tag_start, tag_end + 1));
             } else {
@@ -197,7 +198,10 @@ fn raw_iis_section(
                     if let Some(end_rel) = source[close_start..].find('>') {
                         let total_end = close_start + end_rel + 1;
                         if matched_span.is_some() {
-                            return Err(("AMBIGUOUS_SECTION", "Multiple sections match; select an unambiguous section"));
+                            return Err((
+                                "AMBIGUOUS_SECTION",
+                                "Multiple sections match; select an unambiguous section",
+                            ));
                         }
                         matched_span = Some((tag_start, total_end));
                     }
@@ -207,7 +211,10 @@ fn raw_iis_section(
         search_idx = tag_start + open_tag.len();
     }
 
-    let (start, end) = matched_span.ok_or(("SECTION", "XML section not found; usar harness_search kind:text para listar secciones"))?;
+    let (start, end) = matched_span.ok_or((
+        "SECTION",
+        "XML section not found; usar harness_search kind:text para listar secciones",
+    ))?;
     context.check()?;
 
     let raw_text = &source[start..end];
@@ -279,66 +286,81 @@ fn redact_iis_heuristics(text: &str) -> String {
             && let Some(tag_end_rel) = text[i..].find('>')
         {
             let tag_str = &text[i..i + tag_end_rel + 1];
-                let is_sensitive = sensitive_keys.iter().any(|k| {
-                    if let Some(key_idx) = tag_str.to_ascii_lowercase().find("key") {
-                        let after_key = &tag_str[key_idx + 3..];
-                        if let Some(eq_idx) = after_key.find('=') {
-                            let after_eq = after_key[eq_idx + 1..].trim_start();
-                            if after_eq.starts_with('"') || after_eq.starts_with('\'') {
-                                let quote = after_eq.chars().next().unwrap();
-                                let inner = &after_eq[1..];
-                                if let Some(q_end) = inner.find(quote) {
-                                    let key_name = &inner[..q_end].to_ascii_lowercase();
-                                    return key_name.contains(k);
-                                }
+            let is_sensitive = sensitive_keys.iter().any(|k| {
+                if let Some(key_idx) = tag_str.to_ascii_lowercase().find("key") {
+                    let after_key = &tag_str[key_idx + 3..];
+                    if let Some(eq_idx) = after_key.find('=') {
+                        let after_eq = after_key[eq_idx + 1..].trim_start();
+                        if after_eq.starts_with('"') || after_eq.starts_with('\'') {
+                            let quote = after_eq.chars().next().unwrap();
+                            let inner = &after_eq[1..];
+                            if let Some(q_end) = inner.find(quote) {
+                                let key_name = &inner[..q_end].to_ascii_lowercase();
+                                return key_name.contains(k);
                             }
                         }
                     }
-                    false
-                });
+                }
+                false
+            });
 
-                if is_sensitive {
-                    // Redact value="..." in this tag
-                    if let Some(val_idx) = tag_str.to_ascii_lowercase().find("value") {
-                        let after_val = &tag_str[val_idx + 5..];
-                        if let Some(eq_idx) = after_val.find('=') {
-                            let after_eq = &after_val[eq_idx + 1..];
-                            let ws_count = after_eq.len() - after_eq.trim_start().len();
-                            let trimmed = after_eq.trim_start();
-                            if trimmed.starts_with('"') || trimmed.starts_with('\'') {
-                                let quote = trimmed.chars().next().unwrap();
-                                let inner = &trimmed[1..];
-                                if let Some(q_end) = inner.find(quote) {
-                                    let val_start_abs = i + val_idx + 5 + eq_idx + 1 + ws_count + 1;
-                                    let val_end_abs = val_start_abs + q_end;
-                                    result.push_str(&text[i..val_start_abs]);
-                                    result.push_str("***");
-                                    result.push_str(&text[val_end_abs..i + tag_end_rel + 1]);
-                                    i += tag_end_rel + 1;
-                                    continue;
-                                }
+            if is_sensitive {
+                // Redact value="..." in this tag
+                if let Some(val_idx) = tag_str.to_ascii_lowercase().find("value") {
+                    let after_val = &tag_str[val_idx + 5..];
+                    if let Some(eq_idx) = after_val.find('=') {
+                        let after_eq = &after_val[eq_idx + 1..];
+                        let ws_count = after_eq.len() - after_eq.trim_start().len();
+                        let trimmed = after_eq.trim_start();
+                        if trimmed.starts_with('"') || trimmed.starts_with('\'') {
+                            let quote = trimmed.chars().next().unwrap();
+                            let inner = &trimmed[1..];
+                            if let Some(q_end) = inner.find(quote) {
+                                let val_start_abs = i + val_idx + 5 + eq_idx + 1 + ws_count + 1;
+                                let val_end_abs = val_start_abs + q_end;
+                                result.push_str(&text[i..val_start_abs]);
+                                result.push_str("***");
+                                result.push_str(&text[val_end_abs..i + tag_end_rel + 1]);
+                                i += tag_end_rel + 1;
+                                continue;
                             }
                         }
                     }
                 }
             }
+        }
 
         // Direct sensitive attribute redaction: (password="...", connectionString="...", etc.)
         let mut matched_attr = false;
         for key in &sensitive_keys {
             let key_len = key.len();
             if i + key_len < len && text[i..i + key_len].eq_ignore_ascii_case(key) {
-                let char_before = if i > 0 { text[..i].chars().next_back() } else { None };
-                let is_word_boundary = char_before.is_none_or(|c| c.is_whitespace() || c == '<' || c == '(' || c == ';');
+                let char_before = if i > 0 {
+                    text[..i].chars().next_back()
+                } else {
+                    None
+                };
+                let is_word_boundary = char_before
+                    .is_none_or(|c| c.is_whitespace() || c == '<' || c == '(' || c == ';');
 
                 if is_word_boundary {
                     let mut j = i + key_len;
-                    while j < len && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n') {
+                    while j < len
+                        && (bytes[j] == b' '
+                            || bytes[j] == b'\t'
+                            || bytes[j] == b'\r'
+                            || bytes[j] == b'\n')
+                    {
                         j += 1;
                     }
                     if j < len && bytes[j] == b'=' {
                         j += 1;
-                        while j < len && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\r' || bytes[j] == b'\n') {
+                        while j < len
+                            && (bytes[j] == b' '
+                                || bytes[j] == b'\t'
+                                || bytes[j] == b'\r'
+                                || bytes[j] == b'\n')
+                        {
                             j += 1;
                         }
                         if j < len && (bytes[j] == b'"' || bytes[j] == b'\'') {

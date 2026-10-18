@@ -12,11 +12,7 @@ use harness_domain::{
 use serde_json::{Value, json};
 use std::path::Path;
 
-fn validate_syntax_single(
-    path: &str,
-    source: &str,
-    context: &OperationContext,
-) -> (Value, usize) {
+fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) -> (Value, usize) {
     match Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -185,9 +181,15 @@ pub fn handle_diagnostics(
                         }
                     }
                 }
-                (list, "tracked Git changes (staged and unstaged); deleted/untracked files excluded")
+                (
+                    list,
+                    "tracked Git changes (staged and unstaged); deleted/untracked files excluded",
+                )
             }
-            Err(_) => (Vec::new(), "tracked Git changes (staged and unstaged); deleted/untracked files excluded"),
+            Err(_) => (
+                Vec::new(),
+                "tracked Git changes (staged and unstaged); deleted/untracked files excluded",
+            ),
         }
     };
 
@@ -241,8 +243,7 @@ pub fn handle_diagnostics(
         files_out.push(analysis);
     }
 
-    let complete = !selection_truncated
-        && files_out.iter().all(|f| f["status"] == "checked");
+    let complete = !selection_truncated && files_out.iter().all(|f| f["status"] == "checked");
     let passed = total_errors == 0
         && files_out
             .iter()
@@ -273,10 +274,13 @@ pub fn handle_diagnostics(
 
     if !passed {
         result["code"] = json!("DIAGNOSTICS_FAILED");
-        result["message"] = json!("Se detectaron errores o comprobaciones fallidas; revisar cobertura");
+        result["message"] =
+            json!("Se detectaron errores o comprobaciones fallidas; revisar cobertura");
     } else if !complete {
         result["code"] = json!("DIAGNOSTICS_INCOMPLETE");
-        result["message"] = json!("Cobertura parcial, archivos omitidos o selección recortada; no afirmar validación completa");
+        result["message"] = json!(
+            "Cobertura parcial, archivos omitidos o selección recortada; no afirmar validación completa"
+        );
     }
 
     Ok(result)

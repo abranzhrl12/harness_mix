@@ -22,7 +22,10 @@ pub(super) fn validate_syntax(
 
     context.check()?;
     if !parsed.errors.is_empty() {
-        return Err(("SYNTAX_ERROR", "JavaScript/TypeScript source is not syntactically valid"));
+        return Err((
+            "SYNTAX_ERROR",
+            "JavaScript/TypeScript source is not syntactically valid",
+        ));
     }
 
     Ok(())

@@ -13,15 +13,15 @@ pub(super) fn configuration_guide(engine: &str) -> Value {
     };
     let config = if pg {
         json!({"postgresql":{"enabled":true,"allowedSchemas":["public"],"defaultSchema":"public",
-            "connection":{"source":"environment","name":variable},"tls":{"mode":"verify-full"},"schemaCacheSeconds":0}})
+            "connection":{"source":"environment","name":variable,"envFile":".env"},"tls":{"mode":"disable"},"schemaCacheSeconds":0}})
     } else {
         json!({"sqlServer":{"enabled":true,"connection":{"source":"environment"}}})
     };
     json!({"configPath":".agents/harness.config.json","configSection":section,"mergeExample":config,
         "requiredEnvironmentVariableExample":variable,"secretValuesIncluded":false,
         "steps":["Merge the example into the existing project configuration; preserve other sections",
-            "Set the connection variable in the MCP server process environment; never return its value",
-            "Use a least-privilege database role; validate TLS trust and hostname before connecting",
+            "Set the connection variable in the MCP server process environment or configured project dotenv file; never return its value",
+            "Use a least-privilege role. PostgreSQL TLS defaults to disable; set tls.mode=verify-full for encryption and certificate validation",
             "Reconnect the MCP client if its process environment changed; then call status with connect:true"],
         "nextCall":{"tool":"harness_sql","arguments":{"action":"status","engine":engine,"connect":false}}})
 }

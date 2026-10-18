@@ -18,9 +18,28 @@ const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
 
 const ALLOWED_TAGS: &[&str] = &[
-    "svg", "g", "defs", "title", "desc", "path", "rect", "circle", "ellipse", "line",
-    "polyline", "polygon", "text", "tspan", "textPath", "linearGradient", "radialGradient",
-    "stop", "clipPath", "mask", "use", "symbol",
+    "svg",
+    "g",
+    "defs",
+    "title",
+    "desc",
+    "path",
+    "rect",
+    "circle",
+    "ellipse",
+    "line",
+    "polyline",
+    "polygon",
+    "text",
+    "tspan",
+    "textPath",
+    "linearGradient",
+    "radialGradient",
+    "stop",
+    "clipPath",
+    "mask",
+    "use",
+    "symbol",
 ];
 
 struct SvgNodeData {
@@ -40,7 +59,8 @@ pub fn handle_svg(
         return Err(("PATH", "se requiere archivo .svg"));
     }
 
-    let bytes = project.bytes_with_limit(&args.path, _context, MAX_SVG_SIZE as u64)
+    let bytes = project
+        .bytes_with_limit(&args.path, _context, MAX_SVG_SIZE as u64)
         .map_err(|(code, msg)| {
             if code == "PATH" && msg.contains("límite") {
                 ("SIZE", "SVG mayor de 256 KiB")
@@ -70,9 +90,15 @@ pub fn handle_svg(
             Ok(res)
         }
         SvgMode::Preview => {
-            let width_attr = inspected["dimensions"]["width"].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(max_size as f64);
-            let height_attr = inspected["dimensions"]["height"].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(max_size as f64);
-            
+            let width_attr = inspected["dimensions"]["width"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(max_size as f64);
+            let height_attr = inspected["dimensions"]["height"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(max_size as f64);
+
             let zoom = (max_size as f64 / width_attr.max(height_attr).max(1.0)).min(1.0);
             let target_width = ((width_attr * zoom).round() as u32).max(1).min(max_size);
             let target_height = ((height_attr * zoom).round() as u32).max(1).min(max_size);
@@ -126,7 +152,8 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
         let local_name = tag_name.name();
 
         if let Some(ns) = tag_name.namespace()
-            && ns != SVG_NS {
+            && ns != SVG_NS
+        {
             return Err(("SVG_UNSUPPORTED", "elemento SVG no admitido"));
         }
         if !allowed_tags.contains(local_name) {
@@ -138,13 +165,20 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
 
         for attr in node.attributes() {
             if let Some(ns) = attr.namespace()
-                && ns != SVG_NS && ns != XLINK_NS && ns != XML_NS && ns != "http://www.w3.org/2000/xmlns/" {
+                && ns != SVG_NS
+                && ns != XLINK_NS
+                && ns != XML_NS
+                && ns != "http://www.w3.org/2000/xmlns/"
+            {
                 return Err(("SVG_UNSAFE", "namespace de atributo no admitido"));
             }
             let name = attr.name();
             let value = attr.value();
 
-            if name.len() > 128 || (!["d", "points"].contains(&name) && value.len() > 2000) || (name == "id" && value.len() > 128) {
+            if name.len() > 128
+                || (!["d", "points"].contains(&name) && value.len() > 2000)
+                || (name == "id" && value.len() > 128)
+            {
                 return Err(("SIZE", "atributo SVG demasiado largo"));
             }
 
@@ -183,7 +217,13 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
                 }
             }
 
-            if val_lower.contains("http:") || val_lower.contains("https:") || val_lower.contains("file:") || val_lower.contains("data:") || val_lower.contains("javascript:") || val_lower.contains("ftp:") {
+            if val_lower.contains("http:")
+                || val_lower.contains("https:")
+                || val_lower.contains("file:")
+                || val_lower.contains("data:")
+                || val_lower.contains("javascript:")
+                || val_lower.contains("ftp:")
+            {
                 return Err(("SVG_UNSAFE", "recurso externo o URL no admitida"));
             }
 
@@ -207,7 +247,8 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
         let mut direct_text = String::new();
         for child in node.children() {
             if child.is_text()
-                && let Some(t) = child.text() {
+                && let Some(t) = child.text()
+            {
                 direct_text.push_str(t);
             }
         }
@@ -222,14 +263,30 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
 
         for child in node.children() {
             if child.is_element() {
-                traverse(child, Some(current_idx), nodes, ids, counts, allowed_tags, depth + 1)?;
+                traverse(
+                    child,
+                    Some(current_idx),
+                    nodes,
+                    ids,
+                    counts,
+                    allowed_tags,
+                    depth + 1,
+                )?;
             }
         }
 
         Ok(())
     }
 
-    traverse(root_elem, None, &mut nodes, &mut ids, &mut counts, &allowed_tag_set, 0)?;
+    traverse(
+        root_elem,
+        None,
+        &mut nodes,
+        &mut ids,
+        &mut counts,
+        &allowed_tag_set,
+        0,
+    )?;
 
     if nodes.is_empty() {
         return Err(("SVG_XML", "SVG vacío"));
@@ -246,7 +303,10 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
         active: &mut HashSet<usize>,
         expanded: &mut usize,
     ) -> Result<(), Failure> {
-        if depth > 64 || { *expanded += 1; *expanded > 10000 } {
+        if depth > 64 || {
+            *expanded += 1;
+            *expanded > 10000
+        } {
             return Err(("SIZE", "expansión de referencias SVG excesiva"));
         }
         if active.contains(&curr) {
@@ -261,7 +321,9 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
             }
         }
         for r in &node.refs {
-            let target_idx = ids.get(r).ok_or(("SVG_XML", "referencia interna inexistente"))?;
+            let target_idx = ids
+                .get(r)
+                .ok_or(("SVG_XML", "referencia interna inexistente"))?;
             check_cycles(*target_idx, depth + 1, nodes, ids, active, expanded)?;
         }
 
@@ -331,7 +393,9 @@ fn inspect_svg(source: &str) -> Result<Value, Failure> {
     let mut items = Vec::new();
     let mut characters = 2usize;
     for item in &all_items {
-        let cost = serde_json::to_string(item).map(|s| s.len() + 1).unwrap_or(0);
+        let cost = serde_json::to_string(item)
+            .map(|s| s.len() + 1)
+            .unwrap_or(0);
         if items.len() >= 60 || characters + cost > 10000 {
             break;
         }

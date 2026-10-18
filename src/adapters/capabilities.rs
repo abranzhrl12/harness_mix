@@ -52,7 +52,8 @@ fn compute() -> Value {
         })
         .collect();
     #[cfg(not(windows))]
-    let listings: Vec<Option<std::collections::HashSet<String>>> = paths.iter().map(|_| None).collect();
+    let listings: Vec<Option<std::collections::HashSet<String>>> =
+        paths.iter().map(|_| None).collect();
     let mut available = json!({});
     for name in [
         "codegraph",
@@ -68,29 +69,33 @@ fn compute() -> Value {
         "msbuild",
         "vstest.console",
     ] {
-        available[name] = json!(paths.iter().zip(&listings).any(|(dir, listing)| extensions
-            .iter()
-            .any(|ext| {
-                let entry = format!("{name}{ext}");
-                if let Some(names) = listing {
-                    return names.contains(&entry.to_ascii_lowercase());
-                }
-                let file = dir.join(&entry);
-                let Ok(meta) = file.metadata() else {
-                    return false;
-                };
-                if !meta.is_file() {
-                    return false;
-                }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if meta.permissions().mode() & 0o111 == 0 {
-                        return false;
-                    }
-                }
-                true
-            })));
+        available[name] =
+            json!(
+                paths
+                    .iter()
+                    .zip(&listings)
+                    .any(|(dir, listing)| extensions.iter().any(|ext| {
+                        let entry = format!("{name}{ext}");
+                        if let Some(names) = listing {
+                            return names.contains(&entry.to_ascii_lowercase());
+                        }
+                        let file = dir.join(&entry);
+                        let Ok(meta) = file.metadata() else {
+                            return false;
+                        };
+                        if !meta.is_file() {
+                            return false;
+                        }
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            if meta.permissions().mode() & 0o111 == 0 {
+                                return false;
+                            }
+                        }
+                        true
+                    }))
+            );
     }
     // Native execution never uses PATHEXT wrappers or relative PATH entries.
     for (name, program) in [

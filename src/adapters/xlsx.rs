@@ -57,14 +57,16 @@ pub fn inspect(
         return Err(("NOT_FOUND", "Archivo XLSX no encontrado"));
     }
 
-    let bytes = std::fs::read(&full_path)
-        .map_err(|_| ("IO", "No se pudo leer el archivo XLSX"))?;
+    let bytes = std::fs::read(&full_path).map_err(|_| ("IO", "No se pudo leer el archivo XLSX"))?;
     let file_hash = hash(&bytes);
 
     if let Some(expected) = &args.expected_hash
         && expected != &file_hash
     {
-        return Err(("STALE", "El libro cambió; volver a inspeccionar antes de continuar"));
+        return Err((
+            "STALE",
+            "El libro cambió; volver a inspeccionar antes de continuar",
+        ));
     }
 
     let mut workbook: Xlsx<_> = open_workbook(&full_path)
@@ -111,14 +113,16 @@ pub fn read(
         return Err(("NOT_FOUND", "Archivo XLSX no encontrado"));
     }
 
-    let bytes = std::fs::read(&full_path)
-        .map_err(|_| ("IO", "No se pudo leer el archivo XLSX"))?;
+    let bytes = std::fs::read(&full_path).map_err(|_| ("IO", "No se pudo leer el archivo XLSX"))?;
     let file_hash = hash(&bytes);
 
     if let Some(expected) = &args.expected_hash
         && expected != &file_hash
     {
-        return Err(("STALE", "El libro cambió; volver a inspeccionar antes de continuar"));
+        return Err((
+            "STALE",
+            "El libro cambió; volver a inspeccionar antes de continuar",
+        ));
     }
 
     let mut workbook: Xlsx<_> = open_workbook(&full_path)

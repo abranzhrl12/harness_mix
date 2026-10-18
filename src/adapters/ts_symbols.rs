@@ -48,9 +48,7 @@ impl<'a> TsCollector<'a> {
         }
 
         let full_text = &self.source[start_u..end_u];
-        let sig_end = body_start
-            .map(|b| (b as usize).min(end_u))
-            .unwrap_or(end_u);
+        let sig_end = body_start.map(|b| (b as usize).min(end_u)).unwrap_or(end_u);
         let sig_slice = &self.source[start_u..sig_end];
         let compact = sig_slice.split_whitespace().collect::<Vec<_>>().join(" ");
         let signature = if body_start.is_some() {
@@ -72,10 +70,7 @@ impl<'a> TsCollector<'a> {
             .filter(|b| *b == b'\n')
             .count()
             + 1;
-        let end_line = self.source[..end_u]
-            .bytes()
-            .filter(|b| *b == b'\n')
-            .count()
+        let end_line = self.source[..end_u].bytes().filter(|b| *b == b'\n').count()
             + usize::from(!self.source[..end_u].ends_with('\n'));
 
         let child = if container.is_empty() {
@@ -121,7 +116,13 @@ impl<'a> TsCollector<'a> {
             Statement::FunctionDeclaration(func) => {
                 if let Some(ident) = &func.id {
                     let body_start = func.body.as_ref().map(|b| b.span.start);
-                    self.record(&ident.name, container, "function_declaration", func.span, body_start)?;
+                    self.record(
+                        &ident.name,
+                        container,
+                        "function_declaration",
+                        func.span,
+                        body_start,
+                    )?;
                 }
             }
             Statement::ClassDeclaration(cls) => {
@@ -172,7 +173,13 @@ impl<'a> TsCollector<'a> {
                             .map(|i| i.name.as_str())
                             .unwrap_or("default");
                         let body_start = func.body.as_ref().map(|b| b.span.start);
-                        self.record(name, container, "function_declaration", func.span, body_start)?;
+                        self.record(
+                            name,
+                            container,
+                            "function_declaration",
+                            func.span,
+                            body_start,
+                        )?;
                     }
                     ExportDefaultDeclarationKind::ClassDeclaration(cls) => {
                         let name = cls
@@ -227,13 +234,8 @@ impl<'a> TsCollector<'a> {
                             lit.value.as_str()
                         }
                     };
-                    let mod_container = self.record(
-                        name,
-                        container,
-                        "internal_module",
-                        module_decl.span,
-                        None,
-                    )?;
+                    let mod_container =
+                        self.record(name, container, "internal_module", module_decl.span, None)?;
                     if let oxc_ast::ast::TSModuleDeclarationBody::TSModuleBlock(block) = body {
                         for inner in &block.body {
                             self.visit_statement(inner, &mod_container)?;
@@ -251,7 +253,13 @@ impl<'a> TsCollector<'a> {
             Declaration::FunctionDeclaration(func) => {
                 if let Some(ident) = &func.id {
                     let body_start = func.body.as_ref().map(|b| b.span.start);
-                    self.record(&ident.name, container, "function_declaration", func.span, body_start)?;
+                    self.record(
+                        &ident.name,
+                        container,
+                        "function_declaration",
+                        func.span,
+                        body_start,
+                    )?;
                 }
             }
             Declaration::ClassDeclaration(cls) => {
@@ -334,14 +342,26 @@ impl<'a> TsCollector<'a> {
                         oxc_ast::ast::PropertyKey::StaticIdentifier(id) => id.name.as_str(),
                         _ => continue,
                     };
-                    self.record(prop_name, &iface_container, "property_declaration", prop.span, None)?;
+                    self.record(
+                        prop_name,
+                        &iface_container,
+                        "property_declaration",
+                        prop.span,
+                        None,
+                    )?;
                 }
                 oxc_ast::ast::TSSignature::TSMethodSignature(method) => {
                     let method_name = match &method.key {
                         oxc_ast::ast::PropertyKey::StaticIdentifier(id) => id.name.as_str(),
                         _ => continue,
                     };
-                    self.record(method_name, &iface_container, "method_signature", method.span, None)?;
+                    self.record(
+                        method_name,
+                        &iface_container,
+                        "method_signature",
+                        method.span,
+                        None,
+                    )?;
                 }
                 _ => {}
             }
@@ -354,7 +374,13 @@ impl<'a> TsCollector<'a> {
         alias: &TSTypeAliasDeclaration,
         container: &str,
     ) -> Result<(), Failure> {
-        self.record(&alias.id.name, container, "type_alias_declaration", alias.span, None)?;
+        self.record(
+            &alias.id.name,
+            container,
+            "type_alias_declaration",
+            alias.span,
+            None,
+        )?;
         Ok(())
     }
 
@@ -370,7 +396,13 @@ impl<'a> TsCollector<'a> {
                     _ => return Ok(()),
                 };
                 let body_start = method.value.body.as_ref().map(|b| b.span.start);
-                self.record(name, container, "method_definition", method.span, body_start)?;
+                self.record(
+                    name,
+                    container,
+                    "method_definition",
+                    method.span,
+                    body_start,
+                )?;
             }
             ClassElement::PropertyDefinition(prop) => {
                 let name = match &prop.key {
@@ -378,7 +410,13 @@ impl<'a> TsCollector<'a> {
                     _ => return Ok(()),
                 };
                 let body_start = prop.value.as_ref().map(|e| e.span().start);
-                self.record(name, container, "property_declaration", prop.span, body_start)?;
+                self.record(
+                    name,
+                    container,
+                    "property_declaration",
+                    prop.span,
+                    body_start,
+                )?;
             }
             _ => {}
         }

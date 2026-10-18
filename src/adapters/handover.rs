@@ -49,7 +49,9 @@ pub fn handle_handover(
     context.check()?;
 
     let target_path = project.target_optional(target_file)?;
-    let parent = target_path.parent().ok_or(("TARGET", "el directorio destino debe existir"))?;
+    let parent = target_path
+        .parent()
+        .ok_or(("TARGET", "el directorio destino debe existir"))?;
     if !parent.is_dir() {
         return Err(("TARGET", "el directorio destino debe existir"));
     }
@@ -59,10 +61,14 @@ pub fn handle_handover(
             "EXISTS",
             "el archivo existe; indicar expectedHash vigente para reemplazarlo",
         ))?;
-        let current_bytes = fs::read(&target_path).map_err(|_| ("IO", "No se pudo leer archivo existente"))?;
+        let current_bytes =
+            fs::read(&target_path).map_err(|_| ("IO", "No se pudo leer archivo existente"))?;
         let current_hash = hash(&current_bytes);
         if expected != current_hash {
-            return Err(("STALE", "El archivo destino cambió; releer antes de continuar"));
+            return Err((
+                "STALE",
+                "El archivo destino cambió; releer antes de continuar",
+            ));
         }
     } else if args.expected_hash.is_some() {
         return Err(("STALE", "se esperaba un archivo existente"));
@@ -79,11 +85,10 @@ pub fn handle_handover(
         .open(&temp_path)
         .map_err(|_| ("IO", "No se pudo crear archivo temporal del reporte"))?;
 
-    file.write_all(markdown.as_bytes())
-        .map_err(|_| {
-            let _ = fs::remove_file(&temp_path);
-            ("IO", "No se pudo escribir archivo temporal del reporte")
-        })?;
+    file.write_all(markdown.as_bytes()).map_err(|_| {
+        let _ = fs::remove_file(&temp_path);
+        ("IO", "No se pudo escribir archivo temporal del reporte")
+    })?;
 
     file.sync_all().map_err(|_| {
         let _ = fs::remove_file(&temp_path);

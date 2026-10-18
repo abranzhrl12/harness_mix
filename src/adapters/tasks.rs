@@ -13,7 +13,10 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 use tokio::sync::{Notify, Semaphore, broadcast};
@@ -46,7 +49,9 @@ struct Inner {
 impl Clone for TaskManager {
     fn clone(&self) -> Self {
         self.inner.owners.fetch_add(1, Ordering::Relaxed);
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 impl Drop for TaskManager {
@@ -412,7 +417,9 @@ impl TaskManager {
                 }
                 idle.await;
             }
-        }).await.is_ok()
+        })
+        .await
+        .is_ok()
     }
     pub async fn handle(&self, args: TaskArgs) -> Result<Value, Failure> {
         if args.action != "start"
@@ -959,23 +966,50 @@ mod tests {
             // Model a real runner that must reap children after cancellation.
             std::thread::sleep(Duration::from_millis(30));
             count.fetch_sub(1, Ordering::SeqCst);
-            Ok(ProcessOutcome { reason: StopReason::Cancelled, ..success() })
+            Ok(ProcessOutcome {
+                reason: StopReason::Cancelled,
+                ..success()
+            })
         });
         for _ in 0..3 {
-            manager.handle(args(json!({"action":"start","verify":{"language":"rust"}}))).await.unwrap();
+            manager
+                .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+                .await
+                .unwrap();
         }
         until(|| running.load(Ordering::SeqCst) == 2).await;
         // Cloned request handlers may be dropped without stopping the service.
         drop(manager.clone());
-        assert!(manager.inner.state.lock().unwrap().tasks.iter().all(|t| t.context.check().is_ok()));
+        assert!(
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .iter()
+                .all(|t| t.context.check().is_ok())
+        );
         assert!(manager.shutdown_and_wait(Duration::from_secs(3)).await);
         assert_eq!(running.load(Ordering::SeqCst), 0);
         assert_eq!(manager.inner.workers.load(Ordering::SeqCst), 0);
-        assert!(manager.inner.state.lock().unwrap().tasks.iter().all(|t| t.status == "cancelled"));
+        assert!(
+            manager
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .tasks
+                .iter()
+                .all(|t| t.status == "cancelled")
+        );
         drop(manager);
         let manager = TaskManager::new(root.path()).unwrap();
         let state = manager.inner.state.lock().unwrap();
-        assert!(state.persistence_error.is_none(), "writer lock must be released");
+        assert!(
+            state.persistence_error.is_none(),
+            "writer lock must be released"
+        );
         assert_eq!(state.tasks.len(), 3);
         assert!(state.tasks.iter().all(|t| t.status == "cancelled"));
     }
@@ -991,9 +1025,15 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(2));
             }
             count.store(0, Ordering::SeqCst);
-            Ok(ProcessOutcome { reason: StopReason::Cancelled, ..success() })
+            Ok(ProcessOutcome {
+                reason: StopReason::Cancelled,
+                ..success()
+            })
         });
-        manager.handle(args(json!({"action":"start","verify":{"language":"rust"}}))).await.unwrap();
+        manager
+            .handle(args(json!({"action":"start","verify":{"language":"rust"}})))
+            .await
+            .unwrap();
         until(|| running.load(Ordering::SeqCst) == 1).await;
         let inner = Arc::downgrade(&manager.inner);
         drop(manager);

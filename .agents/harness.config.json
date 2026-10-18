@@ -1,6 +1,6 @@
 {
   "sqlServer": {
-    "enabled": true,
+    "enabled": false,
     "backend": "tiberius",
     "defaultSchema": "dbo",
     "maxRows": 50,
@@ -10,5 +10,20 @@
     "connection": {
       "source": "environment"
     }
+  },
+  "postgresql": {
+    "enabled": true,
+    "defaultSchema": "public",
+    "allowedSchemas": ["public"],
+    "maxRows": 50,
+    "timeoutSeconds": 15,
+    "maxChars": 8000,
+    "schemaCacheSeconds": 0,
+    "connection": {
+      "source": "environment",
+      "name": "HARNESS_SQL_CONNECTION_STRING",
+      "envFile": ".env"
+    },
+    "tls": { "mode": "disable" }
   }
 }
