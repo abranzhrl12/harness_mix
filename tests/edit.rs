@@ -7,6 +7,40 @@ use harness_domain::{
 };
 use serde_json::Value;
 
+#[test]
+fn multi_chunk_publishes_once_and_rejects_invalid_candidate_without_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let file = root.path().join("multi.rs");
+    let before = "fn first() { let x = 1; }\r\nfn second() { let y = 2; }\r\n";
+    std::fs::write(&file, before).unwrap();
+    let execute = |chunks: Value| {
+        let args: ReplaceArgs = serde_json::from_value(serde_json::json!({
+            "path":"multi.rs", "hash":hash(before.as_bytes()), "chunks":chunks
+        }))
+        .unwrap();
+        app.execute(Request::Replace(args))
+    };
+    for chunks in [
+        serde_json::json!([{"oldText":"1","newText":"10"},{"oldText":"2","newText":"{"}]),
+        serde_json::json!([{"oldText":"1","newText":"10"},{"oldText":"missing","newText":"20"}]),
+    ] {
+        let result = execute(chunks);
+        assert_eq!(result["state"], "error", "{result}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    }
+    let result = execute(serde_json::json!([
+        {"oldText":"2","newText":"20"},{"oldText":"1","newText":"10"}
+    ]));
+    let expected = "fn first() { let x = 10; }\r\nfn second() { let y = 20; }\r\n";
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["verified"], true);
+    assert_eq!(result["data"]["hash"], hash(expected.as_bytes()));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), expected);
+    let stale = execute(serde_json::json!([{"oldText":"10","newText":"30"}]));
+    assert_eq!(stale["diagnostics"][0]["code"], "STALE");
+}
+
 fn replace(
     app: &adapters::NativeApplication,
     path: &str,
@@ -17,6 +51,7 @@ fn replace(
     app.execute(Request::Replace(ReplaceArgs {
         path: path.into(),
         hash: hash(text.as_bytes()),
+        chunks: None,
         old_text: old.into(),
         new_text: new.into(),
         session: None,
@@ -101,6 +136,7 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
         Request::Replace(ReplaceArgs {
             path: "file.txt".into(),
             hash: hash(b"current"),
+            chunks: None,
             old_text: "current".into(),
             new_text: "next".into(),
             session: None,

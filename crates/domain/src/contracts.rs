@@ -80,17 +80,81 @@ pub struct VerifyArgs {
     pub session: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[serde(try_from = "ReplaceInput")]
 pub struct ReplaceArgs {
     pub path: String,
     pub hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunks: Option<Vec<ReplaceChunk>>,
+    #[serde(default, rename = "oldText")]
+    pub old_text: String,
+    #[serde(default, rename = "newText")]
+    pub new_text: String,
+    pub session: Option<String>,
+}
+
+impl Serialize for ReplaceArgs {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("path", &self.path)?;
+        map.serialize_entry("hash", &self.hash)?;
+        if let Some(chunks) = &self.chunks {
+            map.serialize_entry("chunks", chunks)?;
+        } else {
+            map.serialize_entry("oldText", &self.old_text)?;
+            map.serialize_entry("newText", &self.new_text)?;
+        }
+        map.serialize_entry("session", &self.session)?;
+        map.end()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ReplaceChunk {
     #[serde(rename = "oldText")]
     pub old_text: String,
     #[serde(rename = "newText")]
     pub new_text: String,
-    pub session: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+struct ReplaceInput {
+    path: String,
+    hash: String,
+    chunks: Option<Vec<ReplaceChunk>>,
+    #[serde(rename = "oldText")]
+    old_text: Option<String>,
+    #[serde(rename = "newText")]
+    new_text: Option<String>,
+    session: Option<String>,
+}
+
+impl TryFrom<ReplaceInput> for ReplaceArgs {
+    type Error = &'static str;
+
+    fn try_from(input: ReplaceInput) -> Result<Self, Self::Error> {
+        let (old_text, new_text) = match (&input.chunks, input.old_text, input.new_text) {
+            (Some(_), None, None) => (String::new(), String::new()),
+            (None, Some(old), Some(new)) => (old, new),
+            _ => return Err("Use either chunks or both oldText and newText"),
+        };
+        Ok(Self {
+            path: input.path,
+            hash: input.hash,
+            chunks: input.chunks,
+            old_text,
+            new_text,
+            session: input.session,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

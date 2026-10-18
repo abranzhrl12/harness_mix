@@ -220,6 +220,7 @@ mod tests {
             let args = ReplaceArgs {
                 path: "file.txt".into(),
                 hash: hash(b"old"),
+                chunks: None,
                 old_text: "old".into(),
                 new_text: "new".into(),
                 session: None,

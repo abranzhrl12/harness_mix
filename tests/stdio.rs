@@ -824,6 +824,19 @@ fn mcp_replace_publishes_and_rejects_a_stale_retry_without_node() {
         std::fs::read(root.path().join("edit.json")).unwrap(),
         b"{\"x\":2}\r\n"
     );
+    let multi = server.request(
+        5,
+        "tools/call",
+        json!({"name":"harness_replace","arguments":{
+            "path":"edit.json", "hash":harness_domain::hash(b"{\"x\":2}\r\n"),
+            "chunks":[{"oldText":"2","newText":"3"},{"oldText":"\"x\"","newText":"\"y\""}]
+        }}),
+    );
+    assert_eq!(multi["result"]["isError"], false, "{multi}");
+    assert_eq!(
+        std::fs::read(root.path().join("edit.json")).unwrap(),
+        b"{\"y\":3}\r\n"
+    );
 }
 
 #[test]

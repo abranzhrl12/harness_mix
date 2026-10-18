@@ -432,7 +432,7 @@ impl McpHarness {
         self.call(Request::ReadSymbol(args), context).await
     }
     #[tool(
-        description = "Reemplazo único con SHA-256 vigente y validación previa. Windows: Rust, JSON, Markdown y texto plano. Sin creación de archivos. Rechaza rutas protegidas. Una publicación iniciada se completa aunque llegue cancelación; releer tras desconexión antes de reintentar."
+        description = "Reemplazo con SHA-256 vigente: oldText/newText o chunks [{oldText,newText}] (1-128, 64000 bytes acumulados). Cada bloque debe ser único en el original; sin solapamientos. Una validación y publicación del resultado completo. Windows: Rust, JS/TS/JSX/TSX, JSON, Markdown y texto plano. Sin creación de archivos. Rechaza rutas protegidas. Una publicación iniciada se completa aunque llegue cancelación; releer tras desconexión antes de reintentar."
     )]
     async fn harness_replace(
         &self,
@@ -889,6 +889,7 @@ mod tests {
         let request = Request::Replace(harness_domain::contracts::ReplaceArgs {
             path: "file.txt".into(),
             hash: "unused-by-fake".into(),
+            chunks: None,
             old_text: "old".into(),
             new_text: "new".into(),
             session: Some("session".into()),

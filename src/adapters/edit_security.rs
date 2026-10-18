@@ -111,6 +111,7 @@ mod tests {
                 harness_domain::contracts::ReplaceArgs {
                     path: "file.txt".into(),
                     hash: harness_domain::hash(b"old"),
+                    chunks: None,
                     old_text: "old".into(),
                     new_text: "new".into(),
                     session: None,

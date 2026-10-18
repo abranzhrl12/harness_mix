@@ -1,5 +1,6 @@
 //! Pure edit planning, compatible with Node's newline-tolerant unique matching.
 use crate::{Failure, contracts::ReplaceArgs, hash};
+use std::borrow::Cow;
 
 pub const MAX_FILE: usize = 2 * 1024 * 1024;
 
@@ -17,11 +18,27 @@ fn original_offset(bytes: &[u8], normalized_offset: usize) -> usize {
 }
 
 pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
-    if args.old_text.is_empty()
-        || args.old_text == args.new_text
-        || args.old_text.len().saturating_add(args.new_text.len()) > 64000
-    {
-        return Err(("EDIT", "Empty, identical or oversized replacement"));
+    let chunks: Vec<(&str, &str)> = match &args.chunks {
+        Some(chunks) => {
+            if !args.old_text.is_empty() || !args.new_text.is_empty() {
+                return Err(("EDIT", "Use chunks or oldText/newText, not both"));
+            }
+            chunks
+                .iter()
+                .map(|c| (c.old_text.as_str(), c.new_text.as_str()))
+                .collect()
+        }
+        None => vec![(&args.old_text, &args.new_text)],
+    };
+    if chunks.is_empty() || chunks.len() > 128 {
+        return Err(("EDIT", "Expected between 1 and 128 replacement chunks"));
+    }
+    let mut budget = 0usize;
+    for &(old, new) in &chunks {
+        budget = budget.saturating_add(old.len()).saturating_add(new.len());
+        if old.is_empty() || old == new || budget > 64000 {
+            return Err(("EDIT", "Empty, identical or oversized replacement"));
+        }
     }
     if args.hash.len() != 64 || !args.hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(("EDIT", "Expected a SHA-256 hash"));
@@ -36,36 +53,65 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     if text.contains('\0') {
         return Err(("ENCODING", "Binary files cannot be edited"));
     }
-    let normalized = text.replace("\r\n", "\n");
-    let needle = args.old_text.replace("\r\n", "\n");
-    let first = normalized
-        .find(&needle)
-        .ok_or(("MATCH", "Original text must appear exactly once"))?;
-    let next = first + normalized[first..].chars().next().unwrap().len_utf8();
-    if normalized[next..].contains(&needle) {
-        return Err(("MATCH", "Original text must appear exactly once"));
-    }
-    let start = original_offset(text.as_bytes(), first);
-    let end = original_offset(text.as_bytes(), first + needle.len());
-    let matched = &text[start..end];
-    let eol = [matched, text]
-        .into_iter()
-        .find_map(|part| {
-            part.find('\n').map(|i| {
-                if i > 0 && part.as_bytes()[i - 1] == b'\r' {
-                    "\r\n"
-                } else {
-                    "\n"
-                }
+    let normalized = normalize(text);
+    let mut edits = Vec::with_capacity(chunks.len());
+    for (old, new) in chunks {
+        let needle = normalize(old);
+        let first = normalized
+            .find(needle.as_ref())
+            .ok_or(("MATCH", "Original text must appear exactly once"))?;
+        let next = first + normalized[first..].chars().next().unwrap().len_utf8();
+        if normalized[next..].contains(needle.as_ref()) {
+            return Err(("MATCH", "Original text must appear exactly once"));
+        }
+        let (start, end) = if matches!(normalized, Cow::Borrowed(_)) {
+            (first, first + needle.len())
+        } else {
+            (
+                original_offset(text.as_bytes(), first),
+                original_offset(text.as_bytes(), first + needle.len()),
+            )
+        };
+        let matched = &text[start..end];
+        let eol = [matched, text]
+            .into_iter()
+            .find_map(|part| {
+                part.find('\n').map(|i| {
+                    if i > 0 && part.as_bytes()[i - 1] == b'\r' {
+                        "\r\n"
+                    } else {
+                        "\n"
+                    }
+                })
             })
-        })
-        .unwrap_or("\n");
-    let replacement = args.new_text.replace("\r\n", "\n").replace('\n', eol);
-    let size = text.len() - (end - start) + replacement.len();
+            .unwrap_or("\n");
+        let replacement = normalize(new).replace('\n', eol);
+        if replacement == matched {
+            return Err(("EDIT", "Replacement does not change the file"));
+        }
+        edits.push((start, end, replacement));
+    }
+    edits.sort_unstable_by_key(|edit| edit.0);
+    if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(("MATCH", "Replacement chunks overlap"));
+    }
+    let removed: usize = edits.iter().map(|(start, end, _)| end - start).sum();
+    let added: usize = edits
+        .iter()
+        .map(|(_, _, replacement)| replacement.len())
+        .sum();
+    let size = text.len() - removed + added;
     if size > MAX_FILE {
         return Err(("SIZE", "Updated file exceeds 2 MiB"));
     }
-    let updated = format!("{}{}{}", &text[..start], replacement, &text[end..]);
+    let mut updated = String::with_capacity(size);
+    let mut cursor = 0;
+    for (start, end, replacement) in edits {
+        updated.push_str(&text[cursor..start]);
+        updated.push_str(&replacement);
+        cursor = end;
+    }
+    updated.push_str(&text[cursor..]);
     if updated == text {
         return Err(("EDIT", "Replacement does not change the file"));
     }
@@ -75,13 +121,129 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     Ok(updated)
 }
 
+fn normalize(text: &str) -> Cow<'_, str> {
+    if text.contains("\r\n") {
+        Cow::Owned(text.replace("\r\n", "\n"))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn multi(text: &str, chunks: &[(&str, &str)]) -> ReplaceArgs {
+        let mut args = args(text, "", "");
+        args.chunks = Some(
+            chunks
+                .iter()
+                .map(|(old, new)| crate::contracts::ReplaceChunk {
+                    old_text: (*old).into(),
+                    new_text: (*new).into(),
+                })
+                .collect(),
+        );
+        args
+    }
+
+    #[test]
+    fn wire_modes_are_exclusive_and_round_trip_deletions() {
+        for args in [args("abc", "a", ""), multi("abc", &[("a", "")])] {
+            let value = serde_json::to_value(&args).unwrap();
+            let decoded: ReplaceArgs = serde_json::from_value(value).unwrap();
+            assert_eq!(prepare(b"abc", &decoded).unwrap(), "bc");
+        }
+        for fields in [
+            serde_json::json!({"oldText":"a"}),
+            serde_json::json!({"chunks":[],"oldText":"","newText":""}),
+            serde_json::json!({"chunks":[{"oldText":"a"}]}),
+        ] {
+            let mut value = serde_json::json!({"path":"file.txt","hash":hash(b"abc")});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            assert!(serde_json::from_value::<ReplaceArgs>(value).is_err());
+        }
+        assert_eq!(
+            prepare(b"ab", &multi("ab", &[("a", "x"), ("b", "y")])).unwrap(),
+            "xy"
+        );
+        assert_eq!(
+            prepare(b"a", &multi("a", &vec![("a", "x"); 129]))
+                .unwrap_err()
+                .0,
+            "EDIT"
+        );
+        let original = "a".repeat(MAX_FILE - 1) + "b";
+        assert_eq!(
+            prepare(original.as_bytes(), &multi(&original, &[("b", "bb")]))
+                .unwrap_err()
+                .0,
+            "SIZE"
+        );
+    }
+
+    #[test]
+    fn multiple_chunks_use_original_offsets_and_preserve_eol() {
+        let text = "\u{feff}🙂\r\nalpha\r\nbeta\r\ngamma\nend";
+        let args = multi(text, &[("gamma", "G\nH"), ("alpha\nbeta", "A\nB")]);
+        assert_eq!(
+            prepare(text.as_bytes(), &args).unwrap(),
+            "\u{feff}🙂\r\nA\r\nB\r\nG\r\nH\nend"
+        );
+        let args = multi("abc", &[("a", "b"), ("b", "a")]);
+        assert_eq!(prepare(b"abc", &args).unwrap(), "bac");
+    }
+
+    #[test]
+    fn multi_rejects_ambiguity_overlap_missing_and_mixed_modes() {
+        for chunks in [
+            vec![("aa", "x")],
+            vec![("aaa", "x"), ("aa", "y")],
+            vec![("missing", "x")],
+            vec![("a", "x"), ("a", "y")],
+        ] {
+            assert_eq!(
+                prepare(b"aaa", &multi("aaa", &chunks)).unwrap_err().0,
+                "MATCH"
+            );
+        }
+        assert_eq!(
+            prepare(b"abc", &multi("abc", &[("ab", "x"), ("bc", "y")]))
+                .unwrap_err()
+                .0,
+            "MATCH"
+        );
+        let mut args = multi("abc", &[("a", "x")]);
+        args.old_text = "a".into();
+        assert_eq!(prepare(b"abc", &args).unwrap_err().0, "EDIT");
+        assert_eq!(prepare(b"abc", &multi("abc", &[])).unwrap_err().0, "EDIT");
+        assert_eq!(
+            prepare(b"abc", &multi("abc", &[("a", "\0")]))
+                .unwrap_err()
+                .0,
+            "EDIT"
+        );
+        assert_eq!(
+            prepare(
+                b"abc",
+                &multi("abc", &[("a", "x"), ("b", &"z".repeat(64000))])
+            )
+            .unwrap_err()
+            .0,
+            "EDIT"
+        );
+        assert_eq!(
+            prepare(b"abd", &multi("abc", &[("a", "x")])).unwrap_err().0,
+            "STALE"
+        );
+    }
     fn args(text: &str, old: &str, new: &str) -> ReplaceArgs {
         ReplaceArgs {
             path: "file.txt".into(),
             hash: hash(text.as_bytes()),
+            chunks: None,
             old_text: old.into(),
             new_text: new.into(),
             session: None,
