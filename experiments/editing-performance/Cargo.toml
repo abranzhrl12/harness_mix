@@ -1,0 +1,20 @@
+[package]
+name = "harness-editing-performance"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# Isolated measurements; memchr is not added to production dependencies.
+[workspace]
+
+[dependencies]
+harness-domain = { path = "../../crates/domain" }
+memchr = "=2.8.3"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

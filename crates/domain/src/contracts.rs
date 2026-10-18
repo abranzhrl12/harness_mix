@@ -362,10 +362,8 @@ pub enum BatchTool {
     GitDiff,
     #[serde(rename = "harness_sql")]
     Sql,
-    #[serde(rename = "harness_xlsx_inspect")]
-    XlsxInspect,
-    #[serde(rename = "harness_xlsx_read")]
-    XlsxRead,
+    #[serde(rename = "harness_xlsx")]
+    Xlsx,
     #[serde(rename = "harness_svg")]
     Svg,
 }
@@ -401,8 +399,8 @@ impl BatchJob {
             BatchTool::GitDiff => serde_json::from_value(value).map(Request::GitDiff),
             BatchTool::Sql => serde_json::from_value::<crate::sql::SqlArgs>(value)
                 .map(crate::sql::SqlArgs::into_request),
-            BatchTool::XlsxInspect => serde_json::from_value(value).map(Request::XlsxInspect),
-            BatchTool::XlsxRead => serde_json::from_value(value).map(Request::XlsxRead),
+            BatchTool::Xlsx => serde_json::from_value::<crate::xlsx::XlsxArgs>(value)
+                .map(crate::xlsx::XlsxArgs::into_request),
             BatchTool::Svg => serde_json::from_value(value).map(Request::Svg),
         };
         decoded.map_err(|_| ("ARGUMENT", "Invalid batch child arguments; no jobs started"))
@@ -532,8 +530,7 @@ impl Request {
             Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
                 "harness_sql"
             }
-            Self::XlsxInspect(_) => "harness_xlsx_inspect",
-            Self::XlsxRead(_) => "harness_xlsx_read",
+            Self::XlsxInspect(_) | Self::XlsxRead(_) => "harness_xlsx",
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) => "harness_process_status",

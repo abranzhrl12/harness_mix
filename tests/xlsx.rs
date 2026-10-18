@@ -118,13 +118,13 @@ fn test_xlsx_batch_execution() {
         serde_json::from_value::<BatchArgs>(json!({
             "jobs": [
                 {
-                    "tool": "harness_xlsx_inspect",
+                    "tool": "harness_xlsx",
                     "arguments": {
                         "path": "reporte.xlsx"
                     }
                 },
                 {
-                    "tool": "harness_xlsx_read",
+                    "tool": "harness_xlsx",
                     "arguments": {
                         "path": "reporte.xlsx",
                         "sheet": "Metricas"

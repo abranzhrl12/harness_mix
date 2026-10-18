@@ -4,17 +4,26 @@ use std::borrow::Cow;
 
 pub const MAX_FILE: usize = 2 * 1024 * 1024;
 
-fn original_offset(bytes: &[u8], normalized_offset: usize) -> usize {
-    let (mut raw, mut normalized) = (0, 0);
-    while normalized < normalized_offset {
-        raw += if bytes[raw..].starts_with(b"\r\n") {
-            2
-        } else {
-            1
-        };
-        normalized += 1;
+#[derive(Default)]
+struct OriginalOffsets {
+    raw: usize,
+    normalized: usize,
+}
+
+impl OriginalOffsets {
+    // Requests must be monotonic; sorted, non-overlapping edit ranges guarantee it.
+    fn at(&mut self, bytes: &[u8], offset: usize) -> usize {
+        debug_assert!(offset >= self.normalized);
+        while self.normalized < offset {
+            self.raw += if bytes[self.raw..].starts_with(b"\r\n") {
+                2
+            } else {
+                1
+            };
+            self.normalized += 1;
+        }
+        self.raw
     }
-    raw
 }
 
 pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
@@ -64,15 +73,23 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
         if normalized[next..].contains(needle.as_ref()) {
             return Err(("MATCH", "Original text must appear exactly once"));
         }
-        let (start, end) = if matches!(normalized, Cow::Borrowed(_)) {
-            (first, first + needle.len())
+        edits.push((first, first + needle.len(), Cow::Borrowed(new)));
+    }
+    edits.sort_unstable_by_key(|edit| edit.0);
+    if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(("MATCH", "Replacement chunks overlap"));
+    }
+    let mut offsets = OriginalOffsets::default();
+    for (start, end, new) in &mut edits {
+        let (raw_start, raw_end) = if matches!(normalized, Cow::Borrowed(_)) {
+            (*start, *end)
         } else {
             (
-                original_offset(text.as_bytes(), first),
-                original_offset(text.as_bytes(), first + needle.len()),
+                offsets.at(text.as_bytes(), *start),
+                offsets.at(text.as_bytes(), *end),
             )
         };
-        let matched = &text[start..end];
+        let matched = &text[raw_start..raw_end];
         let eol = [matched, text]
             .into_iter()
             .find_map(|part| {
@@ -85,15 +102,13 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
                 })
             })
             .unwrap_or("\n");
-        let replacement = normalize(new).replace('\n', eol);
+        let replacement = normalize(new.as_ref()).replace('\n', eol);
         if replacement == matched {
             return Err(("EDIT", "Replacement does not change the file"));
         }
-        edits.push((start, end, replacement));
-    }
-    edits.sort_unstable_by_key(|edit| edit.0);
-    if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) {
-        return Err(("MATCH", "Replacement chunks overlap"));
+        *start = raw_start;
+        *end = raw_end;
+        *new = Cow::Owned(replacement);
     }
     let removed: usize = edits.iter().map(|(start, end, _)| end - start).sum();
     let added: usize = edits
@@ -132,6 +147,40 @@ fn normalize(text: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn monotonic_offsets_match_independent_normalized_prefixes() {
+        for text in [
+            "",
+            "\r\n",
+            "🙂\r\na\nñ\r\nb\r",
+            "\r\n\r\nlast\r\n",
+            "no newlines",
+        ] {
+            let normalized = normalize(text);
+            let mut offsets = OriginalOffsets::default();
+            for offset in 0..=normalized.len() {
+                let expected = (0..=text.len())
+                    .find(|&raw| {
+                        // Only compare complete normalization boundaries, not half a CRLF.
+                        !(raw > 0
+                            && text.as_bytes().get(raw - 1) == Some(&b'\r')
+                            && text.as_bytes().get(raw) == Some(&b'\n'))
+                            && raw
+                                - text.as_bytes()[..raw]
+                                    .windows(2)
+                                    .filter(|pair| *pair == b"\r\n")
+                                    .count()
+                                == offset
+                    })
+                    .unwrap();
+                assert_eq!(
+                    offsets.at(text.as_bytes(), offset),
+                    expected,
+                    "{text:?}, offset={offset}"
+                );
+            }
+        }
+    }
     fn multi(text: &str, chunks: &[(&str, &str)]) -> ReplaceArgs {
         let mut args = args(text, "", "");
         args.chunks = Some(

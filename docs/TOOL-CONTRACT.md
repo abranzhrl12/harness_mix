@@ -37,7 +37,8 @@ Generated from `contracts/tool-contract.json`. Contract version: 2.1.0.
 | harness_tasks | node, rust |
 | harness_verify | node, rust |
 | harness_web_check | node |
-| harness_xlsx_inspect | node, rust |
-| harness_xlsx_read | node, rust |
+| harness_xlsx | rust |
+| harness_xlsx_inspect | node |
+| harness_xlsx_read | node |
 
 Schemas for explore and data_query are consumed directly by native MCP. Node integration must consume the same definitions; backend differences remain explicit.

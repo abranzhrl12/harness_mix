@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 31);
+    assert_eq!(tools.len(), 27);
     assert!(
         tools
             .iter()
@@ -1018,7 +1018,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 31);
+    assert_eq!(names.len(), 27);
     let mut actual = names.clone();
     actual.sort();
     let expected = harness_domain::tool_contract::tool_names("rust");
@@ -1050,7 +1050,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     assert!(names.contains(&"harness_logs"));
     assert!(names.contains(&"harness_sql"));
     assert!(!names.iter().any(|name| name.starts_with("harness_sql_")));
-    assert!(names.contains(&"harness_xlsx_inspect") && names.contains(&"harness_xlsx_read"));
+    assert!(names.contains(&"harness_xlsx"));
+    assert!(!names.iter().any(|name| name.starts_with("harness_xlsx_")));
     assert!(names.contains(&"harness_svg"));
     let sizes=server.request(27,"tools/call",json!({"name":"harness_search","arguments":{"kind":"file_size","scope":"example.txt","minLines":1}}));
     assert_eq!(

@@ -518,25 +518,14 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Inspecciona metadatos y hojas de un libro XLSX de solo lectura sin volcar filas (hash SHA-256, hojas, dimensiones)."
+        description = "Libro XLSX de solo lectura. Si no se especifica `sheet`, inspecciona metadatos, nombres de hojas y dimensiones sin volcar filas. Si se proporciona `sheet`, lee un rango acotado o paginado de celdas (range, rowOffset, pageSize, formulas opcionales)."
     )]
-    async fn harness_xlsx_inspect(
+    async fn harness_xlsx(
         &self,
-        Parameters(args): Parameters<harness_domain::xlsx::XlsxInspectArgs>,
+        Parameters(args): Parameters<harness_domain::xlsx::XlsxArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::XlsxInspect(args), context).await
-    }
-
-    #[tool(
-        description = "Lee un rango paginado y acotado de celdas de una hoja XLSX en formato matricial/JSON."
-    )]
-    async fn harness_xlsx_read(
-        &self,
-        Parameters(args): Parameters<harness_domain::xlsx::XlsxReadArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::XlsxRead(args), context).await
+        self.call(args.into_request(), context).await
     }
 
     #[tool(

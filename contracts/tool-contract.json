@@ -175,8 +175,7 @@
         "harness_sql_query",
         "harness_git_status",
         "harness_git_diff",
-        "harness_xlsx_inspect",
-        "harness_xlsx_read",
+        "harness_xlsx",
         "harness_process_status"
       ],
       "exploreQuery": "natural-language-or-symbol",
@@ -193,8 +192,7 @@
         "harness_git_status",
         "harness_git_diff",
         "harness_sql",
-        "harness_xlsx_inspect",
-        "harness_xlsx_read",
+        "harness_xlsx",
         "harness_svg"
       ],
       "exploreQuery": "exact-symbol",
@@ -444,18 +442,22 @@
         "node"
       ]
     },
+        {
+      "name": "harness_xlsx",
+      "backends": [
+        "rust"
+      ]
+    },
     {
       "name": "harness_xlsx_inspect",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     },
     {
       "name": "harness_xlsx_read",
       "backends": [
-        "node",
-        "rust"
+        "node"
       ]
     }
   ],
