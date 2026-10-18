@@ -6,7 +6,31 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
-    let collected: Vec<_> = args.by_ref().collect();
+    let mut collected: Vec<_> = args.by_ref().collect();
+    if collected.len() == 1 && (collected[0] == "--help" || collected[0] == "-h") {
+        println!(
+            "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --init-index            Crear un índice nuevo\n  --sync                 Sincronizar el índice existente\n  --reindex              Reextraer el índice existente\n  --sync-plan            Mostrar un plan sin modificar el índice\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda"
+        );
+        return Ok(());
+    }
+    if collected.first().is_some_and(|flag| {
+        [
+            "--init-index",
+            "--sync",
+            "--reindex",
+            "--sync-plan",
+            "--sync-file",
+            "--persist-logs",
+        ]
+        .iter()
+        .any(|option| flag == *option)
+    }) {
+        let root = auto_detect_workspace()?;
+        collected.splice(
+            0..0,
+            [std::ffi::OsString::from("--root"), root.into_os_string()],
+        );
+    }
     if let [root_flag, root, sync_flag, relative, config_flag, config] = collected.as_slice()
         && root_flag == "--root"
         && sync_flag == "--sync-file"
@@ -102,7 +126,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (PathBuf::from(root), true)
         }
         (None, None, None, None) => {
-            let root = auto_detect_workspace().unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let root = auto_detect_workspace()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             (root, false)
         }
         (Some(flag), None, None, None) if flag == "--version" => {

@@ -99,4 +99,4 @@ this feature does not rebuild or certify that real index automatically.
 - https://tc39.es/ecma262/2026/multipage/ecmascript-language-scripts-and-modules.html#sec-source-text-module-records-resolveexport
 - https://github.com/rolldown/rolldown/blob/main/crates/rolldown/src/stages/link_stage/bind_imports_and_exports.rs
 - [Named profile](NAMED-REEXPORTS.md)
-- [Rolldown experiment](experiments/rolldown-linker-evaluation/README.md)
+- [Rolldown experiment](../experiments/rolldown-linker-evaluation/README.md)

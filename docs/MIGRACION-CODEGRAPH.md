@@ -73,7 +73,7 @@ Un commit confirmado no significa que todo el proyecto esté sincronizado.
 - Proveedor: CodeGraph v1.6.2.
 - Commit fijado: `6560052a6f856855d3f71eee838fd66ccfa4285d`.
 - Licencia MIT conservada.
-- Copia y adaptación de entrada: [vendor/codegraph-native](vendor/codegraph-native/UPSTREAM.md).
+- Copia y adaptación de entrada: [vendor/codegraph-native](../vendor/codegraph-native/UPSTREAM.md).
 - Los walkers seleccionados se conservan; la entrada N-API se sustituye por una biblioteca Rust ordinaria.
 - No hay fallback oculto a Node en la extracción nativa.
 
@@ -133,7 +133,7 @@ descubrimiento sigue siendo parcial: no prueba que no existan alternativas sin i
 
 ### Evaluación de bibliotecas: Oxc sí ayuda
 
-Se añadió [experiments/oxc-evaluation](experiments/oxc-evaluation/README.md), aislado
+Se añadió [experiments/oxc-evaluation](../experiments/oxc-evaluation/README.md), aislado
 del runtime y con lockfile propio. Pasaron 14 pruebas ordinarias, una opt-in de
 contraste con CodeGraph y Clippy estricto del experimento. El resolver funciona
 sobre archivos sintéticos en memoria, sin acceso al proyecto original.

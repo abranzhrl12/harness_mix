@@ -174,7 +174,7 @@ esas reglas manualmente ni incluir Rolldown completo.
 La evaluación también detecta diferencias de prioridad `.js`/`.ts` y un conflicto
 de declaraciones TS que necesita validación adicional. No certifica paridad ni
 habilita estas capacidades en el harness. Resultados, versiones, límites y
-reproducción en [el informe](experiments/oxc-evaluation/README.md).
+reproducción en [el informe](../experiments/oxc-evaluation/README.md).
 
 ### Bloque anterior de runtime: imports relativos con nombre y alias JS/TS
 

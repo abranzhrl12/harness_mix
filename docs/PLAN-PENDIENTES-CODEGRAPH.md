@@ -180,8 +180,8 @@ Hasta entonces, llamarla sincronización nativa parcial.
 ## Referencias para la implementación
 
 - [Estado actual](MIGRACION-CODEGRAPH.md).
-- [Evaluación Oxc y diferencias detectadas](experiments/oxc-evaluation/README.md).
-- [Procedencia del kernel reutilizado](vendor/codegraph-native/UPSTREAM.md).
+- [Evaluación Oxc y diferencias detectadas](../experiments/oxc-evaluation/README.md).
+- [Procedencia del kernel reutilizado](../vendor/codegraph-native/UPSTREAM.md).
 - [Oxc resolver: configuración y opciones](https://github.com/oxc-project/oxc-resolver/blob/main/README.md).
 - [Oxc: registros de módulos](https://github.com/oxc-project/oxc/blob/main/crates/oxc_syntax/src/module_record.rs).
 - [ast-grep: búsqueda estructural](https://ast-grep.github.io/guide/introduction).
