@@ -17,7 +17,8 @@ fn snapshot(
     project: &Project,
     path: &str,
     context: &OperationContext,
-) -> Result<(String, String, Vec<Symbol>, &'static str), Failure> {
+    include_structure: bool,
+) -> Result<(String, String, Vec<Symbol>, &'static str, Option<Value>), Failure> {
     let ext = Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -28,6 +29,7 @@ fn snapshot(
         "rs" => "rust",
         "js" | "mjs" | "cjs" | "jsx" => "javascript",
         "ts" | "mts" | "cts" | "tsx" => "typescript",
+        "vue" => "vue",
         _ => {
             return Err((
                 "PARSER_UNAVAILABLE",
@@ -40,11 +42,19 @@ fn snapshot(
     let digest = hash(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not valid UTF-8"))?;
 
+    let mut structure = None;
     let symbols = match lang {
         "rust" => rust_symbols::collect(&text, &digest, context)?,
+        "vue" => {
+            let document = super::vue_structure::parse(&text, &digest, context)?;
+            if include_structure {
+                structure = Some(document.structure(&text));
+            }
+            document.symbols
+        }
         _ => super::ts_symbols::collect(path, &text, &digest, context)?,
     };
-    Ok((text, digest, symbols, lang))
+    Ok((text, digest, symbols, lang, structure))
 }
 
 pub(super) fn outline(
@@ -64,7 +74,7 @@ pub(super) fn outline(
             "maxChars must be 1000..16000; query limited to 1000 bytes",
         ));
     }
-    let (_, digest, all, lang) = snapshot(project, &args.path, context)?;
+    let (_, digest, all, lang, structure) = snapshot(project, &args.path, context, true)?;
     let mut ranked: Vec<_> = all.iter().enumerate().collect();
     let query = args.query.as_deref().unwrap_or("").to_lowercase();
     if !query.is_empty() {
@@ -104,6 +114,9 @@ pub(super) fn outline(
         "rust" => {
             "declarations, inline modules, impl and trait members; no local items or macro expansion"
         }
+        "vue" => {
+            "native SFC/template structural parser, JS/TS AST declarations and conservative CSS/SCSS selector associations; not Vue compiler/type checking"
+        }
         _ => "declarations, classes, interfaces, types, enums and members; no local block items",
     };
     let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,
@@ -112,6 +125,18 @@ pub(super) fn outline(
         "inventory":{"total":all.len(),"returned":selected.len(),"omitted":omitted,"byKind":by_kind}});
     if omitted > 0 {
         result["_detail"] = json!({"path":args.path,"hash":digest,"items":all});
+    }
+    if let Some(structure) = structure {
+        // The full structural result is recoverable even when the inline budget is small.
+        if utf16_len(&structure.to_string()) + used <= max {
+            result["structure"] = structure;
+        } else {
+            result["structure"] =
+                json!({"omitted":true,"reason":"maxChars","recoverable":"detail"});
+            result["_detail"] =
+                json!({"path":args.path,"hash":digest,"items":all,"structure":structure});
+            result["_complete"] = json!(false);
+        }
     }
     Ok(result)
 }
@@ -131,7 +156,7 @@ pub(super) fn read_symbol(
     {
         return Err(("ARGUMENT", "Invalid symbol selector"));
     }
-    let (text, digest, all, _) = snapshot(project, &args.path, context)?;
+    let (text, digest, all, _, _) = snapshot(project, &args.path, context, false)?;
     let matches: Vec<_> = all
         .iter()
         .filter(|s| {

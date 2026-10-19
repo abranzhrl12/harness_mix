@@ -109,6 +109,79 @@ fn relevant(root: &Path, event: Event, pending: &mut Pending) {
     }
 }
 
+// Keep a bounded diagnostic report instead of discarding the reason a full
+// reconciliation was incomplete. File bodies and per-file reports stay out.
+fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value {
+    let mut report = json!({"complete":false,"retryable":false,"failure":null});
+    match result {
+        Ok(value) => {
+            for key in [
+                "selectedScopeApplied",
+                "discoveryComplete",
+                "uncheckedFiles",
+                "unsupportedChangedFiles",
+                "restrictedIndexedFiles",
+                "restrictedIndexedReasons",
+                "nativeFilesRemaining",
+                "filesProcessed",
+                "changedFilesCommitted",
+            ] {
+                if let Some(value) = value.get(key) {
+                    report[key] = value.clone();
+                }
+            }
+            if let Some(failure) = value.get("failure").filter(|v| !v.is_null()) {
+                report["failure"] = failure.clone();
+            }
+            report["complete"] = json!(
+                value["selectedScopeApplied"] == true
+                    && report["failure"].is_null()
+                    && (!full
+                        || (value["discoveryComplete"] == true
+                            && value["uncheckedFiles"] == 0
+                            && value["unsupportedChangedFiles"] == 0))
+            );
+        }
+        Err((code, message)) => {
+            report["failure"] = json!({"code":code,"message":message});
+        }
+    }
+    if report["complete"] != true {
+        let code = report["failure"]["code"]
+            .as_str()
+            .unwrap_or("SYNC_INCOMPLETE");
+        // Coverage gaps and deterministic incompatibilities require a change,
+        // not another identical full inventory after a short backoff.
+        let retryable = !matches!(
+            code,
+            "SYNC_INCOMPLETE"
+                | "SYNC_LANGUAGE"
+                | "SYNC_UNSUPPORTED_RELATION"
+                | "SYNC_LEGACY_REFERENCE"
+                | "SYNC_SCHEMA"
+                | "SYNC_CONFIG"
+                | "SYNC_LIMIT"
+                | "SYNC_INTEGRITY"
+                | "SYNC_COMMIT_UNCERTAIN"
+                | "ENCODING"
+                | "PATH"
+                | "LIMIT"
+                | "CANCELLED"
+        );
+        report["lastError"] = json!(code);
+        report["retryable"] = json!(retryable);
+    } else {
+        report["lastError"] = Value::Null;
+    }
+    report
+}
+
+// At most five attempts between source events/periodic reconciliations.
+fn retry_delay(report: &Value, failures: u32) -> Option<Duration> {
+    (report["retryable"] == true && (1..5).contains(&failures))
+        .then(|| Duration::from_secs(5_u64 << (failures - 1)))
+}
+
 impl IndexWatch {
     pub(crate) fn start(root: &Path) -> Result<Self, Failure> {
         use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
@@ -188,7 +261,7 @@ impl IndexWatch {
                 let (mutex, wake) = &*worker_queue;
                 let mut next_full = Instant::now();
                 let mut retry_at = Instant::now();
-                let mut backoff = Duration::from_secs(5);
+                let mut consecutive_failures = 0_u32;
                 let mut retry_revision = 0;
                 loop {
                     let (full, paths) = {
@@ -201,6 +274,8 @@ impl IndexWatch {
                             // A new save bypasses the backoff of an older error.
                             if pending.revision != retry_revision {
                                 retry_at = now;
+                                consecutive_failures = 0;
+                                retry_revision = pending.revision;
                             }
                             let due = if now >= next_full {
                                 next_full
@@ -209,6 +284,9 @@ impl IndexWatch {
                             }
                             .max(retry_at);
                             if now >= due {
+                                if now >= next_full && !pending.full {
+                                    consecutive_failures = 0;
+                                }
                                 let full = pending.full || now >= next_full;
                                 let paths = std::mem::take(&mut pending.paths);
                                 pending.full = false;
@@ -234,14 +312,19 @@ impl IndexWatch {
                     } else {
                         index_store::sync_changed_paths(&root, &paths, &context)
                     };
-                    let successful = result.as_ref().is_ok_and(|r| {
-                        r["selectedScopeApplied"] == true
-                            && (!full
-                                || (r["discoveryComplete"] == true
-                                    && r["uncheckedFiles"] == 0
-                                    && r["unsupportedChangedFiles"] == 0
-                                    && r["restrictedIndexedFiles"] == 0))
-                    });
+                    // Worktree fallback may run a full scan inside a path batch.
+                    let full = full
+                        || result
+                            .as_ref()
+                            .is_ok_and(|r| r.get("discoveryComplete").is_some());
+                    let report = sync_report(&result, full);
+                    let successful = report["complete"] == true;
+                    consecutive_failures = if successful {
+                        0
+                    } else {
+                        consecutive_failures.saturating_add(1)
+                    };
+                    let retry = retry_delay(&report, consecutive_failures);
                     if full {
                         next_full = Instant::now() + RECONCILE;
                     }
@@ -257,30 +340,29 @@ impl IndexWatch {
                         .unwrap_or(0);
                     value["changedFilesCommitted"] =
                         json!(value["changedFilesCommitted"].as_u64().unwrap_or(0) + changed);
-                    value["lastError"] = if successful {
-                        Value::Null
+                    value["lastError"] = report["lastError"].clone();
+                    value["lastResult"] = report.clone();
+                    if full {
+                        value["lastReconciliation"] = report;
+                    }
+                    value["consecutiveFailures"] = json!(consecutive_failures);
+                    value["retryScheduled"] = json!(retry.is_some());
+                    value["retryDelayMs"] =
+                        retry.map(|d| json!(d.as_millis())).unwrap_or(Value::Null);
+                    // A healthy incremental batch must not erase a coverage gap.
+                    let incomplete = value["lastReconciliation"]["complete"] == false;
+                    value["state"] = json!(if retry.is_some() {
+                        "retrying"
+                    } else if !successful || incomplete {
+                        "degraded"
                     } else {
-                        json!(
-                            result
-                                .as_ref()
-                                .err()
-                                .map(|e| e.0)
-                                .or_else(|| result
-                                    .as_ref()
-                                    .ok()
-                                    .and_then(|r| r["failure"]["code"].as_str()))
-                                .unwrap_or("SYNC_INCOMPLETE")
-                        )
-                    };
-                    value["state"] = json!(if successful { "idle" } else { "retrying" });
+                        "idle"
+                    });
                     drop(value);
-                    if successful {
-                        backoff = Duration::from_secs(5);
-                        retry_at = Instant::now();
-                    } else {
-                        retry_at = Instant::now() + backoff;
-                        backoff = (backoff * 2).min(Duration::from_secs(60));
+                    if let Some(delay) = retry {
+                        retry_at = Instant::now() + delay;
                         let mut pending = mutex.lock().unwrap_or_else(|e| e.into_inner());
+                        let new_events = pending.revision != retry_revision;
                         if full {
                             pending.reconcile();
                         } else {
@@ -288,7 +370,15 @@ impl IndexWatch {
                                 pending.add(path);
                             }
                         }
-                        retry_revision = pending.revision;
+                        // Do not absorb a save received while sync was running
+                        // into the synthetic retry's revision/backoff.
+                        if !new_events {
+                            retry_revision = pending.revision;
+                        }
+                    } else {
+                        // Keep notifications received during this operation. No
+                        // synthetic retry: wait for an event or periodic scan.
+                        retry_at = Instant::now();
                     }
                 }
             })
@@ -366,6 +456,12 @@ mod tests {
         assert_eq!(watch.status.lock().unwrap()["reconciliations"], 1);
         std::fs::write(root.path().join("a.rs"), "fn incomplete( {").unwrap();
         wait(|| watch.status.lock().unwrap()["state"] == "retrying");
+        {
+            let status = watch.status.lock().unwrap();
+            assert_eq!(status["lastResult"]["failure"]["path"], "a.rs");
+            assert!(status["lastResult"]["failure"]["message"].is_string());
+            assert_eq!(status["retryScheduled"], true);
+        }
         // Keep the last confirmed graph while the editor holds incomplete syntax.
         assert_eq!(
             count(root.path(), "SELECT count(*) FROM nodes WHERE name='after'"),
@@ -407,6 +503,115 @@ mod tests {
         drop(watch);
         let restarted = IndexWatch::start(root.path()).unwrap();
         wait(|| restarted.status.lock().unwrap()["state"] == "idle");
+    }
+
+    #[test]
+    fn incomplete_coverage_waits_for_events_and_retains_its_diagnosis() {
+        let root = tempfile::tempdir().unwrap();
+        index_store::initialize(root.path(), &OperationContext::default()).unwrap();
+        std::fs::write(root.path().join("a.rs"), "pub fn before() {}\n").unwrap();
+        std::fs::write(root.path().join("large.rs"), vec![b' '; 1024 * 1024 + 1]).unwrap();
+        let watch = IndexWatch::start(root.path()).unwrap();
+        wait(|| watch.status.lock().unwrap()["state"] == "degraded");
+        {
+            let status = watch.status.lock().unwrap();
+            assert_eq!(status["lastError"], "SYNC_INCOMPLETE");
+            assert_eq!(status["lastReconciliation"]["uncheckedFiles"], 1);
+            assert_eq!(status["retryScheduled"], false);
+            assert!(status["retryDelayMs"].is_null());
+        }
+        // Longer than the old initial backoff: no repeated whole-workspace scan.
+        std::thread::sleep(Duration::from_secs(6));
+        assert_eq!(watch.status.lock().unwrap()["reconciliations"], 1);
+        std::fs::write(root.path().join("a.rs"), "pub fn after() {}\n").unwrap();
+        wait(|| count(root.path(), "SELECT count(*) FROM nodes WHERE name='after'") == 1);
+        wait(|| watch.status.lock().unwrap()["batches"].as_u64().unwrap() > 0);
+        {
+            let status = watch.status.lock().unwrap();
+            assert_eq!(status["state"], "degraded");
+            assert_eq!(status["lastReconciliation"]["uncheckedFiles"], 1);
+            assert_eq!(status["reconciliations"], 1);
+        }
+        // Removing the coverage obstacle and reconciling clears the diagnosis.
+        std::fs::remove_file(root.path().join("large.rs")).unwrap();
+        {
+            let (mutex, wake) = &*watch.queue;
+            mutex.lock().unwrap().reconcile();
+            wake.notify_one();
+        }
+        wait(|| watch.status.lock().unwrap()["state"] == "idle");
+        assert_eq!(
+            watch.status.lock().unwrap()["lastReconciliation"]["complete"],
+            true
+        );
+    }
+
+    #[test]
+    fn retry_policy_is_bounded_and_preserves_failure_details() {
+        for code in [
+            "SYNC_UNSUPPORTED_RELATION",
+            "SYNC_SCHEMA",
+            "SYNC_LIMIT",
+            "SYNC_CONFIG",
+            "SYNC_COMMIT_UNCERTAIN",
+        ] {
+            let report = sync_report(&Err((code, "Needs a change")), true);
+            assert_eq!(report["lastError"], code);
+            assert_eq!(report["failure"]["message"], "Needs a change");
+            assert!(retry_delay(&report, 1).is_none());
+        }
+        let report = sync_report(&Err(("STALE", "Source changed")), false);
+        for (failures, seconds) in [(1, 5), (2, 10), (3, 20), (4, 40)] {
+            assert_eq!(
+                retry_delay(&report, failures),
+                Some(Duration::from_secs(seconds))
+            );
+        }
+        assert!(retry_delay(&report, 0).is_none());
+        assert!(retry_delay(&report, 5).is_none());
+        assert!(retry_delay(&report, u32::MAX).is_none());
+        let report = sync_report(
+            &Ok(json!({
+                "selectedScopeApplied":false,
+                "failure":{"path":"src/a.rs","code":"STALE","message":"Source changed","commitState":"not_committed"},
+                "changedFilesCommitted":2
+            })),
+            false,
+        );
+        assert_eq!(report["failure"]["path"], "src/a.rs");
+        assert_eq!(report["changedFilesCommitted"], 2);
+        assert!(retry_delay(&report, 1).is_some());
+    }
+
+    #[test]
+    fn coverage_limitations_are_not_transient_failures() {
+        let clean = json!({"selectedScopeApplied":true,"discoveryComplete":true,
+            "uncheckedFiles":0,"unsupportedChangedFiles":0,"restrictedIndexedFiles":0});
+        assert_eq!(sync_report(&Ok(clean.clone()), true)["complete"], true);
+        for (key, value) in [
+            ("discoveryComplete", json!(false)),
+            ("uncheckedFiles", json!(1)),
+            ("unsupportedChangedFiles", json!(1)),
+        ] {
+            let mut incomplete = clean.clone();
+            incomplete[key] = value;
+            let report = sync_report(&Ok(incomplete), true);
+            assert_eq!(report["complete"], false);
+            assert_eq!(report["lastError"], "SYNC_INCOMPLETE");
+            assert!(retry_delay(&report, 1).is_none());
+        }
+        assert_eq!(
+            sync_report(&Ok(json!({"selectedScopeApplied":true})), false)["complete"],
+            true
+        );
+        let mut excluded = clean;
+        excluded["restrictedIndexedFiles"] = json!(3);
+        excluded["restrictedIndexedReasons"] = json!({"config_filename":3});
+        let report = sync_report(&Ok(excluded), true);
+        assert_eq!(report["complete"], true);
+        assert_eq!(report["restrictedIndexedReasons"]["config_filename"], 3);
+        assert!(report["lastError"].is_null());
+        assert!(retry_delay(&report, 1).is_none());
     }
 
     #[test]

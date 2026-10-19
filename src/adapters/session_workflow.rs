@@ -184,7 +184,11 @@ impl Sessions {
             for check in &mut session.observed_checks {
                 harness_domain::freshness::invalidate(check, "harness_directories_created", &time);
             }
-            session.tasks.event("directories_created", &time, json!({"source":"harness-observed","filePublished":false}));
+            session.tasks.event(
+                "directories_created",
+                &time,
+                json!({"source":"harness-observed","filePublished":false}),
+            );
         } else if tool == "harness_move" && result["changed"] == true {
             let from = bounded(&result["from"])?;
             let to = bounded(&result["to"])?;

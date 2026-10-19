@@ -195,6 +195,57 @@ fn synchronized_explore_preserves_partial_commits_and_validates_before_writing()
 }
 
 #[test]
+fn restricted_entries_do_not_block_matching_source_exploration() {
+    use harness_domain::{contracts::Request, hash};
+    let root = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(root.path(), &context).unwrap();
+    fs::write(root.path().join("lib.rs"), "pub fn fresh() {}\n").unwrap();
+    sync_workspace_all(root.path(), &context).unwrap();
+    let db = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    let restricted = ["nuxt.config.ts", ".env/private.rs", ".git/internal.rs"];
+    for path in restricted {
+        db.execute("INSERT INTO files(path,content_hash,language,size,modified_at,indexed_at,node_count,errors,generated) VALUES(?1,?2,'rust',0,0,0,0,'[]',0)",
+            rusqlite::params![path, hash(b"excluded")]).unwrap();
+    }
+    drop(db);
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    let result = app.execute(Request::Explore(
+        serde_json::from_value(serde_json::json!({
+            "query":"fresh","filePath":"lib.rs","syncIndex":true,"requireMatchingFiles":true
+        }))
+        .unwrap(),
+    ));
+    assert_ne!(result["state"], "error", "{result}");
+    assert_eq!(result["data"]["focus"]["status"], "resolved", "{result}");
+    assert_eq!(
+        result["data"]["fileFreshness"]["status"],
+        "matches_observed_files"
+    );
+    let sync = &result["data"]["sync"];
+    assert_eq!(sync["restrictedIndexedFiles"], 3);
+    assert_eq!(sync["restrictedIndexedReasons"]["config_filename"], 1);
+    assert_eq!(sync["restrictedIndexedReasons"]["sensitive_path_prefix"], 1);
+    assert_eq!(
+        sync["restrictedIndexedReasons"]["version_control_directory"],
+        1
+    );
+    assert_eq!(sync["globalFreshnessCertified"], false);
+    assert_eq!(sync["changedFilesCommitted"], 0);
+    assert!(
+        result["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "SYNC_RESTRICTED_SKIPPED")
+    );
+    for path in restricted {
+        assert!(!result.to_string().contains(path));
+    }
+    assert_eq!(count(root.path(), "SELECT count(*) FROM files"), 4);
+}
+
+#[test]
 fn synchronized_explore_accepts_multiple_identifier_selectors() {
     use harness_domain::contracts::Request;
     let root = tempfile::tempdir().unwrap();

@@ -264,7 +264,9 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 
 #[tool_router]
 impl McpHarness {
-    #[tool(description = "Preview a hash-checked replacement without publishing. Same arguments and syntax validation as harness_replace. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation.")]
+    #[tool(
+        description = "Preview a hash-checked replacement without publishing. Same arguments and syntax validation as harness_replace. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation."
+    )]
     async fn harness_patch_preview(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
@@ -273,7 +275,9 @@ impl McpHarness {
         self.call(Request::PatchPreview(args), context).await
     }
 
-    #[tool(description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims.")]
+    #[tool(
+        description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims."
+    )]
     async fn harness_impact(
         &self,
         Parameters(args): Parameters<harness_domain::assistance::ImpactArgs>,
@@ -282,7 +286,9 @@ impl McpHarness {
         self.call(Request::Impact(args), context).await
     }
 
-    #[tool(description = "Tail retained output of a harness_jobs task. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths.")]
+    #[tool(
+        description = "Tail retained output of a harness_jobs task. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths."
+    )]
     async fn harness_observe(
         &self,
         Parameters(args): Parameters<harness_domain::assistance::ObserveArgs>,
@@ -290,10 +296,15 @@ impl McpHarness {
         let arguments = serde_json::to_value(&args).expect("observe arguments");
         let result = match &self.tasks {
             Some(tasks) => tasks.observe(&args),
-            None => Err(("TOOL_PROFILE", "Job observation unavailable in this profile")),
+            None => Err((
+                "TOOL_PROFILE",
+                "Job observation unavailable in this profile",
+            )),
         };
         response(harness_domain::results::Results::default().envelope(
-            "harness_observe", &arguments, result,
+            "harness_observe",
+            &arguments,
+            result,
         ))
     }
 
@@ -433,7 +444,7 @@ impl McpHarness {
         self.call(Request::Checkpoint(args), context).await
     }
     #[tool(
-        description = "Símbolos locales Rust/JS/TS por AST. action=outline: path, query opcional y maxChars=2500 para inventario de firmas; detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId AST opcionales; view=signature para ubicación/firma o full para implementación/edición. Full conserva fuente exacta, documentación y hash; cuerpos grandes en detalle. Signature no sirve como oldText. Ambas acciones admiten externalScope y session. Vue no tiene outline local; lee SFC con harness_read y edítalo con harness_replace (valida scripts inline JS/TS). Para relaciones del grafo usar harness_explore; otros lenguajes requieren metadatos indexados o lectura acotada."
+        description = "Símbolos locales Rust/JS/TS por AST y estructura Vue SFC. action=outline: path, query y maxChars opcionales; Vue muestra bloques script/setup, imports/macros, jerarquía template y selectores CSS/SCSS con asociaciones conservadoras. El detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId opcionales; view=signature o full con fuente exacta y hash. Estas dos acciones admiten externalScope y session. action=extract_preview para Vue: path, expectedHash SHA-256, symbolId de elemento template, targetPath inexistente y componentName PascalCase; devuelve diff conjunto padre/hijo, interfaz propuesta, reglas BEM exclusivas y dependencias sin resolver, sin escribir archivos. Contenido completo en detail; revisión manual obligatoria para dependencias inciertas. No hay aplicación multiarchivo automática. No sustituye al compilador Vue/Sass ni a comprobaciones de tipos. Para relaciones del grafo usar harness_explore."
     )]
     async fn harness_symbols(
         &self,
@@ -452,7 +463,9 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Replace(args), context).await
     }
-    #[tool(description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session.")]
+    #[tool(
+        description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session."
+    )]
     async fn harness_write(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::WriteArgs>,

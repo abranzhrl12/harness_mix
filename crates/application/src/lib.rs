@@ -276,13 +276,15 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     }
                     self.workspace.data_query(&args, context)
                 }),
-            Request::Impact(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| {
-                    let exploration = args.exploration()?;
-                    self.workspace.explore(&exploration, context)
-                        .map(|result| harness_domain::assistance::impact(&args, result))
-                }),
+            Request::Impact(args) => {
+                self.lease(args.session.as_deref(), &mut lease)
+                    .and_then(|()| {
+                        let exploration = args.exploration()?;
+                        self.workspace
+                            .explore(&exploration, context)
+                            .map(|result| harness_domain::assistance::impact(&args, result))
+                    })
+            }
             Request::PatchPreview(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.patch_preview(&args, context)),
@@ -292,6 +294,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::ReadSymbol(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.read_symbol(&args, context)),
+            Request::VueExtractPreview(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.vue_extract_preview(&args, context)),
             Request::Replace(args) => {
                 self.with_session_write(args.session.as_deref(), &mut lease, context, || {
                     let mut result = self.workspace.replace(&args, context)?;
@@ -307,8 +312,12 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Write(args) => {
                 self.with_session_write(args.session.as_deref(), &mut lease, context, || {
                     let mut result = self.workspace.write(&args, context)?;
-                    self.record_result(args.session.as_deref(), name,
-                        &serde_json::to_value(&args).unwrap(), &mut result);
+                    self.record_result(
+                        args.session.as_deref(),
+                        name,
+                        &serde_json::to_value(&args).unwrap(),
+                        &mut result,
+                    );
                     Ok(result)
                 })
             }
@@ -656,8 +665,19 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         }
         if args.compact && !compact_reuse {
             let mut catalog = json!({});
-            for key in ["supportedTools", "toolContract", "routing", "workflow", "available", "exampleCall"] {
-                if let Some(value) = result.as_object_mut().expect("bootstrap object").remove(key) {
+            for key in [
+                "supportedTools",
+                "toolContract",
+                "routing",
+                "workflow",
+                "available",
+                "exampleCall",
+            ] {
+                if let Some(value) = result
+                    .as_object_mut()
+                    .expect("bootstrap object")
+                    .remove(key)
+                {
                     catalog[key] = value;
                 }
             }

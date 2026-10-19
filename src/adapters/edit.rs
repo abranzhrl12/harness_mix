@@ -11,7 +11,11 @@ pub(super) fn write(
     super::create_file::write(project, args, context)
 }
 
-pub(super) fn syntax(path: &str, source: &str, context: &OperationContext) -> Result<Value, Failure> {
+pub(super) fn syntax(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
     match Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -64,13 +68,19 @@ pub(super) fn replace(
     bound.hash = hash(&bytes);
     let mut result = edit_commit::publish(project, &bound, &target, &updated, context)?;
     result["syntax"] = syntax;
-    result["status"] = json!(if result["changed"] == true { "replaced" } else { "unchanged" });
+    result["status"] = json!(if result["changed"] == true {
+        "replaced"
+    } else {
+        "unchanged"
+    });
     result["typecheck"] = json!("not_run");
     let before = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "File must be UTF-8"))?;
     result["changeSummary"] = json!({"bytesBefore":bytes.len(),"bytesAfter":updated.len(),
         "linesBefore":before.lines().count(),"linesAfter":updated.lines().count(),
         "lineDelta":updated.lines().count() as i64 - before.lines().count() as i64});
-    if result["diagnostics"].is_null() { result["diagnostics"] = json!([]); }
+    if result["diagnostics"].is_null() {
+        result["diagnostics"] = json!([]);
+    }
     if result["changed"] == true {
         // Commit has happened: cancellation must not hide this fact.
         let observed = project.bytes_with_context(&args.path, &OperationContext::default());
@@ -117,7 +127,7 @@ pub(super) fn preview(
     )
 }
 
-fn preview_diff(path: &str, old: &str, new: &str) -> String {
+pub(super) fn preview_diff(path: &str, old: &str, new: &str) -> String {
     if old == new {
         return String::new();
     }

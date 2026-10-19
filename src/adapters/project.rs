@@ -10,31 +10,53 @@ use std::{
 const MAX_FILE: u64 = 2 * 1024 * 1024;
 
 pub(super) fn external_sensitive(relative: &str) -> bool {
+    external_sensitive_reason(relative).is_some()
+}
+
+pub(super) fn external_sensitive_reason(relative: &str) -> Option<&'static str> {
     let normalized = relative.replace('\\', "/").to_ascii_lowercase();
     let name = normalized.rsplit('/').next().unwrap_or("");
-    name.contains(".config")
-        || name.starts_with(".npmrc")
-        || (name.starts_with("appsettings") && name.contains(".json"))
-        || ["pem", "key", "pfx", "p12"]
-            .iter()
-            .any(|ext| name.ends_with(&format!(".{ext}")))
+    if name.contains(".config") {
+        Some("config_filename")
+    } else if name.starts_with(".npmrc") {
+        Some("npmrc_filename")
+    } else if name.starts_with("appsettings") && name.contains(".json") {
+        Some("appsettings_filename")
+    } else if ["pem", "key", "pfx", "p12"]
+        .iter()
+        .any(|ext| name.ends_with(&format!(".{ext}")))
+    {
+        Some("private_key_extension")
+    } else {
+        None
+    }
 }
 
 pub(super) fn external_restricted(relative: &str) -> bool {
-    relative.replace('\\', "/").split('/').any(|part| {
+    external_restricted_reason(relative).is_some()
+}
+
+pub(super) fn external_restricted_reason(relative: &str) -> Option<&'static str> {
+    relative.replace('\\', "/").split('/').find_map(|part| {
         let name = part.to_ascii_lowercase();
-        [".git", ".hg", ".svn"].contains(&name.as_str())
-            || [
-                ".env",
-                "credential",
-                "secret",
-                "mcp_config.json",
-                "oauth_creds.json",
-                "id_rsa",
-                "id_ed25519",
-            ]
-            .iter()
-            .any(|prefix| name.starts_with(prefix))
+        if [".git", ".hg", ".svn"].contains(&name.as_str()) {
+            Some("version_control_directory")
+        } else if [
+            ".env",
+            "credential",
+            "secret",
+            "mcp_config.json",
+            "oauth_creds.json",
+            "id_rsa",
+            "id_ed25519",
+        ]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        {
+            Some("sensitive_path_prefix")
+        } else {
+            None
+        }
     })
 }
 
@@ -378,7 +400,11 @@ mod tests {
         assert_eq!(value["end"], 300);
         assert_eq!(value["text"].as_str().unwrap().split("\r\n").count(), 300);
         assert_eq!(p.read("many.txt", 1, 301).unwrap_err().0, "RANGE");
-        fs::write(dir.path().join("long.txt"), format!("{}\n", "x".repeat(100)).repeat(300)).unwrap();
+        fs::write(
+            dir.path().join("long.txt"),
+            format!("{}\n", "x".repeat(100)).repeat(300),
+        )
+        .unwrap();
         assert_eq!(p.read("long.txt", 1, 300).unwrap_err().0, "SIZE");
     }
     #[test]

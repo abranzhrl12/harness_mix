@@ -3,12 +3,12 @@
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::{Value, json};
 
-struct Tag<'a> {
-    name: &'a str,
-    attrs: &'a str,
-    end: usize,
-    closing: bool,
-    self_closing: bool,
+pub(super) struct Tag<'a> {
+    pub name: &'a str,
+    pub attrs: &'a str,
+    pub end: usize,
+    pub closing: bool,
+    pub self_closing: bool,
 }
 
 pub(super) fn validate(
@@ -106,7 +106,7 @@ pub(super) fn validate(
     )
 }
 
-fn parse_tag(source: &str, start: usize) -> Option<Tag<'_>> {
+pub(super) fn parse_tag(source: &str, start: usize) -> Option<Tag<'_>> {
     let bytes = source.as_bytes();
     if bytes.get(start) != Some(&b'<') {
         return None;
@@ -122,7 +122,7 @@ fn parse_tag(source: &str, start: usize) -> Option<Tag<'_>> {
     let mut name_end = name_start + 1;
     while bytes
         .get(name_end)
-        .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b':' | b'_'))
+        .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b':' | b'_' | b'.'))
     {
         name_end += 1;
     }
@@ -154,7 +154,7 @@ fn parse_tag(source: &str, start: usize) -> Option<Tag<'_>> {
     None
 }
 
-fn closing_tag(source: &str, from: usize, wanted: &str) -> Option<(usize, usize)> {
+pub(super) fn closing_tag(source: &str, from: usize, wanted: &str) -> Option<(usize, usize)> {
     let mut cursor = from;
     while let Some(relative) = source[cursor..].find('<') {
         let start = cursor + relative;
@@ -219,7 +219,7 @@ fn skip_template(source: &str, from: usize, context: &OperationContext) -> Resul
     Err(("SYNTAX_ERROR", "Vue template block is not closed"))
 }
 
-fn skip_interpolation(source: &str, mut cursor: usize) -> Option<usize> {
+pub(super) fn skip_interpolation(source: &str, mut cursor: usize) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut quote = None;
     let mut escaped = false;
@@ -271,7 +271,7 @@ fn has_attribute(attrs: &str, wanted: &str) -> bool {
     attribute(attrs, wanted).is_some()
 }
 
-fn attribute<'a>(attrs: &'a str, wanted: &str) -> Option<&'a str> {
+pub(super) fn attribute<'a>(attrs: &'a str, wanted: &str) -> Option<&'a str> {
     let bytes = attrs.as_bytes();
     let mut cursor = 0;
     while cursor < bytes.len() {

@@ -277,7 +277,6 @@ pub(super) fn synchronized(
         || report["discoveryComplete"] != true
         || report["uncheckedFiles"] != 0
         || report["unsupportedChangedFiles"] != 0
-        || report["restrictedIndexedFiles"] != 0
     {
         let code = report["failure"]["code"]
             .as_str()
@@ -291,6 +290,17 @@ pub(super) fn synchronized(
     }
     match explore(project, args, context) {
         Ok(mut result) => {
+            // Policy exclusions are not failed work. Keep queried-file checks.
+            if report["restrictedIndexedFiles"].as_u64().unwrap_or(0) > 0 {
+                let warning = json!({"code":"SYNC_RESTRICTED_SKIPPED","severity":"warning",
+                    "message":"Restricted index entries were excluded by policy; queried-file checks still apply. Global index freshness is not certified.",
+                    "retryable":false});
+                if let Some(diagnostics) = result["diagnostics"].as_array_mut() {
+                    diagnostics.push(warning);
+                } else {
+                    result["diagnostics"] = json!([warning]);
+                }
+            }
             result["sync"] = report;
             Ok(result)
         }

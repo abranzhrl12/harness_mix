@@ -162,6 +162,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Symbol adapter unavailable"))
     }
+    fn vue_extract_preview(
+        &self,
+        _args: &harness_domain::contracts::VueExtractPreviewArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Vue extraction preview adapter unavailable"))
+    }
     fn patch_preview(
         &self,
         _args: &harness_domain::contracts::ReplaceArgs,

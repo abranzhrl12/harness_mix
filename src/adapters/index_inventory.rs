@@ -24,6 +24,8 @@ pub(super) struct Inventory {
     pub reserved_source_bytes: u64,
     pub skipped_entries: usize,
     pub restricted_indexed_files: usize,
+    // One policy category per restricted entry; never expose its path or hash.
+    pub restricted_indexed_reasons: BTreeMap<&'static str, usize>,
     pub budget_exhausted: bool,
     pub scope_excluded: Vec<String>,
     pub scope: serde_json::Value,
@@ -49,7 +51,11 @@ pub(super) fn excluded(name: &str) -> bool {
 }
 
 pub(super) fn restricted(path: &str) -> bool {
-    project::external_restricted(path) || project::external_sensitive(path)
+    restricted_reason(path).is_some()
+}
+
+fn restricted_reason(path: &str) -> Option<&'static str> {
+    project::external_restricted_reason(path).or_else(|| project::external_sensitive_reason(path))
 }
 
 pub(super) fn scan(
@@ -66,6 +72,7 @@ pub(super) fn scan(
         reserved_source_bytes: 0,
         skipped_entries: 0,
         restricted_indexed_files: 0,
+        restricted_indexed_reasons: BTreeMap::new(),
         budget_exhausted: false,
         scope_excluded: Vec::new(),
         scope: scope.stamp(),
@@ -74,8 +81,12 @@ pub(super) fn scan(
     // old provider record into an inferred deletion. This is NOT full ScopeIgnore.
     for path in tracked {
         context.check()?;
-        if restricted(path) {
+        if let Some(reason) = restricted_reason(path) {
             inventory.restricted_indexed_files += 1;
+            *inventory
+                .restricted_indexed_reasons
+                .entry(reason)
+                .or_default() += 1;
             continue;
         }
         if scope.excluded(path) {
@@ -241,6 +252,43 @@ impl Inventory {
 mod tests {
     use super::*;
     #[test]
+    fn restricted_policy_counts_do_not_read_or_disclose_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project::new(dir.path()).unwrap();
+        let tracked: Vec<String> = [
+            "NUXT.CONFIG.ts",
+            "vite.config.ts",
+            ".ENV/private.rs",
+            ".git/internal.rs",
+            "key.pem",
+            "appsettings.production.json",
+            ".npmrc",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let inventory = scan(&project, &tracked, &OperationContext::default()).unwrap();
+        assert_eq!(inventory.restricted_indexed_files, 7);
+        assert!(inventory.observations.is_empty());
+        let value = serde_json::to_value(inventory).unwrap();
+        assert_eq!(value["restrictedIndexedReasons"]["config_filename"], 2);
+        for reason in [
+            "sensitive_path_prefix",
+            "version_control_directory",
+            "private_key_extension",
+            "appsettings_filename",
+            "npmrc_filename",
+        ] {
+            assert_eq!(value["restrictedIndexedReasons"][reason], 1);
+        }
+        for path in tracked {
+            assert!(!value.to_string().contains(&path));
+        }
+        assert!(!restricted("src/profile.ts"));
+        assert!(!restricted("src/config.ts"));
+        assert!(restricted("SRC\\NUXT.CONFIG.TS"));
+    }
+    #[test]
     fn aggregate_budget_never_turns_an_existing_source_into_a_deletion() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("source.rs"), "fn source() {}").unwrap();
@@ -252,6 +300,7 @@ mod tests {
             reserved_source_bytes: MAX_BYTES,
             skipped_entries: 0,
             restricted_indexed_files: 0,
+            restricted_indexed_reasons: BTreeMap::new(),
             budget_exhausted: false,
             scope_excluded: Vec::new(),
             scope: serde_json::Value::Null,

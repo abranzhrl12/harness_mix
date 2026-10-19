@@ -1,10 +1,10 @@
 //! Native implementations of application ports. No MCP handlers or schemas here.
 mod capabilities;
 mod config;
+mod create_file;
 mod disk_logs;
 pub(crate) mod doctor;
 mod edit;
-mod create_file;
 mod edit_commit;
 mod edit_security;
 mod explore;
@@ -69,8 +69,9 @@ pub mod tasks;
 mod tasks_store;
 mod ts_symbols;
 mod ts_syntax;
-mod vue_syntax;
 mod verify;
+mod vue_structure;
+mod vue_syntax;
 pub mod xlsx;
 
 use harness_application::{
@@ -456,6 +457,13 @@ impl Workspace for NativeWorkspace {
             |project, _| symbols::read_symbol(project, args, context),
         )
     }
+    fn vue_extract_preview(
+        &self,
+        args: &harness_domain::contracts::VueExtractPreviewArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        vue_structure::extract_preview(&self.project, args, context)
+    }
     fn patch_preview(
         &self,
         args: &harness_domain::contracts::ReplaceArgs,
@@ -481,7 +489,9 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::WriteArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        let _lock = self.edit_lock.try_lock()
+        let _lock = self
+            .edit_lock
+            .try_lock()
             .map_err(|_| ("EDIT_BUSY", "Another edit is active"))?;
         edit::write(&self.project, args, context)
     }

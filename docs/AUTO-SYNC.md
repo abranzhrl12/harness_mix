@@ -59,8 +59,13 @@ solo extrae/publica las modificadas o pendientes. No es un rebuild. El publicado
 ya no ejecuta la vista previa de extracción del plan antes de volver a extraer.
 Los eventos de metadatos Git filtrados se recuperan en la revisión periódica.
 
-Errores: reintentos con espera creciente de 5 a 60 s; un nuevo guardado puede
-adelantar la recuperación. Un lote incremental fallido reintenta sus rutas sin
+Errores transitorios: hasta cinco intentos con esperas de 5, 10, 20 y 40 s;
+un nuevo evento o la reconciliación periódica permite una nueva serie de intentos.
+Las limitaciones de cobertura (`SYNC_INCOMPLETE`), configuración, esquema,
+lenguaje o relaciones no soportadas no provocan reintentos rápidos: el watcher
+queda `degraded` y espera cambios o la reconciliación periódica. Así, por ejemplo,
+un archivo demasiado grande no dispara un inventario completo cada minuto.
+Un lote incremental fallido reintenta sus rutas sin
 forzar por sí solo un escaneo global. Los commits confirmados se conservan y
 contabilizan aunque otra ruta falle. Cada operación tiene un máximo de 60 s y
 cancelación cooperativa al cerrar. Un índice incompatible o relaciones legacy no
@@ -69,9 +74,25 @@ soportadas se reportan como error; no se borran para forzar éxito.
 ## Estado y límites
 
 `harness_doctor` incluye `checks[id=index-auto-sync].details`: `enabled`, `state`
-(`starting`, `syncing`, `idle`, `retrying`), `batches`, `reconciliations`,
+(`starting`, `syncing`, `idle`, `retrying`, `degraded`), `batches`, `reconciliations`,
 `changedFilesCommitted`, `lastBatchPaths`, `lastDurationMs`, `lastError` y límites.
-Los errores publicados son códigos, no rutas ni mensajes crudos del sistema.
+`retryScheduled`, `retryDelayMs` y `consecutiveFailures` muestran la política de
+reintentos. `lastResult` conserva un resumen acotado del último resultado:
+contadores de cobertura, commits y fallo con código, ruta relativa cuando existe
+y mensaje controlado por Harness; no incluye fuentes ni errores crudos del sistema.
+`lastReconciliation` conserva ese diagnóstico del último inventario completo,
+incluso después de un lote incremental exitoso. Una cobertura incompleta mantiene
+el estado `degraded` hasta una reconciliación completa exitosa.
+
+Las entradas restringidas por política se cuentan como excluidas, no como trabajo
+fallido: por sí solas no bloquean `syncIndex:true` ni provocan reintentos del watcher.
+Explore devuelve `SYNC_RESTRICTED_SKIPPED` como advertencia y conserva las
+comprobaciones de `requireMatchingFiles`. No se leen ni se eliminan esas entradas.
+`restrictedIndexedReasons` agrupa cantidades por regla: `config_filename`,
+`npmrc_filename`, `appsettings_filename`, `private_key_extension`,
+`sensitive_path_prefix` y `version_control_directory`. No contiene rutas ni hashes.
+Esto no certifica la vigencia global del índice ni permite ignorar errores reales
+de extracción, archivos sin comprobar o un inventario interrumpido.
 
 `idle` indica el último lote terminado, no una instantánea atómica ni garantía
 global de frescura. Las comprobaciones de hashes de explore siguen activas. El

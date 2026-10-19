@@ -279,11 +279,31 @@ pub struct ReadSymbolArgs {
 /// Local AST navigation; graph relationships remain in harness_explore.
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct VueExtractPreviewArgs {
+    pub path: String,
+    #[serde(rename = "expectedHash")]
+    pub expected_hash: String,
+    /// Current template element ID returned by Vue outline.
+    #[serde(rename = "symbolId")]
+    pub symbol_id: String,
+    #[serde(rename = "targetPath")]
+    pub target_path: String,
+    #[serde(rename = "componentName")]
+    pub component_name: String,
+    #[serde(alias = "sessionId")]
+    pub session: Option<String>,
+}
+
+/// Local AST navigation and read-only Vue extraction planning.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SymbolsArgs {
     Outline(OutlineArgs),
     Read(ReadSymbolArgs),
+    ExtractPreview(VueExtractPreviewArgs),
 }
 
 impl SymbolsArgs {
@@ -291,6 +311,7 @@ impl SymbolsArgs {
         match self {
             Self::Outline(args) => Request::Outline(args),
             Self::Read(args) => Request::ReadSymbol(args),
+            Self::ExtractPreview(args) => Request::VueExtractPreview(args),
         }
     }
 }
@@ -306,6 +327,7 @@ mod symbols_contract_tests {
             json!({"action":"outline","path":"src/lib.rs","query":"target","maxChars":2500,"externalScope":"scope","session":"s"}),
             json!({"action":"read","path":"src/lib.rs","symbol":"target","container":"mod","symbolId":"0123456789abcdef01234567","view":"full","externalScope":"scope","session":"s"}),
             json!({"action":"read","path":"src/lib.rs","symbol":"target","view":"signature","session":"s"}),
+            json!({"action":"extract_preview","path":"Parent.vue","expectedHash":"a".repeat(64),"symbolId":"b".repeat(24),"targetPath":"Child.vue","componentName":"ChildView","session":"s"}),
         ] {
             let request = serde_json::from_value::<SymbolsArgs>(value.clone())
                 .unwrap()
@@ -335,6 +357,8 @@ mod symbols_contract_tests {
             json!({"action":"outline","path":"x.rs","view":"full"}),
             json!({"action":"read","path":"x.rs","symbol":"x","query":"y"}),
             json!({"action":"delete","path":"x.rs"}),
+            json!({"action":"extract_preview","path":"Parent.vue"}),
+            json!({"action":"extract_preview","path":"Parent.vue","expectedHash":"a".repeat(64),"symbolId":"b".repeat(24),"targetPath":"Child.vue","componentName":"ChildView","apply":true}),
         ] {
             assert!(serde_json::from_value::<SymbolsArgs>(value).is_err());
         }
@@ -359,7 +383,7 @@ mod symbols_contract_tests {
         let schema = serde_json::to_value(schemars::schema_for!(SymbolsArgs)).unwrap();
         assert_eq!(schema["type"], "object");
         let branches = schema["oneOf"].as_array().unwrap();
-        assert_eq!(branches.len(), 2);
+        assert_eq!(branches.len(), 3);
         for branch in branches {
             let required = branch["required"].as_array().unwrap();
             assert!(required.contains(&json!("path")));
@@ -657,6 +681,7 @@ pub enum Request {
     Move(MoveArgs),
     Outline(OutlineArgs),
     ReadSymbol(ReadSymbolArgs),
+    VueExtractPreview(VueExtractPreviewArgs),
     Tasks(TasksArgs),
     Checkpoint(CheckpointArgs),
     GitStatus(GitStatusArgs),
@@ -718,7 +743,9 @@ impl Request {
             Self::Replace(_) => "harness_replace",
             Self::Write(_) => "harness_write",
             Self::Move(_) => "harness_move",
-            Self::Outline(_) | Self::ReadSymbol(_) => "harness_symbols",
+            Self::Outline(_) | Self::ReadSymbol(_) | Self::VueExtractPreview(_) => {
+                "harness_symbols"
+            }
             Self::Tasks(_) => "harness_tasks",
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) | Self::GitDiff(_) => "harness_git",
@@ -757,6 +784,10 @@ impl Request {
             }),
             Self::ReadSymbol(args) => serde_json::to_value(args).map(|mut value| {
                 value["action"] = Value::String("read".into());
+                value
+            }),
+            Self::VueExtractPreview(args) => serde_json::to_value(args).map(|mut value| {
+                value["action"] = Value::String("extract_preview".into());
                 value
             }),
             Self::Tasks(args) => serde_json::to_value(args),

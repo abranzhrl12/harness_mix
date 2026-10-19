@@ -132,9 +132,9 @@ pub fn sync_changed_paths(
                 changed += usize::from(result["changed"] == true);
             }
             Ok(None) => skipped += 1,
-            Err((code, _)) => {
+            Err((code, message)) => {
                 failure = Some(
-                    json!({"code":code,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
+                    json!({"path":path,"code":code,"message":message,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
                 );
                 break;
             }
@@ -312,6 +312,7 @@ fn sync_workspace_with_limit(
         "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
         "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
+        "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
         "synchronized":false,"globalFreshnessCertified":false,"fullProviderScope":false,
         "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"}),
