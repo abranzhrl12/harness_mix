@@ -89,6 +89,7 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if let Some(package) = &args.package {
         if !args.language.eq_ignore_ascii_case("rust")
             || package.is_empty()
+            || package.starts_with('-')
             || package.len() > 128
             || !package
                 .bytes()
