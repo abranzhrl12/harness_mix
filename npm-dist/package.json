@@ -1,6 +1,6 @@
 {
   "name": "@abranzhrl1212/agent-harness",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "High-performance native Rust MCP server for AI code assistants",
   "main": "bin/run.js",
   "bin": {
