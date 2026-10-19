@@ -13,7 +13,11 @@ pub(super) fn write(
     args: &WriteArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    write_with(project, args, context, |_| {})
+    let mut result = write_with(project, args, context, |_| {})?;
+    if result["ok"] == true {
+        super::csproj::attach_warning(project, &args.path, &mut result, context);
+    }
+    Ok(result)
 }
 
 fn write_with(
@@ -40,6 +44,7 @@ fn write_with(
         if args.content.contains('\0') {
             return Err(("ENCODING", "Binary files cannot be created"));
         }
+        let content = editing::utf8_bom(&args.path, &args.content, args.bom, None)?;
         let target = project.target_optional(&args.path)?;
         let relative = target
             .strip_prefix(&project.root)
@@ -60,7 +65,7 @@ fn write_with(
                 "Protected instruction, index or version control path",
             ));
         }
-        let validation = match edit::syntax(&args.path, &args.content, context) {
+        let validation = match edit::syntax(&args.path, &content, context) {
             Ok(value) => value,
             Err(("PARSER_UNAVAILABLE", _)) if args.allow_unvalidated_text => {
                 json!({"status":"not_checked","validation":"none","reason":"parser_unavailable","explicitlyAllowed":true})
@@ -114,6 +119,7 @@ fn write_with(
                 .map_err(|_| ("PATH", "Cannot inspect destination"))?
             {
                 let bytes = project.bytes_with_context(&args.path, context)?;
+                let content = editing::utf8_bom(&args.path, &args.content, args.bom, Some(&bytes))?;
                 let expected_hash_opt = if let Some(expected) = &args.expected_hash {
                     if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
                         return Err((
@@ -135,36 +141,44 @@ fn write_with(
                 };
 
                 if let Some(expected) = expected_hash_opt {
-                    if bytes == args.content.as_bytes() {
-                        return Ok(json!({"path":args.path,"status":"unchanged","created":false,
+                    if bytes == content.as_bytes() {
+                        return Ok(
+                            json!({"path":args.path,"status":"unchanged","created":false,
                             "changed":false,"commitStatus":"not_needed","previousHash":expected,
                             "hash":expected,"verified":true,"ok":true,"syntax":validation,
                             "diagnostics":[],"typecheck":"not_run",
-                            "changeSummary":{"addedLines":0,"removedLines":0}}));
+                            "changeSummary":{"addedLines":0,"removedLines":0}}),
+                        );
                     }
                     let replace_args = ReplaceArgs {
                         path: args.path.clone(),
+                        bom: args.bom,
                         hash: expected.clone(),
                         chunks: None,
                         old_text: String::new(),
-                        new_text: args.content.clone(),
+                        new_text: content.clone(),
                         allow_unvalidated_text: args.allow_unvalidated_text,
                         preview: false,
                         session: args.session.clone(),
                     };
-                    let mut result =
-                        edit_commit::publish(project, &replace_args, &target, &args.content, context)?;
+                    let mut result = edit_commit::publish(
+                        project,
+                        &replace_args,
+                        &target,
+                        &content,
+                        context,
+                    )?;
                     result["path"] = json!(args.path);
                     result["created"] = json!(false);
                     result["previousHash"] = json!(expected);
                     result["syntax"] = validation.clone();
                     result["typecheck"] = json!("not_run");
                     result["changeSummary"] = json!({
-                        "bytesBefore":bytes.len(),"bytesAfter":args.content.len(),
+                        "bytesBefore":bytes.len(),"bytesAfter":content.len(),
                         "removedLines":std::str::from_utf8(&bytes).map(|t| t.lines().count()).unwrap_or(0),
-                        "addedLines":args.content.lines().count()});
+                        "addedLines":content.lines().count()});
                     if result["changed"] == true {
-                        let expected_after = hash(args.content.as_bytes());
+                        let expected_after = hash(content.as_bytes());
                         let verified = project
                             .bytes_with_context(&args.path, &OperationContext::default())
                             .is_ok_and(|bytes| hash(&bytes) == expected_after);
@@ -185,7 +199,7 @@ fn write_with(
                     }
                     return Ok(result);
                 }
-                if bytes != args.content.as_bytes() {
+                if bytes != content.as_bytes() {
                     return Err((
                         "WRITE_EXISTS",
                         "Destination has different bytes; set overwrite: true or use harness_replace",
@@ -208,7 +222,7 @@ fn write_with(
                 .tempfile_in(parent)
                 .map_err(|_| ("IO", "Cannot stage new file"))?;
             stage
-                .write_all(args.content.as_bytes())
+                .write_all(content.as_bytes())
                 .map_err(|_| ("IO", "Cannot write new file"))?;
             stage
                 .as_file()
@@ -226,7 +240,7 @@ fn write_with(
                     ("IO", "Cannot publish new file")
                 }
             })?;
-            let expected = hash(args.content.as_bytes());
+            let expected = hash(content.as_bytes());
             let verified = project
                 .bytes_with_context(&args.path, &OperationContext::default())
                 .is_ok_and(|bytes| hash(&bytes) == expected);
@@ -238,7 +252,7 @@ fn write_with(
             Ok(
                 json!({"path":args.path,"status":"created","created":true,"changed":true,"commitStatus":"committed",
                 "hash":expected,"verified":verified,"ok":verified,"syntax":validation,"diagnostics":diagnostics,
-                "typecheck":"not_run","changeSummary":{"addedLines":args.content.lines().count(),"removedLines":0,"bytesWritten":args.content.len()}}),
+                "typecheck":"not_run","changeSummary":{"addedLines":content.lines().count(),"removedLines":0,"bytesWritten":content.len()}}),
             )
         })();
         let mut result = match attempt {
@@ -342,7 +356,10 @@ mod tests {
         let res_ok = write(&project, &args_ok, &context).unwrap();
         assert_eq!(res_ok["ok"], true);
         assert_eq!(res_ok["status"], "replaced");
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "updated content");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "updated content"
+        );
     }
 }
 

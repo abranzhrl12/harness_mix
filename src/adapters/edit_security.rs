@@ -109,6 +109,7 @@ mod tests {
             let app = crate::adapters::application(root.path()).unwrap();
             let result = app.execute(harness_domain::contracts::Request::Replace(
                 harness_domain::contracts::ReplaceArgs {
+                    bom: None,
                     path: "file.txt".into(),
                     hash: harness_domain::hash(b"old"),
                     chunks: None,

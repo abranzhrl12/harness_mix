@@ -4,6 +4,79 @@ use std::borrow::Cow;
 
 pub const MAX_FILE: usize = 2 * 1024 * 1024;
 
+/// Select the on-disk UTF-8 representation before hashing or publishing it.
+/// A single leading marker is encoding metadata, not part of the document body.
+pub fn utf8_bom(
+    path: &str,
+    text: &str,
+    bom: Option<bool>,
+    original: Option<&[u8]>,
+) -> Result<String, Failure> {
+    let enabled = bom.unwrap_or_else(|| {
+        original.is_some_and(|bytes| bytes.starts_with(b"\xef\xbb\xbf"))
+            || text.starts_with('\u{feff}')
+            || (cfg!(windows)
+                && std::path::Path::new(path)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("cshtml")))
+    });
+    let body = text.trim_start_matches('\u{feff}');
+    let size = body.len() + if enabled { 3 } else { 0 };
+    if size > MAX_FILE {
+        return Err(("SIZE", "Updated file exceeds 2 MiB including UTF-8 BOM"));
+    }
+    let mut output = String::with_capacity(size);
+    if enabled {
+        output.push('\u{feff}');
+    }
+    output.push_str(body);
+    Ok(output)
+}
+
+#[cfg(test)]
+mod bom_tests {
+    use super::*;
+
+    #[test]
+    fn bom_selection_preserves_existing_and_never_duplicates_markers() {
+        assert_eq!(
+            utf8_bom("a.txt", "á", None, Some(b"\xef\xbb\xbfprevious")).unwrap(),
+            "\u{feff}á"
+        );
+        assert_eq!(
+            utf8_bom("a.txt", "\u{feff}\u{feff}á", Some(true), None).unwrap(),
+            "\u{feff}á"
+        );
+        assert_eq!(
+            utf8_bom("a.cshtml", "\u{feff}á", Some(false), None).unwrap(),
+            "á"
+        );
+        let expected = if cfg!(windows) { "\u{feff}á" } else { "á" };
+        assert_eq!(utf8_bom("a.CSHTML", "á", None, None).unwrap(), expected);
+        assert_eq!(utf8_bom("a.txt", "á", None, None).unwrap(), "á");
+    }
+
+    #[test]
+    fn byte_limit_includes_the_encoding_marker() {
+        let text = "a".repeat(MAX_FILE - 2);
+        assert_eq!(
+            utf8_bom("a.txt", &text, Some(true), None).unwrap_err().0,
+            "SIZE"
+        );
+        assert!(utf8_bom("a.txt", &text, Some(false), None).is_ok());
+    }
+
+    #[test]
+    fn replace_bom_false_round_trips_through_custom_serde() {
+        let args: ReplaceArgs = serde_json::from_value(serde_json::json!({
+            "path":"a.txt","oldText":"a","newText":"b","bom":false
+        }))
+        .unwrap();
+        assert_eq!(args.bom, Some(false));
+        assert_eq!(serde_json::to_value(args).unwrap()["bom"], false);
+    }
+}
+
 #[derive(Default)]
 struct OriginalOffsets {
     raw: usize,
@@ -50,7 +123,8 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
         }
     }
     if !args.hash.is_empty()
-        && (args.hash.len() != 64 || !args.hash.bytes().all(|b| b.is_ascii_hexdigit())) {
+        && (args.hash.len() != 64 || !args.hash.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
         return Err(("EDIT", "Expected a SHA-256 hash"));
     }
     if bytes.len() > MAX_FILE {
@@ -134,7 +208,7 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     if updated.contains('\0') {
         return Err(("EDIT", "Replacement contains NUL"));
     }
-    Ok(updated)
+    utf8_bom(&args.path, &updated, args.bom, Some(bytes))
 }
 
 fn normalize(text: &str) -> Cow<'_, str> {
@@ -337,7 +411,10 @@ mod tests {
         assert_eq!(hint["firstDivergentLine"], 2);
         assert_eq!(hint["expectedLine"], "fn B() {}");
         assert_eq!(hint["foundLine"], "fn b() {}");
-        assert_eq!(match_hint(b"x\nx", &args("x\nx", "x", "y"))["reason"], "ambiguous");
+        assert_eq!(
+            match_hint(b"x\nx", &args("x\nx", "x", "y"))["reason"],
+            "ambiguous"
+        );
         assert_eq!(
             match_hint(text.as_bytes(), &args(text, "zzz", "y"))["reason"],
             "first_line_not_found"
@@ -439,6 +516,7 @@ mod tests {
     }
     fn args(text: &str, old: &str, new: &str) -> ReplaceArgs {
         ReplaceArgs {
+            bom: None,
             path: "file.txt".into(),
             hash: hash(text.as_bytes()),
             chunks: None,

@@ -37,6 +37,7 @@ pub(super) fn syntax(
         }
         "vue" => super::vue_syntax::validate(path, source, context),
         "astro" => super::astro_syntax::validate(path, source, context),
+        "cshtml" => super::razor_syntax::validate(path, source, context),
         "json" => {
             serde_json::from_str::<Value>(source.strip_prefix('\u{feff}').unwrap_or(source))
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;
@@ -90,12 +91,8 @@ pub(super) fn replace(
         }
         Err(failure) => return Err(failure),
     };
-    let syntax = syntax_allowing_unvalidated(
-        &args.path,
-        &updated,
-        args.allow_unvalidated_text,
-        context,
-    )?;
+    let syntax =
+        syntax_allowing_unvalidated(&args.path, &updated, args.allow_unvalidated_text, context)?;
     context.check()?;
     // Always recheck the source we actually prepared, including hashless requests.
     let mut bound = args.clone();
@@ -127,6 +124,7 @@ pub(super) fn replace(
             result["diagnostics"] = json!([{"code":"EDIT_POSTCHECK","message":"Publication completed but postcheck failed; reread before retrying"}]);
         }
     }
+    super::csproj::attach_warning(project, &args.path, &mut result, context);
     Ok(result)
 }
 

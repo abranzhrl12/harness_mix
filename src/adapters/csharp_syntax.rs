@@ -58,7 +58,8 @@ fn tokenize(source: &str, context: &OperationContext) -> Result<Vec<Token>, Fail
 
         // Line comments or Doc comments
         if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
-            let is_doc = i + 2 < len && bytes[i + 2] == b'/' && (i + 3 >= len || bytes[i + 3] != b'/');
+            let is_doc =
+                i + 2 < len && bytes[i + 2] == b'/' && (i + 3 >= len || bytes[i + 3] != b'/');
             let start = i;
             i += 2;
             let doc_start = i + if is_doc { 1 } else { 0 };
@@ -165,32 +166,56 @@ fn tokenize(source: &str, context: &OperationContext) -> Result<Vec<Token>, Fail
         // Single character punctuations
         match b {
             b'{' => {
-                tokens.push(Token { kind: TokenKind::OpenBrace, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::OpenBrace,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
             b'}' => {
-                tokens.push(Token { kind: TokenKind::CloseBrace, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::CloseBrace,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
             b'(' => {
-                tokens.push(Token { kind: TokenKind::OpenParen, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::OpenParen,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
             b')' => {
-                tokens.push(Token { kind: TokenKind::CloseParen, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::CloseParen,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
             b';' => {
-                tokens.push(Token { kind: TokenKind::Semicolon, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::Semicolon,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
             b':' => {
-                tokens.push(Token { kind: TokenKind::Colon, start: i, end: i + 1 });
+                tokens.push(Token {
+                    kind: TokenKind::Colon,
+                    start: i,
+                    end: i + 1,
+                });
                 i += 1;
                 continue;
             }
@@ -289,7 +314,10 @@ pub(super) fn collect(
                 .join(".");
 
             // 1. Types: class, struct, interface, enum, record
-            if matches!(word.as_str(), "class" | "interface" | "struct" | "enum" | "record") {
+            if matches!(
+                word.as_str(),
+                "class" | "interface" | "struct" | "enum" | "record"
+            ) {
                 let kind_str = match word.as_str() {
                     "class" => "class",
                     "interface" => "interface",
@@ -332,7 +360,8 @@ pub(super) fn collect(
                                 let start_line = line_number(source, start_byte);
                                 let end_line = line_number(source, end_byte);
 
-                                let id_payload = format!("{}:{}:{}", current_container, type_name, start_line);
+                                let id_payload =
+                                    format!("{}:{}:{}", current_container, type_name, start_line);
                                 let sym_id = prefix(&hash(id_payload.as_bytes()), 16).to_string();
 
                                 symbols.push(Symbol {
@@ -363,7 +392,16 @@ pub(super) fn collect(
                 // Avoid control flow statements
                 if !matches!(
                     method_name.as_str(),
-                    "if" | "while" | "for" | "foreach" | "switch" | "catch" | "using" | "lock" | "typeof" | "sizeof" | "nameof"
+                    "if" | "while"
+                        | "for"
+                        | "foreach"
+                        | "switch"
+                        | "catch"
+                        | "using"
+                        | "lock"
+                        | "typeof"
+                        | "sizeof"
+                        | "nameof"
                 ) {
                     // Find closing paren
                     let mut paren_close = None;
@@ -403,12 +441,24 @@ pub(super) fn collect(
                             let lookback_limit = if i >= 8 { i - 8 } else { 0 };
                             for k in (lookback_limit..i).rev() {
                                 match tokens[k].kind {
-                                    TokenKind::Semicolon | TokenKind::OpenBrace | TokenKind::CloseBrace => {
+                                    TokenKind::Semicolon
+                                    | TokenKind::OpenBrace
+                                    | TokenKind::CloseBrace => {
                                         start_token_idx = k + 1;
                                         break;
                                     }
                                     TokenKind::Word(ref w) => {
-                                        if matches!(w.as_str(), "public" | "private" | "protected" | "internal" | "static" | "virtual" | "override" | "async") {
+                                        if matches!(
+                                            w.as_str(),
+                                            "public"
+                                                | "private"
+                                                | "protected"
+                                                | "internal"
+                                                | "static"
+                                                | "virtual"
+                                                | "override"
+                                                | "async"
+                                        ) {
                                             start_token_idx = k;
                                         }
                                     }
@@ -428,13 +478,15 @@ pub(super) fn collect(
                             let start_line = line_number(source, start_byte);
                             let end_line = line_number(source, end_byte);
 
-                            let kind = if container_stack.last().map(|(c, _)| c) == Some(&method_name) {
-                                "constructor"
-                            } else {
-                                "method"
-                            };
+                            let kind =
+                                if container_stack.last().map(|(c, _)| c) == Some(&method_name) {
+                                    "constructor"
+                                } else {
+                                    "method"
+                                };
 
-                            let id_payload = format!("{}:{}:{}", current_container, method_name, start_line);
+                            let id_payload =
+                                format!("{}:{}:{}", current_container, method_name, start_line);
                             let sym_id = prefix(&hash(id_payload.as_bytes()), 16).to_string();
 
                             symbols.push(Symbol {
@@ -458,7 +510,15 @@ pub(super) fn collect(
                 let prop_name = word.clone();
                 if !matches!(
                     prop_name.as_str(),
-                    "class" | "interface" | "struct" | "enum" | "record" | "namespace" | "get" | "set" | "init"
+                    "class"
+                        | "interface"
+                        | "struct"
+                        | "enum"
+                        | "record"
+                        | "namespace"
+                        | "get"
+                        | "set"
+                        | "init"
                 ) {
                     let open_idx = i + 1;
                     if let Some(close_idx) = find_matching_brace(&tokens, open_idx) {
@@ -475,7 +535,9 @@ pub(super) fn collect(
                             let lookback_limit = if i >= 6 { i - 6 } else { 0 };
                             for k in (lookback_limit..i).rev() {
                                 match tokens[k].kind {
-                                    TokenKind::Semicolon | TokenKind::OpenBrace | TokenKind::CloseBrace => {
+                                    TokenKind::Semicolon
+                                    | TokenKind::OpenBrace
+                                    | TokenKind::CloseBrace => {
                                         start_token_idx = k + 1;
                                         break;
                                     }
@@ -486,7 +548,9 @@ pub(super) fn collect(
                             let start_byte = tokens[start_token_idx].start;
                             let end_byte = tokens[close_idx].end;
 
-                            let raw_sig = source[start_byte..tokens[open_idx].start].trim().to_string();
+                            let raw_sig = source[start_byte..tokens[open_idx].start]
+                                .trim()
+                                .to_string();
                             let sig = if raw_sig.is_empty() {
                                 format!("{} {{ get; set; }}", prop_name)
                             } else {
@@ -496,7 +560,8 @@ pub(super) fn collect(
                             let start_line = line_number(source, start_byte);
                             let end_line = line_number(source, end_byte);
 
-                            let id_payload = format!("{}:{}:{}", current_container, prop_name, start_line);
+                            let id_payload =
+                                format!("{}:{}:{}", current_container, prop_name, start_line);
                             let sym_id = prefix(&hash(id_payload.as_bytes()), 16).to_string();
 
                             symbols.push(Symbol {
@@ -522,14 +587,17 @@ pub(super) fn collect(
     Ok(symbols)
 }
 
-/// Razor (.cshtml) symbol extraction: extracts C# code blocks (@code { ... }, @functions { ... })
+/// Basic Razor declarations and C# members, preserving exact source byte ranges.
 pub(super) fn collect_cshtml(
     source: &str,
     digest: &str,
     context: &OperationContext,
 ) -> Result<Vec<Symbol>, Failure> {
     if source.len() > MAX_CSHARP_SIZE {
-        return Err(("PARSER_LIMIT", "Razor source exceeds max allowed size (4MB)"));
+        return Err((
+            "PARSER_LIMIT",
+            "Razor source exceeds max allowed size (4MB)",
+        ));
     }
 
     let mut symbols = Vec::new();
@@ -539,38 +607,114 @@ pub(super) fn collect_cshtml(
 
     while i < len {
         context.check()?;
+        if bytes[i..].starts_with(b"@*") {
+            i += 2;
+            while i + 1 < len && !bytes[i..].starts_with(b"*@") {
+                i += 1;
+            }
+            i = (i + 2).min(len);
+            continue;
+        }
+        if bytes[i..].starts_with(b"@@") {
+            i += 2;
+            continue;
+        }
         if bytes[i] == b'@' && i + 1 < len {
             let after = &source[i + 1..];
-            if after.starts_with("code") || after.starts_with("functions") {
-                let tag_len = if after.starts_with("code") { 4 } else { 9 };
+            let directive = ["model", "section", "helper", "code", "functions"]
+                .into_iter()
+                .find(|tag| {
+                    after.starts_with(tag)
+                        && bytes
+                            .get(i + 1 + tag.len())
+                            .is_some_and(|b| b.is_ascii_whitespace() || *b == b'{')
+                });
+            if let Some(tag) = directive {
+                let tag_len = tag.len();
                 let mut brace_start = i + 1 + tag_len;
                 while brace_start < len && bytes[brace_start].is_ascii_whitespace() {
                     brace_start += 1;
                 }
-                if brace_start < len && bytes[brace_start] == b'{' {
-                    let mut depth = 1;
-                    let mut end = brace_start + 1;
-                    while end < len && depth > 0 {
-                        if bytes[end] == b'{' {
-                            depth += 1;
-                        } else if bytes[end] == b'}' {
-                            depth -= 1;
-                        }
-                        end += 1;
+                let declaration_start = brace_start;
+                if tag == "model" {
+                    let end = source[brace_start..]
+                        .find('\n')
+                        .map_or(len, |n| brace_start + n);
+                    let name = source[brace_start..end].trim();
+                    if !name.is_empty() {
+                        symbols.push(razor_symbol(source, digest, name, tag, i, end, end));
                     }
-                    if depth == 0 {
+                    i = end;
+                    continue;
+                }
+                if tag == "section" || tag == "helper" {
+                    while brace_start < len
+                        && (bytes[brace_start].is_ascii_alphanumeric()
+                            || bytes[brace_start] == b'_'
+                            || bytes[brace_start] >= 128)
+                    {
+                        brace_start += 1;
+                    }
+                    let name = &source[declaration_start..brace_start];
+                    if name.is_empty() {
+                        i += 1;
+                        continue;
+                    }
+                    while brace_start < len && bytes[brace_start].is_ascii_whitespace() {
+                        brace_start += 1;
+                    }
+                    if tag == "helper" {
+                        if bytes.get(brace_start) != Some(&b'(') {
+                            i += 1;
+                            continue;
+                        }
+                        if let Some(end) =
+                            super::razor_syntax::delimited_end(bytes, brace_start, b'(', b')')
+                        {
+                            brace_start = end;
+                            while brace_start < len && bytes[brace_start].is_ascii_whitespace() {
+                                brace_start += 1;
+                            }
+                        } else {
+                            i += 1;
+                            continue;
+                        }
+                    }
+                    if bytes.get(brace_start) == Some(&b'{') {
+                        if let Some(end) = super::razor_syntax::block_end(bytes, brace_start) {
+                            symbols.push(razor_symbol(
+                                source,
+                                digest,
+                                name,
+                                tag,
+                                i,
+                                brace_start,
+                                end,
+                            ));
+                            i = end;
+                            continue;
+                        }
+                    }
+                }
+                if matches!(tag, "code" | "functions")
+                    && brace_start < len
+                    && bytes[brace_start] == b'{'
+                {
+                    if let Some(end) = super::razor_syntax::block_end(bytes, brace_start) {
                         let block_code = &source[brace_start + 1..end - 1];
                         if let Ok(block_syms) = collect(block_code, digest, context) {
-                            let block_line_offset = line_number(source, brace_start + 1).saturating_sub(1);
+                            let block_line_offset =
+                                line_number(source, brace_start + 1).saturating_sub(1);
                             let byte_offset = brace_start + 1;
                             for mut sym in block_syms {
                                 sym.start += block_line_offset;
                                 sym.end += block_line_offset;
-                                sym.bytes = (sym.bytes.start + byte_offset)..(sym.bytes.end + byte_offset);
+                                sym.bytes =
+                                    (sym.bytes.start + byte_offset)..(sym.bytes.end + byte_offset);
                                 sym.container = if sym.container.is_empty() {
-                                    "@code".into()
+                                    format!("@{tag}")
                                 } else {
-                                    format!("@code.{}", sym.container)
+                                    format!("@{tag}.{}", sym.container)
                                 };
                                 symbols.push(sym);
                             }
@@ -584,8 +728,38 @@ pub(super) fn collect_cshtml(
         i += 1;
     }
 
-    // If no explicit @code block was found or in addition to it, scan entire cshtml for top-level directives
     Ok(symbols)
+}
+
+fn razor_symbol(
+    source: &str,
+    digest: &str,
+    name: &str,
+    tag: &str,
+    start: usize,
+    header_end: usize,
+    end: usize,
+) -> Symbol {
+    Symbol {
+        name: name.to_string(),
+        container: format!("@{tag}"),
+        kind: match tag {
+            "model" => "razor_model",
+            "section" => "razor_section",
+            "helper" => "razor_helper",
+            _ => "razor_directive",
+        },
+        start: line_number(source, start),
+        end: line_number(source, end.saturating_sub(1)),
+        signature: source[start..header_end].trim().to_string(),
+        doc: String::new(),
+        id: prefix(
+            &hash(format!("{digest}:{tag}:{name}:{start}").as_bytes()),
+            16,
+        )
+        .to_string(),
+        bytes: start..end,
+    }
 }
 
 /// Simple syntax check for C# ensuring bracket balance and string integrity.
@@ -594,6 +768,13 @@ pub(super) fn validate_syntax(
     source: &str,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    if std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cshtml"))
+    {
+        return super::razor_syntax::validate(path, source, context);
+    }
     if source.len() > MAX_CSHARP_SIZE {
         return Err(("FILE_TOO_LARGE", "C# file exceeds max allowed size"));
     }

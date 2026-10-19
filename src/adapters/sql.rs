@@ -322,9 +322,27 @@ async fn connect(
     Ok(client)
 }
 
-/// Never return driver text: it may contain SQL, identifiers or credentials.
+/// Classify errors without returning raw driver text or connection details.
 fn sql_error(error: tiberius::error::Error) -> Failure {
     match error.code() {
+        Some(207) => ("SQL_INVALID_COLUMN", "SQL Server 207: Invalid column name"),
+        Some(208) => ("SQL_INVALID_OBJECT", "SQL Server 208: Invalid object name"),
+        Some(209) => (
+            "SQL_AMBIGUOUS_COLUMN",
+            "SQL Server 209: Ambiguous column name",
+        ),
+        Some(2812) => (
+            "SQL_PROCEDURE_NOT_FOUND",
+            "SQL Server 2812: Stored procedure not found",
+        ),
+        Some(4104) => (
+            "SQL_IDENTIFIER_BINDING",
+            "SQL Server 4104: Multi-part identifier could not be bound",
+        ),
+        Some(102 | 156) => (
+            "SQL_SYNTAX",
+            "SQL Server syntax error; check identifiers and SQL keywords",
+        ),
         Some(18456 | 18452) => ("SQL_AUTH", "SQL Server authentication failed"),
         Some(229 | 230 | 262 | 297 | 916) => {
             ("SQL_PERMISSION", "SQL Server login lacks permission")
@@ -346,6 +364,39 @@ fn sql_error(error: tiberius::error::Error) -> Failure {
             ),
         },
     }
+}
+
+/// Only recognized schema errors may echo a single, bounded SQL identifier.
+/// Reconstruct the message rather than trying to redact arbitrary server text.
+fn safe_schema_message(number: u32, message: &str) -> Option<String> {
+    let (prefix, suffix) = match number {
+        207 => ("Invalid column name '", "'."),
+        208 => ("Invalid object name '", "'."),
+        209 => ("Ambiguous column name '", "'."),
+        2812 => ("Could not find stored procedure '", "'."),
+        4104 => ("The multi-part identifier \"", "\" could not be bound."),
+        _ => return None,
+    };
+    let identifier = message.strip_prefix(prefix)?.strip_suffix(suffix)?;
+    if identifier.is_empty()
+        || identifier.len() > 256
+        || !identifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '[' | ']' | '@' | '#' | '$'))
+    {
+        return None;
+    }
+    Some(format!("SQL Server {number}: {prefix}{identifier}{suffix}"))
+}
+
+fn server_diagnostic(error: &tiberius::error::Error) -> Option<Value> {
+    let tiberius::error::Error::Server(server) = error else {
+        return None;
+    };
+    let number = server.code();
+    // Never expose authentication, conversion, duplicate-value or user-thrown text.
+    let message = safe_schema_message(number, server.message());
+    Some(json!({"number": number, "message": message, "messageSanitized": true}))
 }
 
 fn operation_failed((code, message): Failure) -> Value {
@@ -670,6 +721,13 @@ pub fn query(
     assert_sql_read_only(&args.sql)?;
 
     let (sql_str, parameters) = parameters::prepare(&args.sql, args.parameters.as_ref())?;
+    let server_error = std::sync::Mutex::new(None);
+    let report_error = |error: tiberius::error::Error| {
+        if let Ok(mut diagnostic) = server_error.lock() {
+            *diagnostic = server_diagnostic(&error);
+        }
+        sql_error(error)
+    };
     let max_rows = config.max_rows;
     let project_clone = project.clone();
     let config_clone = config.clone();
@@ -682,11 +740,11 @@ pub fn query(
             for value in parameters {
                 parameters::bind(&mut query, value);
             }
-            let stream = query.query(&mut client).await.map_err(sql_error)?;
+            let stream = query.query(&mut client).await.map_err(&report_error)?;
 
             let mut results = stream.into_row_stream();
             let mut rows_out = Rows::new(max_rows, config.max_chars);
-            while let Some(row) = results.try_next().await.map_err(sql_error)? {
+            while let Some(row) = results.try_next().await.map_err(&report_error)? {
                 if row.result_index() != 0 {
                     break;
                 }
@@ -763,7 +821,18 @@ pub fn query(
         &timed,
     )) {
         Ok(value) => value,
-        Err(error) => return Ok(operation_failed(error)),
+        Err(error) => {
+            let mut output = operation_failed(error);
+            if let Ok(diagnostic) = server_error.lock() {
+                if let Some(diagnostic) = diagnostic.as_ref() {
+                    if let Some(message) = diagnostic["message"].as_str() {
+                        output["diagnostics"][0]["message"] = json!(message);
+                    }
+                    output["serverError"] = diagnostic.clone();
+                }
+            }
+            return Ok(output);
+        }
     };
 
     Ok(json!({
@@ -816,6 +885,45 @@ mod safety_tests {
         let output = operation_failed(("TIMEOUT", "operation deadline exceeded"));
         assert_eq!(output["timedOut"], true);
         assert_eq!(output["serverCancellationConfirmed"], false);
+    }
+    #[test]
+    fn schema_errors_echo_only_allowlisted_identifiers() {
+        assert_eq!(
+            safe_schema_message(207, "Invalid column name 'tEmpresaRuc'.").as_deref(),
+            Some("SQL Server 207: Invalid column name 'tEmpresaRuc'.")
+        );
+        assert!(safe_schema_message(208, "Invalid object name 'dbo.MEMPRESA'.").is_some());
+        assert!(
+            safe_schema_message(
+                4104,
+                "The multi-part identifier \"a.Id\" could not be bound."
+            )
+            .is_some()
+        );
+        for message in [
+            "Invalid column name 'Password=secret'.",
+            "Invalid column name 'valid'.\nUser ID=sa;Password=secret",
+            "Invalid column name 'abc\nsecret'.",
+            "Invalid column name 'SELECT private value'.",
+            "Invalid column name 'x';Password=secret'.",
+            "Invalid column name ''.",
+        ] {
+            assert!(safe_schema_message(207, message).is_none());
+        }
+        assert!(
+            safe_schema_message(207, &format!("Invalid column name '{}'.", "x".repeat(257)))
+                .is_none()
+        );
+        assert!(safe_schema_message(18456, "Login failed for user 'secret'.").is_none());
+        assert!(
+            safe_schema_message(245, "Conversion failed when converting 'private value'.")
+                .is_none()
+        );
+        assert!(safe_schema_message(50000, "Invalid column name 'secret'.").is_none());
+        assert!(
+            server_diagnostic(&tiberius::error::Error::Protocol("Password=secret".into()))
+                .is_none()
+        );
     }
     #[tokio::test]
     async fn sync_bridge_handles_current_thread_runtime() {

@@ -11,6 +11,7 @@ const INVALID: Failure = (
 
 #[derive(Clone, Default)]
 pub(super) struct Snapshot {
+    pub semantic: Option<super::semantic_policy::Snapshot>,
     pub path: Option<String>,
     pub digest: Option<String>,
     pub json: Option<String>,
@@ -316,11 +317,15 @@ impl Snapshot {
             base_url,
             raw_paths,
             paths_directory,
+            semantic: None,
         })
     }
 
     pub fn stamp(&self) -> Value {
         let mut stamp = json!({"path":self.path,"hash":self.digest});
+        if let Some(policy) = self.semantic.as_ref().and_then(|p| p.stamp()) {
+            stamp["semanticPolicy"] = policy;
+        }
         if !self.dependencies.is_empty() {
             stamp["dependencies"] = json!(self.dependencies);
         }
@@ -381,7 +386,7 @@ impl Snapshot {
             None => json!({"path":null,"hash":null}),
         };
         let path = requested.or_else(|| prior["path"].as_str());
-        let snapshot = match path {
+        let mut snapshot = match path {
             Some(path) => Self::load(project, path, context)?,
             None => Self::default(),
         };
@@ -391,13 +396,18 @@ impl Snapshot {
         {
             return Err(("SYNC_CONFIG", "Explicit tsconfig does not exist"));
         }
+        snapshot.semantic = Some(super::semantic_policy::Snapshot::load(project, context)?);
         let changed = snapshot.stamp() != prior;
         Ok((snapshot, changed))
     }
 
     pub fn recheck(&self, project: &Project, context: &OperationContext) -> Result<(), Failure> {
+        if let Some(policy) = &self.semantic {
+            policy.recheck(project, context)?;
+        }
         if let Some(path) = &self.path {
-            let current = Self::load(project, path, context)?;
+            let mut current = Self::load(project, path, context)?;
+            current.semantic = self.semantic.clone();
             if current.stamp() != self.stamp() {
                 return Err((
                     "STALE",

@@ -814,6 +814,7 @@ mod tests {
             TrackingSessions(active.clone(), Arc::default()),
         );
         let request = Request::Replace(harness_domain::contracts::ReplaceArgs {
+            bom: None,
             path: "file.txt".into(),
             hash: "unused-by-fake".into(),
             chunks: None,

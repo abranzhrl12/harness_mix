@@ -249,6 +249,14 @@ impl Sources {
         context: &OperationContext,
         path: &str,
     ) -> Result<bool, Failure> {
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(path))
+        {
+            return Ok(false);
+        }
         if !self.observe(db, project, context, path)? {
             return Ok(false);
         }

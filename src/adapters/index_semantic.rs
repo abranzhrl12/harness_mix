@@ -50,14 +50,20 @@ pub(super) fn analyze(
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
     if !parsed.errors.is_empty() {
-        return Err(INVALID);
+        return Err((
+            "SYNC_SEMANTIC",
+            "JavaScript/TypeScript parser rejected the source; inspect syntax diagnostics for this file",
+        ));
     }
     let built = SemanticBuilder::new()
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
     if !built.errors.is_empty() {
-        return Err(INVALID);
+        return Err((
+            "SYNC_SEMANTIC",
+            "JavaScript/TypeScript lexical binding analysis rejected the source; inspect duplicate declarations or invalid scope bindings",
+        ));
     }
     let semantic = built.semantic;
     if semantic.scoping().symbols_len() > 20_000 {
@@ -69,7 +75,10 @@ pub(super) fn analyze(
         context.check()?;
         // TypeScript may record conflicts without emitting semantic errors.
         if !semantic.scoping().symbol_redeclarations(symbol).is_empty() {
-            return Err(INVALID);
+            return Err((
+                "SYNC_SEMANTIC",
+                "JavaScript/TypeScript binding has multiple declarations; imported/exported bindings cannot be resolved unambiguously",
+            ));
         }
         if semantic.scoping().symbol_flags(symbol).is_type_import()
             || !matches!(
@@ -214,6 +223,13 @@ pub(super) fn analyze(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_datatables_helper_can_be_analyzed() {
+        let source = include_str!("../../tests/fixtures/datatables-helper.js");
+        let result = analyze(source, "datatables-helper.js", &OperationContext::default());
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
     #[test]
     fn oxc_type_exports_are_not_runtime_star_shadows() {
         let context = OperationContext::default();

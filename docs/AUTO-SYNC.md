@@ -48,7 +48,8 @@ está abierto el servidor MCP; no instala un servicio Windows.
 - Renombrados y borrados usan las protecciones del publicador nativo. Los cambios
   de relaciones reutilizan su resolución/invalidation existente; no añaden paridad
   con el proveedor original.
-- Se filtran eventos de directorios generados, `.codegraph`, `.agents` y rutas
+- Se filtran eventos de directorios generados, `.codegraph`, `.agents` (excepto
+  `.agents/harness.config.json`) y rutas
   restringidas. La suscripción nativa es recursiva; eventos masivos en subárboles
   filtrados aún pueden producir un aviso de desbordamiento del sistema operativo.
 
@@ -72,6 +73,34 @@ cancelación cooperativa al cerrar. Un índice incompatible o relaciones legacy 
 soportadas se reportan como error; no se borran para forzar éxito.
 
 ## Estado y límites
+
+### Excluir bibliotecas del análisis semántico
+
+Integra esta sección en `.agents/harness.config.json`, conservando otras opciones:
+
+```json
+{
+  "indexing": {
+    "semanticExclude": ["Content/plugins/**", "Scripts/vendor/**"]
+  }
+}
+```
+
+Son globs relativos a la raíz del proyecto, con `/`, hasta 128 patrones de 1000
+caracteres. No se admiten rutas absolutas, `..`, negaciones ni barras invertidas.
+En Windows no distinguen mayúsculas. Una lista vacía habilita el análisis habitual.
+No es una exclusión del inventario: se conservan la lectura, búsqueda y extracción
+básica de símbolos. Las rutas coincidentes no se usan para resolver relaciones
+semánticas JS/TS, tampoco como destino de imports o reexports; esas referencias
+quedan pendientes. Así un fallo del analizador semántico en una biblioteca excluida
+no bloquea la publicación de los archivos de la aplicación ni dispara reintentos.
+Los errores de extracción básica siguen reportándose.
+
+El watcher detecta cambios de esta configuración y solicita una reconciliación.
+La política forma parte del estado de resolución; se invalidan las relaciones
+derivadas de imports para evitar conservar conclusiones de la política anterior.
+Si cambia durante una publicación, la transacción se revierte. Una configuración
+inválida se informa como `SYNC_CONFIG` y no se ignora silenciosamente.
 
 `harness_doctor` incluye `checks[id=index-auto-sync].details`: `enabled`, `state`
 (`starting`, `syncing`, `idle`, `retrying`, `degraded`), `batches`, `reconciliations`,

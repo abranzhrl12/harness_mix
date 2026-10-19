@@ -44,6 +44,7 @@ fn native_creation_validates_syntax_and_never_overwrites() {
     let app = adapters::application(root.path()).unwrap();
     let write = |path: &str, content: &str| {
         app.execute(Request::Write(WriteArgs {
+            bom: None,
             create_parents: false,
             allow_unvalidated_text: false,
             expected_hash: None,

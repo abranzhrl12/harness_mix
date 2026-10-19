@@ -55,6 +55,15 @@ Si el archivo ya contiene exactamente los mismos bytes, devuelve `already_presen
 si difiere, no sobrescribe. `allowUnvalidatedText=true` permite formatos sin parser,
 indicando `not_checked`, sin saltarse errores de sintaxis de formatos soportados.
 Para `.vue`, valida scripts inline JS/TS y marca templates/estilos como no comprobados.
+Para `.cshtml`, realiza una comprobación básica de Razor: bloques `@section`,
+`@media` sin escapar (usar `@@media`) y etiquetas HTML desbalanceadas. Los resultados
+indican sus límites: no sustituyen la compilación Razor/C# ni comprueban tipos.
+`harness_doctor` con `action="syntax"` también aplica estas comprobaciones.
+Al crear o editar archivos `.cs`, y al revisarlos con ese diagnóstico, busca los
+`.csproj` del ancestro más cercano y avisa si el archivo no está incluido.
+Reconoce inclusiones explícitas y los valores predeterminados del SDK .NET;
+condiciones, imports personalizados y propiedades heredadas se marcan como
+desconocidos cuando requieren evaluar MSBuild.
 Harness permite editar y crear `.agents/knowledge/**/*.md`; las demás rutas de
 `.agents` siguen protegidas.
 La misma respuesta incluye hash, postcheck y resumen; no ejecuta compilaciones.
@@ -63,6 +72,15 @@ En fallos posteriores a crear carpetas, informa cuáles quedaron sin borrarlas a
 del proyecto ni avisos de seguridad; el catálogo completo queda recuperable en detalle.
 `harness_replace` acepta un `hash` SHA-256 opcional: sin él exige coincidencias
 únicas de `oldText` y comprueba cambios concurrentes antes de publicar.
+Ambas herramientas admiten `bom: true` para UTF-8 con BOM y `bom: false`
+para omitirlo. Por defecto conservan el BOM existente y los `.cshtml` en Windows
+se guardan con BOM. Los hashes y las comprobaciones posteriores incluyen sus bytes.
+La navegación local de Razor reconoce `@model`, `@section` y `@helper`;
+las relaciones del grafo siguen dependiendo de la cobertura del índice.
+
+Las consultas SQL Server incluyen el número del error y, para errores habituales
+de columna, tabla o procedimiento, un mensaje con el identificador sanitizado.
+Los mensajes arbitrarios del motor, datos de conversión y credenciales no se exponen.
 
 Para Rust, `harness_verify` con `{"language":"rust","package":"domain"}`
 ejecuta `cargo check -p domain`. `scope` permite elegir una carpeta de crate o

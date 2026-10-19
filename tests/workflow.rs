@@ -83,6 +83,7 @@ fn edits_are_observed_then_restored_as_history_not_new_current_facts() {
     let app = adapters::application(root.path()).unwrap();
     let id = bootstrap(&app);
     let edit = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
         session: Some(id.clone()),
         path: "file.txt".into(),
         hash: harness_domain::hash(b"old"),
@@ -326,6 +327,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     #[cfg(windows)]
     {
         let edit = app.execute(Request::Replace(ReplaceArgs {
+            bom: None,
             session: Some(id.clone()),
             path: "src/lib.rs".into(),
             hash: harness_domain::hash(b"pub fn sample() {}\n"),

@@ -283,6 +283,7 @@ mod tests {
             let project = Project::new(root.path()).unwrap();
             let context = OperationContext::default();
             let args = ReplaceArgs {
+                bom: None,
                 path: "file.txt".into(),
                 hash: hash(b"old"),
                 chunks: None,

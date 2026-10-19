@@ -27,6 +27,21 @@ struct Pending {
     stop: bool,
     revision: u64,
 }
+
+#[cfg(test)]
+mod semantic_policy_events {
+    use super::*;
+    #[test]
+    fn harness_configuration_changes_schedule_reconciliation() {
+        let root = std::path::PathBuf::from("workspace");
+        let event = Event::new(EventKind::Modify(notify::event::ModifyKind::Any))
+            .add_path(root.join(".agents/harness.config.json"));
+        let mut pending = Pending::default();
+        relevant(&root, event, &mut pending);
+        assert!(pending.full);
+        assert!(pending.first.is_some());
+    }
+}
 impl Pending {
     fn dirty(&mut self) {
         self.revision = self.revision.wrapping_add(1);
@@ -82,6 +97,10 @@ fn relevant(root: &Path, event: Event, pending: &mut Pending) {
             continue;
         };
         let relative = relative.replace('\\', "/");
+        if relative.eq_ignore_ascii_case(".agents/harness.config.json") {
+            pending.reconcile();
+            continue;
+        }
         if relative.len() > 1000 {
             pending.reconcile();
             continue;

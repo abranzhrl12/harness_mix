@@ -12,6 +12,90 @@ use harness_domain::{
 use serde_json::{Value, json};
 use std::path::Path;
 
+/// Expand Git's grouped untracked directories, respecting search ignores and path policy.
+fn expand_untracked_directory(
+    project: &Project,
+    path: &str,
+    limit: usize,
+    context: &OperationContext,
+) -> Result<(Vec<String>, bool), Failure> {
+    let root = project.target(path)?;
+    let safe_project = project.clone();
+    let mut builder = ignore::WalkBuilder::new(root);
+    builder
+        .follow_links(false)
+        .hidden(true)
+        .parents(true)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(false)
+        .require_git(false)
+        .sort_by_file_path(|a, b| a.cmp(b))
+        .filter_entry(move |entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if [
+                ".git",
+                ".hg",
+                ".svn",
+                "node_modules",
+                "target",
+                "bin",
+                "obj",
+            ]
+            .contains(&name.as_str())
+            {
+                return false;
+            }
+            let Some(relative) = entry
+                .path()
+                .strip_prefix(&safe_project.root)
+                .ok()
+                .and_then(Path::to_str)
+            else {
+                return false;
+            };
+            relative.split(['/', '\\']).count() <= 64 && safe_project.target(relative).is_ok()
+        });
+    let started = std::time::Instant::now();
+    let mut files = Vec::new();
+    let mut complete = true;
+    for (visited, entry) in builder.build().enumerate() {
+        context.check()?;
+        if visited >= 4096 || started.elapsed() >= std::time::Duration::from_secs(2) {
+            complete = false;
+            break;
+        }
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                complete = false;
+                continue;
+            }
+        };
+        if entry.error().is_some() {
+            complete = false;
+        }
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let Some(relative) = entry
+            .path()
+            .strip_prefix(&project.root)
+            .ok()
+            .and_then(Path::to_str)
+        else {
+            complete = false;
+            continue;
+        };
+        files.push(relative.replace('\\', "/"));
+        if files.len() >= limit {
+            complete = false;
+            break;
+        }
+    }
+    Ok((files, complete))
+}
+
 fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) -> (Value, usize) {
     match Path::new(path)
         .extension()
@@ -129,7 +213,18 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
                 ),
             }
         }
-        "cs" | "cshtml" => match super::csharp_syntax::validate_syntax(path, source, context) {
+        "cshtml" => match super::razor_syntax::diagnose(source, context) {
+            Ok(result) => {
+                let errors = result["errors"].as_u64().unwrap_or(0) as usize;
+                (result, errors)
+            }
+            Err((code, msg)) => (
+                json!({"status":"checked","language":"razor","validation":"basic_razor","errors":1,
+                    "diagnostics":[{"code":code,"message":msg}]}),
+                1,
+            ),
+        },
+        "cs" => match super::csharp_syntax::validate_syntax(path, source, context) {
             Ok(result) => (result, 0),
             Err((code, msg)) => (
                 json!({
@@ -188,6 +283,7 @@ pub fn handle_diagnostics(
         }
     }
 
+    let mut selection_incomplete = false;
     let (candidates, selection_type) = if let Some(files) = &args.files {
         (files.clone(), "explicit files")
     } else {
@@ -195,7 +291,7 @@ pub fn handle_diagnostics(
         let status = super::git::status(
             project,
             &GitStatusArgs {
-                include_untracked: Some(false),
+                include_untracked: Some(true),
                 offset: None,
                 limit: Some(100),
                 session: None,
@@ -204,31 +300,56 @@ pub fn handle_diagnostics(
         );
         match status {
             Ok(val) => {
+                selection_incomplete = val["truncated"] == true || !val["nextOffset"].is_null();
                 let mut list = Vec::new();
                 if let Some(entries) = val["entries"].as_array() {
                     for entry in entries {
                         if let Some(p) = entry["path"].as_str() {
                             let xy = entry["xy"].as_str().unwrap_or("");
                             if !xy.contains('D') {
-                                list.push(p.to_string());
+                                if xy == "??" && p.ends_with('/') {
+                                    let remaining = (max_files + 1).saturating_sub(list.len());
+                                    if remaining == 0 {
+                                        selection_incomplete = true;
+                                        break;
+                                    }
+                                    match expand_untracked_directory(project, p, remaining, context)
+                                    {
+                                        Ok((files, complete)) => {
+                                            list.extend(files);
+                                            selection_incomplete |= !complete;
+                                        }
+                                        Err(("CANCELLED", message)) => {
+                                            return Err(("CANCELLED", message));
+                                        }
+                                        Err(("TIMEOUT", message)) => {
+                                            return Err(("TIMEOUT", message));
+                                        }
+                                        Err(_) => {
+                                            selection_incomplete = true;
+                                        }
+                                    }
+                                } else {
+                                    list.push(p.to_string());
+                                }
                             }
                         }
                     }
                 }
                 (
                     list,
-                    "tracked Git changes (staged and unstaged); deleted/untracked files excluded",
+                    "Git changes (staged, unstaged and untracked); deleted files excluded",
                 )
             }
-            Err(_) => (
-                Vec::new(),
-                "tracked Git changes (staged and unstaged); deleted/untracked files excluded",
-            ),
+            Err(_) => {
+                selection_incomplete = true;
+                (Vec::new(), "Git changes unavailable")
+            }
         }
     };
 
     let total_candidates = candidates.len();
-    let selection_truncated = total_candidates > max_files;
+    let selection_truncated = selection_incomplete || total_candidates > max_files;
     let selected_files: Vec<String> = candidates.into_iter().take(max_files).collect();
 
     let mut files_out = Vec::new();
@@ -239,6 +360,10 @@ pub fn handle_diagnostics(
         let target = project.target(rel_path)?;
 
         if target.is_dir() {
+            if args.files.is_none() {
+                files_out.push(json!({"path":rel_path,"status":"skipped","reason":"git_untracked_directory_grouped","coverage":"Specify individual files explicitly to check this directory"}));
+                continue;
+            }
             return Err(("PATH", "Se requieren archivos, no carpetas"));
         }
 
@@ -274,6 +399,16 @@ pub fn handle_diagnostics(
         let obj = analysis.as_object_mut().unwrap();
         obj.insert("path".to_string(), json!(rel_path));
         obj.insert("hash".to_string(), json!(file_hash));
+        if Path::new(rel_path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("cs"))
+        {
+            obj.insert(
+                "projectMembership".to_string(),
+                super::csproj::check_file(project, rel_path, context)?,
+            );
+        }
         files_out.push(analysis);
     }
 
@@ -305,6 +440,9 @@ pub fn handle_diagnostics(
         "build": Value::Null,
         "coverage": "syntax-only by default; templates are partial; no type checking, lint or semantic analysis; bounded by path and exact content hash"
     });
+    result["warnings"] = json!(result["files"].as_array().unwrap().iter().filter_map(|file| {
+        file["projectMembership"]["warning"].as_str().map(|message| json!({"code":"CS_PROJ_FILE_NOT_INCLUDED","severity":"warning","path":file["path"],"message":message}))
+    }).collect::<Vec<_>>());
 
     if !passed {
         result["code"] = json!("DIAGNOSTICS_FAILED");

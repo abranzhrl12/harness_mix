@@ -49,6 +49,7 @@ fn replace(
     new: &str,
 ) -> Value {
     app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
         path: path.into(),
         hash: hash(text.as_bytes()),
         chunks: None,
@@ -136,6 +137,7 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
     context.cancel();
     let result = app.execute_with_context(
         Request::Replace(ReplaceArgs {
+            bom: None,
             path: "file.txt".into(),
             hash: hash(b"current"),
             chunks: None,
@@ -325,6 +327,7 @@ fn match_failure_reports_diverging_line_without_writing() {
     let before = "fn a() {}\nfn b() {}\nfn c() {}\n";
     std::fs::write(root.path().join("lib.rs"), before).unwrap();
     let result = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
         path: "lib.rs".into(),
         hash: hash(before.as_bytes()),
         chunks: None,

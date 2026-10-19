@@ -135,6 +135,8 @@ pub struct VerifyArgs {
 #[serde(try_from = "ReplaceInput")]
 pub struct ReplaceArgs {
     pub path: String,
+    /// Override UTF-8 BOM. Omitted preserves an existing BOM and enables it for Razor on Windows.
+    pub bom: Option<bool>,
     /// Optional on the wire; an omitted hash is bound to the source read during this edit.
     #[serde(default)]
     pub hash: String,
@@ -157,6 +159,7 @@ impl Default for ReplaceArgs {
     fn default() -> Self {
         Self {
             path: String::new(),
+            bom: None,
             hash: String::new(),
             chunks: None,
             old_text: String::new(),
@@ -184,6 +187,8 @@ pub struct WriteArgs {
     #[serde(alias = "target_path")]
     pub path: String,
     pub content: String,
+    /// Override UTF-8 BOM. Omitted preserves an existing BOM; new .cshtml files on Windows use BOM.
+    pub bom: Option<bool>,
     /// Create missing parent directories within the workspace; never follow links.
     #[serde(default, rename = "createParents")]
     pub create_parents: bool,
@@ -206,6 +211,9 @@ impl Serialize for ReplaceArgs {
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("path", &self.path)?;
+        if let Some(bom) = self.bom {
+            map.serialize_entry("bom", &bom)?;
+        }
         if !self.hash.is_empty() {
             map.serialize_entry("hash", &self.hash)?;
         }
@@ -242,6 +250,7 @@ pub struct ReplaceChunk {
 struct ReplaceInput {
     #[serde(alias = "target_path")]
     path: String,
+    bom: Option<bool>,
     #[serde(default)]
     hash: String,
     chunks: Option<Vec<ReplaceChunk>>,
@@ -268,6 +277,7 @@ impl TryFrom<ReplaceInput> for ReplaceArgs {
         };
         Ok(Self {
             path: input.path,
+            bom: input.bom,
             hash: input.hash,
             chunks: input.chunks,
             old_text,
@@ -1244,5 +1254,3 @@ mod doctor_contract_tests {
         assert!(serde_json::from_value::<DoctorToolArgs>(json!({})).is_ok());
     }
 }
-
-

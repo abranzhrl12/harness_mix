@@ -4,6 +4,27 @@ use agent_harness::adapters::{self, NativeApplication};
 use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, SymbolView, SymbolsArgs};
 use serde_json::Value;
 
+#[path = "support/codegraph.rs"]
+mod graph_fixture;
+
+#[test]
+fn explore_resolves_indexed_razor_section_from_current_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(temp.path());
+    let source = "@model VehicleModel\n@section Scripts {\n<script>const label = 'Vehicle';</script>\n}\n";
+    std::fs::write(temp.path().join("Index.cshtml"), source).unwrap();
+    db.execute("INSERT INTO nodes VALUES('razor-section','Scripts','section','Index.cshtml',2)", []).unwrap();
+    db.execute("INSERT INTO files VALUES('Index.cshtml',?1,NULL)", [harness_domain::hash(source.as_bytes())]).unwrap();
+    drop(db);
+    let app = adapters::application(temp.path()).unwrap();
+    let args = serde_json::from_value(serde_json::json!({"query":"Scripts","filePath":"Index.cshtml","requireMatchingFiles":true})).unwrap();
+    let result = app.execute(harness_domain::contracts::Request::Explore(args));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["definitions"][0]["symbol"]["name"], "Scripts", "{result}");
+    assert!(result["data"]["text"].as_str().unwrap().contains("const label = 'Vehicle'"));
+    assert!(!result.to_string().contains("Indexed candidate not resolved"));
+}
+
 fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {
     app.execute(
         SymbolsArgs::Outline(OutlineArgs {
@@ -74,14 +95,42 @@ namespace MyApp.Controllers
     assert_eq!(res["state"], "ok");
     let symbols = res["data"]["items"].as_array().unwrap();
 
-    assert!(symbols.iter().any(|s| s["name"] == "UserController" && s["kind"] == "class"));
-    assert!(symbols.iter().any(|s| s["name"] == "ConnectionString" && s["kind"] == "property"));
-    assert!(symbols.iter().any(|s| s["name"] == "UserController" && s["kind"] == "constructor"));
-    assert!(symbols.iter().any(|s| s["name"] == "GetUserById" && s["kind"] == "method"));
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "UserController" && s["kind"] == "class")
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "ConnectionString" && s["kind"] == "property")
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "UserController" && s["kind"] == "constructor")
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "GetUserById" && s["kind"] == "method")
+    );
 
-    let read_res = read_symbol(&app, "UserController.cs", "GetUserById", Some("UserController"), None, false);
+    let read_res = read_symbol(
+        &app,
+        "UserController.cs",
+        "GetUserById",
+        Some("UserController"),
+        None,
+        false,
+    );
     assert_eq!(read_res["state"], "ok");
-    assert!(read_res["data"]["text"].as_str().unwrap().contains("var user = await _service.Find(id);"));
+    assert!(
+        read_res["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("var user = await _service.Find(id);")
+    );
 }
 
 #[test]
@@ -112,10 +161,86 @@ fn test_cshtml_outline_and_read_symbol() {
     assert_eq!(res["state"], "ok");
     let symbols = res["data"]["items"].as_array().unwrap();
 
-    assert!(symbols.iter().any(|s| s["name"] == "Message" && s["kind"] == "property"));
-    assert!(symbols.iter().any(|s| s["name"] == "OnGet" && s["kind"] == "method"));
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "Message" && s["kind"] == "property")
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s["name"] == "OnGet" && s["kind"] == "method")
+    );
 
     let read_res = read_symbol(&app, "Index.cshtml", "OnGet", None, None, false);
     assert_eq!(read_res["state"], "ok");
-    assert!(read_res["data"]["text"].as_str().unwrap().contains("Message = \"Hello from Razor code block!\";"));
+    assert!(
+        read_res["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Message = \"Hello from Razor code block!\";")
+    );
+}
+
+#[test]
+fn razor_directives_preserve_names_signatures_and_complete_bodies() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = concat!(
+        "\u{feff}@model IEnumerable<MyApp.Vehicle>\r\n",
+        "@* @section Hidden { ignored } *@\r\n",
+        "@@section Escaped { ignored }\r\n",
+        "@section Scripts {\r\n<script>const s = \"}\"; /* } */</script>\r\n<p>Driver's car</p>\r\n}\r\n",
+        "@helper Vehicle(string label = \"}\") {\r\n<span>@label</span>\r\n}\r\n",
+        "@functions { public string Name() { return \"}\"; } }\r\n",
+        "@sectional Fake { ignored }\r\n",
+    );
+    std::fs::write(temp.path().join("Vehicles.cshtml"), source).unwrap();
+    let app = adapters::application(temp.path()).unwrap();
+    let result = outline(&app, "Vehicles.cshtml", None);
+    assert_eq!(result["state"], "ok", "{result}");
+    let symbols = result["data"]["items"].as_array().unwrap();
+    for (name, kind) in [
+        ("IEnumerable<MyApp.Vehicle>", "razor_model"),
+        ("Scripts", "razor_section"),
+        ("Vehicle", "razor_helper"),
+        ("Name", "method"),
+    ] {
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s["name"] == name && s["kind"] == kind),
+            "{result}"
+        );
+    }
+    assert!(!symbols.iter().any(|s| {
+        ["Hidden", "Escaped", "Fake"]
+            .iter()
+            .any(|name| s["name"] == *name)
+    }));
+    let section = read_symbol(
+        &app,
+        "Vehicles.cshtml",
+        "Scripts",
+        Some("@section"),
+        None,
+        false,
+    );
+    assert_eq!(
+        section["data"]["text"],
+        "@section Scripts {\r\n<script>const s = \"}\"; /* } */</script>\r\n<p>Driver's car</p>\r\n}"
+    );
+    let helper = read_symbol(&app, "Vehicles.cshtml", "Vehicle", None, None, true);
+    assert_eq!(
+        helper["data"]["symbol"]["signature"],
+        "@helper Vehicle(string label = \"}\")"
+    );
+    let member = read_symbol(
+        &app,
+        "Vehicles.cshtml",
+        "Name",
+        Some("@functions"),
+        None,
+        false,
+    );
+    assert_eq!(member["state"], "ok", "{member}");
 }

@@ -98,6 +98,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
 
     // Replace with session = "current" succeeds
     let rep_res = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
         path: "demo.txt".into(),
         session: Some("current".into()),
         hash: harness_domain::hash(b"hello world\n"),
@@ -111,6 +112,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
 
     // Write with session = "current" succeeds
     let write_res = app.execute(Request::Write(WriteArgs {
+        bom: None,
         path: "new_file.txt".into(),
         content: "created with current session".into(),
         create_parents: false,

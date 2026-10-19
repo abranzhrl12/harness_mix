@@ -81,6 +81,7 @@ fn replace_with_preview_flag_matches_patch_preview_and_never_publishes() {
 
     // Calling Request::Replace with preview: true returns diff and diagnostics without publishing
     let args = ReplaceArgs {
+        bom: None,
         path: "sample.rs".into(),
         hash: hash(before.as_bytes()),
         chunks: None,
