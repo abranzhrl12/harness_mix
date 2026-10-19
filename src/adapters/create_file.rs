@@ -141,6 +141,7 @@ fn write_with(
                         old_text: String::new(),
                         new_text: args.content.clone(),
                         allow_unvalidated_text: args.allow_unvalidated_text,
+                        preview: false,
                         session: args.session.clone(),
                     };
                     let mut result =

@@ -90,6 +90,7 @@ fn edits_are_observed_then_restored_as_history_not_new_current_facts() {
         old_text: "old".into(),
         new_text: "new".into(),
         allow_unvalidated_text: false,
+        preview: false,
     }));
     assert_eq!(edit["state"], "ok", "{edit}");
     assert!(edit["data"].get("sessionWarning").is_none(), "{edit}");
@@ -332,6 +333,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
             old_text: "sample".into(),
             new_text: "changed".into(),
             allow_unvalidated_text: false,
+            preview: false,
         }));
         assert_eq!(edit["state"], "ok", "{edit}");
         let edited = checkpoint(&app, &id, None, false);

@@ -445,6 +445,7 @@ mod tests {
             old_text: old.into(),
             new_text: new.into(),
             allow_unvalidated_text: false,
+            preview: false,
             session: None,
         }
     }

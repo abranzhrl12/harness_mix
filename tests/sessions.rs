@@ -105,6 +105,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         old_text: "world".into(),
         new_text: "universe".into(),
         allow_unvalidated_text: false,
+        preview: false,
     }));
     assert_eq!(rep_res["state"], "ok", "{rep_res}");
 
@@ -248,3 +249,74 @@ fn session_alias_works_with_batch_and_explore() {
     let explore_res = app.execute(Request::Explore(explore_args));
     assert_ne!(explore_res["diagnostics"][0]["code"], "SESSION");
 }
+
+#[test]
+fn unified_session_tool_supports_tasks_checkpoint_status_and_handover() {
+    use harness_domain::contracts::SessionArgs;
+
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let id = bootstrap(&app);
+
+    // 1. Session: action=checkpoint (mutating)
+    let ckpt: SessionArgs = serde_json::from_value(json!({
+        "action": "checkpoint",
+        "session": id,
+        "goal": "validate unified harness_session",
+        "decisions": ["consolidate session tools into harness_session"],
+        "pending": ["write integration test"]
+    }))
+    .unwrap();
+    let res = app.execute(ckpt.into_request());
+    assert_eq!(res["state"], "ok", "{res}");
+    assert_eq!(res["data"]["declaredByAgent"]["goal"], "validate unified harness_session");
+
+    // 2. Session: action=tasks (update phase & status)
+    let tasks: SessionArgs = serde_json::from_value(json!({
+        "action": "tasks",
+        "session": id,
+        "phase": "implementation",
+        "status": "in_progress",
+        "note": "testing unified session dispatcher"
+    }))
+    .unwrap();
+    let res = app.execute(tasks.into_request());
+    assert_eq!(res["state"], "ok", "{res}");
+    assert_eq!(res["data"]["persisted"], true);
+
+    // 3. Session: action=tasks (timeline query)
+    let timeline: SessionArgs = serde_json::from_value(json!({
+        "action": "tasks",
+        "session": id,
+        "after": 0,
+        "limit": 10
+    }))
+    .unwrap();
+    let res = app.execute(timeline.into_request());
+    assert_eq!(res["state"], "ok", "{res}");
+    assert!(res["data"]["events"].as_array().is_some());
+
+    // 4. Session: action=status (read-only live summary)
+    let status: SessionArgs = serde_json::from_value(json!({
+        "action": "status",
+        "session": id
+    }))
+    .unwrap();
+    let res = app.execute(status.into_request());
+    assert_eq!(res["state"], "ok", "{res}");
+    assert_eq!(res["data"]["sessionId"], id);
+    assert_eq!(res["data"]["declaredByAgent"]["goal"], "validate unified harness_session");
+
+    // 5. Session: action=handover (generates summary report preview)
+    let handover: SessionArgs = serde_json::from_value(json!({
+        "action": "handover",
+        "session": id,
+        "kind": "summary"
+    }))
+    .unwrap();
+    let res = app.execute(handover.into_request());
+    assert_eq!(res["state"], "ok", "{res}");
+    assert_eq!(res["data"]["kind"], "summary");
+    assert!(res["data"]["preview"].as_str().is_some());
+}
+

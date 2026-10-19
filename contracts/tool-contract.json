@@ -1,10 +1,31 @@
 {
   "contractVersion": "3.0.0",
   "toolProfiles": {
-    "investigate": ["harness_bootstrap","harness_explore","harness_impact","harness_patch_preview","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
-    "edit": ["harness_replace","harness_write","harness_move","harness_verify","harness_diagnostics"]
+    "investigate": [
+      "harness_bootstrap",
+      "harness_explore",
+      "harness_impact",
+      "harness_symbols",
+      "harness_search",
+      "harness_read",
+      "harness_detail",
+      "harness_data_query",
+      "harness_git",
+      "harness_doctor",
+      "harness_batch",
+      "harness_session"
+    ],
+    "edit": [
+      "harness_replace",
+      "harness_write",
+      "harness_move",
+      "harness_verify"
+    ]
   },
-  "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
+  "alwaysLoadTools": [
+    "harness_bootstrap",
+    "harness_explore"
+  ],
   "nativeIndexMaintenance": {
     "activation": "Automatic on Windows with full profile and existing compatible native index; HARNESS_INDEX_WATCH=0 disables, 1 requires startup",
     "defaultEnabled": true,
@@ -30,23 +51,49 @@
       {
         "need": "Assess indexed callers before renaming or changing a signature",
         "tool": "harness_impact",
-        "backends": ["rust"],
-        "defaults": {"maxDepth":1,"limit":20},
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "maxDepth": 1,
+          "limit": 20
+        },
         "then": "Use file and exact symbol. Inspect ambiguity, freshness and graph limits; locations are caller declarations."
       },
       {
         "need": "Preview a replacement and syntax diagnostics without publishing",
-        "tool": "harness_patch_preview",
-        "backends": ["rust"],
-        "defaults": {},
+        "tool": "harness_replace",
+        "backends": [
+          "node",
+          "rust"
+        ],
+        "defaults": {
+          "preview": true
+        },
         "then": "Same arguments as harness_replace. Apply the reviewed replacement using baseHash; stale sources are rejected."
       },
       {
         "need": "Inspect recent errors and stack context from a background verification job",
-        "tool": "harness_observe",
-        "backends": ["rust"],
-        "defaults": {"lines":20,"before":2,"after":2},
+        "tool": "harness_jobs",
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "action": "observe",
+          "lines": 20,
+          "before": 2,
+          "after": 2
+        },
         "then": "Use taskId and regex filter. Follow cursor; inspect gap, truncated and outputLimited."
+      },
+      {
+        "need": "Manage workflow progress, checkpoint goals/decisions, check status, or generate handover",
+        "tool": "harness_session",
+        "backends": [
+          "rust"
+        ],
+        "defaults": {},
+        "then": "Use action=checkpoint to record goals/decisions, action=tasks for phases and timeline, action=status for live summary, and action=handover for closure."
       },
       {
         "need": "Locate a file by name; literals use search kind=text",
@@ -112,15 +159,25 @@
       {
         "need": "Structure in a known file",
         "tool": "harness_symbols",
-        "backends": ["rust"],
-        "defaults": {"action":"outline","maxChars":2500},
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "action": "outline",
+          "maxChars": 2500
+        },
         "then": "query ranks relevant declarations; omissions remain in detail."
       },
       {
         "need": "Signature or declaration location",
         "tool": "harness_symbols",
-        "backends": ["rust"],
-        "defaults": {"action":"read","view":"signature"},
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "action": "read",
+          "view": "signature"
+        },
         "then": "For implementation or editing, request view=full directly. Preserve source, docs, hash and symbolId."
       },
       {
@@ -137,7 +194,9 @@
       {
         "need": "SQL discovery",
         "tool": "harness_sql_search",
-        "backends": ["node"],
+        "backends": [
+          "node"
+        ],
         "defaults": {
           "limit": 10
         },
@@ -146,7 +205,9 @@
       {
         "need": "SQL discovery",
         "tool": "harness_sql",
-        "backends": ["rust"],
+        "backends": [
+          "rust"
+        ],
         "defaults": {
           "action": "search",
           "limit": 10
@@ -156,18 +217,22 @@
       {
         "need": "Run verification in background and follow completion without blocking",
         "tool": "harness_jobs",
-        "backends": ["rust"],
-        "defaults": {"action": "list"},
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "action": "list"
+        },
         "then": "Start with verify; retain taskId and event sequence. Follow events/status or cancel. Retry only recognized transient failures; completion notifications require client support."
       },
       {
         "need": "Recent error or slow request",
-        "tool": "harness_logs",
+        "tool": "harness_doctor",
         "backends": [
-          "node",
           "rust"
         ],
         "defaults": {
+          "action": "logs",
           "limit": 5
         },
         "then": "Doctor for diagnosis; sql_status also for SQL failures; no uncertain mutation retries."
@@ -218,21 +283,58 @@
       "postgresql": {
         "tool": "harness_sql",
         "engine": "postgresql",
-        "actions": ["status", "search", "describe"],
-        "describeSections": ["columns"],
+        "actions": [
+          "status",
+          "search",
+          "describe"
+        ],
+        "describeSections": [
+          "columns"
+        ],
         "querySupported": false,
         "configSection": "postgresql",
         "connectDefault": false,
-        "schemaCache": {"config":"schemaCacheSeconds","defaultSeconds":0,"maxSeconds":300,"scope":"process","maxEntries":64,"refreshArgument":"refresh","cachedPermissionsRevalidated":false},
-        "batch": {"tool":"harness_batch","childTool":"harness_sql","maxJobs":4,"maxConcurrent":2,"sharedSnapshot":false},
+        "schemaCache": {
+          "config": "schemaCacheSeconds",
+          "defaultSeconds": 0,
+          "maxSeconds": 300,
+          "scope": "process",
+          "maxEntries": 64,
+          "refreshArgument": "refresh",
+          "cachedPermissionsRevalidated": false
+        },
+        "batch": {
+          "tool": "harness_batch",
+          "childTool": "harness_sql",
+          "maxJobs": 4,
+          "maxConcurrent": 2,
+          "sharedSnapshot": false
+        },
         "tlsDefault": "disable",
         "unencryptedMode": "disable",
         "secureTlsMode": "verify-full",
-        "configuration": {"required":false,"initCommand":"agent-harness --init-config","variables":["HARNESS_PG_CONNECTION_STRING","HARNESS_SQL_CONNECTION_STRING","DATABASE_URL"],"projectDotenvFallback":true,"explicitConfigurationWins":true},
+        "configuration": {
+          "required": false,
+          "initCommand": "agent-harness --init-config",
+          "variables": [
+            "HARNESS_PG_CONNECTION_STRING",
+            "HARNESS_SQL_CONNECTION_STRING",
+            "DATABASE_URL"
+          ],
+          "projectDotenvFallback": true,
+          "explicitConfigurationWins": true
+        },
         "ambiguousEngine": "explicit-selector-required"
       },
       "indexDiagnostics": "data.indexDiagnostic: databasePath, stage, cause, schema versions and sanitized SQLite codes",
-      "parameterCompatibility": {"search":"pattern aliases query", "read":"lines is a count, mutually exclusive with end", "batchAliases":["read","search"]},
+      "parameterCompatibility": {
+        "search": "pattern aliases query",
+        "read": "lines is a count, mutually exclusive with end",
+        "batchAliases": [
+          "read",
+          "search"
+        ]
+      },
       "batchTools": [
         "harness_config",
         "harness_read",
@@ -246,10 +348,20 @@
       ],
       "exploreQuery": "exact-symbol",
       "searchSyntax": "rust-declaration-selector",
-      "symbolNavigation": ["rust", "javascript", "typescript"],
+      "symbolNavigation": [
+        "rust",
+        "javascript",
+        "typescript"
+      ],
       "backgroundTasks": {
         "tool": "harness_jobs",
-        "actions": ["start", "status", "list", "events", "cancel"],
+        "actions": [
+          "start",
+          "status",
+          "list",
+          "events",
+          "cancel"
+        ],
         "executionDeadline": "optional",
         "maxAttempts": 3,
         "notifications": "client-dependent",
@@ -258,13 +370,18 @@
         "processStatusRunId": "taskId"
       },
       "processHealth": {
-        "schemes": ["http"],
+        "schemes": [
+          "http"
+        ],
         "https": "explicitly-unsupported",
         "pidPermissionFailure": "unknown"
       },
       "typescriptVerification": {
         "build": "native-syntax-only",
-        "extensions": ["ts", "tsx"],
+        "extensions": [
+          "ts",
+          "tsx"
+        ],
         "codeExecuted": false,
         "typeCheckPerformed": false,
         "test": "explicitly-unsupported"
@@ -298,13 +415,6 @@
       ]
     },
     {
-      "name": "harness_checkpoint",
-      "backends": [
-        "node",
-        "rust"
-      ]
-    },
-    {
       "name": "harness_config",
       "backends": [
         "node",
@@ -319,13 +429,6 @@
     },
     {
       "name": "harness_detail",
-      "backends": [
-        "node",
-        "rust"
-      ]
-    },
-    {
-      "name": "harness_diagnostics",
       "backends": [
         "node",
         "rust"
@@ -354,7 +457,9 @@
     },
     {
       "name": "harness_git",
-      "backends": ["rust"]
+      "backends": [
+        "rust"
+      ]
     },
     {
       "name": "harness_git_diff",
@@ -369,44 +474,28 @@
       ]
     },
     {
-      "name": "harness_handover",
+      "name": "harness_impact",
       "backends": [
-        "node",
         "rust"
       ]
     },
     {
-      "name": "harness_impact",
-      "backends": ["rust"]
-    },
-    {
       "name": "harness_jobs",
-      "backends": ["rust"]
-    },
-    {
-      "name": "harness_logs",
       "backends": [
-        "node",
         "rust"
       ]
     },
     {
       "name": "harness_move",
-      "backends": ["rust"]
-    },
-    {
-      "name": "harness_observe",
-      "backends": ["rust"]
+      "backends": [
+        "rust"
+      ]
     },
     {
       "name": "harness_outline",
       "backends": [
         "node"
       ]
-    },
-    {
-      "name": "harness_patch_preview",
-      "backends": ["rust"]
     },
     {
       "name": "harness_process_status",
@@ -443,7 +532,9 @@
     },
     {
       "name": "harness_write",
-      "backends": ["rust"]
+      "backends": [
+        "rust"
+      ]
     },
     {
       "name": "harness_search",
@@ -454,7 +545,9 @@
     },
     {
       "name": "harness_sql",
-      "backends": ["rust"]
+      "backends": [
+        "rust"
+      ]
     },
     {
       "name": "harness_sql_describe",
@@ -489,12 +582,7 @@
     },
     {
       "name": "harness_symbols",
-      "backends": ["rust"]
-    },
-    {
-      "name": "harness_tasks",
       "backends": [
-        "node",
         "rust"
       ]
     },
@@ -511,7 +599,7 @@
         "node"
       ]
     },
-        {
+    {
       "name": "harness_xlsx",
       "backends": [
         "rust"
@@ -527,6 +615,12 @@
       "name": "harness_xlsx_read",
       "backends": [
         "node"
+      ]
+    },
+    {
+      "name": "harness_session",
+      "backends": [
+        "rust"
       ]
     }
   ],

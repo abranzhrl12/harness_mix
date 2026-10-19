@@ -265,17 +265,6 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
-        description = "Preview a hash-checked replacement without publishing. Same arguments and syntax validation as harness_replace. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation."
-    )]
-    async fn harness_patch_preview(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::PatchPreview(args), context).await
-    }
-
-    #[tool(
         description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims."
     )]
     async fn harness_impact(
@@ -287,29 +276,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Tail retained output of a harness_jobs task. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths."
-    )]
-    async fn harness_observe(
-        &self,
-        Parameters(args): Parameters<harness_domain::assistance::ObserveArgs>,
-    ) -> CallToolResult {
-        let arguments = serde_json::to_value(&args).expect("observe arguments");
-        let result = match &self.tasks {
-            Some(tasks) => tasks.observe(&args),
-            None => Err((
-                "TOOL_PROFILE",
-                "Job observation unavailable in this profile",
-            )),
-        };
-        response(harness_domain::results::Results::default().envelope(
-            "harness_observe",
-            &arguments,
-            result,
-        ))
-    }
-
-    #[tool(
-        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status/list/events/cancel no bloquean la conversación. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
+        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status, list, events, cancel y observe no bloquean la conversación. action=observe permite inspeccionar stdout/stderr retenido con regex, líneas de contexto y cursor incremental sin necesidad de una herramienta separada. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
     )]
     async fn harness_jobs(
         &self,
@@ -351,16 +318,6 @@ impl McpHarness {
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "Bounded native logs with in-memory context: relative path, verification command and failed/timeout stdout/stderr tails, search folder timings. Sensitive lines are heuristically redacted, not universally detected. Context is not persisted. Filters: limit 1..50, level, tool, slowOnly, requestId, after and session. Opt-in disk history stores metadata only."
-    )]
-    async fn harness_logs(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::LogsArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Logs(args), context).await
-    }
-    #[tool(
         description = "1–4 lecturas independientes: SQL PostgreSQL/SQL Server mediante tool=harness_sql, archivos, símbolos, Git, XLSX y SVG. Para describir varias tablas usa jobs con action=describe, engine y name exactos; hasta 2 hijos concurrentes, plazo/admisión compartidos. No mutaciones, verify ni batches anidados. Valida tipos antes de ejecutar; resultados por índice, no snapshot transaccional compartido."
     )]
     async fn harness_batch(
@@ -371,36 +328,39 @@ impl McpHarness {
         self.call(Request::Batch(args), context).await
     }
     #[tool(
-        description = "Diagnóstico de solo lectura del entorno, registro MCP real por perfil e historial de trabajos si existe. versions=true prueba versiones; connection=true consulta índice nativo y hace ping SQL si están disponibles. No crea almacenes, ejecuta builds ni certifica todas las funciones. Devuelve cobertura y límites explícitos."
+        description = "Diagnóstico integral y observabilidad del entorno y del código. action=env: comprueba el entorno (versions, connection) y registro MCP. action=syntax: diagnóstico rápido de sintaxis en archivos (files, maxFiles, buildScope). action=logs: inspección de logs y eventos recientes (limit, level, tool, requestId)."
     )]
     async fn harness_doctor(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::DoctorArgs>,
+        Parameters(args): Parameters<harness_domain::contracts::DoctorToolArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        let mut result = self.call(Request::Doctor(args), context).await;
-        if let Some(mut envelope) = result.structured_content.take() {
-            if envelope["state"] == "ok" {
-                let mut actual: Vec<String> = self
-                    .profile_router()
-                    .map
-                    .keys()
-                    .map(|name| name.to_string())
-                    .collect();
-                let mut expected = self.application.tool_profile().tools();
-                actual.sort();
-                expected.sort();
-                let matches = actual == expected;
-                envelope["data"]["mcpRegistry"] = serde_json::json!({"status":if matches {"verified"} else {"error"},"profile":self.application.tool_profile().name(),"expected":expected,"advertised":actual});
-                adapters::doctor::append_check(
-                    &mut envelope["data"],
-                    serde_json::json!({"id":"mcp-registry","status":if matches {"ok"} else {"error"},"message":"Actual advertised MCP route names compared with the profile contract; function behavior is not certified"}),
-                );
+        let is_env = matches!(&args, harness_domain::contracts::DoctorToolArgs::Env(_));
+        let request = args.into_request();
+        let mut result = self.call(request, context).await;
+        if is_env {
+            if let Some(mut envelope) = result.structured_content.take() {
+                if envelope["state"] == "ok" {
+                    let mut actual: Vec<String> = self
+                        .profile_router()
+                        .map
+                        .keys()
+                        .map(|name| name.to_string())
+                        .collect();
+                    let mut expected = self.application.tool_profile().tools();
+                    actual.sort();
+                    expected.sort();
+                    let matches = actual == expected;
+                    envelope["data"]["mcpRegistry"] = serde_json::json!({"status":if matches {"verified"} else {"error"},"profile":self.application.tool_profile().name(),"expected":expected,"advertised":actual});
+                    adapters::doctor::append_check(
+                        &mut envelope["data"],
+                        serde_json::json!({"id":"mcp-registry","status":if matches {"ok"} else {"error"},"message":"Actual advertised MCP route names compared with the profile contract; function behavior is not certified"}),
+                    );
+                }
+                return response(envelope);
             }
-            response(envelope)
-        } else {
-            result
         }
+        result
     }
     #[tool(
         description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit; devuelve rama y cambios paginados. action=diff: path relativo obligatorio, staged (false=index:worktree, true=HEAD:index), maxLines, maxChars; devuelve hunks y patch, también para eliminados. No incluye contenido untracked. Raíz Git o worktree vinculado registrado; sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
@@ -423,25 +383,14 @@ impl McpHarness {
         self.call(Request::Explore(args), context).await
     }
     #[tool(
-        description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."
+        description = "Operaciones unificadas de sesión y flujo de trabajo. action=checkpoint: actualiza objetivo, decisiones, pendientes o refresca checks. action=tasks: gestiona fases (phase), estado (status) o timeline de tareas. action=status: consulta el estado y resumen consolidado de la sesión viva. action=handover: genera o publica un reporte Markdown de traspaso (summary, adr o pr_body)."
     )]
-    async fn harness_tasks(
+    async fn harness_session(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::TasksArgs>,
+        Parameters(args): Parameters<harness_domain::contracts::SessionArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::Tasks(args), context).await
-    }
-
-    #[tool(
-        description = "Resumen de sesión y actualización de objetivo/decisiones/pendientes. refreshFreshness=true compara checks de la sesión viva con una huella local acotada. No certifica entorno, dependencias externas ni vigencia total; histórico no se revalida."
-    )]
-    async fn harness_checkpoint(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::CheckpointArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Checkpoint(args), context).await
+        self.call(args.into_request(), context).await
     }
     #[tool(
         description = "Símbolos locales Rust/JS/TS por AST y estructura Vue SFC. action=outline: path, query y maxChars opcionales; Vue muestra bloques script/setup, imports/macros, jerarquía template y selectores CSS/SCSS con asociaciones conservadoras. El detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId opcionales; view=signature o full con fuente exacta y hash. Estas dos acciones admiten externalScope y session. action=extract_preview para Vue: path, expectedHash SHA-256, symbolId de elemento template, targetPath inexistente y componentName PascalCase; devuelve diff conjunto padre/hijo, interfaz propuesta, reglas BEM exclusivas y dependencias sin resolver, sin escribir archivos. Contenido completo en detail; revisión manual obligatoria para dependencias inciertas. No hay aplicación multiarchivo automática. No sustituye al compilador Vue/Sass ni a comprobaciones de tipos. Para relaciones del grafo usar harness_explore."
@@ -454,7 +403,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. allowUnvalidatedText=true permits formats without a parser (e.g. .scss), not syntax errors in supported formats. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash. preview=true previews unified diff and syntax diagnostics without publishing. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. allowUnvalidatedText=true permits formats without a parser (e.g. .scss), not syntax errors in supported formats. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -572,17 +521,6 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Genera un reporte Markdown de traspaso de sesión (summary, adr o pr_body). Si targetFile se especifica, publica atómicamente el archivo (.md); de lo contrario devuelve un preview acotado con el texto completo en detalle."
-    )]
-    async fn harness_handover(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::HandoverArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Handover(args), context).await
-    }
-
-    #[tool(
         description = "Consulta PID, trabajos persistentes compartidos (runId=taskId; list active/recent), puerto TCP y healthcheck HTTP loopback. HTTPS se rechaza explícitamente. Existencia de PID no demuestra identidad ni respuesta de la aplicación."
     )]
     async fn harness_process_status(
@@ -591,17 +529,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::ProcessStatus(args), context).await
-    }
-
-    #[tool(
-        description = "Diagnóstico rápido de sintaxis en lote de archivos explícitos o cambios Git tracked. Valida Rust, JS/TS, scripts inline de Vue (template/style quedan incompletos) y JSON sin devolver código. maxFiles 1–50 (defecto 20)."
-    )]
-    async fn harness_diagnostics(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::DiagnosticsArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Diagnostics(args), context).await
     }
 
     #[tool(
@@ -893,6 +820,7 @@ mod tests {
             old_text: "old".into(),
             new_text: "new".into(),
             allow_unvalidated_text: false,
+            preview: false,
             session: Some("session".into()),
         });
         let task = tokio::spawn(async move {

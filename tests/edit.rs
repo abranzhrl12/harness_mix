@@ -55,6 +55,7 @@ fn replace(
         old_text: old.into(),
         new_text: new.into(),
         allow_unvalidated_text: false,
+        preview: false,
         session: None,
     }))
 }
@@ -141,6 +142,7 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
             old_text: "current".into(),
             new_text: "next".into(),
             allow_unvalidated_text: false,
+            preview: false,
             session: None,
         }),
         context,
@@ -322,6 +324,7 @@ fn match_failure_reports_diverging_line_without_writing() {
         old_text: "fn a() {}\nfn B() {}\nfn c() {}".into(),
         new_text: "fn d() {}".into(),
         allow_unvalidated_text: false,
+        preview: false,
         session: None,
     }));
     assert_eq!(result["state"], "error", "{result}");

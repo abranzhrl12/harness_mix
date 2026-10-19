@@ -301,16 +301,21 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.vue_extract_preview(&args, context)),
             Request::Replace(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
-                    let mut result = self.workspace.replace(&args, context)?;
-                    self.record_result(
-                        session_id,
-                        name,
-                        &serde_json::to_value(&args).unwrap(),
-                        &mut result,
-                    );
-                    Ok(result)
-                })
+                if args.preview {
+                    self.lease(args.session.as_deref(), &mut lease)
+                        .and_then(|()| self.workspace.patch_preview(&args, context))
+                } else {
+                    self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
+                        let mut result = self.workspace.replace(&args, context)?;
+                        self.record_result(
+                            session_id,
+                            name,
+                            &serde_json::to_value(&args).unwrap(),
+                            &mut result,
+                        );
+                        Ok(result)
+                    })
+                }
             }
             Request::Write(args) => {
                 self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {

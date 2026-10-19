@@ -147,7 +147,25 @@ pub struct ReplaceArgs {
     /// Explicitly permit UTF-8 text when no syntax parser is available.
     #[serde(default, rename = "allowUnvalidatedText")]
     pub allow_unvalidated_text: bool,
+    /// When true, preview unified diff and syntax diagnostics without publishing.
+    #[serde(default)]
+    pub preview: bool,
     pub session: Option<String>,
+}
+
+impl Default for ReplaceArgs {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            hash: String::new(),
+            chunks: None,
+            old_text: String::new(),
+            new_text: String::new(),
+            allow_unvalidated_text: false,
+            preview: false,
+            session: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -197,6 +215,9 @@ impl Serialize for ReplaceArgs {
         if self.allow_unvalidated_text {
             map.serialize_entry("allowUnvalidatedText", &true)?;
         }
+        if self.preview {
+            map.serialize_entry("preview", &true)?;
+        }
         map.serialize_entry("session", &self.session)?;
         map.end()
     }
@@ -227,6 +248,8 @@ struct ReplaceInput {
     new_text: Option<String>,
     #[serde(default, rename = "allowUnvalidatedText")]
     allow_unvalidated_text: bool,
+    #[serde(default)]
+    preview: bool,
     #[serde(alias = "sessionId")]
     session: Option<String>,
 }
@@ -247,6 +270,7 @@ impl TryFrom<ReplaceInput> for ReplaceArgs {
             old_text,
             new_text,
             allow_unvalidated_text: input.allow_unvalidated_text,
+            preview: input.preview,
             session: input.session,
         })
     }
@@ -468,6 +492,78 @@ pub struct HandoverArgs {
     pub target_file: Option<String>,
     #[serde(rename = "expectedHash")]
     pub expected_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SessionTasksArgs {
+    pub session: String,
+    pub subaction: Option<TasksAction>,
+    pub phase: Option<String>,
+    pub status: Option<String>,
+    pub note: Option<String>,
+    pub after: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+impl SessionTasksArgs {
+    pub fn into_tasks_args(self) -> TasksArgs {
+        let action = self.subaction.or_else(|| {
+            if self.phase.is_some() || self.status.is_some() || self.note.is_some() {
+                Some(TasksAction::Update)
+            } else if self.after.is_some() || self.limit.is_some() {
+                Some(TasksAction::Timeline)
+            } else {
+                Some(TasksAction::Status)
+            }
+        });
+        TasksArgs {
+            session: self.session,
+            action,
+            phase: self.phase,
+            status: self.status,
+            note: self.note,
+            after: self.after,
+            limit: self.limit,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SessionStatusArgs {
+    pub session: String,
+}
+
+/// Unified session and workflow orchestration.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SessionArgs {
+    Checkpoint(CheckpointArgs),
+    Tasks(SessionTasksArgs),
+    Handover(HandoverArgs),
+    Status(SessionStatusArgs),
+}
+
+impl SessionArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Checkpoint(args) => Request::Checkpoint(args),
+            Self::Tasks(args) => Request::Tasks(args.into_tasks_args()),
+            Self::Handover(args) => Request::Handover(args),
+            Self::Status(args) => Request::Checkpoint(CheckpointArgs {
+                session: args.session,
+                goal: None,
+                decisions: None,
+                pending: None,
+                refresh_freshness: Some(false),
+            }),
+        }
+    }
 }
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -746,7 +842,7 @@ impl Request {
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
             Self::Config(_) => "harness_config",
-            Self::Logs(_) => "harness_logs",
+            Self::Logs(_) => "harness_doctor",
             Self::Batch(_) => "harness_batch",
             Self::Doctor(_) => "harness_doctor",
             Self::Bootstrap(_) => "harness_bootstrap",
@@ -770,7 +866,7 @@ impl Request {
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) => "harness_process_status",
-            Self::Diagnostics(_) => "harness_diagnostics",
+            Self::Diagnostics(_) => "harness_doctor",
             Self::DataQuery(_) => "harness_data_query",
         }
     }
@@ -830,14 +926,64 @@ impl Request {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-pub struct DoctorArgs {
+pub struct DoctorEnvArgs {
     /// Defaults to false: locating tools never starts a subprocess.
     pub versions: Option<bool>,
     pub connection: Option<bool>,
     pub session: Option<String>,
+}
+
+pub type DoctorArgs = DoctorEnvArgs;
+
+/// Unified system diagnostics, file syntax checks, and log inspection.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum DoctorToolArgs {
+    Env(DoctorEnvArgs),
+    Syntax(DiagnosticsArgs),
+    Logs(LogsArgs),
+}
+
+impl<'de> serde::Deserialize<'de> for DoctorToolArgs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let action = value
+            .as_object_mut()
+            .and_then(|obj| obj.remove("action"))
+            .and_then(|v| v.as_str().map(String::from));
+        match action.as_deref() {
+            Some("syntax") => serde_json::from_value(value)
+                .map(Self::Syntax)
+                .map_err(serde::de::Error::custom),
+            Some("logs") => serde_json::from_value(value)
+                .map(Self::Logs)
+                .map_err(serde::de::Error::custom),
+            Some("env") | None => serde_json::from_value(value)
+                .map(Self::Env)
+                .map_err(serde::de::Error::custom),
+            Some(unknown) => Err(serde::de::Error::custom(format!(
+                "unknown action: {unknown}"
+            ))),
+        }
+    }
+}
+
+impl DoctorToolArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Env(args) => Request::Doctor(args),
+            Self::Syntax(args) => Request::Diagnostics(args),
+            Self::Logs(args) => Request::Logs(args),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -961,3 +1107,139 @@ mod git_contract_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod session_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn session_args_deserializes_and_dispatches_all_actions() {
+        // checkpoint
+        let ckpt: SessionArgs = serde_json::from_value(json!({
+            "action": "checkpoint",
+            "session": "s1",
+            "goal": "build session tool",
+            "decisions": ["unified"],
+            "pending": ["tests"]
+        }))
+        .unwrap();
+        let req = ckpt.into_request();
+        assert_eq!(req.name(), "harness_checkpoint");
+        assert!(req.is_mutating());
+
+        // tasks update
+        let tasks_up: SessionArgs = serde_json::from_value(json!({
+            "action": "tasks",
+            "session": "s1",
+            "phase": "execution",
+            "status": "in_progress",
+            "note": "implementing session"
+        }))
+        .unwrap();
+        let req = tasks_up.into_request();
+        assert_eq!(req.name(), "harness_tasks");
+        assert!(req.is_mutating());
+
+        // tasks timeline
+        let tasks_tl: SessionArgs = serde_json::from_value(json!({
+            "action": "tasks",
+            "session": "s1",
+            "after": 100,
+            "limit": 10
+        }))
+        .unwrap();
+        let req = tasks_tl.into_request();
+        assert_eq!(req.name(), "harness_tasks");
+        assert!(!req.is_mutating());
+
+        // status
+        let status: SessionArgs = serde_json::from_value(json!({
+            "action": "status",
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = status.into_request();
+        assert_eq!(req.name(), "harness_checkpoint");
+        assert!(!req.is_mutating());
+
+        // handover
+        let handover: SessionArgs = serde_json::from_value(json!({
+            "action": "handover",
+            "session": "s1",
+            "kind": "summary"
+        }))
+        .unwrap();
+        let req = handover.into_request();
+        assert_eq!(req.name(), "harness_handover");
+        assert!(!req.is_mutating());
+    }
+
+    #[test]
+    fn session_args_rejects_invalid_actions_or_missing_session() {
+        for value in [
+            json!({}),
+            json!({"action": "unknown", "session": "s"}),
+            json!({"action": "checkpoint"}),
+            json!({"action": "tasks"}),
+            json!({"action": "handover"}),
+            json!({"action": "status"}),
+        ] {
+            assert!(serde_json::from_value::<SessionArgs>(value).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod doctor_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn doctor_tool_args_deserializes_and_dispatches_all_actions() {
+        // env
+        let env: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "env",
+            "versions": true,
+            "connection": true,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = env.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // syntax
+        let syntax: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "syntax",
+            "files": ["src/lib.rs"],
+            "maxFiles": 5,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = syntax.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // logs
+        let logs: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "logs",
+            "limit": 10,
+            "level": "error",
+            "tool": "harness_read",
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = logs.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+    }
+
+    #[test]
+    fn doctor_tool_args_rejects_unknown_action() {
+        assert!(serde_json::from_value::<DoctorToolArgs>(json!({"action": "repair"})).is_err());
+        assert!(serde_json::from_value::<DoctorToolArgs>(json!({})).is_ok());
+    }
+}
+
+
