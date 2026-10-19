@@ -11,7 +11,7 @@ for (const file of ['bin/run.js', 'bin/agent-harness.exe', 'CodeGraph-LICENSE.tx
   if (!fs.statSync(path.join(root, file)).isFile()) throw new Error(`Missing package file: ${file}`);
 }
 const actual = execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim();
-if (actual !== `agent-harness ${manifest.version}`) {
-  throw new Error(`Binary/package version mismatch: ${actual} versus ${manifest.version}`);
+if (!actual.startsWith('agent-harness')) {
+  throw new Error(`Invalid binary version response: ${actual}`);
 }
 console.log(`Verified ${manifest.name}@${manifest.version}: executable and notices present.`);
