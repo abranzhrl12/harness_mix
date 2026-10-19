@@ -46,6 +46,7 @@ fn native_creation_validates_syntax_and_never_overwrites() {
         app.execute(Request::Write(WriteArgs {
             create_parents: false,
             allow_unvalidated_text: false,
+            expected_hash: None,
             path: path.into(),
             content: content.into(),
             session: None,

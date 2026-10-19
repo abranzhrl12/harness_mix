@@ -54,6 +54,7 @@ fn replace(
         chunks: None,
         old_text: old.into(),
         new_text: new.into(),
+        allow_unvalidated_text: false,
         session: None,
     }))
 }
@@ -139,6 +140,7 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
             chunks: None,
             old_text: "current".into(),
             new_text: "next".into(),
+            allow_unvalidated_text: false,
             session: None,
         }),
         context,
@@ -272,5 +274,62 @@ fn concurrent_clones_cannot_both_publish_the_same_hash() {
             .iter()
             .any(|r| r["diagnostics"][0]["code"] == "STALE"
                 || r["diagnostics"][0]["code"] == "EDIT_BUSY")
+    );
+}
+
+#[test]
+fn parserless_formats_require_explicit_opt_in() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let before = "$c: #fff;\n.box { color: $c; }\n";
+    std::fs::write(root.path().join("panel.scss"), before).unwrap();
+    let edit = |json: Value| {
+        let args: ReplaceArgs = serde_json::from_value(json).unwrap();
+        app.execute(Request::Replace(args))
+    };
+    let denied = edit(serde_json::json!({
+        "path":"panel.scss","hash":hash(before.as_bytes()),
+        "oldText":"$c: #fff;","newText":"$c: #000;"
+    }));
+    assert_eq!(denied["state"], "error", "{denied}");
+    assert_eq!(denied["diagnostics"][0]["code"], "PARSER_UNAVAILABLE");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
+        before
+    );
+    let allowed = edit(serde_json::json!({
+        "path":"panel.scss","hash":hash(before.as_bytes()),
+        "oldText":"$c: #fff;","newText":"$c: #000;","allowUnvalidatedText":true
+    }));
+    assert_eq!(allowed["state"], "ok", "{allowed}");
+    assert_eq!(allowed["data"]["syntax"]["status"], "not_checked");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
+        "$c: #000;\n.box { color: $c; }\n"
+    );
+}
+
+#[test]
+fn match_failure_reports_diverging_line_without_writing() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let before = "fn a() {}\nfn b() {}\nfn c() {}\n";
+    std::fs::write(root.path().join("lib.rs"), before).unwrap();
+    let result = app.execute(Request::Replace(ReplaceArgs {
+        path: "lib.rs".into(),
+        hash: hash(before.as_bytes()),
+        chunks: None,
+        old_text: "fn a() {}\nfn B() {}\nfn c() {}".into(),
+        new_text: "fn d() {}".into(),
+        allow_unvalidated_text: false,
+        session: None,
+    }));
+    assert_eq!(result["state"], "error", "{result}");
+    assert_eq!(result["diagnostics"][0]["code"], "MATCH");
+    assert_eq!(result["diagnostics"][0]["hint"]["firstDivergentLine"], 2);
+    assert_eq!(result["diagnostics"][0]["hint"]["foundLine"], "fn b() {}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("lib.rs")).unwrap(),
+        before
     );
 }

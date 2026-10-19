@@ -89,6 +89,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         kind: Kind::Text,
         query: "hello".into(),
         min_lines: None,
+        globs: None,
         scope: None,
         limit: None,
         session: Some("current".into()),
@@ -103,6 +104,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         chunks: None,
         old_text: "world".into(),
         new_text: "universe".into(),
+        allow_unvalidated_text: false,
     }));
     assert_eq!(rep_res["state"], "ok", "{rep_res}");
 
@@ -112,6 +114,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         content: "created with current session".into(),
         create_parents: false,
         allow_unvalidated_text: false,
+        expected_hash: None,
         session: Some("current".into()),
     }));
     assert_eq!(write_res["state"], "ok", "{write_res}");

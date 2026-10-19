@@ -52,6 +52,28 @@ pub(super) fn syntax(
     }
 }
 
+fn syntax_allowing_unvalidated(
+    path: &str,
+    source: &str,
+    allow_unvalidated_text: bool,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    match syntax(path, source, context) {
+        Ok(value) => Ok(value),
+        Err(("PARSER_UNAVAILABLE", _)) if allow_unvalidated_text => Ok(json!({
+            "status":"not_checked","validation":"none",
+            "reason":"parser_unavailable","explicitlyAllowed":true
+        })),
+        Err(other) => Err(other),
+    }
+}
+
+/// Read-only MATCH diagnostic: locate where oldText stops matching the current file.
+fn match_failure(path: &str, bytes: &[u8], args: &ReplaceArgs, message: &str) -> Value {
+    json!({"ok":false,"path":path,"changed":false,
+        "diagnostics":[{"code":"MATCH","message":message,"hint":editing::match_hint(bytes,args)}]})
+}
+
 pub(super) fn replace(
     project: &Project,
     args: &ReplaceArgs,
@@ -61,8 +83,19 @@ pub(super) fn replace(
     let target = edit_commit::target(project, &args.path)?;
     let _pins = edit_commit::pin_parents(project, &target)?;
     let bytes = project.bytes_with_context(&args.path, context)?;
-    let updated = editing::prepare(&bytes, args)?;
-    let syntax = syntax(&args.path, &updated, context)?;
+    let updated = match editing::prepare(&bytes, args) {
+        Ok(updated) => updated,
+        Err(("MATCH", message)) => {
+            return Ok(match_failure(&args.path, &bytes, args, message));
+        }
+        Err(failure) => return Err(failure),
+    };
+    let syntax = syntax_allowing_unvalidated(
+        &args.path,
+        &updated,
+        args.allow_unvalidated_text,
+        context,
+    )?;
     context.check()?;
     // Always recheck the source we actually prepared, including hashless requests.
     let mut bound = args.clone();
@@ -106,9 +139,20 @@ pub(super) fn preview(
     context.check()?;
     edit_commit::target(project, &args.path)?;
     let bytes = project.bytes_with_context(&args.path, context)?;
-    let updated = editing::prepare(&bytes, args)?;
+    let updated = match editing::prepare(&bytes, args) {
+        Ok(updated) => updated,
+        Err(("MATCH", message)) => {
+            return Ok(match_failure(&args.path, &bytes, args, message));
+        }
+        Err(failure) => return Err(failure),
+    };
     let original = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "File must be UTF-8"))?;
-    let syntax = match syntax(&args.path, &updated, context) {
+    let syntax = match syntax_allowing_unvalidated(
+        &args.path,
+        &updated,
+        args.allow_unvalidated_text,
+        context,
+    ) {
         Ok(value) => value,
         Err((code, message)) => {
             json!({"status":"error","code":code,"message":message,"validation":"syntax_only"})

@@ -454,7 +454,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. allowUnvalidatedText=true permits formats without a parser (e.g. .scss), not syntax errors in supported formats. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -464,7 +464,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session."
+        description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. expectedHash=<sha256> turns the write into an atomic whole-file replace of an existing file whose current hash must match it (STALE otherwise; missing destination is rejected). allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session."
     )]
     async fn harness_write(
         &self,
@@ -539,7 +539,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Búsqueda nativa text/files/file_size/syntax. syntax: solo declaraciones Rust, selector declaration_kind[:nombre exacto], p.ej. function_item:run o struct_item; no patrones AST generales ni callers. file_size no recibe query: minLines=500 filtra archivos con más líneas. Límites 2 MiB/archivo, 5 s cooperativos, salida parcial explícita. Admite scopes externos autorizados Windows."
+        description = "Búsqueda nativa text/files/file_size/syntax. syntax: solo declaraciones Rust, selector declaration_kind[:nombre exacto], p.ej. function_item:run o struct_item; no patrones AST generales ni callers. file_size no recibe query: minLines=500 filtra archivos con más líneas. globs (solo files/file_size) filtra por patrón de ruta, p.ej. [\"*.vue\",\"src/**\"]. Límites 2 MiB/archivo, 5 s cooperativos, salida parcial explícita. Admite scopes externos autorizados Windows."
     )]
     async fn harness_search(
         &self,
@@ -892,6 +892,7 @@ mod tests {
             chunks: None,
             old_text: "old".into(),
             new_text: "new".into(),
+            allow_unvalidated_text: false,
             session: Some("session".into()),
         });
         let task = tokio::spawn(async move {

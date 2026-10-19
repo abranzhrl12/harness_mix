@@ -325,6 +325,11 @@ una línea extra; una última línea sin LF sí cuenta. Ordena por líneas, byte
 Devuelve files con path/lines/bytes, nunca texto del archivo; el resto va a detail.
 También funciona como hijo search de harness_batch.
 
+`globs` (solo kinds files y file_size) filtra por patrón de ruta relativa
+normalizada con `/`, hasta 64 patrones, p.ej. `["*.vue","src/**"]`. Un patrón sin
+`/` (como `*.vue`) matchea a cualquier profundidad; los archivos excluidos por
+globs no cuentan como skipped. Es inválido en text/syntax.
+
 Reutiliza las lecturas seguras con validación de metadata antes/después. Omite
 NUL/UTF-8 inválido y respeta ignore/ocultos/secretos; excluye además vendor, dist,
 build, coverage, *.min.js y *.map. Los límites nativos son más estrictos que Node:
@@ -786,6 +791,11 @@ SHA-256 debe proceder de una lectura vigente. Si se omite, se calcula internamen
 sobre el original y se vuelve a comprobar antes de publicar;
 el texto original debe aparecer una sola vez, incluidas coincidencias solapadas.
 Admite variación LF/CRLF y normaliza el reemplazo al estilo de la región editada.
+Cuando el original no coincide, la respuesta es un error `MATCH` que incluye
+`diagnostics[0].hint` con la primera línea divergente: `reason`
+(`differing_line`, `first_line_not_found` o `ambiguous`), `firstDivergentLine`,
+`expectedLine`, `foundLine` y `fileLine` (o `occurrences` si es ambiguo). El hint
+es informativo y nunca altera ni amplía el matching.
 Conserva BOM y bytes fuera de la región. Presupuesto conjunto oldText/newText:
 64000 bytes; archivo original/candidato: máximo 2 MiB. Rechaza NUL y texto no UTF-8.
 
@@ -796,6 +806,11 @@ un límite de 256 KiB y un filtro conservador de anidamiento de delimitadores (6
 que también puede rechazar comentarios o literales muy anidados. No comprueba tipos,
 expansión de macros ni semántica. Exige candidato válido completo; a diferencia de
 Node, no permite conservar errores sintácticos preexistentes.
+
+`harness_replace` (y su preview) acepta `allowUnvalidatedText=true`: un formato sin
+parser (p.ej. `.scss`) se publica con `syntax.status="not_checked"` en lugar de
+rechazarse con PARSER_UNAVAILABLE. Nunca elude errores de sintaxis de los parsers
+existentes (Rust/JS/TS/Vue/Astro/JSON), que siguen siendo fatales.
 
 Rechaza secretos, aliases Windows, symlinks/junctions, hardlinks, archivos readonly,
 metadata de Git y toda la carpeta `.agents`, además de `AGENTS.md`. Fija los
@@ -834,6 +849,11 @@ sin esa opción la carpeta padre debe existir. La sintaxis se valida antes de cr
 directorios. Si existe el mismo contenido byte a byte devuelve `already_present`
 sin escribir; si difiere, conflicto. `allowUnvalidatedText=true` admite texto sin
 parser con `syntax.status=not_checked`, pero no elude errores o límites de parsers.
+`expectedHash=<sha256>` convierte la escritura en un reemplazo atómico de archivo
+completo: el destino debe existir y su hash actual coincidir (si no, `STALE`; si
+falta, `PATH`). Igual que `harness_replace`, si el contenido ya es idéntico
+devuelve `unchanged` sin publicar; verifica el hash posterior y reporta
+`EDIT_POSTCHECK` si falla. Sin `expectedHash` no sobrescribe nunca.
 La respuesta añade `status`, `commitStatus`, `changeSummary`, `createdDirectories`
 y `typecheck=not_run`. JSON inválido incluye posición del parser. Los errores
 posteriores a crear directorios los reportan como retenidos; no hay rollback

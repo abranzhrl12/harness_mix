@@ -1,5 +1,11 @@
 use super::{edit, edit_commit, project::Project};
-use harness_domain::{Failure, contracts::WriteArgs, editing, execution::OperationContext, hash};
+use harness_domain::{
+    Failure,
+    contracts::{ReplaceArgs, WriteArgs},
+    editing,
+    execution::OperationContext,
+    hash,
+};
 use serde_json::{Value, json};
 
 pub(super) fn write(
@@ -108,6 +114,68 @@ fn write_with(
                 .map_err(|_| ("PATH", "Cannot inspect destination"))?
             {
                 let bytes = project.bytes_with_context(&args.path, context)?;
+                if let Some(expected) = &args.expected_hash {
+                    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+                        return Err((
+                            "ARGUMENT",
+                            "expectedHash must be a 64-character SHA-256 hex digest",
+                        ));
+                    }
+                    if &hash(&bytes) != expected {
+                        return Err((
+                            "STALE",
+                            "Destination changed since expectedHash was computed",
+                        ));
+                    }
+                    if bytes == args.content.as_bytes() {
+                        return Ok(json!({"path":args.path,"status":"unchanged","created":false,
+                            "changed":false,"commitStatus":"not_needed","previousHash":expected,
+                            "hash":expected,"verified":true,"ok":true,"syntax":validation,
+                            "diagnostics":[],"typecheck":"not_run",
+                            "changeSummary":{"addedLines":0,"removedLines":0}}));
+                    }
+                    let replace_args = ReplaceArgs {
+                        path: args.path.clone(),
+                        hash: expected.clone(),
+                        chunks: None,
+                        old_text: String::new(),
+                        new_text: args.content.clone(),
+                        allow_unvalidated_text: args.allow_unvalidated_text,
+                        session: args.session.clone(),
+                    };
+                    let mut result =
+                        edit_commit::publish(project, &replace_args, &target, &args.content, context)?;
+                    result["path"] = json!(args.path);
+                    result["created"] = json!(false);
+                    result["previousHash"] = json!(expected);
+                    result["syntax"] = validation.clone();
+                    result["typecheck"] = json!("not_run");
+                    result["changeSummary"] = json!({
+                        "bytesBefore":bytes.len(),"bytesAfter":args.content.len(),
+                        "removedLines":std::str::from_utf8(&bytes).map(|t| t.lines().count()).unwrap_or(0),
+                        "addedLines":args.content.lines().count()});
+                    if result["changed"] == true {
+                        let expected_after = hash(args.content.as_bytes());
+                        let verified = project
+                            .bytes_with_context(&args.path, &OperationContext::default())
+                            .is_ok_and(|bytes| hash(&bytes) == expected_after);
+                        result["status"] = json!("replaced");
+                        result["hash"] = json!(expected_after);
+                        result["verified"] = json!(verified);
+                        result["ok"] = json!(verified);
+                        if !verified {
+                            result["diagnostics"] = json!([{"code":"EDIT_POSTCHECK","path":args.path,
+                                "message":"File was published but postcheck failed; inspect before retrying"}]);
+                        }
+                    } else {
+                        result["status"] = json!("unchanged");
+                        result["ok"] = json!(false);
+                    }
+                    if result["diagnostics"].is_null() {
+                        result["diagnostics"] = json!([]);
+                    }
+                    return Ok(result);
+                }
                 if bytes != args.content.as_bytes() {
                     return Err((
                         "WRITE_EXISTS",
@@ -119,6 +187,12 @@ fn write_with(
                     "commitStatus":"not_needed","hash":hash(&bytes),"verified":true,"ok":true,"syntax":validation,
                     "diagnostics":[],"typecheck":"not_run","changeSummary":{"addedLines":0,"removedLines":0}}),
                 );
+            }
+            if args.expected_hash.is_some() {
+                return Err((
+                    "PATH",
+                    "expectedHash was provided but the destination does not exist; omit it to create the file",
+                ));
             }
             let mut stage = tempfile::Builder::new()
                 .prefix(".harness-create-")

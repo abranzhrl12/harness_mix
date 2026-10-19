@@ -171,6 +171,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     let search = app.execute(Request::Search(SearchArgs {
         external_scope: None,
         min_lines: None,
+        globs: None,
         kind: Kind::Text,
         query: "a".into(),
         scope: None,
@@ -234,6 +235,7 @@ fn search_request() -> Request {
     Request::Search(SearchArgs {
         external_scope: None,
         min_lines: None,
+        globs: None,
         kind: Kind::Text,
         query: "a".into(),
         scope: None,

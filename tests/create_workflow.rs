@@ -209,6 +209,49 @@ fn replace_returns_summary_and_confirmation_in_one_response() {
 }
 
 #[test]
+fn expected_hash_turns_create_into_atomic_overwrite() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let created = write(&app, json!({"path":"note.txt","content":"first\n"}));
+    let base = created["data"]["hash"].as_str().unwrap().to_owned();
+    let replaced = write(
+        &app,
+        json!({"path":"note.txt","content":"second\n","expectedHash":base}),
+    );
+    assert_eq!(replaced["state"], "ok", "{replaced}");
+    assert_eq!(replaced["data"]["status"], "replaced");
+    assert_eq!(replaced["data"]["created"], false);
+    assert_eq!(replaced["data"]["previousHash"], base);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+        "second\n"
+    );
+    let current = replaced["data"]["hash"].as_str().unwrap().to_owned();
+    let unchanged = write(
+        &app,
+        json!({"path":"note.txt","content":"second\n","expectedHash":current}),
+    );
+    assert_eq!(unchanged["state"], "ok", "{unchanged}");
+    assert_eq!(unchanged["data"]["status"], "unchanged");
+    assert_eq!(unchanged["data"]["changed"], false);
+    let stale = write(
+        &app,
+        json!({"path":"note.txt","content":"third\n","expectedHash":base}),
+    );
+    assert_eq!(stale["diagnostics"][0]["code"], "STALE");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("note.txt")).unwrap(),
+        "second\n"
+    );
+    let missing = write(
+        &app,
+        json!({"path":"absent.txt","content":"x","expectedHash":base}),
+    );
+    assert_eq!(missing["diagnostics"][0]["code"], "PATH");
+    assert!(!root.path().join("absent.txt").exists());
+}
+
+#[test]
 fn compact_bootstrap_merges_long_rules_and_catalog_in_recoverable_detail() {
     use harness_domain::contracts::{DataQueryArgs, Request};
     let root = tempfile::tempdir().unwrap();

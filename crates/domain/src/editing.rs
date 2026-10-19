@@ -145,6 +145,136 @@ fn normalize(text: &str) -> Cow<'_, str> {
     }
 }
 
+enum Located {
+    Missing,
+    Ambiguous(usize),
+    Unique,
+}
+
+fn locate(hay: &str, needle: &str) -> Located {
+    match hay.find(needle) {
+        None => Located::Missing,
+        Some(first) => {
+            let next = first + hay[first..].chars().next().map_or(1, char::len_utf8);
+            if hay[next..].contains(needle) {
+                let mut occurrences = 1usize;
+                let mut from = next;
+                while let Some(position) = hay[from..].find(needle) {
+                    occurrences += 1;
+                    let absolute = from + position;
+                    from = absolute + hay[absolute..].chars().next().map_or(1, char::len_utf8);
+                    if occurrences >= 1000 {
+                        break;
+                    }
+                }
+                Located::Ambiguous(occurrences)
+            } else {
+                Located::Unique
+            }
+        }
+    }
+}
+
+fn excerpt(line: &str) -> String {
+    const MAX: usize = 200;
+    let trimmed = line.strip_suffix('\r').unwrap_or(line);
+    if trimmed.chars().count() <= MAX {
+        return trimmed.to_owned();
+    }
+    let mut out: String = trimmed.chars().take(MAX).collect();
+    out.push('…');
+    out
+}
+
+fn common_lines(needle: &[&str], file: &[&str]) -> usize {
+    needle
+        .iter()
+        .zip(file)
+        .take_while(|(expected, found)| expected == found)
+        .count()
+}
+
+/// Best-effort, read-only explanation for a MATCH failure. Never mutates input and
+/// never widens matching: it only reports where `oldText` stops matching the file.
+pub fn match_hint(bytes: &[u8], args: &ReplaceArgs) -> serde_json::Value {
+    use serde_json::json;
+    let chunks: Vec<&str> = match &args.chunks {
+        Some(chunks) => chunks.iter().map(|chunk| chunk.old_text.as_str()).collect(),
+        None => vec![args.old_text.as_str()],
+    };
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(_) => return json!({}),
+    };
+    let normalized = normalize(text);
+    for (index, old) in chunks.iter().enumerate() {
+        if old.is_empty() {
+            continue;
+        }
+        let needle = normalize(old);
+        match locate(&normalized, needle.as_ref()) {
+            Located::Unique => continue,
+            Located::Ambiguous(occurrences) => {
+                return json!({"chunk":index,"reason":"ambiguous","occurrences":occurrences,
+                    "suggestion":"extend oldText so it matches exactly once"});
+            }
+            Located::Missing => return divergence(&normalized, needle.as_ref(), index),
+        }
+    }
+    json!({})
+}
+
+fn divergence(hay: &str, needle: &str, chunk: usize) -> serde_json::Value {
+    use serde_json::{Value, json};
+    let needle_lines: Vec<&str> = needle.split('\n').collect();
+    let file_lines: Vec<&str> = hay.split('\n').collect();
+    let first = needle_lines[0];
+    let mut best: Option<(usize, usize)> = None;
+    let mut whitespace_only = false;
+    for (index, line) in file_lines.iter().enumerate().take(20000) {
+        if *line == first {
+            let matched = common_lines(&needle_lines, &file_lines[index..]);
+            if best.is_none_or(|(_, current)| matched > current) {
+                best = Some((index, matched));
+            }
+        }
+    }
+    if best.is_none() && !first.trim().is_empty() {
+        for (index, line) in file_lines.iter().enumerate().take(20000) {
+            if line.trim() == first.trim() {
+                best = Some((index, common_lines(&needle_lines, &file_lines[index..])));
+                whitespace_only = true;
+                break;
+            }
+        }
+    }
+    let mut hint = json!({"chunk":chunk});
+    match best {
+        Some((file_index, matched)) => {
+            let divergent = matched.min(needle_lines.len().saturating_sub(1));
+            hint["reason"] = json!("differing_line");
+            hint["matchedLines"] = json!(matched);
+            hint["needleLines"] = json!(needle_lines.len());
+            hint["firstDivergentLine"] = json!(divergent + 1);
+            hint["fileLine"] = json!(file_index + divergent + 1);
+            hint["expectedLine"] = json!(excerpt(needle_lines[divergent]));
+            hint["foundLine"] = file_lines
+                .get(file_index + divergent)
+                .map_or(Value::Null, |line| json!(excerpt(line)));
+            if whitespace_only {
+                hint["whitespaceOnlyMismatch"] = json!(true);
+            }
+        }
+        None => {
+            hint["reason"] = json!("first_line_not_found");
+            hint["firstDivergentLine"] = json!(1);
+            hint["needleLines"] = json!(needle_lines.len());
+            hint["expectedLine"] = json!(excerpt(first));
+        }
+    }
+    hint
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +324,24 @@ mod tests {
                 .collect(),
         );
         args
+    }
+
+    #[test]
+    fn match_hint_locates_first_diverging_line() {
+        let text = "fn a() {}\nfn b() {}\nfn c() {}\n";
+        let hint = match_hint(
+            text.as_bytes(),
+            &args(text, "fn a() {}\nfn B() {}\nfn c() {}", "x"),
+        );
+        assert_eq!(hint["reason"], "differing_line");
+        assert_eq!(hint["firstDivergentLine"], 2);
+        assert_eq!(hint["expectedLine"], "fn B() {}");
+        assert_eq!(hint["foundLine"], "fn b() {}");
+        assert_eq!(match_hint(b"x\nx", &args("x\nx", "x", "y"))["reason"], "ambiguous");
+        assert_eq!(
+            match_hint(text.as_bytes(), &args(text, "zzz", "y"))["reason"],
+            "first_line_not_found"
+        );
     }
 
     #[test]
@@ -296,6 +444,7 @@ mod tests {
             chunks: None,
             old_text: old.into(),
             new_text: new.into(),
+            allow_unvalidated_text: false,
             session: None,
         }
     }

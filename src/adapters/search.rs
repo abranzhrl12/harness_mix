@@ -59,6 +59,47 @@ fn selector(query: &str) -> Result<(&str, Option<&str>), Failure> {
     Ok((kind, name))
 }
 
+fn glob_matcher(
+    globs: &Option<Vec<String>>,
+    kind: &Kind,
+) -> Result<Option<globset::GlobSet>, Failure> {
+    let patterns = match globs {
+        Some(patterns) => patterns,
+        None => return Ok(None),
+    };
+    if !matches!(kind, Kind::Files | Kind::FileSize) {
+        return Err((
+            "ARGUMENT",
+            "globs solo es válido para kind files o file_size",
+        ));
+    }
+    if patterns.is_empty() || patterns.len() > 64 {
+        return Err(("ARGUMENT", "globs requiere entre 1 y 64 patrones"));
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        if pattern.is_empty()
+            || utf16_len(pattern) > 1024
+            || pattern.contains(['\0', '\n', '\r'])
+            || pattern.chars().any(char::is_control)
+        {
+            return Err((
+                "ARGUMENT",
+                "cada patrón glob debe ser no vacío, sin control/NUL ni saltos de línea, máximo 1024 caracteres",
+            ));
+        }
+        let glob = globset::GlobBuilder::new(pattern)
+            .literal_separator(false)
+            .build()
+            .map_err(|_| ("ARGUMENT", "patrón glob inválido"))?;
+        builder.add(glob);
+    }
+    let set = builder
+        .build()
+        .map_err(|_| ("ARGUMENT", "patrón glob inválido"))?;
+    Ok(Some(set))
+}
+
 fn excluded(name: &str) -> bool {
     let name = name.to_lowercase();
     [".git", ".hg", ".svn", "node_modules", "target"].contains(&name.as_str())
@@ -86,6 +127,7 @@ pub fn search_with_context(
     } else {
         None
     };
+    let globs = glob_matcher(&args.globs, &args.kind)?;
     let min_lines = args.min_lines.unwrap_or(500);
     if min_lines > 10000000
         || (!file_size && args.min_lines.is_some())
@@ -204,6 +246,11 @@ pub fn search_with_context(
             continue;
         }
         let normalized = relative.replace('\\', "/");
+        if let Some(set) = &globs {
+            if !set.is_match(&normalized) {
+                continue;
+            }
+        }
         let folder = normalized
             .rsplit_once('/')
             .map(|(parent, _)| parent.split('/').take(2).collect::<Vec<_>>().join("/"))
@@ -426,6 +473,9 @@ pub fn search_with_context(
         "_detail":{},"diagnostics":[]});
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
+    if let Some(patterns) = &args.globs {
+        result["globs"] = json!(patterns);
+    }
     if syntax {
         let coverage = "Rust declarations, inline modules, impl/trait members; no local items, macro expansion, references or AST patterns";
         result["kind"] = json!("syntax");
@@ -476,6 +526,7 @@ mod tests {
         let args = SearchArgs {
             external_scope: None,
             min_lines: None,
+            globs: None,
             kind: Kind::Text,
             query: "needle".into(),
             scope: None,
@@ -496,6 +547,7 @@ mod tests {
         let mut args = SearchArgs {
             external_scope: None,
             min_lines: None,
+            globs: None,
             kind: Kind::Files,
             query: "[1]".into(),
             scope: None,
@@ -526,6 +578,7 @@ mod tests {
         let args = SearchArgs {
             external_scope: None,
             min_lines: None,
+            globs: None,
             kind: Kind::Text,
             query: "needle".into(),
             scope: None,
@@ -538,5 +591,65 @@ mod tests {
         assert_eq!(result["_complete"], false);
         assert_eq!(result["skipped"], 1);
         assert_eq!(result["diagnostics"][0]["code"], "SEARCH_INCOMPLETE");
+    }
+
+    #[test]
+    fn globs_filter_files_and_file_size_without_skipping() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src/App.vue"), "needle\n").unwrap();
+        fs::write(dir.path().join("src/main.ts"), "needle\n").unwrap();
+        fs::write(dir.path().join("README.md"), "needle\n").unwrap();
+        let p = Project::new(dir.path()).unwrap();
+        let files = search(
+            &p,
+            &SearchArgs {
+                external_scope: None,
+                min_lines: None,
+                globs: Some(vec!["*.vue".into()]),
+                kind: Kind::Files,
+                query: ".vue".into(),
+                scope: None,
+                limit: None,
+                session: None,
+            },
+        )
+        .unwrap();
+        let paths = files["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].as_str().unwrap().ends_with("App.vue"));
+        assert_eq!(files["skipped"], 0);
+        assert_eq!(files["complete"], true);
+        assert_eq!(files["globs"], json!(["*.vue"]));
+        let sizes = search(
+            &p,
+            &SearchArgs {
+                external_scope: None,
+                min_lines: Some(0),
+                globs: Some(vec!["src/**".into()]),
+                kind: Kind::FileSize,
+                query: String::new(),
+                scope: None,
+                limit: None,
+                session: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(sizes["files"].as_array().unwrap().len(), 2);
+        let rejected = search(
+            &p,
+            &SearchArgs {
+                external_scope: None,
+                min_lines: None,
+                globs: Some(vec!["*.vue".into()]),
+                kind: Kind::Text,
+                query: "needle".into(),
+                scope: None,
+                limit: None,
+                session: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(rejected.0, "ARGUMENT");
     }
 }

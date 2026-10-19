@@ -103,6 +103,7 @@ pub struct SearchArgs {
     pub query: String,
     #[serde(rename = "minLines")]
     pub min_lines: Option<usize>,
+    pub globs: Option<Vec<String>>,
     pub scope: Option<String>,
     pub limit: Option<usize>,
     pub session: Option<String>,
@@ -143,6 +144,9 @@ pub struct ReplaceArgs {
     pub old_text: String,
     #[serde(default, rename = "newText")]
     pub new_text: String,
+    /// Explicitly permit UTF-8 text when no syntax parser is available.
+    #[serde(default, rename = "allowUnvalidatedText")]
+    pub allow_unvalidated_text: bool,
     pub session: Option<String>,
 }
 
@@ -168,6 +172,10 @@ pub struct WriteArgs {
     /// Explicitly permit UTF-8 text when no syntax parser is available.
     #[serde(default, rename = "allowUnvalidatedText")]
     pub allow_unvalidated_text: bool,
+    /// When present, turns the write into an atomic whole-file replace of an
+    /// existing file whose current SHA-256 must equal this value.
+    #[serde(default, rename = "expectedHash")]
+    pub expected_hash: Option<String>,
     #[serde(alias = "sessionId")]
     pub session: Option<String>,
 }
@@ -185,6 +193,9 @@ impl Serialize for ReplaceArgs {
         } else {
             map.serialize_entry("oldText", &self.old_text)?;
             map.serialize_entry("newText", &self.new_text)?;
+        }
+        if self.allow_unvalidated_text {
+            map.serialize_entry("allowUnvalidatedText", &true)?;
         }
         map.serialize_entry("session", &self.session)?;
         map.end()
@@ -214,6 +225,8 @@ struct ReplaceInput {
     old_text: Option<String>,
     #[serde(rename = "newText")]
     new_text: Option<String>,
+    #[serde(default, rename = "allowUnvalidatedText")]
+    allow_unvalidated_text: bool,
     #[serde(alias = "sessionId")]
     session: Option<String>,
 }
@@ -233,6 +246,7 @@ impl TryFrom<ReplaceInput> for ReplaceArgs {
             chunks: input.chunks,
             old_text,
             new_text,
+            allow_unvalidated_text: input.allow_unvalidated_text,
             session: input.session,
         })
     }

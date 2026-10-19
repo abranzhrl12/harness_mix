@@ -38,6 +38,7 @@ harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
 tempfile = "3"
 ignore = "0.4"
+globset = "0.4"
 regex = "1"
 syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "visit"] }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }

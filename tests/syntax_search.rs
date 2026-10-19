@@ -7,6 +7,7 @@ fn search(app: &NativeApplication, query: &str, limit: usize) -> Value {
         kind: Kind::Syntax,
         query: query.into(),
         min_lines: None,
+        globs: None,
         scope: Some(".".into()),
         limit: Some(limit),
         session: None,

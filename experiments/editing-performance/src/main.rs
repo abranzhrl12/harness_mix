@@ -44,6 +44,7 @@ fn fixture(target_bytes: usize, count: usize, eol: &str) -> (String, ReplaceArgs
         chunks: Some(chunks),
         old_text: String::new(),
         new_text: String::new(),
+        allow_unvalidated_text: false,
         session: None,
     };
     (source, args)
@@ -170,6 +171,7 @@ mod tests {
             chunks: None,
             old_text: "aa".into(),
             new_text: "x".into(),
+            allow_unvalidated_text: false,
             session: None,
         };
         for prepare in [baseline::prepare, current::prepare, candidate::prepare] {

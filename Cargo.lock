@@ -10,6 +10,7 @@ dependencies = [
  "chrono",
  "codegraph-native",
  "futures-util",
+ "globset",
  "harness-application",
  "harness-domain",
  "ignore",

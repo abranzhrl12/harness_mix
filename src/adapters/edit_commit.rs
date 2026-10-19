@@ -250,6 +250,7 @@ mod tests {
                 chunks: None,
                 old_text: "old".into(),
                 new_text: "new".into(),
+                allow_unvalidated_text: false,
                 session: None,
             };
             let _pins = pin_parents(&project, &project.target("file.txt").unwrap()).unwrap();
