@@ -49,6 +49,13 @@
         "then": "Use taskId and regex filter. Follow cursor; inspect gap, truncated and outputLimited."
       },
       {
+        "need": "Manage workflow progress, checkpoint goals/decisions, check status, or generate handover",
+        "tool": "harness_session",
+        "backends": ["rust"],
+        "defaults": {},
+        "then": "Use action=checkpoint to record goals/decisions, action=tasks for phases and timeline, action=status for live summary, and action=handover for closure."
+      },
+      {
         "need": "Locate a file by name; literals use search kind=text",
         "tool": "harness_search",
         "backends": [

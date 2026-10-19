@@ -478,6 +478,78 @@ pub struct HandoverArgs {
     #[serde(rename = "expectedHash")]
     pub expected_hash: Option<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SessionTasksArgs {
+    pub session: String,
+    pub subaction: Option<TasksAction>,
+    pub phase: Option<String>,
+    pub status: Option<String>,
+    pub note: Option<String>,
+    pub after: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+impl SessionTasksArgs {
+    pub fn into_tasks_args(self) -> TasksArgs {
+        let action = self.subaction.or_else(|| {
+            if self.phase.is_some() || self.status.is_some() || self.note.is_some() {
+                Some(TasksAction::Update)
+            } else if self.after.is_some() || self.limit.is_some() {
+                Some(TasksAction::Timeline)
+            } else {
+                Some(TasksAction::Status)
+            }
+        });
+        TasksArgs {
+            session: self.session,
+            action,
+            phase: self.phase,
+            status: self.status,
+            note: self.note,
+            after: self.after,
+            limit: self.limit,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SessionStatusArgs {
+    pub session: String,
+}
+
+/// Unified session and workflow orchestration.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SessionArgs {
+    Checkpoint(CheckpointArgs),
+    Tasks(SessionTasksArgs),
+    Handover(HandoverArgs),
+    Status(SessionStatusArgs),
+}
+
+impl SessionArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Checkpoint(args) => Request::Checkpoint(args),
+            Self::Tasks(args) => Request::Tasks(args.into_tasks_args()),
+            Self::Handover(args) => Request::Handover(args),
+            Self::Status(args) => Request::Checkpoint(CheckpointArgs {
+                session: args.session,
+                goal: None,
+                decisions: None,
+                pending: None,
+                refresh_freshness: Some(false),
+            }),
+        }
+    }
+}
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -970,3 +1042,86 @@ mod git_contract_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod session_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn session_args_deserializes_and_dispatches_all_actions() {
+        // checkpoint
+        let ckpt: SessionArgs = serde_json::from_value(json!({
+            "action": "checkpoint",
+            "session": "s1",
+            "goal": "build session tool",
+            "decisions": ["unified"],
+            "pending": ["tests"]
+        }))
+        .unwrap();
+        let req = ckpt.into_request();
+        assert_eq!(req.name(), "harness_checkpoint");
+        assert!(req.is_mutating());
+
+        // tasks update
+        let tasks_up: SessionArgs = serde_json::from_value(json!({
+            "action": "tasks",
+            "session": "s1",
+            "phase": "execution",
+            "status": "in_progress",
+            "note": "implementing session"
+        }))
+        .unwrap();
+        let req = tasks_up.into_request();
+        assert_eq!(req.name(), "harness_tasks");
+        assert!(req.is_mutating());
+
+        // tasks timeline
+        let tasks_tl: SessionArgs = serde_json::from_value(json!({
+            "action": "tasks",
+            "session": "s1",
+            "after": 100,
+            "limit": 10
+        }))
+        .unwrap();
+        let req = tasks_tl.into_request();
+        assert_eq!(req.name(), "harness_tasks");
+        assert!(!req.is_mutating());
+
+        // status
+        let status: SessionArgs = serde_json::from_value(json!({
+            "action": "status",
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = status.into_request();
+        assert_eq!(req.name(), "harness_checkpoint");
+        assert!(!req.is_mutating());
+
+        // handover
+        let handover: SessionArgs = serde_json::from_value(json!({
+            "action": "handover",
+            "session": "s1",
+            "kind": "summary"
+        }))
+        .unwrap();
+        let req = handover.into_request();
+        assert_eq!(req.name(), "harness_handover");
+        assert!(!req.is_mutating());
+    }
+
+    #[test]
+    fn session_args_rejects_invalid_actions_or_missing_session() {
+        for value in [
+            json!({}),
+            json!({"action": "unknown", "session": "s"}),
+            json!({"action": "checkpoint"}),
+            json!({"action": "tasks"}),
+            json!({"action": "handover"}),
+            json!({"action": "status"}),
+        ] {
+            assert!(serde_json::from_value::<SessionArgs>(value).is_err());
+        }
+    }
+}
+

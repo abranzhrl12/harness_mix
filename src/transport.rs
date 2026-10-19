@@ -424,6 +424,16 @@ impl McpHarness {
         self.call(Request::Explore(args), context).await
     }
     #[tool(
+        description = "Operaciones unificadas de sesión y flujo de trabajo. action=checkpoint: actualiza objetivo, decisiones, pendientes o refresca checks. action=tasks: gestiona fases (phase), estado (status) o timeline de tareas. action=status: consulta el estado y resumen consolidado de la sesión viva. action=handover: genera o publica un reporte Markdown de traspaso (summary, adr o pr_body)."
+    )]
+    async fn harness_session(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::SessionArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(args.into_request(), context).await
+    }
+    #[tool(
         description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."
     )]
     async fn harness_tasks(
