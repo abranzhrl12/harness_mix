@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
@@ -23,6 +23,7 @@ try {
     try {
         & node scripts/verify-package.cjs
         if ($LASTEXITCODE -ne 0) { throw 'npm package verification failed.' }
+        if ($PrepareOnly) { return }
         $dist = Join-Path $repo 'target/dist'
         New-Item -ItemType Directory -Force -Path $dist | Out-Null
         & npm pack --pack-destination $dist

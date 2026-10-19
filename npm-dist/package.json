@@ -1,6 +1,6 @@
 {
   "name": "@abranzhrl1212/agent-harness",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "High-performance native Rust MCP server for AI code assistants",
   "main": "bin/run.js",
   "bin": {
@@ -14,7 +14,7 @@
     "ROLLDOWN-LICENSE.txt"
   ],
   "scripts": {
-    "prepublishOnly": "node scripts/verify-package.cjs"
+    "prepublishOnly": "powershell -NoProfile -File ../scripts/package-npm.ps1 -PrepareOnly"
   },
   "os": [
     "win32"
