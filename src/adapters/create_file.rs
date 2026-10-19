@@ -114,7 +114,7 @@ fn write_with(
                 .map_err(|_| ("PATH", "Cannot inspect destination"))?
             {
                 let bytes = project.bytes_with_context(&args.path, context)?;
-                if let Some(expected) = &args.expected_hash {
+                let expected_hash_opt = if let Some(expected) = &args.expected_hash {
                     if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
                         return Err((
                             "ARGUMENT",
@@ -127,6 +127,14 @@ fn write_with(
                             "Destination changed since expectedHash was computed",
                         ));
                     }
+                    Some(expected.clone())
+                } else if args.overwrite {
+                    Some(hash(&bytes))
+                } else {
+                    None
+                };
+
+                if let Some(expected) = expected_hash_opt {
                     if bytes == args.content.as_bytes() {
                         return Ok(json!({"path":args.path,"status":"unchanged","created":false,
                             "changed":false,"commitStatus":"not_needed","previousHash":expected,
@@ -180,7 +188,7 @@ fn write_with(
                 if bytes != args.content.as_bytes() {
                     return Err((
                         "WRITE_EXISTS",
-                        "Destination has different bytes; use harness_replace",
+                        "Destination has different bytes; set overwrite: true or use harness_replace",
                     ));
                 }
                 return Ok(
@@ -306,6 +314,35 @@ mod tests {
                 usize::from(!cancelled)
             );
         }
+    }
+
+    #[test]
+    fn test_write_overwrite_existing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let context = OperationContext::default();
+        let file_path = root.path().join("created.txt");
+        std::fs::write(&file_path, "initial content").unwrap();
+
+        // 1. Without overwrite, different bytes must fail with WRITE_EXISTS
+        let args_fail: WriteArgs = serde_json::from_value(
+            json!({"path":"created.txt","content":"updated content","overwrite":false,"allowUnvalidatedText":true}),
+        )
+        .unwrap();
+        let res_fail = write(&project, &args_fail, &context).unwrap();
+        assert_eq!(res_fail["ok"], false);
+        assert_eq!(res_fail["status"], "not_created");
+        assert_eq!(res_fail["diagnostics"][0]["code"], "WRITE_EXISTS");
+
+        // 2. With overwrite: true, it must atomically overwrite and report replaced
+        let args_ok: WriteArgs = serde_json::from_value(
+            json!({"path":"created.txt","content":"updated content","overwrite":true,"allowUnvalidatedText":true}),
+        )
+        .unwrap();
+        let res_ok = write(&project, &args_ok, &context).unwrap();
+        assert_eq!(res_ok["ok"], true);
+        assert_eq!(res_ok["status"], "replaced");
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "updated content");
     }
 }
 

@@ -47,6 +47,7 @@ fn native_creation_validates_syntax_and_never_overwrites() {
             create_parents: false,
             allow_unvalidated_text: false,
             expected_hash: None,
+            overwrite: false,
             path: path.into(),
             content: content.into(),
             session: None,

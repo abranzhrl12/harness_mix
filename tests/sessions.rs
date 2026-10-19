@@ -116,6 +116,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         create_parents: false,
         allow_unvalidated_text: false,
         expected_hash: None,
+        overwrite: false,
         session: Some("current".into()),
     }));
     assert_eq!(write_res["state"], "ok", "{write_res}");

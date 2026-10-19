@@ -194,6 +194,9 @@ pub struct WriteArgs {
     /// existing file whose current SHA-256 must equal this value.
     #[serde(default, rename = "expectedHash")]
     pub expected_hash: Option<String>,
+    /// When true, allows overwriting an existing file with new content atomically.
+    #[serde(default)]
+    pub overwrite: bool,
     #[serde(alias = "sessionId")]
     pub session: Option<String>,
 }
