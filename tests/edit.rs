@@ -195,7 +195,7 @@ fn protects_instructions_internal_paths_secrets_and_hardlinks() {
 }
 
 #[test]
-fn publication_failure_preserves_candidate_for_explicit_recovery() {
+fn publication_failure_cleans_artifacts_when_target_is_unchanged() {
     use std::os::windows::fs::OpenOptionsExt;
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join("file.txt");
@@ -209,14 +209,21 @@ fn publication_failure_preserves_candidate_for_explicit_recovery() {
     let result = replace(&app, "file.txt", "old", "old", "new");
     assert_eq!(result["state"], "error", "{result}");
     assert_eq!(result["diagnostics"][0]["code"], "EDIT_OUTCOME_UNKNOWN");
-    assert_eq!(result["data"]["commitStatus"], "unknown");
-    assert!(result["data"]["changed"].is_null());
-    let candidate = result["data"]["recovery"]["candidate"].as_str().unwrap();
-    assert_eq!(
-        std::fs::read_to_string(root.path().join(candidate)).unwrap(),
-        "new"
-    );
+    assert_eq!(result["data"]["commitStatus"], "unchanged");
+    assert_eq!(result["data"]["changed"], false);
+    assert_eq!(result["data"]["targetHash"], harness_domain::hash(b"old"));
+    assert!(result["data"]["recovery"]["candidate"].is_null());
+    assert!(result["data"]["recovery"]["backup"].is_null());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+    let orphans = std::fs::read_dir(root.path())
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with(".harness-edit-") || name.starts_with(".harness-recovery-")
+        })
+        .count();
+    assert_eq!(orphans, 0, "staging artifacts must be cleaned up");
     drop(held);
 }
 

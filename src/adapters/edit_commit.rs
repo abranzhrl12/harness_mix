@@ -154,7 +154,7 @@ fn publish_with(
     }
     context.check()?;
     // Commit point: do not report a later cancellation as if the edit never happened.
-    publish_staged(stage, target_path, project)
+    publish_staged(stage, target_path, project, &args.hash)
 }
 
 #[cfg(windows)]
@@ -162,6 +162,7 @@ fn publish_staged(
     stage: tempfile::NamedTempFile,
     target: &Path,
     project: &Project,
+    base_hash: &str,
 ) -> Result<Value, Failure> {
     use std::os::windows::ffi::OsStrExt;
     use windows::{
@@ -203,16 +204,34 @@ fn publish_staged(
             .to_string()
     };
     if result.is_err() {
-        // ReplaceFile may have progressed partially. Preserve both recovery artifacts.
+        // ReplaceFileW may have progressed partially; the target content decides the outcome.
         let staged_path = stage.keep().map_err(|_| {
             (
                 "EDIT_OUTCOME_UNKNOWN",
                 "Publication failed; inspect .harness recovery files before retrying",
             )
         })?;
-        return Ok(json!({"ok":false,"changed":null,"commitStatus":"unknown",
+        let (target_hash, unchanged) = inspect_target_after_failure(target, base_hash);
+        if unchanged {
+            // Known failure: the target is byte-identical to the pre-edit hash, so no edit
+            // was applied. Remove the orphan candidate and backup automatically.
+            let candidate_removed = fs::remove_file(&staged_path).is_ok();
+            let backup_removed = fs::remove_file(&backup).is_ok();
+            return Ok(json!({"ok":false,"changed":false,"commitStatus":"unchanged",
+                "targetHash":target_hash,
+                "recovery":{"candidate":Value::Null,"backup":Value::Null,
+                    "candidateRemoved":candidate_removed,"backupRemoved":backup_removed},
+                "diagnostics":[{"code":"EDIT_OUTCOME_UNKNOWN",
+                    "message":"Publication failed but the target is unchanged; staging artifacts were removed",
+                    "retryable":false,"requiredAction":"retry_edit_with_a_fresh_hash"}]}));
+        }
+        // Truly unknown outcome: preserve both recovery artifacts and report the post-failure hash.
+        return Ok(json!({"ok":false,"changed":Value::Null,"commitStatus":"unknown",
+            "targetHash":target_hash,
             "recovery":{"backup":relative(&backup),"candidate":relative(&staged_path)},
-            "diagnostics":[{"code":"EDIT_OUTCOME_UNKNOWN","message":"Publication failed; inspect target and recovery artifacts before retrying"}]}));
+            "diagnostics":[{"code":"EDIT_OUTCOME_UNKNOWN",
+                "message":"Publication failed; inspect target and recovery artifacts before retrying",
+                "retryable":false,"requiredAction":"reread_target_then_retry"}]}));
     }
     let warning = if fs::remove_file(&backup).is_err() {
         Some(relative(&backup))
@@ -225,11 +244,30 @@ fn publish_staged(
 }
 
 #[cfg(not(windows))]
-fn publish_staged(_: tempfile::NamedTempFile, _: &Path, _: &Project) -> Result<Value, Failure> {
+fn publish_staged(
+    _: tempfile::NamedTempFile,
+    _: &Path,
+    _: &Project,
+    _: &str,
+) -> Result<Value, Failure> {
     Err((
         "UNSUPPORTED",
         "Editing publication is not implemented on this platform",
     ))
+}
+
+/// Post-failure target state: `(current hash, unchanged)`.
+/// `None` means the target could not be read, so the outcome stays unknown.
+#[cfg(windows)]
+fn inspect_target_after_failure(target: &Path, base_hash: &str) -> (Option<String>, bool) {
+    match fs::read(target) {
+        Ok(bytes) => {
+            let current = hash(&bytes);
+            let unchanged = current == base_hash;
+            (Some(current), unchanged)
+        }
+        Err(_) => (None, false),
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -272,6 +310,23 @@ mod tests {
             );
             assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
         }
+    }
+
+    #[test]
+    fn inspect_target_after_failure_classifies_unchanged_changed_and_missing() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("file.txt");
+        fs::write(&file, "old").unwrap();
+        let (current, unchanged) = inspect_target_after_failure(&file, &hash(b"old"));
+        assert_eq!(current.as_deref(), Some(hash(b"old").as_str()));
+        assert!(unchanged);
+        let (current, unchanged) = inspect_target_after_failure(&file, &hash(b"external"));
+        assert_eq!(current.as_deref(), Some(hash(b"old").as_str()));
+        assert!(!unchanged);
+        let (current, unchanged) =
+            inspect_target_after_failure(&root.path().join("missing.txt"), &hash(b"old"));
+        assert!(current.is_none());
+        assert!(!unchanged);
     }
 
     #[test]

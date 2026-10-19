@@ -820,13 +820,17 @@ en el mismo directorio, copia/protege la DACL original antes de escribir conteni
 sincroniza y vuelve a comprobar ruta/hash/cancelación antes de publicar.
 
 La publicación usa ReplaceFileW con backup y sin ignorar errores de ACL/atributos.
-Después relee/verifica el hash. Un fallo incierto conserva los artefactos disponibles
-`.harness-edit-*`/`.harness-recovery-*` y devuelve EDIT_OUTCOME_UNKNOWN con rutas de
-recuperación; no se debe reintentar sin inspeccionar el destino. Un fallo al eliminar
-el backup tras éxito se informa como recoveryBackup. No hay garantía de durabilidad
-ante corte de energía ni CAS contra editores/procesos externos que escriban justo
-después de la última comprobación. No ejecutar varios servidores escritores sobre
-el mismo árbol; esto no es un sandbox frente a procesos hostiles del mismo usuario.
+Después relee/verifica el hash. Si la publicación falla y el hash del destino sigue
+coincidiendo con el previo, se resuelve el fallo: se eliminan automáticamente los
+artefactos temporales y se devuelve EDIT_OUTCOME_UNKNOWN con `commitStatus:"unchanged"`,
+`changed:false` y `targetHash` (evita releer el archivo antes de reintentar). Si el
+destino no se puede leer o cambió, el resultado queda incierto y se conservan los
+artefactos `.harness-edit-*`/`.harness-recovery-*` junto con `targetHash` (o `null`);
+no se debe reintentar sin inspeccionar el destino. Un fallo al eliminar el backup tras
+éxito se informa como recoveryBackup. No hay garantía de durabilidad ante corte de
+energía ni CAS contra editores/procesos externos que escriban justo después de la
+última comprobación. No ejecutar varios servidores escritores sobre el mismo árbol;
+esto no es un sandbox frente a procesos hostiles del mismo usuario.
 
 La cancelación anterior a publicación deja el archivo intacto. Una vez iniciada la
 publicación, el transporte espera su resultado y no oculta una edición completada
