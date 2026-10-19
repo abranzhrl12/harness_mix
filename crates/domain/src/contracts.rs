@@ -117,16 +117,20 @@ pub enum VerifyAction {
 pub struct VerifyArgs {
     pub language: String,
     pub scope: Option<String>,
+    /// Rust package name, passed as a single cargo -p argument.
+    pub package: Option<String>,
     pub action: Option<VerifyAction>,
     pub session: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[serde(try_from = "ReplaceInput")]
 pub struct ReplaceArgs {
     pub path: String,
+    /// Optional on the wire; an omitted hash is bound to the source read during this edit.
+    #[serde(default)]
     pub hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunks: Option<Vec<ReplaceChunk>>,
@@ -146,12 +150,23 @@ pub struct MoveArgs {
     pub session: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct WriteArgs {
+    pub path: String,
+    pub content: String,
+    pub session: Option<String>,
+}
+
 impl Serialize for ReplaceArgs {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("path", &self.path)?;
-        map.serialize_entry("hash", &self.hash)?;
+        if !self.hash.is_empty() {
+            map.serialize_entry("hash", &self.hash)?;
+        }
         if let Some(chunks) = &self.chunks {
             map.serialize_entry("chunks", chunks)?;
         } else {
@@ -163,7 +178,7 @@ impl Serialize for ReplaceArgs {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ReplaceChunk {
@@ -178,6 +193,7 @@ pub struct ReplaceChunk {
 #[serde(deny_unknown_fields)]
 struct ReplaceInput {
     path: String,
+    #[serde(default)]
     hash: String,
     chunks: Option<Vec<ReplaceChunk>>,
     #[serde(rename = "oldText")]
@@ -622,6 +638,7 @@ pub enum Request {
     Search(SearchArgs),
     Verify(VerifyArgs),
     Replace(ReplaceArgs),
+    Write(WriteArgs),
     Move(MoveArgs),
     Outline(OutlineArgs),
     ReadSymbol(ReadSymbolArgs),
@@ -642,10 +659,19 @@ pub enum Request {
     DataQuery(DataQueryArgs),
 }
 impl Request {
+    pub fn execution_timeout(&self) -> std::time::Duration {
+        if matches!(self, Self::Verify(_)) {
+            // Process deadline plus a bounded window to collect output and stop its tree.
+            std::time::Duration::from_secs(65)
+        } else {
+            crate::execution::DEFAULT_TIMEOUT
+        }
+    }
     pub fn is_mutating(&self) -> bool {
         matches!(
             self,
             Self::Replace(_)
+                | Self::Write(_)
                 | Self::Move(_)
                 | Self::ExternalScope(ExternalScopeArgs {
                     action: ExternalScopeAction::Grant | ExternalScopeAction::Revoke,
@@ -675,6 +701,7 @@ impl Request {
             Self::Search(_) => "harness_search",
             Self::Verify(_) => "harness_verify",
             Self::Replace(_) => "harness_replace",
+            Self::Write(_) => "harness_write",
             Self::Move(_) => "harness_move",
             Self::Outline(_) | Self::ReadSymbol(_) => "harness_symbols",
             Self::Tasks(_) => "harness_tasks",
@@ -707,6 +734,7 @@ impl Request {
             Self::Search(args) => serde_json::to_value(args),
             Self::Verify(args) => serde_json::to_value(args),
             Self::Replace(args) => serde_json::to_value(args),
+            Self::Write(args) => serde_json::to_value(args),
             Self::Move(args) => serde_json::to_value(args),
             Self::Outline(args) => serde_json::to_value(args).map(|mut value| {
                 value["action"] = Value::String("outline".into());

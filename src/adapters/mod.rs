@@ -474,6 +474,15 @@ impl Workspace for NativeWorkspace {
         })?;
         edit::replace(&self.project, args, context)
     }
+    fn write(
+        &self,
+        args: &harness_domain::contracts::WriteArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let _lock = self.edit_lock.try_lock()
+            .map_err(|_| ("EDIT_BUSY", "Another edit is active"))?;
+        edit::write(&self.project, args, context)
+    }
     fn move_file(
         &self,
         args: &harness_domain::contracts::MoveArgs,

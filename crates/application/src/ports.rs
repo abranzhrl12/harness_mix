@@ -183,6 +183,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Move adapter unavailable"))
     }
+    fn write(
+        &self,
+        _args: &harness_domain::contracts::WriteArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "File creation adapter unavailable"))
+    }
     fn info(&self) -> Value;
     fn rules(&self, context: &OperationContext) -> Result<String, Failure>;
     fn capabilities(&self) -> Value;

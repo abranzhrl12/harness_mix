@@ -30,10 +30,10 @@ impl ProcessSpec {
         timeout: Duration,
         output_limit: usize,
     ) -> Result<Self, Failure> {
-        if timeout.is_zero() || timeout > Duration::from_secs(30) {
+        if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err((
                 "PROCESS_BUDGET",
-                "Process timeout must be within 30 seconds",
+                "Process timeout must be within 60 seconds",
             ));
         }
         if output_limit == 0 || output_limit > 2 * 1024 * 1024 {
@@ -58,7 +58,7 @@ impl ProcessSpec {
     }
 
     /// Explicit opt-in for managed background processes. Synchronous callers
-    /// retain the existing 30-second constructor budget.
+    /// retain the bounded 60-second constructor budget.
     pub fn with_background_timeout(mut self, timeout: Option<Duration>) -> Result<Self, Failure> {
         if timeout.is_some_and(|value| value.is_zero() || value > Duration::from_secs(86400)) {
             return Err((

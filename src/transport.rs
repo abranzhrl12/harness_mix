@@ -233,7 +233,9 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
     let name = request.name();
     let mutating = request.is_mutating();
     let args = request.arguments();
-    let context = OperationContext::default();
+    let timeout = request.execution_timeout();
+    let verification = matches!(&request, Request::Verify(_));
+    let context = OperationContext::with_timeout(timeout);
     // Dropping a handler (client cancellation/disconnect) also signals its worker.
     let _cancel_on_drop = CancelOnDrop(context.clone());
     let operation = match application.prepare(request, context.clone()) {
@@ -249,9 +251,9 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
             if mutating { worker.await.unwrap_or_else(|_| application.failure(name, &args, ("EDIT_OUTCOME_UNKNOWN", "Releer archivo antes de reintentar"))) }
             else { application.failure(name, &args, ("CANCELLED", "operación cancelada")) }
         },
-        () = tokio::time::sleep(DEFAULT_TIMEOUT) => {
+        () = tokio::time::sleep(timeout) => {
             context.cancel();
-            if mutating { worker.await.unwrap_or_else(|_| application.failure(name, &args, ("EDIT_OUTCOME_UNKNOWN", "Releer archivo antes de reintentar"))) }
+            if mutating || verification { worker.await.unwrap_or_else(|_| application.failure(name, &args, ("TIMEOUT", "Operation exceeded its deadline"))) }
             else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
         },
     };
@@ -449,6 +451,14 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Replace(args), context).await
+    }
+    #[tool(description = "Create a new UTF-8 file with path and content. Atomic no-clobber publication; existing files are never overwritten. Windows, existing parent directory, up to 2 MiB. Same syntax validation and protected paths as editing. Reuse session from bootstrap.")]
+    async fn harness_write(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::WriteArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Write(args), context).await
     }
     #[tool(
         description = "Mueve o renombra un archivo regular dentro del workspace: from y to relativos. Windows y mismo volumen. El destino debe estar libre y su carpeta padre debe existir. No crea carpetas; rechaza rutas protegidas y enlaces. Renombres solo de mayúsculas requieren un nombre intermedio libre. No modifica imports. changed=true confirma el movimiento; revisar index.status y verified antes de reintentar."

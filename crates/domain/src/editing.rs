@@ -49,13 +49,14 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
             return Err(("EDIT", "Empty, identical or oversized replacement"));
         }
     }
-    if args.hash.len() != 64 || !args.hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !args.hash.is_empty()
+        && (args.hash.len() != 64 || !args.hash.bytes().all(|b| b.is_ascii_hexdigit())) {
         return Err(("EDIT", "Expected a SHA-256 hash"));
     }
     if bytes.len() > MAX_FILE {
         return Err(("SIZE", "File exceeds 2 MiB"));
     }
-    if hash(bytes) != args.hash {
+    if !args.hash.is_empty() && hash(bytes) != args.hash {
         return Err(("STALE", "File changed since it was read"));
     }
     let text = std::str::from_utf8(bytes).map_err(|_| ("ENCODING", "File is not UTF-8"))?;

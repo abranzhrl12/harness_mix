@@ -83,6 +83,14 @@ pub(super) fn run_typescript_syntax(
 }
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    if let Some(package) = &args.package {
+        if !args.language.eq_ignore_ascii_case("rust") || package.is_empty()
+            || package.len() > 128
+            || !package.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(("VERIFY_PACKAGE", "package must be a Rust package name (letters, digits, underscore or hyphen)"));
+        }
+    }
     if args.language.eq_ignore_ascii_case("dotnet") || args.language.eq_ignore_ascii_case("csharp")
     {
         return dotnet_plan(project, args);
@@ -130,21 +138,19 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     }
     let action = match args.action {
         Some(VerifyAction::Test) => "test",
-        _ => "build",
+        Some(VerifyAction::Build) => "build",
+        None => "check",
     };
+    let mut arguments = vec![action.into(), "--manifest-path".into(),
+        manifest.to_str().ok_or(("PATH", "Manifest path must be UTF-8"))?.into(),
+        "--color".into(), "never".into()];
+    if let Some(package) = &args.package {
+        arguments.extend(["-p".into(), package.clone()]);
+    }
     ProcessSpec::new(
         Program::Cargo,
-        vec![
-            action.into(),
-            "--manifest-path".into(),
-            manifest
-                .to_str()
-                .ok_or(("PATH", "Manifest path must be UTF-8"))?
-                .into(),
-            "--color".into(),
-            "never".into(),
-        ],
-        Duration::from_secs(30),
+        arguments,
+        Duration::from_secs(60),
         2 * 1024 * 1024,
     )
 }
@@ -490,7 +496,9 @@ pub(super) fn verify(
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
         "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
-        "action":match args.action { Some(VerifyAction::Test) => "test", _ => "build" },
+        "action":match args.action { Some(VerifyAction::Test) => "test", None if program == Some(Program::Cargo) => "check", _ => "build" },
+        "package":args.package,
+        "command":spec.as_ref().map(|spec| json!({"program":format!("{:?}",spec.program()).to_ascii_lowercase(),"arguments":spec.arguments()})),
         "code":outcome.exit_code,
         "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
         "ok":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
@@ -498,6 +506,8 @@ pub(super) fn verify(
         "limited":limited, "cancelled":cancelled, "timedOut":timed_out,
         "treeTerminationConfirmed":outcome.tree_termination_confirmed,
         "output":prefix(&output, 12000),
+        "stdoutTail":stdout.chars().rev().take(4000).collect::<String>().chars().rev().collect::<String>(),
+        "stderrTail":stderr.chars().rev().take(4000).collect::<String>().chars().rev().collect::<String>(),
         "complete":!limited && !cancelled && !timed_out,
         "_complete":!limited && !cancelled && !timed_out,
         "verificationFreshness":"not_tracked",

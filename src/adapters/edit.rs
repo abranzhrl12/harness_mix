@@ -3,6 +3,59 @@ use harness_domain::{Failure, contracts::ReplaceArgs, editing, execution::Operat
 use serde_json::{Value, json};
 use std::path::Path;
 
+pub(super) fn write(
+    project: &Project,
+    args: &harness_domain::contracts::WriteArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    #[cfg(not(windows))]
+    {
+        let _ = (project, args);
+        return Err(("UNSUPPORTED", "Creation requires Windows ancestor pinning"));
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        if args.path.len() > 4096 || args.content.len() > editing::MAX_FILE {
+            return Err(("SIZE", "Path exceeds 4096 bytes or content exceeds 2 MiB"));
+        }
+        if args.content.contains('\0') {
+            return Err(("ENCODING", "Binary files cannot be created"));
+        }
+        let target = project.target_optional(&args.path)?;
+        let relative = target.strip_prefix(&project.root)
+            .map_err(|_| ("PATH", "Outside workspace"))?.to_string_lossy().replace('\\', "/");
+        if relative.split('/').any(|part| [".git", ".hg", ".svn", ".agents", ".codegraph", "agents.md"]
+            .iter().any(|protected| part.eq_ignore_ascii_case(protected))) {
+            return Err(("PATH", "Protected instruction, index or version control path"));
+        }
+        let parent = target.parent().ok_or(("PATH", "Missing parent"))?;
+        let _pins = edit_commit::pin_directory(project, parent)?;
+        project.target_optional(&args.path)?;
+        if target.try_exists().map_err(|_| ("PATH", "Cannot inspect destination"))? {
+            return Err(("WRITE_EXISTS", "Destination already exists; use harness_replace"));
+        }
+        let validation = syntax(&args.path, &args.content, context)?;
+        let mut stage = tempfile::Builder::new().prefix(".harness-create-")
+            .tempfile_in(parent).map_err(|_| ("IO", "Cannot stage new file"))?;
+        stage.write_all(args.content.as_bytes()).map_err(|_| ("IO", "Cannot write new file"))?;
+        stage.as_file().sync_all().map_err(|_| ("IO", "Cannot sync new file"))?;
+        context.check()?;
+        // Atomic no-clobber publication also rejects a destination created after the check.
+        stage.persist_noclobber(&target).map_err(|error| {
+            if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                ("WRITE_EXISTS", "Destination was created concurrently")
+            } else { ("IO", "Cannot publish new file") }
+        })?;
+        let expected = hash(args.content.as_bytes());
+        let verified = project.bytes_with_context(&args.path, &OperationContext::default())
+            .is_ok_and(|bytes| hash(&bytes) == expected);
+        Ok(json!({"path":args.path,"created":true,"changed":true,"commitStatus":"committed",
+            "hash":expected,"verified":verified,"ok":verified,"syntax":validation}))
+    }
+}
+
 fn syntax(path: &str, source: &str, context: &OperationContext) -> Result<Value, Failure> {
     match Path::new(path)
         .extension()
@@ -50,7 +103,10 @@ pub(super) fn replace(
     let updated = editing::prepare(&bytes, args)?;
     let syntax = syntax(&args.path, &updated, context)?;
     context.check()?;
-    let mut result = edit_commit::publish(project, args, &target, &updated, context)?;
+    // Always recheck the source we actually prepared, including hashless requests.
+    let mut bound = args.clone();
+    bound.hash = hash(&bytes);
+    let mut result = edit_commit::publish(project, &bound, &target, &updated, context)?;
     result["syntax"] = syntax;
     if result["changed"] == true {
         // Commit has happened: cancellation must not hide this fact.

@@ -115,7 +115,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
 
     /// A single boundary for every transport: session admission, execution and envelope.
     pub fn execute(&self, request: Request) -> Value {
-        self.execute_with_context(request, OperationContext::default())
+        let context = OperationContext::with_timeout(request.execution_timeout());
+        self.execute_with_context(request, context)
     }
 
     pub fn execute_with_context(&self, request: Request, context: OperationContext) -> Value {
@@ -300,6 +301,14 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                         &serde_json::to_value(&args).unwrap(),
                         &mut result,
                     );
+                    Ok(result)
+                })
+            }
+            Request::Write(args) => {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                    let mut result = self.workspace.write(&args, context)?;
+                    self.record_result(args.session.as_deref(), name,
+                        &serde_json::to_value(&args).unwrap(), &mut result);
                     Ok(result)
                 })
             }
