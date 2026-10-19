@@ -7,7 +7,7 @@ use harness_application::{
 use harness_domain::contracts::{
     BootstrapArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,
 };
-use harness_domain::execution::{DEFAULT_TIMEOUT, OperationContext};
+use harness_domain::execution::OperationContext;
 use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
     handler::server::wrapper::Parameters,
@@ -340,7 +340,7 @@ impl McpHarness {
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "Logs nativos acotados, sin argumentos/rutas/contenido. Filtros limit 1..50, level, tool, slowOnly, requestId y after. Persistencia Windows opt-in con --persist-logs, histórico marcado; no lee logs Node."
+        description = "Bounded native logs with in-memory context: relative path, verification command and failed/timeout stdout/stderr tails, search folder timings. Sensitive lines are heuristically redacted, not universally detected. Context is not persisted. Filters: limit 1..50, level, tool, slowOnly, requestId, after and session. Opt-in disk history stores metadata only."
     )]
     async fn harness_logs(
         &self,
@@ -443,7 +443,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Reemplazo con SHA-256 vigente: oldText/newText o chunks [{oldText,newText}] (1-128, 64000 bytes acumulados). Cada bloque debe ser único en el original; sin solapamientos. Una validación y publicación del resultado completo. Windows: Rust, JS/TS/JSX/TSX, JSON, Markdown y texto plano. Sin creación de archivos. Rechaza rutas protegidas. Una publicación iniciada se completa aunque llegue cancelación; releer tras desconexión antes de reintentar."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, JSON, Markdown and plain text. Protected paths rejected. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -471,7 +471,7 @@ impl McpHarness {
         self.call(Request::Move(args), context).await
     }
     #[tool(
-        description = "Verificar Rust, Go, Python, JS y dotnet/csharp con sus herramientas locales. TypeScript/TSX build valida solo sintaxis nativa, sin ejecutar código ni comprobar tipos; test TS/TSX no soportado. .NET exige .csproj/.sln y SDK, sin restore. Rutas validadas, sin comandos libres. Build/test de otros lenguajes ejecuta código del proyecto; no es sandbox. Plazo 30 s/2 MiB."
+        description = "Verify with local tools, no arbitrary commands. Rust defaults to cargo check; optional package adds -p <crate>, scope selects crate directory or Cargo.toml, action=build|test remains explicit. Rust process deadline 60 s plus 5 s cleanup, combined output 2 MiB; command and output tails retained on timeout. Other language processes retain 30 s budgets. TS/TSX build is syntax only, no type checking or tests; .NET requires explicit project and SDK without restore. Executes project code, not a sandbox. Reuse session from bootstrap."
     )]
     async fn harness_verify(
         &self,

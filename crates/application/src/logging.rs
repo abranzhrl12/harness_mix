@@ -1,4 +1,4 @@
-//! Fixed-shape metadata only. Never store raw diagnostic strings, arguments or outputs.
+//! Persist fixed-shape metadata only; bounded diagnostic context lives in memory.
 use harness_domain::{Failure, contracts::LogsArgs};
 use serde_json::{Value, json};
 use std::{collections::VecDeque, sync::Mutex, time::Instant};
@@ -33,6 +33,8 @@ impl Default for Log {
 fn code(value: Option<&str>) -> Option<&'static str> {
     value.map(|value| match value {
         "PATH" => "PATH",
+        "WRITE_EXISTS" => "WRITE_EXISTS",
+        "VERIFY_PACKAGE" => "VERIFY_PACKAGE",
         "MOVE_EXISTS" => "MOVE_EXISTS",
         "MOVE_IO" => "MOVE_IO",
         "MOVE_POSTCHECK" => "MOVE_POSTCHECK",
@@ -111,9 +113,65 @@ impl Log {
             return None;
         }
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let events: Vec<_> = state
+            .events
+            .iter()
+            .map(|event| {
+                let mut event = event.clone();
+                event.as_object_mut().unwrap().remove("context");
+                event
+            })
+            .collect();
         Some(
-            json!({"format":harness_domain::log_archive::FORMAT,"lastSequence":state.sequence,"discarded":state.discarded,"events":state.events}),
+            json!({"format":harness_domain::log_archive::FORMAT,"lastSequence":state.sequence,"discarded":state.discarded,"events":events}),
         )
+    }
+    pub fn annotate(&self, request_id: &str, envelope: &Value) {
+        let mut context = json!({});
+        if let Some(path) = envelope["scope"]["path"]
+            .as_str()
+            .filter(|path| safe_path(path))
+        {
+            context["path"] = json!(path);
+        }
+        let data = &envelope["data"];
+        if envelope["scope"]["tool"] == "harness_search" {
+            for field in [
+                "scanned",
+                "bytesRead",
+                "skipped",
+                "limited",
+                "complete",
+                "timings",
+                "exclusions",
+            ] {
+                if !data[field].is_null() {
+                    context[field] = data[field].clone();
+                }
+            }
+        }
+        if envelope["scope"]["tool"] == "harness_verify" {
+            context["command"] = sanitize_value(&data["command"]);
+            if envelope["state"] != "ok" {
+                for field in ["stdoutTail", "stderrTail"] {
+                    if let Some(text) = data[field].as_str() {
+                        context[field] = json!(sanitize_text(text));
+                    }
+                }
+            }
+        }
+        if context.as_object().unwrap().is_empty() {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(event) = state
+            .events
+            .iter_mut()
+            .rev()
+            .find(|event| event["requestId"] == request_id)
+        {
+            event["context"] = context;
+        }
     }
     pub fn saved(&self, sequence: u64, error: Option<&'static str>) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -271,14 +329,110 @@ impl Log {
             "more":more,"retained":state.events.len(),"discarded":state.discarded,"capacity":CAPACITY,
             "persistenceRequested":self.persistence,"persistent":self.persistence && state.persistence_error.is_none(),"durability":"best_effort","scope":"native_log_history","loadedThrough":state.loaded_through,"persistenceError":state.persistence_error,
             "cursorResetOnRestart":!self.persistence || state.persistence_error.is_some(),
-            "coverage":"worker terminal/rejected/abandoned metadata only; not RPC transport or Node log files"}),
+            "diagnosticContextPersistence":"memory_only",
+            "redactionPolicy":"heuristic sensitive lines; not universal secret detection",
+            "coverage":"worker metadata plus bounded in-memory paths, search timings and failed verification tails; persisted history contains metadata only"}),
         )
+    }
+}
+
+fn sensitive(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "password",
+        "passwd",
+        "pwd=",
+        "token",
+        "secret",
+        "credential",
+        "database_url",
+        "authorization",
+        "api_key",
+        "apikey",
+        "private key",
+        "://",
+    ]
+    .iter()
+    .any(|key| lower.contains(key))
+}
+fn safe_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= 1000
+        && !sensitive(path)
+        && !path.starts_with(['/', '\\'])
+        && !path.contains(':')
+        && !path.chars().any(char::is_control)
+        && !path
+            .replace('\\', "/")
+            .split('/')
+            .any(|part| part == ".." || part.starts_with(".env"))
+}
+fn sanitize_text(text: &str) -> String {
+    let bounded: String = text
+        .chars()
+        .rev()
+        .take(4000)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    bounded
+        .lines()
+        .map(|line| {
+            if sensitive(line) {
+                "[redacted sensitive diagnostic line]".to_owned()
+            } else {
+                line.chars()
+                    .filter(|c| !c.is_control() || *c == '\t')
+                    .collect()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+fn sanitize_value(value: &Value) -> Value {
+    match value {
+        Value::String(s) => json!(sanitize_text(s)),
+        Value::Array(items) => Value::Array(items.iter().take(16).map(sanitize_value).collect()),
+        Value::Object(items) => Value::Object(
+            items
+                .iter()
+                .take(4)
+                .map(|(k, v)| (k.clone(), sanitize_value(v)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn timeout_context_is_bounded_redacted_and_excluded_from_disk_archive() {
+        let log = Log::configured(true, Ok(None));
+        let id = harness_domain::execution::new_request_id();
+        log.record_correlated(
+            "harness_verify",
+            "completed",
+            Some("timeout"),
+            Some("TIMEOUT"),
+            Some(60_000_000),
+            &id,
+        );
+        log.annotate(&id, &json!({"state":"timeout","scope":{"tool":"harness_verify","path":"crates/domain"},
+            "data":{"command":{"program":"cargo","arguments":["check","-p","domain"]},
+                "stdoutTail":"progress","stderrTail":"compiling domain\nDATABASE_URL=private-value\nlast cargo error"}}));
+        let value = log.read(&args()).unwrap();
+        let event = &value["events"][0];
+        assert_eq!(event["context"]["path"], "crates/domain");
+        let tail = event["context"]["stderrTail"].as_str().unwrap();
+        assert!(tail.contains("last cargo error"));
+        assert!(!tail.contains("private-value"));
+        let archive = log.archive().unwrap();
+        harness_domain::log_archive::validate(&archive).unwrap();
+        assert!(archive["events"][0].get("context").is_none());
+    }
     fn args() -> LogsArgs {
         LogsArgs {
             limit: Some(2),

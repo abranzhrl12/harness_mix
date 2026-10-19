@@ -138,6 +138,7 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
     let id = bootstrap(&app);
     let result = app.execute(Request::Verify(VerifyArgs {
         language: "rust".into(),
+        package: None,
         scope: None,
         action: Some(VerifyAction::Build),
         session: Some(id.clone()),
@@ -236,6 +237,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     for _ in 0..2 {
         let result = app.execute(Request::Verify(VerifyArgs {
             language: "rust".into(),
+            package: None,
             scope: None,
             action: Some(VerifyAction::Build),
             session: Some(id.clone()),
@@ -285,6 +287,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     assert_eq!(old_check["invalidation"]["requiresRerun"], true);
     let rerun = app.execute(Request::Verify(VerifyArgs {
         language: "rust".into(),
+        package: None,
         scope: None,
         action: Some(VerifyAction::Build),
         session: Some(id.clone()),
@@ -303,6 +306,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     std::fs::write(root.path().join("README.md"), "new local input\n").unwrap();
     let next = app.execute(Request::Verify(VerifyArgs {
         language: "rust".into(),
+        package: None,
         scope: None,
         action: Some(VerifyAction::Build),
         session: Some(id.clone()),

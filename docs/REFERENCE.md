@@ -349,7 +349,12 @@ La persistencia Windows opt-in usa su propio formato, no el formato de Node.
 
 Eventos terminales, rechazos de admisión y abandonos incluyen secuencia, uptime,
 herramienta, nivel, estado, código de una lista fija y duración si fue medida.
-No hay argumentos, rutas, IDs de sesión, mensajes, SQL ni stdout/stderr. Los códigos
+El campo `context` añade rutas relativas no sensibles, comando de verificación,
+colas de stdout/stderr de hasta 4000 caracteres en fallos/timeouts y métricas de
+búsqueda por carpeta. Este contexto es solo de memoria y aplica redacción heurística
+de líneas potencialmente sensibles; no es detección universal de secretos.
+El archivo persistente no incluye argumentos, rutas, IDs de sesión, mensajes, SQL
+ni stdout/stderr. Los códigos
 no reconocidos se sustituyen por TOOL_ERROR. No observa fallos del SDK/stdio
 previos a la aplicación ni garantiza entrega RPC. La lectura actual se registra
 después de su snapshot; métricas y buffer se consultan por separado, no atómicamente.
@@ -775,8 +780,10 @@ interrumpe una llamada síncrona al parser que ya empezó. Sin caché de símbol
 
 ## Edición experimental (0.5.0, Windows)
 
-`harness_replace` recibe `path`, `hash`, `oldText`, `newText` y `session` opcional.
-Solo reemplaza archivos existentes. El hash SHA-256 procede de una lectura vigente;
+`harness_replace` recibe `path`, `oldText`, `newText`, `hash` y `session` opcionales.
+También admite `chunks`. Solo reemplaza archivos existentes. Si se envía, el hash
+SHA-256 debe proceder de una lectura vigente. Si se omite, se calcula internamente
+sobre el original y se vuelve a comprobar antes de publicar;
 el texto original debe aparecer una sola vez, incluidas coincidencias solapadas.
 Admite variación LF/CRLF y normaliza el reemplazo al estilo de la región editada.
 Conserva BOM y bytes fuera de la región. Presupuesto conjunto oldText/newText:
@@ -813,10 +820,23 @@ el sistema de archivos se bloquea. Tras desconexión o crash, releer antes de re
 Registra hechos históricos de edición mediante el flujo de sesión; no implementa edición Unix;
 en plataformas no Windows falla antes de preparar temporales.
 
+## Creación de archivos
+
+`harness_write` recibe `path`, `content` y `session` opcional. Requiere Windows,
+carpeta padre existente, contenido UTF-8 sin NUL y hasta 2 MiB (la línea JSON-RPC
+completa sigue limitada a 128 KiB). Comparte la validación de sintaxis de edición.
+Rechaza rutas protegidas, enlaces y metadata del índice. Fija los ancestros,
+prepara y sincroniza un temporal y publica atómicamente sin sobrescribir, incluso
+si otro proceso crea el destino después de la primera comprobación. Devuelve
+`created`, `changed`, `hash` y `verified`; no crea carpetas ni modifica imports.
+
 ## Verificación Rust (0.4.0)
 
 `harness_verify` acepta `language: "rust"`, `scope` relativo a un directorio de
-crate o a su `Cargo.toml`, y `action: "build" | "test"` (build por defecto).
+crate o a su `Cargo.toml`, `package` opcional y `action: "build" | "test"`.
+Sin `action` ejecuta `cargo check`; con `package="domain"` añade `-p domain`.
+El nombre es un único argumento validado, no texto de shell. `package` solo se
+admite para Rust. Una comprobación de paquete no certifica los demás crates.
 Invoca Cargo con `--manifest-path`, no desde una raíz sin manifiesto. No hay
 shell, comandos libres ni fallback a Node. Requiere Cargo/Rust instalados en
 entradas absolutas de PATH; distribuir el harness no incluye compiladores.
@@ -827,7 +847,7 @@ indica `passed`, código de salida y salida acotada, con detalle paginable cuand
 recorta. Un código no cero produce envelope `state: "error"`. La vigencia de la
 verificación no se persiste todavía: `verificationFreshness: "not_tracked"`.
 
-Límite combinado stdout/stderr de 2 MiB y plazo de ejecución de 30 s. Dos lectores
+Límite combinado stdout/stderr de 2 MiB y plazo de ejecución Rust de 60 s. Dos lectores
 concurrentes usan una cola de ocho bloques de 8 KiB. La limpieza tiene un plazo
 adicional de 5 s; un fallo de limpieza se informa, no se convierte en éxito.
 Windows crea el hijo suspendido, lo asigna a un Job Object con kill-on-close y

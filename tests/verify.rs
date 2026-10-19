@@ -5,6 +5,7 @@ use serde_json::Value;
 fn verify(application: &adapters::NativeApplication, action: VerifyAction) -> Value {
     application.execute(Request::Verify(VerifyArgs {
         language: "rust".into(),
+        package: None,
         scope: Some("crate with spaces".into()),
         action: Some(action),
         session: None,
@@ -83,6 +84,7 @@ fn test_extended_verify_plans() {
     .unwrap();
     let go_res = app.execute(Request::Verify(VerifyArgs {
         language: "go".into(),
+        package: None,
         scope: Some("go.mod".into()),
         action: Some(VerifyAction::Test),
         session: None,
@@ -97,6 +99,7 @@ fn test_extended_verify_plans() {
     std::fs::write(py_dir.join("test_sample.py"), "def test_ok(): pass\n").unwrap();
     let py_res = app.execute(Request::Verify(VerifyArgs {
         language: "python".into(),
+        package: None,
         scope: Some("py_tests".into()),
         action: Some(VerifyAction::Test),
         session: None,
@@ -106,6 +109,7 @@ fn test_extended_verify_plans() {
     // 2b. Python single test file
     let py_file_res = app.execute(Request::Verify(VerifyArgs {
         language: "python".into(),
+        package: None,
         scope: Some("py_tests/test_sample.py".into()),
         action: Some(VerifyAction::Test),
         session: None,
@@ -116,6 +120,7 @@ fn test_extended_verify_plans() {
     std::fs::write(root.path().join("index.ts"), "const x: number = 42;\n").unwrap();
     let ts_res = app.execute(Request::Verify(VerifyArgs {
         language: "typescript".into(),
+        package: None,
         scope: Some("index.ts".into()),
         action: Some(VerifyAction::Build),
         session: None,

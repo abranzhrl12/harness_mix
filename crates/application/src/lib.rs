@@ -612,7 +612,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "Git solo lectura; requiere git instalado y raíz Git o worktree vinculado registrado",
             "No sustituye el servidor actual"
         ]);
-        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":2,"queue":"reject_when_full","timeoutMs":30000,"cancellation":"cooperative"});
+        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":2,"queue":"reject_when_full","timeoutMs":30000,"rustVerifyProcessTimeoutMs":60000,"verifyCleanupGraceMs":5000,"cancellation":"cooperative"});
         if is_new {
             result["tasks"] = session.task_summary;
         }

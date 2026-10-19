@@ -164,7 +164,7 @@ impl Sessions {
     ) -> Result<Option<Value>, Failure> {
         let session = self.get(id)?;
         let time = sessions::now();
-        if tool == "harness_replace" && result["changed"] == true {
+        if matches!(tool, "harness_replace" | "harness_write") && result["changed"] == true {
             let path = bounded(&args["path"])?;
             let hash = bounded(&result["hash"])?;
             for check in &mut session.observed_checks {

@@ -47,6 +47,24 @@ agent-harness --reindex
 
 Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `--root <proyecto>` antes de la opción. Estos comandos escriben en `.codegraph/`; `--init-index` exige que esa carpeta no exista. No hace falta un índice para leer archivos o buscar texto.
 
+## Crear, editar y verificar
+
+`harness_write` crea un archivo con `path` y `content`, sin sobrescribir destinos.
+La carpeta padre debe existir; valida rutas y sintaxis antes de publicar.
+`harness_replace` acepta un `hash` SHA-256 opcional: sin él exige coincidencias
+únicas de `oldText` y comprueba cambios concurrentes antes de publicar.
+
+Para Rust, `harness_verify` con `{"language":"rust","package":"domain"}`
+ejecuta `cargo check -p domain`. `scope` permite elegir una carpeta de crate o
+un `Cargo.toml`; `action="build"` y `action="test"` siguen disponibles.
+El proceso tiene un plazo de 60 s y hasta 5 s adicionales para limpieza.
+
+`harness_logs` incluye contexto acotado en memoria: rutas, comando de verificación,
+últimas líneas de stdout/stderr en fallos/timeouts y tiempos de búsqueda por carpeta.
+Redacta líneas potencialmente sensibles de forma heurística; no detecta todos los
+secretos. El historial persistido conserva solo metadatos. Usa `session` en las
+llamadas que lo admiten; `sessionId` de bootstrap es un alias de compatibilidad.
+
 ## Mover archivos
 
 `harness_move` recibe `from` y `to` relativos al proyecto. Mueve archivos sin

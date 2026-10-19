@@ -31,6 +31,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.0.0.
 | harness_read_symbol | node |
 | harness_regression | node |
 | harness_replace | node, rust |
+| harness_write | rust |
 | harness_search | node, rust |
 | harness_sql | rust |
 | harness_sql_describe | node |

@@ -2,7 +2,7 @@
   "contractVersion": "3.0.0",
   "toolProfiles": {
     "investigate": ["harness_bootstrap","harness_explore","harness_impact","harness_patch_preview","harness_symbols","harness_search","harness_read","harness_detail","harness_data_query","harness_git","harness_doctor","harness_logs","harness_batch"],
-    "edit": ["harness_replace","harness_move","harness_verify","harness_diagnostics"]
+    "edit": ["harness_replace","harness_write","harness_move","harness_verify","harness_diagnostics"]
   },
   "alwaysLoadTools": ["harness_bootstrap","harness_explore"],
   "nativeIndexMaintenance": {
@@ -440,6 +440,10 @@
         "node",
         "rust"
       ]
+    },
+    {
+      "name": "harness_write",
+      "backends": ["rust"]
     },
     {
       "name": "harness_search",

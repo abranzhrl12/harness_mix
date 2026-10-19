@@ -6,6 +6,28 @@ use harness_domain::{
 };
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
+use std::{cell::RefCell, collections::BTreeMap};
+
+struct FolderTiming<'a> {
+    stats: &'a RefCell<BTreeMap<String, (u64, usize, usize)>>,
+    folder: String,
+    started: Instant,
+    bytes: usize,
+}
+impl Drop for FolderTiming<'_> {
+    fn drop(&mut self) {
+        let mut stats = self.stats.borrow_mut();
+        let folder = if stats.len() >= 128 && !stats.contains_key(&self.folder) {
+            "[other folders]".to_owned()
+        } else {
+            self.folder.clone()
+        };
+        let entry = stats.entry(folder).or_default();
+        entry.0 += self.started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        entry.1 += 1;
+        entry.2 += self.bytes;
+    }
+}
 
 // A deliberately small declaration selector, not ast-grep pattern syntax.
 fn selector(query: &str) -> Result<(&str, Option<&str>), Failure> {
@@ -103,6 +125,7 @@ pub fn search_with_context(
         return Err(("PATH", "scope excluido de búsquedas"));
     }
     let started = Instant::now();
+    let folder_stats = RefCell::new(BTreeMap::new());
     let mut builder = ignore::WalkBuilder::new(&root);
     builder
         .follow_links(false)
@@ -180,6 +203,17 @@ pub fn search_with_context(
             skipped += 1;
             continue;
         }
+        let normalized = relative.replace('\\', "/");
+        let folder = normalized
+            .rsplit_once('/')
+            .map(|(parent, _)| parent.split('/').take(2).collect::<Vec<_>>().join("/"))
+            .unwrap_or_else(|| ".".into());
+        let mut file_timing = FolderTiming {
+            stats: &folder_stats,
+            folder,
+            started: Instant::now(),
+            bytes: 0,
+        };
         if syntax
             && !entry
                 .path()
@@ -234,6 +268,7 @@ pub fn search_with_context(
                     }
                 };
                 bytes += file.len();
+                file_timing.bytes = file.len();
                 if bytes > 64 * 1024 * 1024 {
                     bounded = true;
                     break;
@@ -372,9 +407,23 @@ pub fn search_with_context(
     } else {
         "matches"
     };
+    let mut folders: Vec<_> = folder_stats.into_inner().into_iter().map(|(path,(micros,files,bytes))|
+        json!({"path":path,"processingMicros":micros,"files":files,"bytesRead":bytes})).collect();
+    folders.sort_by_key(|row| std::cmp::Reverse(row["processingMicros"].as_u64().unwrap_or(0)));
+    let processing: u64 = folders
+        .iter()
+        .map(|row| row["processingMicros"].as_u64().unwrap_or(0))
+        .sum();
+    let folder_count = folders.len();
+    folders.truncate(8);
     let mut result = json!({"omitted":all.len().saturating_sub(compact.len()),"truncated":truncated || !complete,"_complete":complete,
         "cancelled":cancelled,"timedOut":timed_out,"complete":complete,"scanned":visited,"bytesRead":bytes,"skipped":skipped,"limited":bounded,
-        "timings":{"executionMs":started.elapsed().as_millis()},"_detail":{},"diagnostics":[]});
+        "timings":{"executionMs":started.elapsed().as_millis(),"directoryProcessing":folders,
+            "omittedFolders":folder_count.saturating_sub(8),
+            "walkAndOtherMicros":(started.elapsed().as_micros().min(u64::MAX as u128) as u64).saturating_sub(processing),
+            "coverage":"top 8 folder processing times, grouped to depth 2; traversal and other work reported separately"},
+        "exclusions":[".git",".hg",".svn","node_modules","target","credential and secret paths"],
+        "_detail":{},"diagnostics":[]});
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
     if syntax {

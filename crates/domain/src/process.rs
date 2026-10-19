@@ -119,7 +119,8 @@ mod tests {
     #[test]
     fn validates_budgets_and_arguments() {
         assert!(spec(vec![], 0, 1).is_err());
-        assert!(spec(vec![], 31, 1).is_err());
+        assert!(spec(vec![], 61, 1).is_err());
+        assert!(spec(vec![], 60, 1).is_ok());
         assert!(spec(vec![], 1, 0).is_err());
         assert!(spec(vec![], 1, 2 * 1024 * 1024 + 1).is_err());
         assert!(spec(vec!["a\0b".into()], 1, 1).is_err());

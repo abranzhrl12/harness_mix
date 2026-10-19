@@ -16,6 +16,9 @@ pub(super) enum BackgroundVerificationPlan {
 }
 
 fn typescript_scope(project: &Project, args: &VerifyArgs) -> Result<Option<String>, Failure> {
+    if args.package.is_some() && !args.language.eq_ignore_ascii_case("rust") {
+        return Err(("VERIFY_PACKAGE", "package is supported only for Rust"));
+    }
     if !["javascript", "js", "typescript", "ts"]
         .iter()
         .any(|language| args.language.eq_ignore_ascii_case(language))
@@ -84,11 +87,17 @@ pub(super) fn run_typescript_syntax(
 
 fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if let Some(package) = &args.package {
-        if !args.language.eq_ignore_ascii_case("rust") || package.is_empty()
+        if !args.language.eq_ignore_ascii_case("rust")
+            || package.is_empty()
             || package.len() > 128
-            || !package.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            || !package
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         {
-            return Err(("VERIFY_PACKAGE", "package must be a Rust package name (letters, digits, underscore or hyphen)"));
+            return Err((
+                "VERIFY_PACKAGE",
+                "package must be a Rust package name (letters, digits, underscore or hyphen)",
+            ));
         }
     }
     if args.language.eq_ignore_ascii_case("dotnet") || args.language.eq_ignore_ascii_case("csharp")
@@ -141,9 +150,16 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
         Some(VerifyAction::Build) => "build",
         None => "check",
     };
-    let mut arguments = vec![action.into(), "--manifest-path".into(),
-        manifest.to_str().ok_or(("PATH", "Manifest path must be UTF-8"))?.into(),
-        "--color".into(), "never".into()];
+    let mut arguments = vec![
+        action.into(),
+        "--manifest-path".into(),
+        manifest
+            .to_str()
+            .ok_or(("PATH", "Manifest path must be UTF-8"))?
+            .into(),
+        "--color".into(),
+        "never".into(),
+    ];
     if let Some(package) = &args.package {
         arguments.extend(["-p".into(), package.clone()]);
     }
@@ -546,6 +562,10 @@ pub(super) fn verify(
     }
     if outcome.reason == StopReason::Exited && outcome.exit_code != Some(0) {
         result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Verification tool returned a nonzero exit status; inspect output"}]);
+    } else if timed_out {
+        result["diagnostics"] = json!([{"code":"TIMEOUT","message":"Verification deadline reached; inspect command and captured output tails"}]);
+    } else if cancelled {
+        result["diagnostics"] = json!([{"code":"CANCELLED","message":"Verification cancelled; captured output may be partial"}]);
     } else if limited {
         result["diagnostics"] =
             json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded 2 MiB"}]);
@@ -573,6 +593,7 @@ mod tests {
                     &project,
                     &VerifyArgs {
                         language: "csharp".into(),
+                        package: None,
                         scope: Some(scope.into()),
                         action: Some(action),
                         session: None,
@@ -614,6 +635,7 @@ mod tests {
         ] {
             let args = VerifyArgs {
                 language: "dotnet".into(),
+                package: None,
                 scope: scope.map(String::from),
                 action: None,
                 session: None,
@@ -697,6 +719,7 @@ mod tests {
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
                 language: "dotnet".into(),
+                package: None,
                 scope: Some(scope.into()),
                 action: Some(action),
                 session: None,
@@ -745,6 +768,7 @@ mod tests {
                     &project,
                     &VerifyArgs {
                         language: "JS".into(),
+                        package: None,
                         scope: Some(scope.clone()),
                         action: Some(action),
                         session: None,
@@ -782,6 +806,7 @@ mod tests {
         ] {
             let args = VerifyArgs {
                 language: "javascript".into(),
+                package: None,
                 scope: scope.map(String::from),
                 action: None,
                 session: None,
@@ -791,6 +816,7 @@ mod tests {
         for language in ["javascript", "typescript", "ts"] {
             let args = VerifyArgs {
                 language: language.into(),
+                package: None,
                 scope: Some("a.ts".into()),
                 action: None,
                 session: None,
@@ -820,6 +846,7 @@ mod tests {
             std::fs::write(root.path().join(scope), source).unwrap();
             let args = VerifyArgs {
                 language: "typescript".into(),
+                package: None,
                 scope: Some(scope.into()),
                 action: Some(VerifyAction::Build),
                 session: None,
@@ -844,6 +871,7 @@ mod tests {
         std::fs::write(&path, "const value: number = 1;").unwrap();
         let mut args = VerifyArgs {
             language: "ts".into(),
+            package: None,
             scope: Some("check.ts".into()),
             action: Some(VerifyAction::Build),
             session: None,
@@ -894,6 +922,7 @@ mod tests {
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
                 language: "javascript".into(),
+                package: None,
                 scope: Some(scope.into()),
                 action: Some(action),
                 session: None,
@@ -937,6 +966,7 @@ mod tests {
         let project = Project::new(root.path()).unwrap();
         let mut args = VerifyArgs {
             language: "PYTHON".into(),
+            package: None,
             scope: Some("file with spaces.py".into()),
             action: None,
             session: None,
@@ -974,6 +1004,7 @@ mod tests {
         ] {
             let args = VerifyArgs {
                 language: "python".into(),
+                package: None,
                 scope: scope.map(String::from),
                 action: None,
                 session: None,
@@ -982,6 +1013,7 @@ mod tests {
         }
         let args = VerifyArgs {
             language: "python".into(),
+            package: None,
             scope: Some("a.txt".into()),
             action: Some(VerifyAction::Test),
             session: None,
@@ -1016,6 +1048,7 @@ mod tests {
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
                 language: "python".into(),
+                package: None,
                 scope: Some(scope.into()),
                 action: Some(action),
                 session: None,
@@ -1060,6 +1093,7 @@ mod tests {
             let test = matches!(action, VerifyAction::Test);
             let args = VerifyArgs {
                 language: "GO".into(),
+                package: None,
                 scope: Some("module with spaces/go.mod".into()),
                 action: Some(action),
                 session: None,
@@ -1096,6 +1130,7 @@ mod tests {
         ] {
             let args = VerifyArgs {
                 language: "go".into(),
+                package: None,
                 scope: Some(scope.into()),
                 action: None,
                 session: None,
@@ -1125,6 +1160,7 @@ mod tests {
         for action in [VerifyAction::Build, VerifyAction::Test] {
             let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
                 language: "go".into(),
+                package: None,
                 scope: None,
                 action: Some(action),
                 session: None,
@@ -1141,6 +1177,7 @@ mod tests {
         .unwrap();
         let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
             language: "go".into(),
+            package: None,
             scope: None,
             action: None,
             session: None,
@@ -1162,6 +1199,7 @@ mod tests {
         let project = Project::new(root.path()).unwrap();
         let mut args = VerifyArgs {
             language: "rust".into(),
+            package: None,
             scope: Some("crate with spaces".into()),
             action: Some(VerifyAction::Test),
             session: None,
@@ -1181,5 +1219,22 @@ mod tests {
         }
         args.language = "unknown-language".into();
         assert_eq!(plan(&project, &args).unwrap_err().0, "UNSUPPORTED");
+    }
+
+    #[test]
+    fn package_plan_defaults_to_check_with_sixty_second_process_budget() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let args: VerifyArgs =
+            serde_json::from_value(json!({"language":"rust","package":"domain"})).unwrap();
+        let spec = plan(&project, &args).unwrap();
+        assert_eq!(spec.arguments()[0], "check");
+        assert_eq!(&spec.arguments()[5..], &["-p", "domain"]);
+        assert_eq!(spec.timeout(), Duration::from_secs(60));
+        assert_eq!(
+            harness_domain::contracts::Request::Verify(args).execution_timeout(),
+            Duration::from_secs(65)
+        );
     }
 }

@@ -179,6 +179,7 @@ impl Measurement {
                 Some(envelope["state"].as_str().unwrap_or("error")),
                 envelope["diagnostics"][0]["code"].as_str(),
             );
+            self.metrics.logs.annotate(&self.request_id, envelope);
         }
     }
 }
