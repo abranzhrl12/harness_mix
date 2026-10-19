@@ -103,6 +103,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         chunks: None,
         old_text: "world".into(),
         new_text: "universe".into(),
+        preview: false,
     }));
     assert_eq!(rep_res["state"], "ok", "{rep_res}");
 

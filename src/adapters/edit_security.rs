@@ -114,6 +114,7 @@ mod tests {
                     chunks: None,
                     old_text: "old".into(),
                     new_text: "new".into(),
+                    preview: false,
                     session: None,
                 },
             ));

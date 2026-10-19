@@ -54,6 +54,7 @@ fn replace(
         chunks: None,
         old_text: old.into(),
         new_text: new.into(),
+        preview: false,
         session: None,
     }))
 }
@@ -139,6 +140,7 @@ fn validation_stale_and_cancellation_leave_original_untouched() {
             chunks: None,
             old_text: "current".into(),
             new_text: "next".into(),
+            preview: false,
             session: None,
         }),
         context,

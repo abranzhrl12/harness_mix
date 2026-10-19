@@ -432,11 +432,24 @@ impl TaskManager {
                 "verify, timeoutSeconds and maxAttempts require start",
             ));
         }
-        if args.action != "events" && args.after.is_some() {
-            return Err(("ARGUMENT", "after requires events"));
+        if args.action != "events" && args.action != "observe" && args.after.is_some() {
+            return Err(("ARGUMENT", "after requires events or observe"));
         }
         if matches!(args.action.as_str(), "start" | "list") && args.task_id.is_some() {
             return Err(("ARGUMENT", "taskId is not valid for start or list"));
+        }
+        if args.action != "observe"
+            && (args.filter.is_some()
+                || args.lines.is_some()
+                || args.before.is_some()
+                || args.stream.is_some()
+                || args.cursor.is_some()
+                || args.max_chars.is_some())
+        {
+            return Err((
+                "ARGUMENT",
+                "filter, lines, before, stream, cursor and maxChars require observe",
+            ));
         }
         match args.action.as_str() {
             "start" => self.start(args),
@@ -505,6 +518,10 @@ impl TaskManager {
                 let mut value = task.value();
                 value["persistenceError"] = persistence_error(&state);
                 Ok(value)
+            }
+            "observe" => {
+                let observe_args = args.into_observe()?;
+                self.observe(&observe_args)
             }
             _ => Err(("ARGUMENT", "Unknown background task action")),
         }

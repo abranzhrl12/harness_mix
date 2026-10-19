@@ -72,6 +72,34 @@ fn preview_never_publishes_and_rejects_stale_sources() {
 }
 
 #[test]
+fn replace_with_preview_flag_matches_patch_preview_and_never_publishes() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("sample.rs");
+    let before = "fn sample() { let x = 1; }\r\n";
+    std::fs::write(&file, before).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+
+    // Calling Request::Replace with preview: true returns diff and diagnostics without publishing
+    let args = ReplaceArgs {
+        path: "sample.rs".into(),
+        hash: hash(before.as_bytes()),
+        chunks: None,
+        old_text: "1".into(),
+        new_text: "2".into(),
+        preview: true,
+        session: None,
+    };
+    let result = app.execute(Request::Replace(args));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["published"], false);
+    assert_eq!(result["data"]["syntax"]["status"], "valid");
+    assert!(result["data"]["patch"].as_str().unwrap().contains("+fn sample() { let x = 2; }\r\n"));
+
+    // File content remains strictly untouched on disk
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+}
+
+#[test]
 fn impact_projection_counts_unique_callers_and_exposes_coverage() {
     use harness_domain::assistance::{ImpactArgs, impact};
     let args: ImpactArgs =

@@ -169,6 +169,16 @@ fn observe_filters_failed_job_output_and_advances_cursor_over_mcp() {
         "taskId":task_id,"filter":"["
     }}));
     assert_eq!(invalid["result"]["structuredContent"]["diagnostics"][0]["code"], "ARGUMENT");
+
+    // Unified harness_jobs action=observe returns identical output
+    let via_jobs = server.request(6, "tools/call", json!({"name":"harness_jobs","arguments":{
+        "action":"observe","taskId":task_id,"filter":"(?i)error","lines":2,"before":1,"after":2,"stream":"stderr"
+    }}));
+    let envelope_jobs = &via_jobs["result"]["structuredContent"];
+    assert_eq!(envelope_jobs["state"], "ok", "{via_jobs}");
+    assert_eq!(envelope_jobs["data"]["matchedLines"], data["matchedLines"]);
+    assert_eq!(envelope_jobs["data"]["lines"], data["lines"]);
+
     server.close();
 }
 

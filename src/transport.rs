@@ -265,14 +265,15 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
-        description = "Preview a hash-checked replacement without publishing. Same arguments and syntax validation as harness_replace. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation."
+        description = "Preview a hash-checked replacement without publishing. Alias for harness_replace with preview: true. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation."
     )]
     async fn harness_patch_preview(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
+        Parameters(mut args): Parameters<harness_domain::contracts::ReplaceArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        self.call(Request::PatchPreview(args), context).await
+        args.preview = true;
+        self.call(Request::Replace(args), context).await
     }
 
     #[tool(
@@ -287,7 +288,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Tail retained output of a harness_jobs task. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths."
+        description = "Tail retained output of a harness_jobs task. Alias for harness_jobs with action='observe'. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths."
     )]
     async fn harness_observe(
         &self,
@@ -309,7 +310,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status/list/events/cancel no bloquean la conversación. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
+        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status, list, events, cancel y observe no bloquean la conversación. action=observe permite inspeccionar stdout/stderr retenido con regex, líneas de contexto y cursor incremental sin necesidad de una herramienta separada. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
     )]
     async fn harness_jobs(
         &self,
@@ -454,7 +455,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash. preview=true previews unified diff and syntax diagnostics without publishing. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -892,6 +893,7 @@ mod tests {
             chunks: None,
             old_text: "old".into(),
             new_text: "new".into(),
+            preview: false,
             session: Some("session".into()),
         });
         let task = tokio::spawn(async move {

@@ -143,7 +143,24 @@ pub struct ReplaceArgs {
     pub old_text: String,
     #[serde(default, rename = "newText")]
     pub new_text: String,
+    /// When true, preview unified diff and syntax diagnostics without publishing.
+    #[serde(default)]
+    pub preview: bool,
     pub session: Option<String>,
+}
+
+impl Default for ReplaceArgs {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            hash: String::new(),
+            chunks: None,
+            old_text: String::new(),
+            new_text: String::new(),
+            preview: false,
+            session: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -186,6 +203,9 @@ impl Serialize for ReplaceArgs {
             map.serialize_entry("oldText", &self.old_text)?;
             map.serialize_entry("newText", &self.new_text)?;
         }
+        if self.preview {
+            map.serialize_entry("preview", &true)?;
+        }
         map.serialize_entry("session", &self.session)?;
         map.end()
     }
@@ -214,6 +234,8 @@ struct ReplaceInput {
     old_text: Option<String>,
     #[serde(rename = "newText")]
     new_text: Option<String>,
+    #[serde(default)]
+    preview: bool,
     #[serde(alias = "sessionId")]
     session: Option<String>,
 }
@@ -233,6 +255,7 @@ impl TryFrom<ReplaceInput> for ReplaceArgs {
             chunks: input.chunks,
             old_text,
             new_text,
+            preview: input.preview,
             session: input.session,
         })
     }
