@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 30);
+    assert_eq!(tools.len(), 25);
     assert!(
         tools
             .iter()
@@ -1036,15 +1036,27 @@ fn workflow_roundtrip_and_task_timeline_work_without_node() {
         .as_str()
         .unwrap()
         .to_owned();
-    let updated=server.request(3,"tools/call",json!({"name":"harness_tasks","arguments":{"session":session,"action":"update","phase":"analysis","status":"in_progress"}}));
+    let updated = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_session","arguments":{"action":"tasks","session":session,"phase":"analysis","status":"in_progress"}}),
+    );
     assert_eq!(updated["result"]["isError"], false, "{updated}");
     assert_eq!(
         updated["result"]["structuredContent"]["data"]["persisted"],
         true
     );
-    let declared=server.request(4,"tools/call",json!({"name":"harness_checkpoint","arguments":{"session":session,"goal":"seguir Rust 🙂","decisions":["nativo"],"pending":["vigencia"]}}));
+    let declared = server.request(
+        4,
+        "tools/call",
+        json!({"name":"harness_session","arguments":{"action":"checkpoint","session":session,"goal":"seguir Rust 🙂","decisions":["nativo"],"pending":["vigencia"]}}),
+    );
     assert_eq!(declared["result"]["isError"], false, "{declared}");
-    let timeline=server.request(5,"tools/call",json!({"name":"harness_tasks","arguments":{"session":session,"action":"timeline","limit":1}}));
+    let timeline = server.request(
+        5,
+        "tools/call",
+        json!({"name":"harness_session","arguments":{"action":"tasks","session":session,"limit":1}}),
+    );
     assert_eq!(
         timeline["result"]["structuredContent"]["data"]["events"][0]["type"],
         "plan_created"
@@ -1059,7 +1071,7 @@ fn workflow_roundtrip_and_task_timeline_work_without_node() {
     let restored = server.request(
         2,
         "tools/call",
-        json!({"name":"harness_checkpoint","arguments":{"session":session}}),
+        json!({"name":"harness_session","arguments":{"action":"status","session":session}}),
     );
     assert_eq!(restored["result"]["isError"], false, "{restored}");
     assert_eq!(
@@ -1117,7 +1129,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 30);
+    assert_eq!(names.len(), 25);
     let mut actual = names.clone();
     actual.sort();
     let mut expected = harness_domain::tool_contract::tool_names("rust");
@@ -1141,7 +1153,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
             );
         }
     }
-    assert!(names.contains(&"harness_handover"));
+    assert!(names.contains(&"harness_session"));
+    assert!(!names.contains(&"harness_handover"));
     assert!(names.contains(&"harness_process_status"));
     assert!(names.contains(&"harness_diagnostics"));
     assert!(names.contains(&"harness_data_query"));
@@ -1222,7 +1235,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     }
     assert!(names.contains(&"harness_git"));
     assert!(!names.contains(&"harness_git_status") && !names.contains(&"harness_git_diff"));
-    assert!(names.contains(&"harness_tasks") && names.contains(&"harness_checkpoint"));
+    assert!(names.contains(&"harness_session"));
+    assert!(!names.contains(&"harness_tasks") && !names.contains(&"harness_checkpoint"));
     assert!(names.contains(&"harness_symbols"));
     assert!(!names.contains(&"harness_outline") && !names.contains(&"harness_read_symbol"));
     assert!(names.contains(&"harness_replace"));

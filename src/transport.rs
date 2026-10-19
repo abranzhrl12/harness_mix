@@ -265,18 +265,6 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
-        description = "Preview a hash-checked replacement without publishing. Alias for harness_replace with preview: true. Returns unified diff, baseHash, candidateHash and syntax diagnostics; full patch in detail when truncated. Apply with harness_replace using baseHash. Syntax is not compilation."
-    )]
-    async fn harness_patch_preview(
-        &self,
-        Parameters(mut args): Parameters<harness_domain::contracts::ReplaceArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        args.preview = true;
-        self.call(Request::Replace(args), context).await
-    }
-
-    #[tool(
         description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims."
     )]
     async fn harness_impact(
@@ -285,28 +273,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Impact(args), context).await
-    }
-
-    #[tool(
-        description = "Tail retained output of a harness_jobs task. Alias for harness_jobs with action='observe'. taskId (job_id alias), bounded Rust regex filter, lines matching limit, before/after context, stream and incremental cursor. Preserves stack context and reconstructs split lines. Reports retention gaps and output limits. Does not start arbitrary servers or read arbitrary log paths."
-    )]
-    async fn harness_observe(
-        &self,
-        Parameters(args): Parameters<harness_domain::assistance::ObserveArgs>,
-    ) -> CallToolResult {
-        let arguments = serde_json::to_value(&args).expect("observe arguments");
-        let result = match &self.tasks {
-            Some(tasks) => tasks.observe(&args),
-            None => Err((
-                "TOOL_PROFILE",
-                "Job observation unavailable in this profile",
-            )),
-        };
-        response(harness_domain::results::Results::default().envelope(
-            "harness_observe",
-            &arguments,
-            result,
-        ))
     }
 
     #[tool(
@@ -434,27 +400,6 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Plan de sesión: status, update o timeline paginado. Fases declaradas por el agente; eventos observados separados. Persiste fases, no timeline. Una actualización iniciada espera su resultado de persistencia."
-    )]
-    async fn harness_tasks(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::TasksArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Tasks(args), context).await
-    }
-
-    #[tool(
-        description = "Resumen de sesión y actualización de objetivo/decisiones/pendientes. refreshFreshness=true compara checks de la sesión viva con una huella local acotada. No certifica entorno, dependencias externas ni vigencia total; histórico no se revalida."
-    )]
-    async fn harness_checkpoint(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::CheckpointArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Checkpoint(args), context).await
-    }
-    #[tool(
         description = "Símbolos locales Rust/JS/TS por AST y estructura Vue SFC. action=outline: path, query y maxChars opcionales; Vue muestra bloques script/setup, imports/macros, jerarquía template y selectores CSS/SCSS con asociaciones conservadoras. El detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId opcionales; view=signature o full con fuente exacta y hash. Estas dos acciones admiten externalScope y session. action=extract_preview para Vue: path, expectedHash SHA-256, symbolId de elemento template, targetPath inexistente y componentName PascalCase; devuelve diff conjunto padre/hijo, interfaz propuesta, reglas BEM exclusivas y dependencias sin resolver, sin escribir archivos. Contenido completo en detail; revisión manual obligatoria para dependencias inciertas. No hay aplicación multiarchivo automática. No sustituye al compilador Vue/Sass ni a comprobaciones de tipos. Para relaciones del grafo usar harness_explore."
     )]
     async fn harness_symbols(
@@ -580,17 +525,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Svg(args), context).await
-    }
-
-    #[tool(
-        description = "Genera un reporte Markdown de traspaso de sesión (summary, adr o pr_body). Si targetFile se especifica, publica atómicamente el archivo (.md); de lo contrario devuelve un preview acotado con el texto completo en detalle."
-    )]
-    async fn harness_handover(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::HandoverArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Handover(args), context).await
     }
 
     #[tool(

@@ -5,7 +5,6 @@
       "harness_bootstrap",
       "harness_explore",
       "harness_impact",
-      "harness_patch_preview",
       "harness_symbols",
       "harness_search",
       "harness_read",
@@ -14,7 +13,8 @@
       "harness_git",
       "harness_doctor",
       "harness_logs",
-      "harness_batch"
+      "harness_batch",
+      "harness_session"
     ],
     "edit": [
       "harness_replace",
@@ -413,13 +413,6 @@
       ]
     },
     {
-      "name": "harness_checkpoint",
-      "backends": [
-        "node",
-        "rust"
-      ]
-    },
-    {
       "name": "harness_config",
       "backends": [
         "node",
@@ -486,13 +479,6 @@
       ]
     },
     {
-      "name": "harness_handover",
-      "backends": [
-        "node",
-        "rust"
-      ]
-    },
-    {
       "name": "harness_impact",
       "backends": [
         "rust"
@@ -518,21 +504,9 @@
       ]
     },
     {
-      "name": "harness_observe",
-      "backends": [
-        "rust"
-      ]
-    },
-    {
       "name": "harness_outline",
       "backends": [
         "node"
-      ]
-    },
-    {
-      "name": "harness_patch_preview",
-      "backends": [
-        "rust"
       ]
     },
     {
@@ -621,13 +595,6 @@
     {
       "name": "harness_symbols",
       "backends": [
-        "rust"
-      ]
-    },
-    {
-      "name": "harness_tasks",
-      "backends": [
-        "node",
         "rust"
       ]
     },
