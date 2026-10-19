@@ -31,10 +31,12 @@ fn snapshot(
         "ts" | "mts" | "cts" | "tsx" => "typescript",
         "vue" => "vue",
         "astro" => "astro",
+        "cs" => "csharp",
+        "cshtml" => "razor",
         _ => {
             return Err((
                 "PARSER_UNAVAILABLE",
-                "Symbol navigation only supports Rust, JavaScript, TypeScript, Vue and Astro in this release",
+                "Symbol navigation only supports Rust, JavaScript, TypeScript, Vue, Astro and C# in this release",
             ));
         }
     };
@@ -46,6 +48,8 @@ fn snapshot(
     let mut structure = None;
     let symbols = match lang {
         "rust" => rust_symbols::collect(&text, &digest, context)?,
+        "csharp" => super::csharp_syntax::collect(&text, &digest, context)?,
+        "razor" => super::csharp_syntax::collect_cshtml(&text, &digest, context)?,
         "vue" => {
             let document = super::vue_structure::parse(&text, &digest, context)?;
             if include_structure {

@@ -2,6 +2,7 @@
 mod capabilities;
 mod config;
 mod create_file;
+mod csharp_syntax;
 mod disk_logs;
 pub(crate) mod doctor;
 mod edit;

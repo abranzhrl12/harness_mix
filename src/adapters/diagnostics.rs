@@ -129,6 +129,18 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
                 ),
             }
         }
+        "cs" | "cshtml" => match super::csharp_syntax::validate_syntax(path, source, context) {
+            Ok(result) => (result, 0),
+            Err((code, msg)) => (
+                json!({
+                    "status": "checked",
+                    "language": if path.ends_with(".cshtml") { "razor" } else { "csharp" },
+                    "errors": 1,
+                    "diagnostics": [{"code": code, "message": msg}]
+                }),
+                1,
+            ),
+        },
         "md" | "txt" | "toml" | "yaml" | "yml" => (
             json!({
                 "status": "skipped",
