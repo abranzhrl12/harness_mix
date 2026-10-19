@@ -95,6 +95,17 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
                 1,
             ),
         },
+        "astro" => match super::astro_syntax::validate(path, source, context) {
+            Ok(mut result) => {
+                result["errors"] = json!(0);
+                result["diagnostics"] = json!([{"code":"ASTRO_PARTIAL_VALIDATION","message":"Frontmatter TypeScript/JavaScript and inline scripts checked; template markup is not type-checked"}]);
+                (result, 0)
+            }
+            Err((code, msg)) => (
+                json!({"status":"checked","language":"astro","errors":1,"diagnostics":[{"code":code,"message":msg}]}),
+                1,
+            ),
+        },
         "json" => {
             let clean = source.strip_prefix('\u{feff}').unwrap_or(source);
             match serde_json::from_str::<Value>(clean) {

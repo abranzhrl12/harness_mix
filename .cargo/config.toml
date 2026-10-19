@@ -1,0 +1,12 @@
+[alias]
+# Run all tests fully parallelized across all CPU cores with nextest
+fast-test = ["nextest", "run"]
+
+# Run only Vue-related tests in parallel (instant feedback)
+test-vue = ["nextest", "run", "-E", "test(vue)"]
+
+# Run only Astro-related tests in parallel (instant feedback)
+test-astro = ["nextest", "run", "-E", "test(astro)"]
+
+# Ultra-fast compilation and type-check without linking integration test binaries
+quick = ["check", "--tests"]

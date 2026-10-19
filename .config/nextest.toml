@@ -1,0 +1,18 @@
+# Cargo Nextest configuration for maximal CPU utilization and speed
+
+[profile.default]
+# Use all logical CPU cores available
+test-threads = "num-cpus"
+# Fail fast option (can be overridden with --no-fail-fast)
+fail-fast = false
+# Print passed test summaries concisely
+status-level = "pass"
+final-status-level = "flaky"
+
+# Heavy verification tests that spawn cargo child processes can be isolated or prioritized
+[[profile.default.overrides]]
+filter = 'test(real_cargo_build) | test(background_job)'
+threads-required = 2
+
+[profile.ci]
+fail-fast = false

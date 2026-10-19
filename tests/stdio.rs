@@ -185,7 +185,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 13), ("edit", 17)] {
+    for (profile, count) in [("investigate", 13), ("edit", 18)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -287,7 +287,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 28);
+    assert_eq!(tools.len(), 29);
     assert!(
         tools
             .iter()
@@ -1117,10 +1117,11 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 28);
+    assert_eq!(names.len(), 29);
     let mut actual = names.clone();
     actual.sort();
-    let expected = harness_domain::tool_contract::tool_names("rust");
+    let mut expected = harness_domain::tool_contract::tool_names("rust");
+    expected.sort();
     assert_eq!(
         actual,
         expected.iter().map(String::as_str).collect::<Vec<_>>()

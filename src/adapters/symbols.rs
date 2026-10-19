@@ -30,10 +30,11 @@ fn snapshot(
         "js" | "mjs" | "cjs" | "jsx" => "javascript",
         "ts" | "mts" | "cts" | "tsx" => "typescript",
         "vue" => "vue",
+        "astro" => "astro",
         _ => {
             return Err((
                 "PARSER_UNAVAILABLE",
-                "Symbol navigation only supports Rust, JavaScript and TypeScript in this release",
+                "Symbol navigation only supports Rust, JavaScript, TypeScript, Vue and Astro in this release",
             ));
         }
     };
@@ -52,6 +53,7 @@ fn snapshot(
             }
             document.symbols
         }
+        "astro" => super::astro_syntax::collect_symbols(path, &text, &digest, context)?,
         _ => super::ts_symbols::collect(path, &text, &digest, context)?,
     };
     Ok((text, digest, symbols, lang, structure))
@@ -116,6 +118,9 @@ pub(super) fn outline(
         }
         "vue" => {
             "native SFC/template structural parser, JS/TS AST declarations and conservative CSS/SCSS selector associations; not Vue compiler/type checking"
+        }
+        "astro" => {
+            "frontmatter TypeScript/JavaScript declarations, Props types and imports; template markup not type-checked"
         }
         _ => "declarations, classes, interfaces, types, enums and members; no local block items",
     };

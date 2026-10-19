@@ -189,7 +189,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     self.lease(Some(&args.session), &mut lease)
                         .and_then(|()| self.workspace.external_scope(&args, context))
                 } else {
-                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                    self.with_session_write(Some(&args.session), &mut lease, context, |_| {
                         self.workspace.external_scope(&args, context)
                     })
                 }
@@ -234,22 +234,25 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.svg(&args, context)),
             Request::Handover(args) => {
+                let session = args.session.clone();
                 if args.target_file.is_some() {
-                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                    self.with_session_write(Some(&session), &mut lease, context, |session_id| {
+                        let real_id = session_id.unwrap_or(&session);
                         let snapshot = self
                             .sessions
                             .lock()
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
-                            .snapshot(&args.session)?;
+                            .snapshot(real_id)?;
                         self.workspace.handover(&args, &snapshot, context)
                     })
                 } else {
-                    self.lease(Some(&args.session), &mut lease).and_then(|()| {
+                    self.lease(Some(&session), &mut lease).and_then(|()| {
+                        let real_id = lease.as_ref().map(|l| l.id.as_str()).unwrap_or(&session);
                         let snapshot = self
                             .sessions
                             .lock()
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
-                            .snapshot(&args.session)?;
+                            .snapshot(real_id)?;
                         self.workspace.handover(&args, &snapshot, context)
                     })
                 }
@@ -298,10 +301,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.vue_extract_preview(&args, context)),
             Request::Replace(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
                     let mut result = self.workspace.replace(&args, context)?;
                     self.record_result(
-                        args.session.as_deref(),
+                        session_id,
                         name,
                         &serde_json::to_value(&args).unwrap(),
                         &mut result,
@@ -310,10 +313,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 })
             }
             Request::Write(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
                     let mut result = self.workspace.write(&args, context)?;
                     self.record_result(
-                        args.session.as_deref(),
+                        session_id,
                         name,
                         &serde_json::to_value(&args).unwrap(),
                         &mut result,
@@ -322,10 +325,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 })
             }
             Request::Move(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
                     let mut result = self.workspace.move_file(&args, context)?;
                     self.record_result(
-                        args.session.as_deref(),
+                        session_id,
                         name,
                         &serde_json::to_value(&args).unwrap(),
                         &mut result,
@@ -340,10 +343,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.search(&args, context)),
             Request::Verify(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, || {
+                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
                     let mut result = self.workspace.verify(&args, context)?;
                     self.record_result(
-                        args.session.as_deref(),
+                        session_id,
                         name,
                         &serde_json::to_value(&args).unwrap(),
                         &mut result,
@@ -352,20 +355,22 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 })
             }
             Request::Tasks(args) => {
+                let session = args.session.clone();
                 if matches!(
                     args.action,
                     Some(harness_domain::contracts::TasksAction::Update)
                 ) {
-                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                    self.with_session_write(Some(&session), &mut lease, context, |session_id| {
+                        let real_id = session_id.unwrap_or(&session);
                         let update = self
                             .sessions
                             .lock()
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
                             .tasks(&args)?;
-                        Ok(self.persist_update(&args.session, update))
+                        Ok(self.persist_update(real_id, update))
                     })
                 } else {
-                    self.lease(Some(&args.session), &mut lease).and_then(|()| {
+                    self.lease(Some(&session), &mut lease).and_then(|()| {
                         self.sessions
                             .lock()
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
@@ -375,8 +380,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 }
             }
             Request::Checkpoint(args) => {
+                let session = args.session.clone();
                 if args.has_updates() || args.refresh_freshness == Some(true) {
-                    self.with_session_write(Some(&args.session), &mut lease, context, || {
+                    self.with_session_write(Some(&session), &mut lease, context, |session_id| {
+                        let real_id = session_id.unwrap_or(&session);
                         // Observe before declaring changes, without the global session lock.
                         // The per-session gate prevents checks being appended during the scan.
                         let observation = if args.refresh_freshness == Some(true) {
@@ -391,7 +398,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                             .map_err(|_| ("INTERNAL", "Sessions unavailable"))?;
                         let mut update = sessions.checkpoint(&args)?;
                         if let Some(observation) = &observation {
-                            sessions.invalidate_checks(&args.session, observation)?;
+                            sessions.invalidate_checks(real_id, observation)?;
                         }
                         drop(sessions);
                         if let Some(observation) = observation {
@@ -400,15 +407,17 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                                 &observation,
                             );
                         }
-                        Ok(self.persist_update(&args.session, update))
+                        Ok(self.persist_update(real_id, update))
                     })
                 } else {
-                    self.lease(Some(&args.session), &mut lease).and_then(|()| {
-                        self.sessions
+                    self.lease(Some(&session), &mut lease).and_then(|()| {
+                        let mut sessions = self
+                            .sessions
                             .lock()
-                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
-                            .checkpoint(&args)
-                            .map(|update| update.data)
+                            .map_err(|_| ("INTERNAL", "Sessions unavailable"))?;
+                        let update = sessions.checkpoint(&args)?;
+                        drop(sessions);
+                        Ok(update.data)
                     })
                 }
             }
@@ -464,10 +473,11 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         id: Option<&str>,
         lease: &mut Option<SessionLease<S>>,
         context: &OperationContext,
-        run: impl FnOnce() -> Result<T, Failure>,
+        run: impl FnOnce(Option<&str>) -> Result<T, Failure>,
     ) -> Result<T, Failure> {
         self.lease(id, lease)?;
-        let gate = id
+        let real_id = lease.as_ref().map(|l| l.id.as_str());
+        let gate = real_id
             .map(|id| {
                 self.sessions
                     .lock()
@@ -487,7 +497,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             })
             .transpose()?;
         context.check()?;
-        run()
+        run(real_id)
     }
 
     fn persist_update(&self, id: &str, mut update: ports::SessionMutation) -> Value {
@@ -511,15 +521,20 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let Some(id) = id else {
             return;
         };
-        let snapshot = self
-            .sessions
-            .lock()
-            .map_err(|_| ("INTERNAL", "Sessions unavailable"))
-            .and_then(|mut sessions| sessions.record(id, tool, args, result));
+        let mut sessions = match self.sessions.lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let real_id = match sessions.resolve_id(id) {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+        let snapshot = sessions.record(&real_id, tool, args, result);
+        drop(sessions);
         let warning = match snapshot {
             Ok(Some(snapshot)) => self
                 .workspace
-                .persist_session(id, &snapshot, &OperationContext::default())
+                .persist_session(&real_id, &snapshot, &OperationContext::default())
                 .err(),
             Ok(None) => None,
             Err(failure) => Some(failure),
@@ -543,13 +558,15 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
 
     fn lease(&self, id: Option<&str>, lease: &mut Option<SessionLease<S>>) -> Result<(), Failure> {
         if let Some(id) = id {
-            self.sessions
+            let mut sessions = self
+                .sessions
                 .lock()
-                .map_err(|_| ("INTERNAL", "sesiones no disponibles"))?
-                .acquire(id)?;
+                .map_err(|_| ("INTERNAL", "sesiones no disponibles"))?;
+            let real_id = sessions.resolve_id(id)?;
+            sessions.acquire(&real_id)?;
             *lease = Some(SessionLease {
                 sessions: self.sessions.clone(),
-                id: id.into(),
+                id: real_id,
             });
         }
         Ok(())

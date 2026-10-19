@@ -263,6 +263,9 @@ pub trait SessionRepository: Send {
     ) -> Result<Option<Value>, Failure> {
         Ok(None)
     }
+    fn resolve_id(&mut self, id: &str) -> Result<String, Failure> {
+        Ok(id.to_string())
+    }
     fn acquire(&mut self, id: &str) -> Result<(), Failure>;
     fn release(&mut self, id: &str);
     fn open(&mut self, id: Option<&str>) -> Result<SessionContext, Failure>;

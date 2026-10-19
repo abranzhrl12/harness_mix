@@ -70,6 +70,7 @@ mod tasks_store;
 mod ts_symbols;
 mod ts_syntax;
 mod verify;
+mod astro_syntax;
 mod vue_structure;
 mod vue_syntax;
 pub mod xlsx;
@@ -626,6 +627,9 @@ impl SessionRepository for sessions::Sessions {
     ) -> Result<Option<Value>, Failure> {
         self.record_observed(id, tool, args, result)
     }
+    fn resolve_id(&mut self, id: &str) -> Result<String, Failure> {
+        self.resolve_id(id)
+    }
     fn acquire(&mut self, id: &str) -> Result<(), Failure> {
         self.acquire(id)
     }
@@ -634,8 +638,11 @@ impl SessionRepository for sessions::Sessions {
     }
     fn open(&mut self, id: Option<&str>) -> Result<SessionContext, Failure> {
         let (id, warning) = match id {
-            Some(id) => (id.to_owned(), None),
-            None => self.create()?,
+            Some("new") | None => self.create()?,
+            Some(spec) => {
+                let resolved = self.resolve_id(spec)?;
+                (resolved, None)
+            }
         };
         let session = self.get(&id)?;
         Ok(SessionContext {

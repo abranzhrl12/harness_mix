@@ -36,6 +36,7 @@ pub(super) fn syntax(
             Ok(json!({"status":"valid","language":"typescript","validation":"syntax_only"}))
         }
         "vue" => super::vue_syntax::validate(path, source, context),
+        "astro" => super::astro_syntax::validate(path, source, context),
         "json" => {
             serde_json::from_str::<Value>(source.strip_prefix('\u{feff}').unwrap_or(source))
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;

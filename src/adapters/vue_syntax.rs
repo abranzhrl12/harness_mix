@@ -267,7 +267,7 @@ pub(super) fn skip_interpolation(source: &str, mut cursor: usize) -> Option<usiz
     None
 }
 
-fn has_attribute(attrs: &str, wanted: &str) -> bool {
+pub(super) fn has_attribute(attrs: &str, wanted: &str) -> bool {
     attribute(attrs, wanted).is_some()
 }
 
