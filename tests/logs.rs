@@ -33,7 +33,7 @@ fn logs_filter_worker_failures_without_paths_arguments_or_contents() {
     assert!(!errors["data"].to_string().contains("secret-request-path"));
     let cursor = errors["data"]["nextAfter"].as_u64().unwrap();
     let after = logs(&app, None, Some(cursor));
-    assert_eq!(after["data"]["events"][0]["tool"], "harness_logs");
+    assert_eq!(after["data"]["events"][0]["tool"], "harness_doctor");
     assert_eq!(after["data"]["events"][0]["state"], "ok");
     let restarted = adapters::application(root.path()).unwrap();
     assert!(

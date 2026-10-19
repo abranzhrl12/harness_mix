@@ -318,16 +318,6 @@ impl McpHarness {
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "Bounded native logs with in-memory context: relative path, verification command and failed/timeout stdout/stderr tails, search folder timings. Sensitive lines are heuristically redacted, not universally detected. Context is not persisted. Filters: limit 1..50, level, tool, slowOnly, requestId, after and session. Opt-in disk history stores metadata only."
-    )]
-    async fn harness_logs(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::LogsArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Logs(args), context).await
-    }
-    #[tool(
         description = "1–4 lecturas independientes: SQL PostgreSQL/SQL Server mediante tool=harness_sql, archivos, símbolos, Git, XLSX y SVG. Para describir varias tablas usa jobs con action=describe, engine y name exactos; hasta 2 hijos concurrentes, plazo/admisión compartidos. No mutaciones, verify ni batches anidados. Valida tipos antes de ejecutar; resultados por índice, no snapshot transaccional compartido."
     )]
     async fn harness_batch(
@@ -338,36 +328,39 @@ impl McpHarness {
         self.call(Request::Batch(args), context).await
     }
     #[tool(
-        description = "Diagnóstico de solo lectura del entorno, registro MCP real por perfil e historial de trabajos si existe. versions=true prueba versiones; connection=true consulta índice nativo y hace ping SQL si están disponibles. No crea almacenes, ejecuta builds ni certifica todas las funciones. Devuelve cobertura y límites explícitos."
+        description = "Diagnóstico integral y observabilidad del entorno y del código. action=env: comprueba el entorno (versions, connection) y registro MCP. action=syntax: diagnóstico rápido de sintaxis en archivos (files, maxFiles, buildScope). action=logs: inspección de logs y eventos recientes (limit, level, tool, requestId)."
     )]
     async fn harness_doctor(
         &self,
-        Parameters(args): Parameters<harness_domain::contracts::DoctorArgs>,
+        Parameters(args): Parameters<harness_domain::contracts::DoctorToolArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
-        let mut result = self.call(Request::Doctor(args), context).await;
-        if let Some(mut envelope) = result.structured_content.take() {
-            if envelope["state"] == "ok" {
-                let mut actual: Vec<String> = self
-                    .profile_router()
-                    .map
-                    .keys()
-                    .map(|name| name.to_string())
-                    .collect();
-                let mut expected = self.application.tool_profile().tools();
-                actual.sort();
-                expected.sort();
-                let matches = actual == expected;
-                envelope["data"]["mcpRegistry"] = serde_json::json!({"status":if matches {"verified"} else {"error"},"profile":self.application.tool_profile().name(),"expected":expected,"advertised":actual});
-                adapters::doctor::append_check(
-                    &mut envelope["data"],
-                    serde_json::json!({"id":"mcp-registry","status":if matches {"ok"} else {"error"},"message":"Actual advertised MCP route names compared with the profile contract; function behavior is not certified"}),
-                );
+        let is_env = matches!(&args, harness_domain::contracts::DoctorToolArgs::Env(_));
+        let request = args.into_request();
+        let mut result = self.call(request, context).await;
+        if is_env {
+            if let Some(mut envelope) = result.structured_content.take() {
+                if envelope["state"] == "ok" {
+                    let mut actual: Vec<String> = self
+                        .profile_router()
+                        .map
+                        .keys()
+                        .map(|name| name.to_string())
+                        .collect();
+                    let mut expected = self.application.tool_profile().tools();
+                    actual.sort();
+                    expected.sort();
+                    let matches = actual == expected;
+                    envelope["data"]["mcpRegistry"] = serde_json::json!({"status":if matches {"verified"} else {"error"},"profile":self.application.tool_profile().name(),"expected":expected,"advertised":actual});
+                    adapters::doctor::append_check(
+                        &mut envelope["data"],
+                        serde_json::json!({"id":"mcp-registry","status":if matches {"ok"} else {"error"},"message":"Actual advertised MCP route names compared with the profile contract; function behavior is not certified"}),
+                    );
+                }
+                return response(envelope);
             }
-            response(envelope)
-        } else {
-            result
         }
+        result
     }
     #[tool(
         description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit; devuelve rama y cambios paginados. action=diff: path relativo obligatorio, staged (false=index:worktree, true=HEAD:index), maxLines, maxChars; devuelve hunks y patch, también para eliminados. No incluye contenido untracked. Raíz Git o worktree vinculado registrado; sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
@@ -536,17 +529,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::ProcessStatus(args), context).await
-    }
-
-    #[tool(
-        description = "Diagnóstico rápido de sintaxis en lote de archivos explícitos o cambios Git tracked. Valida Rust, JS/TS, scripts inline de Vue (template/style quedan incompletos) y JSON sin devolver código. maxFiles 1–50 (defecto 20)."
-    )]
-    async fn harness_diagnostics(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::DiagnosticsArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Diagnostics(args), context).await
     }
 
     #[tool(

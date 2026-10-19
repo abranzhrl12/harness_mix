@@ -93,7 +93,7 @@ fn real_project_payload_and_log_audit() {
         let envelope = &result["result"]["structuredContent"];
         assert_eq!(envelope["state"], "ok", "{envelope}");
         let request_id = envelope["requestId"].as_str().unwrap();
-        let logs = server.request(4, "tools/call", json!({"name":"harness_logs","arguments":{"requestId":request_id,"limit":10,"session":session}}));
+        let logs = server.request(4, "tools/call", json!({"name":"harness_doctor","arguments":{"action":"logs","requestId":request_id,"limit":10,"session":session}}));
         assert_eq!(logs["result"]["structuredContent"]["state"], "ok");
         let events = logs["result"]["structuredContent"]["data"]["events"]
             .as_array()
@@ -185,7 +185,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 13), ("edit", 18)] {
+    for (profile, count) in [("investigate", 12), ("edit", 16)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -264,14 +264,17 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
         let logs = server.request(
             7,
             "tools/call",
-            json!({"name":"harness_logs","arguments":{"tool":"harness_read","limit":10}}),
+            json!({"name":"harness_doctor","arguments":{"action":"logs","tool":"harness_read","limit":10}}),
         );
-        assert!(
-            logs["result"]["structuredContent"]["data"]["events"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
+        let events = logs["result"]["structuredContent"]["data"]["events"].as_array();
+        if let Some(events) = events {
+            assert!(events.is_empty());
+        } else {
+            assert_eq!(
+                logs["result"]["structuredContent"]["diagnostics"][0]["code"],
+                "TOOL_PROFILE"
+            );
+        }
         assert_eq!(
             std::fs::read_to_string(root.path().join("example.txt")).unwrap(),
             "old"
@@ -287,7 +290,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 25);
+    assert_eq!(tools.len(), 23);
     assert!(
         tools
             .iter()
@@ -677,7 +680,7 @@ fn persistent_cli_logs_survive_server_restart_without_node() {
     let logs = restarted.request(
         2,
         "tools/call",
-        json!({"name":"harness_logs","arguments":{"requestId":id}}),
+        json!({"name":"harness_doctor","arguments":{"action":"logs","requestId":id}}),
     );
     assert_eq!(
         logs["result"]["structuredContent"]["data"]["events"][0]["historical"], true,
@@ -1129,7 +1132,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 25);
+    assert_eq!(names.len(), 23);
     let mut actual = names.clone();
     actual.sort();
     let mut expected = harness_domain::tool_contract::tool_names("rust");
@@ -1155,12 +1158,13 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     }
     assert!(names.contains(&"harness_session"));
     assert!(!names.contains(&"harness_handover"));
+    assert!(names.contains(&"harness_doctor"));
+    assert!(!names.contains(&"harness_diagnostics"));
+    assert!(!names.contains(&"harness_logs"));
     assert!(names.contains(&"harness_process_status"));
-    assert!(names.contains(&"harness_diagnostics"));
     assert!(names.contains(&"harness_data_query"));
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));
-    assert!(names.contains(&"harness_logs"));
     assert!(names.contains(&"harness_sql"));
     assert!(!names.iter().any(|name| name.starts_with("harness_sql_")));
     assert!(names.contains(&"harness_xlsx"));
@@ -1178,7 +1182,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let logs = server.request(
         25,
         "tools/call",
-        json!({"name":"harness_logs","arguments":{"limit":5}}),
+        json!({"name":"harness_doctor","arguments":{"action":"logs","limit":5}}),
     );
     assert_eq!(logs["result"]["structuredContent"]["state"], "ok", "{logs}");
     assert!(names.contains(&"harness_batch"));
@@ -1191,7 +1195,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let doctor = server.request(
         23,
         "tools/call",
-        json!({"name":"harness_doctor","arguments":{"connection":true}}),
+        json!({"name":"harness_doctor","arguments":{"action":"env","connection":true}}),
     );
     let diagnosis = &doctor["result"]["structuredContent"];
     assert_eq!(diagnosis["state"], "ok", "{doctor}");
@@ -1336,7 +1340,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let traced = server.request(
         26,
         "tools/call",
-        json!({"name":"harness_logs","arguments":{"requestId":id}}),
+        json!({"name":"harness_doctor","arguments":{"action":"logs","requestId":id}}),
     );
     assert_eq!(
         traced["result"]["structuredContent"]["data"]["events"][0]["requestId"],

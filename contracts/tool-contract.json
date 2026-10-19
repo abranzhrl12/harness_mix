@@ -12,7 +12,6 @@
       "harness_data_query",
       "harness_git",
       "harness_doctor",
-      "harness_logs",
       "harness_batch",
       "harness_session"
     ],
@@ -20,8 +19,7 @@
       "harness_replace",
       "harness_write",
       "harness_move",
-      "harness_verify",
-      "harness_diagnostics"
+      "harness_verify"
     ]
   },
   "alwaysLoadTools": [
@@ -64,20 +62,24 @@
       },
       {
         "need": "Preview a replacement and syntax diagnostics without publishing",
-        "tool": "harness_patch_preview",
+        "tool": "harness_replace",
         "backends": [
+          "node",
           "rust"
         ],
-        "defaults": {},
+        "defaults": {
+          "preview": true
+        },
         "then": "Same arguments as harness_replace. Apply the reviewed replacement using baseHash; stale sources are rejected."
       },
       {
         "need": "Inspect recent errors and stack context from a background verification job",
-        "tool": "harness_observe",
+        "tool": "harness_jobs",
         "backends": [
           "rust"
         ],
         "defaults": {
+          "action": "observe",
           "lines": 20,
           "before": 2,
           "after": 2
@@ -225,12 +227,12 @@
       },
       {
         "need": "Recent error or slow request",
-        "tool": "harness_logs",
+        "tool": "harness_doctor",
         "backends": [
-          "node",
           "rust"
         ],
         "defaults": {
+          "action": "logs",
           "limit": 5
         },
         "then": "Doctor for diagnosis; sql_status also for SQL failures; no uncertain mutation retries."
@@ -433,13 +435,6 @@
       ]
     },
     {
-      "name": "harness_diagnostics",
-      "backends": [
-        "node",
-        "rust"
-      ]
-    },
-    {
       "name": "harness_doctor",
       "backends": [
         "node",
@@ -487,13 +482,6 @@
     {
       "name": "harness_jobs",
       "backends": [
-        "rust"
-      ]
-    },
-    {
-      "name": "harness_logs",
-      "backends": [
-        "node",
         "rust"
       ]
     },

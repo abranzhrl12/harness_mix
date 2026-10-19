@@ -11,6 +11,7 @@ pub struct TaskArgs {
     /// Required by start. Uses the same bounded verification commands as harness_verify.
     pub verify: Option<VerifyArgs>,
     /// Required by status, cancel and observe; optional filter for events.
+    #[serde(alias = "job_id", alias = "jobId")]
     pub task_id: Option<String>,
     /// Return events after this sequence number (or context lines after match for observe).
     pub after: Option<u64>,

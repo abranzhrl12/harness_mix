@@ -153,20 +153,20 @@ fn observe_filters_failed_job_output_and_advances_cursor_over_mcp() {
     let accepted = server.jobs(2, json!({"action":"start","verify":{"language":"rust","action":"build"}}));
     let task_id = accepted["taskId"].as_str().unwrap();
     server.task_event(task_id, &["failed"]);
-    let response = server.request(3, "tools/call", json!({"name":"harness_observe","arguments":{
-        "job_id":task_id,"filter":"(?i)error","lines":2,"before":1,"after":2,"stream":"stderr"
+    let response = server.request(3, "tools/call", json!({"name":"harness_jobs","arguments":{
+        "action":"observe","job_id":task_id,"filter":"(?i)error","lines":2,"before":1,"after":2,"stream":"stderr"
     }}));
     let envelope = &response["result"]["structuredContent"];
     assert_eq!(envelope["state"], "ok", "{response}");
     let data = &envelope["data"];
     assert!(data["matchedLines"].as_u64().unwrap() > 0, "{data}");
     assert!(data["lines"].as_array().unwrap().iter().all(|line| line["stream"] == "stderr"));
-    let next = server.request(4, "tools/call", json!({"name":"harness_observe","arguments":{
-        "taskId":task_id,"cursor":data["cursor"]
+    let next = server.request(4, "tools/call", json!({"name":"harness_jobs","arguments":{
+        "action":"observe","taskId":task_id,"cursor":data["cursor"]
     }}));
     assert_eq!(next["result"]["structuredContent"]["data"]["lines"], json!([]));
-    let invalid = server.request(5, "tools/call", json!({"name":"harness_observe","arguments":{
-        "taskId":task_id,"filter":"["
+    let invalid = server.request(5, "tools/call", json!({"name":"harness_jobs","arguments":{
+        "action":"observe","taskId":task_id,"filter":"["
     }}));
     assert_eq!(invalid["result"]["structuredContent"]["diagnostics"][0]["code"], "ARGUMENT");
 

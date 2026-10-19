@@ -827,7 +827,7 @@ impl Request {
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
             Self::Config(_) => "harness_config",
-            Self::Logs(_) => "harness_logs",
+            Self::Logs(_) => "harness_doctor",
             Self::Batch(_) => "harness_batch",
             Self::Doctor(_) => "harness_doctor",
             Self::Bootstrap(_) => "harness_bootstrap",
@@ -851,7 +851,7 @@ impl Request {
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) => "harness_process_status",
-            Self::Diagnostics(_) => "harness_diagnostics",
+            Self::Diagnostics(_) => "harness_doctor",
             Self::DataQuery(_) => "harness_data_query",
         }
     }
@@ -911,14 +911,64 @@ impl Request {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-pub struct DoctorArgs {
+pub struct DoctorEnvArgs {
     /// Defaults to false: locating tools never starts a subprocess.
     pub versions: Option<bool>,
     pub connection: Option<bool>,
     pub session: Option<String>,
+}
+
+pub type DoctorArgs = DoctorEnvArgs;
+
+/// Unified system diagnostics, file syntax checks, and log inspection.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum DoctorToolArgs {
+    Env(DoctorEnvArgs),
+    Syntax(DiagnosticsArgs),
+    Logs(LogsArgs),
+}
+
+impl<'de> serde::Deserialize<'de> for DoctorToolArgs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let action = value
+            .as_object_mut()
+            .and_then(|obj| obj.remove("action"))
+            .and_then(|v| v.as_str().map(String::from));
+        match action.as_deref() {
+            Some("syntax") => serde_json::from_value(value)
+                .map(Self::Syntax)
+                .map_err(serde::de::Error::custom),
+            Some("logs") => serde_json::from_value(value)
+                .map(Self::Logs)
+                .map_err(serde::de::Error::custom),
+            Some("env") | None => serde_json::from_value(value)
+                .map(Self::Env)
+                .map_err(serde::de::Error::custom),
+            Some(unknown) => Err(serde::de::Error::custom(format!(
+                "unknown action: {unknown}"
+            ))),
+        }
+    }
+}
+
+impl DoctorToolArgs {
+    pub fn into_request(self) -> Request {
+        match self {
+            Self::Env(args) => Request::Doctor(args),
+            Self::Syntax(args) => Request::Diagnostics(args),
+            Self::Logs(args) => Request::Logs(args),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1124,4 +1174,57 @@ mod session_contract_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod doctor_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn doctor_tool_args_deserializes_and_dispatches_all_actions() {
+        // env
+        let env: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "env",
+            "versions": true,
+            "connection": true,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = env.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // syntax
+        let syntax: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "syntax",
+            "files": ["src/lib.rs"],
+            "maxFiles": 5,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = syntax.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // logs
+        let logs: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "logs",
+            "limit": 10,
+            "level": "error",
+            "tool": "harness_read",
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = logs.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+    }
+
+    #[test]
+    fn doctor_tool_args_rejects_unknown_action() {
+        assert!(serde_json::from_value::<DoctorToolArgs>(json!({"action": "repair"})).is_err());
+        assert!(serde_json::from_value::<DoctorToolArgs>(json!({})).is_ok());
+    }
+}
+
 
