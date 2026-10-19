@@ -12,6 +12,7 @@ fn test_process_status_requires_at_least_one_mode() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -37,6 +38,7 @@ fn test_process_status_current_pid() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -64,6 +66,7 @@ fn test_process_status_dead_pid() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -92,6 +95,7 @@ fn test_process_status_tcp_port_probe() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -134,6 +138,7 @@ fn test_process_status_http_health_url() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -161,6 +166,7 @@ fn test_process_status_rejects_non_loopback() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

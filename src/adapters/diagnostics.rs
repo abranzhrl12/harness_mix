@@ -84,6 +84,17 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
                 ),
             }
         }
+        "vue" => match super::vue_syntax::validate(path, source, context) {
+            Ok(mut result) => {
+                result["errors"] = json!(0);
+                result["diagnostics"] = json!([{"code":"VUE_PARTIAL_VALIDATION","message":"Inline JS/TS scripts checked; template and style blocks are not checked"}]);
+                (result, 0)
+            }
+            Err((code, msg)) => (
+                json!({"status":"checked","language":"vue","errors":1,"diagnostics":[{"code":code,"message":msg}]}),
+                1,
+            ),
+        },
         "json" => {
             let clean = source.strip_prefix('\u{feff}').unwrap_or(source);
             match serde_json::from_str::<Value>(clean) {

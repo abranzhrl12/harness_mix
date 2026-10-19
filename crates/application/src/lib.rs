@@ -652,7 +652,19 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     .expect("bootstrap object")
                     .remove(key);
             }
-            result["_detail"] = json!({"catalog":catalog});
+            result["_detail"]["catalog"] = catalog;
+        }
+        if args.compact && !compact_reuse {
+            let mut catalog = json!({});
+            for key in ["supportedTools", "toolContract", "routing", "workflow", "available", "exampleCall"] {
+                if let Some(value) = result.as_object_mut().expect("bootstrap object").remove(key) {
+                    catalog[key] = value;
+                }
+            }
+            result["toolContract"] = json!({"backend":"rust","contractVersion":catalog["toolContract"]["contractVersion"],
+                "contractHash":catalog["toolContract"]["contractHash"],"unchanged":same_capabilities});
+            result["catalogCompact"] = json!(true);
+            result["_detail"]["catalog"] = catalog;
         }
         Ok(result)
     }

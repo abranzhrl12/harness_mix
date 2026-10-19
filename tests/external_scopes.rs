@@ -7,6 +7,7 @@ use harness_domain::contracts::{
 use serde_json::{Value, json};
 fn session(app: &NativeApplication) -> String {
     app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }))["data"]["sessionId"]

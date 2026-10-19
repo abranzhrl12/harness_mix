@@ -16,11 +16,11 @@ pub(super) fn target(project: &Project, relative: &str) -> Result<PathBuf, Failu
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase();
+    let knowledge_document = is_agent_knowledge_document(&normalized);
     if normalized
         .split('/')
         .any(|part| [".git", ".hg", ".svn"].contains(&part))
-        || normalized == ".agents"
-        || normalized.starts_with(".agents/")
+        || (normalized == ".agents" || normalized.starts_with(".agents/")) && !knowledge_document
         || normalized == "agents.md"
     {
         return Err((
@@ -33,6 +33,25 @@ pub(super) fn target(project: &Project, relative: &str) -> Result<PathBuf, Failu
         return Err(("PATH", "Not a writable regular file"));
     }
     Ok(target)
+}
+
+/// Only existing Markdown knowledge documents are editable under `.agents`.
+/// Agent instructions, runtime state, credentials, and other metadata stay protected.
+pub(super) fn is_agent_knowledge_document(relative: &str) -> bool {
+    let normalized = relative.replace('\\', "/").to_ascii_lowercase();
+    let parts: Vec<_> = normalized.split('/').collect();
+    parts.len() >= 3
+        && parts[0] == ".agents"
+        && parts[1] == "knowledge"
+        && parts[2..]
+            .iter()
+            .all(|part| !part.is_empty() && *part != "." && *part != "..")
+        && !parts[2..]
+            .iter()
+            .any(|part| [".git", ".hg", ".svn", ".agents"].contains(part))
+        && parts
+            .last()
+            .is_some_and(|name| *name != "agents.md" && name.ends_with(".md"))
 }
 
 #[cfg(windows)]
@@ -57,27 +76,35 @@ pub(super) fn pin_parents(project: &Project, target: &Path) -> Result<Vec<File>,
 
 #[cfg(windows)]
 pub(super) fn pin_directory(project: &Project, parent: &Path) -> Result<Vec<File>, Failure> {
-    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     parent
         .strip_prefix(&project.root)
         .map_err(|_| ("PATH", "Outside workspace"))?;
-    let mut pins = Vec::new();
-    for current in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
-        let file = File::options()
-            .read(true)
-            .custom_flags(0x0200_0000 | 0x0020_0000)
-            .share_mode(3)
-            .open(current)
-            .map_err(|_| ("EDIT_BUSY", "Cannot pin ancestor against rename"))?;
-        let meta = file
-            .metadata()
-            .map_err(|_| ("IO", "Directory metadata unavailable"))?;
-        if !meta.is_dir() || meta.file_attributes() & 0x400 != 0 {
-            return Err(("PATH", "Reparse or non-directory ancestor"));
-        }
-        pins.push(file);
+    parent
+        .ancestors()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(pin_one_directory)
+        .collect()
+}
+
+/// Hold a directory against rename/deletion, without following reparse points.
+#[cfg(windows)]
+pub(super) fn pin_one_directory(path: &Path) -> Result<File, Failure> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    let file = File::options()
+        .read(true)
+        .custom_flags(0x0200_0000 | 0x0020_0000)
+        .share_mode(3)
+        .open(path)
+        .map_err(|_| ("EDIT_BUSY", "Cannot pin ancestor against rename"))?;
+    let meta = file
+        .metadata()
+        .map_err(|_| ("IO", "Directory metadata unavailable"))?;
+    if !meta.is_dir() || meta.file_attributes() & 0x400 != 0 {
+        return Err(("PATH", "Reparse or non-directory ancestor"));
     }
-    Ok(pins)
+    Ok(file)
 }
 
 #[cfg(not(windows))]

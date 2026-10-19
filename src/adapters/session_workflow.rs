@@ -180,6 +180,11 @@ impl Sessions {
                 &time,
                 json!({"path":path,"source":"harness-observed"}),
             );
+        } else if tool == "harness_write" && result["filesystemChanged"] == true {
+            for check in &mut session.observed_checks {
+                harness_domain::freshness::invalidate(check, "harness_directories_created", &time);
+            }
+            session.tasks.event("directories_created", &time, json!({"source":"harness-observed","filePublished":false}));
         } else if tool == "harness_move" && result["changed"] == true {
             let from = bounded(&result["from"])?;
             let to = bounded(&result["to"])?;

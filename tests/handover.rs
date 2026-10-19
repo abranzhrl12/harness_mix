@@ -12,6 +12,7 @@ fn test_handover_preview_summary_and_file_export() {
 
     // 1. Bootstrap session
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

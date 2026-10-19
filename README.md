@@ -50,7 +50,17 @@ Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `
 ## Crear, editar y verificar
 
 `harness_write` crea un archivo con `path` y `content`, sin sobrescribir destinos.
-La carpeta padre debe existir; valida rutas y sintaxis antes de publicar.
+`createParents=true` crea las carpetas necesarias con validación de rutas y enlaces.
+Si el archivo ya contiene exactamente los mismos bytes, devuelve `already_present`;
+si difiere, no sobrescribe. `allowUnvalidatedText=true` permite formatos sin parser,
+indicando `not_checked`, sin saltarse errores de sintaxis de formatos soportados.
+Para `.vue`, valida scripts inline JS/TS y marca templates/estilos como no comprobados.
+Harness permite editar y crear `.agents/knowledge/**/*.md`; las demás rutas de
+`.agents` siguen protegidas.
+La misma respuesta incluye hash, postcheck y resumen; no ejecuta compilaciones.
+En fallos posteriores a crear carpetas, informa cuáles quedaron sin borrarlas a ciegas.
+`harness_bootstrap` con `compact=true` reduce el catálogo inicial sin ocultar reglas
+del proyecto ni avisos de seguridad; el catálogo completo queda recuperable en detalle.
 `harness_replace` acepta un `hash` SHA-256 opcional: sin él exige coincidencias
 únicas de `oldText` y comprueba cambios concurrentes antes de publicar.
 

@@ -31,7 +31,7 @@ microservicios para escalar las capacidades de este ejecutable.
 | --- | --- | --- |
 | MCP stdio y CLI | Implementado | Entrada acotada; ejecutable experimental |
 | `harness_bootstrap` | Implementado | Sesión, reglas, capacidades y guía de uso |
-| `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 100 líneas por fragmento |
+| `harness_read` | Implementado | UTF-8, hash SHA-256, hasta 300 líneas y 16000 bytes por fragmento |
 | `harness_detail` | Implementado | Caché acotada, paginado UTF-16, referencias locales al proceso |
 | `harness_search` | Parcial | Text/files/file_size y syntax de declaraciones Rust; faltan patrones AST generales |
 | `harness_config` | Parcial | Sección XML/JSON redactada; no settings runtime ni valores no sensibles |

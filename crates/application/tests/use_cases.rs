@@ -130,6 +130,7 @@ fn verification_admission_prevents_io_and_releases_session_lease() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -198,12 +199,14 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
         MemorySessions::default(),
     );
     let first = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
     assert_eq!(first["data"]["rules"], "reglas");
     assert_eq!(first["data"]["tasks"]["total"], 4);
     let second = app.clone().execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: Some("memory-session".into()),
         include_rules: None,
     }));
@@ -211,6 +214,7 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
     assert_eq!(second["data"]["capabilitiesUnchanged"], true);
     assert!(second["data"].get("rules").is_none());
     let forced = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: Some("memory-session".into()),
         include_rules: Some(true),
     }));
@@ -319,6 +323,7 @@ fn cancellation_and_timeout_are_distinct_and_do_not_leak_session_leases() {
         sessions,
     );
     app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

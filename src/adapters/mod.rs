@@ -4,6 +4,7 @@ mod config;
 mod disk_logs;
 pub(crate) mod doctor;
 mod edit;
+mod create_file;
 mod edit_commit;
 mod edit_security;
 mod explore;
@@ -68,6 +69,7 @@ pub mod tasks;
 mod tasks_store;
 mod ts_symbols;
 mod ts_syntax;
+mod vue_syntax;
 mod verify;
 pub mod xlsx;
 

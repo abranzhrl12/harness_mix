@@ -823,12 +823,24 @@ en plataformas no Windows falla antes de preparar temporales.
 ## Creación de archivos
 
 `harness_write` recibe `path`, `content` y `session` opcional. Requiere Windows,
-carpeta padre existente, contenido UTF-8 sin NUL y hasta 2 MiB (la línea JSON-RPC
+contenido UTF-8 sin NUL y hasta 2 MiB (la línea JSON-RPC
 completa sigue limitada a 128 KiB). Comparte la validación de sintaxis de edición.
 Rechaza rutas protegidas, enlaces y metadata del índice. Fija los ancestros,
 prepara y sincroniza un temporal y publica atómicamente sin sobrescribir, incluso
 si otro proceso crea el destino después de la primera comprobación. Devuelve
-`created`, `changed`, `hash` y `verified`; no crea carpetas ni modifica imports.
+`created`, `changed`, `hash` y `verified`; no modifica imports ni compila.
+`createParents=true` crea hasta 32 niveles de carpetas con ancestros fijados;
+sin esa opción la carpeta padre debe existir. La sintaxis se valida antes de crear
+directorios. Si existe el mismo contenido byte a byte devuelve `already_present`
+sin escribir; si difiere, conflicto. `allowUnvalidatedText=true` admite texto sin
+parser con `syntax.status=not_checked`, pero no elude errores o límites de parsers.
+La respuesta añade `status`, `commitStatus`, `changeSummary`, `createdDirectories`
+y `typecheck=not_run`. JSON inválido incluye posición del parser. Los errores
+posteriores a crear directorios los reportan como retenidos; no hay rollback
+recursivo ni transacción de múltiples archivos. Para Vue valida scripts inline JS/TS,
+pero deja templates/estilos explícitamente sin comprobar. Solo permite editar/crear
+Markdown bajo `.agents/knowledge`; el resto de `.agents` sigue protegido. Ver
+[I/O](IO-EFFICIENCY.md).
 
 ## Verificación Rust (0.4.0)
 
@@ -1015,7 +1027,7 @@ borrar sus archivos. No ejecutar servidores concurrentes que escriban la misma s
 
 Read devuelve rango, texto UTF-8 y hash SHA-256 del archivo entero;
 incluye anchors con hasta dos líneas antes/después, limitadas a 1000 unidades
-UTF-16 por lado sin cortar caracteres. Conserva límites de 100 líneas, 16000 bytes de fragmento y
+UTF-16 por lado sin cortar caracteres. Conserva límites de 300 líneas, 16000 bytes de fragmento y
 2 MiB por archivo. Rechaza rutas absolutas, traversal, secretos y enlaces/reparse points.
 El rechazo de `..` es más estricto que el servidor Node, incluso para rutas internas.
 No está endurecido contra un proceso hostil que cambie directorios ancestros

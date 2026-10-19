@@ -18,6 +18,7 @@ fn test_diagnostics_syntax_checks_rust_ts_js_json() {
 
     let app = adapters::application(root).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -76,6 +77,7 @@ fn test_diagnostics_all_checked_is_complete_and_ok() {
 
     let app = adapters::application(root).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -106,6 +108,7 @@ fn test_diagnostics_catches_syntax_errors() {
 
     let app = adapters::application(root).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));
@@ -136,6 +139,7 @@ fn test_diagnostics_validates_argument_bounds() {
     let dir = tempdir().unwrap();
     let app = adapters::application(dir.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

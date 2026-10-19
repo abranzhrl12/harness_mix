@@ -433,7 +433,7 @@ impl McpHarness {
         self.call(Request::Checkpoint(args), context).await
     }
     #[tool(
-        description = "Símbolos locales Rust/JS/TS por AST. action=outline: path, query opcional y maxChars=2500 para inventario de firmas; detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId AST opcionales; view=signature para ubicación/firma o full para implementación/edición. Full conserva fuente exacta, documentación y hash; cuerpos grandes en detalle. Signature no sirve como oldText. Ambas acciones admiten externalScope y session. Reutilizar fuente/hash recibidos. Para relaciones del grafo usar harness_explore; otros lenguajes requieren metadatos indexados o lectura acotada."
+        description = "Símbolos locales Rust/JS/TS por AST. action=outline: path, query opcional y maxChars=2500 para inventario de firmas; detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId AST opcionales; view=signature para ubicación/firma o full para implementación/edición. Full conserva fuente exacta, documentación y hash; cuerpos grandes en detalle. Signature no sirve como oldText. Ambas acciones admiten externalScope y session. Vue no tiene outline local; lee SFC con harness_read y edítalo con harness_replace (valida scripts inline JS/TS). Para relaciones del grafo usar harness_explore; otros lenguajes requieren metadatos indexados o lectura acotada."
     )]
     async fn harness_symbols(
         &self,
@@ -443,7 +443,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, JSON, Markdown and plain text. Protected paths rejected. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -452,7 +452,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Replace(args), context).await
     }
-    #[tool(description = "Create a new UTF-8 file with path and content. Atomic no-clobber publication; existing files are never overwritten. Windows, existing parent directory, up to 2 MiB. Same syntax validation and protected paths as editing. Reuse session from bootstrap.")]
+    #[tool(description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session.")]
     async fn harness_write(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::WriteArgs>,
@@ -493,7 +493,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Bootstrap experimental Rust: reglas, capacidades y sesiones persistentes. No reemplaza todavía el harness Node."
+        description = "Start or reuse a Rust session. compact=true reduces the initial catalog while retaining project rules, safety notices and execution limits; full catalog remains in detail. Copy data.session into later calls. Reuse sessions instead of repeating bootstrap."
     )]
     async fn harness_bootstrap(
         &self,
@@ -504,7 +504,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Leer hasta 100 líneas UTF-8 dentro del workspace con hash SHA-256 y hasta dos líneas de contexto por lado."
+        description = "Leer hasta 300 líneas UTF-8 (máximo 16000 bytes de texto) dentro del workspace con hash SHA-256 y hasta dos líneas de contexto por lado. Para una implementación concreta, usar harness_symbols action=read view=full."
     )]
     async fn harness_read(
         &self,
@@ -581,7 +581,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Diagnóstico rápido de sintaxis en lote de archivos explícitos o cambios Git tracked. Valida Rust, JS/TS y JSON sin devolver código. maxFiles 1–50 (defecto 20)."
+        description = "Diagnóstico rápido de sintaxis en lote de archivos explícitos o cambios Git tracked. Valida Rust, JS/TS, scripts inline de Vue (template/style quedan incompletos) y JSON sin devolver código. maxFiles 1–50 (defecto 20)."
     )]
     async fn harness_diagnostics(
         &self,

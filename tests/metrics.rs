@@ -49,6 +49,7 @@ fn clones_share_metrics_but_restarts_and_sessions_do_not_restore_counters() {
     assert_eq!(metrics["byTool"]["harness_read"]["outcomes"]["error"], 1);
     assert!(!metrics.to_string().contains("private-path-not-retained"));
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

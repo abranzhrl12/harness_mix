@@ -6,6 +6,7 @@ use serde_json::Value;
 
 fn bootstrap(app: &NativeApplication) -> String {
     app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }))["data"]["sessionId"]

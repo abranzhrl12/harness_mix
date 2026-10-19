@@ -242,6 +242,7 @@ fn session_records_move_and_removes_obsolete_edit_observations() {
     fs::write(root.path().join("source.txt"), "old").unwrap();
     let app = adapters::application(root.path()).unwrap();
     let boot = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
         session: None,
         include_rules: None,
     }));

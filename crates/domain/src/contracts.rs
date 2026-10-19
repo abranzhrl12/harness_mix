@@ -5,6 +5,9 @@ use serde_json::Value;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BootstrapArgs {
+    /// Opt in to a compact initial catalog; project rules and safety notices remain inline.
+    #[serde(default)]
+    pub compact: bool,
     /// Reuse data.session from bootstrap. sessionId is accepted for compatibility.
     #[serde(alias = "sessionId")]
     pub session: Option<String>,
@@ -35,11 +38,13 @@ pub struct ReadArgs {
 struct ReadInput {
     #[serde(rename = "externalScope")]
     external_scope: Option<String>,
+    #[serde(alias = "target_path")]
     path: String,
     start: usize,
     end: Option<usize>,
     /// Number of lines starting at start; mutually exclusive with end.
     lines: Option<usize>,
+    #[serde(alias = "sessionId")]
     session: Option<String>,
 }
 
@@ -48,12 +53,12 @@ impl TryFrom<ReadInput> for ReadArgs {
     fn try_from(input: ReadInput) -> Result<Self, Self::Error> {
         let end = match (input.end, input.lines) {
             (Some(end), None) => end,
-            (None, Some(count)) if count > 0 && count <= 100 => input
+            (None, Some(count)) if count > 0 && count <= 300 => input
                 .start
                 .checked_add(count - 1)
                 .ok_or("read range overflow")?,
             (Some(_), Some(_)) => return Err("use either end or lines, not both".into()),
-            _ => return Err("provide end or lines (1..100)".into()),
+            _ => return Err("provide end or lines (1..300)".into()),
         };
         Ok(Self {
             external_scope: input.external_scope,
@@ -154,8 +159,16 @@ pub struct MoveArgs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct WriteArgs {
+    #[serde(alias = "target_path")]
     pub path: String,
     pub content: String,
+    /// Create missing parent directories within the workspace; never follow links.
+    #[serde(default, rename = "createParents")]
+    pub create_parents: bool,
+    /// Explicitly permit UTF-8 text when no syntax parser is available.
+    #[serde(default, rename = "allowUnvalidatedText")]
+    pub allow_unvalidated_text: bool,
+    #[serde(alias = "sessionId")]
     pub session: Option<String>,
 }
 
@@ -192,6 +205,7 @@ pub struct ReplaceChunk {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 struct ReplaceInput {
+    #[serde(alias = "target_path")]
     path: String,
     #[serde(default)]
     hash: String,
@@ -200,6 +214,7 @@ struct ReplaceInput {
     old_text: Option<String>,
     #[serde(rename = "newText")]
     new_text: Option<String>,
+    #[serde(alias = "sessionId")]
     session: Option<String>,
 }
 
