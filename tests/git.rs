@@ -67,6 +67,70 @@ fn fixture() -> tempfile::TempDir {
     root
 }
 
+#[test]
+fn directory_and_workspace_diff_filter_credentials_and_preserve_staging() {
+    let root = fixture();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    for (path, text) in [
+        ("src/a.txt", "old-a\n"),
+        ("src/b.txt", "old-b\n"),
+        ("other.txt", "old-other\n"),
+        ("src/Web.config", "private-before\n"),
+    ] {
+        std::fs::write(root.path().join(path), text).unwrap();
+    }
+    git(root.path(), &["add", "."]);
+    git(
+        root.path(),
+        &["commit", "--quiet", "--no-verify", "-m", "fixture"],
+    );
+    for (path, text) in [
+        ("src/a.txt", "new-a\n"),
+        ("src/b.txt", "new-b\n"),
+        ("other.txt", "new-other\n"),
+        ("src/Web.config", "private-after\n"),
+    ] {
+        std::fs::write(root.path().join(path), text).unwrap();
+    }
+    let app = adapters::application(root.path()).unwrap();
+    let directory = diff(&app, "src", false, 500);
+    assert_eq!(directory["state"], "ok", "{directory}");
+    let preview = directory["data"]["preview"].as_str().unwrap();
+    assert!(preview.contains("new-a") && preview.contains("new-b"));
+    assert!(!preview.contains("new-other") && !preview.contains("private"));
+    assert_eq!(directory["data"]["files"]["excludedByPolicy"], 1);
+    let workspace = diff(&app, ".", false, 500);
+    assert!(
+        workspace["data"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("new-other"),
+        "{workspace}"
+    );
+    assert!(!workspace.to_string().contains("private-after"));
+    git(root.path(), &["add", "src/a.txt"]);
+    let staged = diff(&app, ".", true, 500);
+    assert!(
+        staged["data"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("new-a")
+    );
+    assert!(
+        !staged["data"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("new-b")
+    );
+    std::fs::remove_file(root.path().join("src/b.txt")).unwrap();
+    assert!(
+        diff(&app, "src", false, 500)["data"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("deleted file")
+    );
+}
+
 fn linked_fixture() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf) {
     let main = fixture();
     std::fs::write(main.path().join("tracked.txt"), "before\n").unwrap();

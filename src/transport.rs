@@ -363,7 +363,7 @@ impl McpHarness {
         result
     }
     #[tool(
-        description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit; devuelve rama y cambios paginados. action=diff: path relativo obligatorio, staged (false=index:worktree, true=HEAD:index), maxLines, maxChars; devuelve hunks y patch, también para eliminados. No incluye contenido untracked. Raíz Git o worktree vinculado registrado; sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
+        description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit. action=diff: path relativo de archivo o directorio; path=\".\" para workspace. staged false=index:worktree, true=HEAD:index; maxLines 1..500, maxChars 500..12000. Hasta 128 archivos y presupuesto de argumentos; files informa exclusiones y omisiones. Devuelve hunks y patch, también eliminados; no contenido untracked. Sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
     )]
     async fn harness_git(
         &self,
@@ -383,7 +383,7 @@ impl McpHarness {
         self.call(Request::Explore(args), context).await
     }
     #[tool(
-        description = "Operaciones unificadas de sesión y flujo de trabajo. action=checkpoint: actualiza objetivo, decisiones, pendientes o refresca checks. action=tasks: gestiona fases (phase), estado (status) o timeline de tareas. action=status: consulta el estado y resumen consolidado de la sesión viva. action=handover: genera o publica un reporte Markdown de traspaso (summary, adr o pr_body)."
+        description = "Operaciones unificadas de sesión. action=checkpoint: goal, decisions y pending en raíz o dentro de data (no duplicar campos); refreshFreshness en raíz. action=tasks: fases (phase), estado (status) o timeline. action=status: estado consolidado. action=handover: reporte Markdown (summary, adr o pr_body)."
     )]
     async fn harness_session(
         &self,
@@ -403,7 +403,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash. preview=true previews unified diff and syntax diagnostics without publishing. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), each unique in the original, no overlap. Windows: Rust, JS/TS/JSX/TSX, Vue (inline script syntax only; template/style not checked), JSON, Markdown and plain text. allowUnvalidatedText=true permits formats without a parser (e.g. .scss), not syntax errors in supported formats. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Replace existing UTF-8 files with optional SHA-256 hash (baseHash is an alias; supply only one). preview=true returns diff and syntax diagnostics without publishing. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), unique in the original, no overlap. allowUnvalidatedText=true permits formats without a parser, not syntax errors. Razor checks are basic; Vue checks inline scripts. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
     )]
     async fn harness_replace(
         &self,
@@ -444,7 +444,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "SQL: engine=sqlserver|postgresql (obligatorio si ambos habilitados). status no conecta por defecto; connect:true verifica y muestra diagnósticos/setup. search {query,objectType?,schema?,limit?} descubre nombres. describe {name,kind?,sections?,refresh?}: inspecciona columnas antes de formular SQL; no adivines columnas. PostgreSQL: caché opt-in schemaCacheSeconds 0..300, refresh:true fuerza lectura viva; cache hit no revalida permisos ni DDL. Varias tablas independientes: harness_batch con jobs tool=harness_sql/action=describe (1..4, concurrencia 2). PG query arbitraria NO disponible; SQL Server query {sql,parameters?} enlaza parámetros. Cero filas no prueba ausencia."
+        description = "SQL: enviar sql permite omitir action (query) y engine (sqlserver). Query: {sql,parameters?,session?}; explícito action=query, engine=sqlserver|postgresql; PG query arbitraria NO disponible. status {connect?} no conecta por defecto. search {query,objectType?,schema?,limit?} descubre nombres. describe {name,kind?,sections?,refresh?}: kind acepta relation/routine; objectType es alias, table/view equivalen a relation y procedure/function a routine. No duplicar kind/objectType. Para status/search/describe, indicar engine si ambos motores están habilitados. PG refresh:true renueva caché opt-in. Cero filas no prueba ausencia."
     )]
     async fn harness_sql(
         &self,
@@ -466,7 +466,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Leer hasta 300 líneas UTF-8 (máximo 16000 bytes de texto) dentro del workspace con hash SHA-256 y hasta dos líneas de contexto por lado. Para una implementación concreta, usar harness_symbols action=read view=full."
+        description = "Leer hasta 300 líneas UTF-8 (máximo 16000 bytes de texto) con hash SHA-256 y dos líneas de contexto por lado. path acepta alias file o target_path (solo uno). Ejemplo: file=Views/Home/Index.cshtml, start=1, lines=30. Para implementaciones usar harness_symbols action=read view=full."
     )]
     async fn harness_read(
         &self,
@@ -488,7 +488,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Búsqueda nativa text/files/file_size/syntax. syntax: solo declaraciones Rust, selector declaration_kind[:nombre exacto], p.ej. function_item:run o struct_item; no patrones AST generales ni callers. file_size no recibe query: minLines=500 filtra archivos con más líneas. globs (solo files/file_size) filtra por patrón de ruta, p.ej. [\"*.vue\",\"src/**\"]. Límites 2 MiB/archivo, 5 s cooperativos, salida parcial explícita. Admite scopes externos autorizados Windows."
+        description = "Búsqueda nativa text/files/file_size/syntax. scope acota ruta; path es alias. globs (alias includes) filtra archivos antes de leer en text/files/file_size, p.ej. kind=text, query=Controller, globs=[\"*.cs\",\"*.cshtml\"]. syntax solo declaraciones Rust declaration_kind[:nombre], sin globs ni callers. file_size usa minLines sin query. Límites 2 MiB/archivo, 5 s cooperativos y salida parcial explícita. Scopes externos autorizados Windows."
     )]
     async fn harness_search(
         &self,

@@ -41,3 +41,50 @@ fn write_and_replace_accept_io_aliases_without_weakening_conflicts() {
         .is_err()
     );
 }
+
+#[test]
+fn replace_base_hash_alias_preserves_hash_and_rejects_duplicate_preconditions() {
+    for field in ["hash", "baseHash"] {
+        for chunks in [false, true] {
+            let mut value = json!({"path":"a.txt"});
+            value[field] = json!("source-sha256");
+            if chunks {
+                value["chunks"] = json!([{"oldText":"hi","newText":"bye"}]);
+            } else {
+                value["oldText"] = json!("hi");
+                value["newText"] = json!("bye");
+            }
+            let args: ReplaceArgs = serde_json::from_value(value).unwrap();
+            assert_eq!(args.hash, "source-sha256");
+            let canonical = serde_json::to_value(args).unwrap();
+            assert_eq!(canonical["hash"], "source-sha256");
+            assert!(canonical.get("baseHash").is_none());
+        }
+    }
+    for alias_hash in ["source-sha256", "different-sha256"] {
+        let error = serde_json::from_value::<ReplaceArgs>(json!({
+            "path":"a.txt", "hash":"source-sha256", "baseHash":alias_hash,
+            "oldText":"hi", "newText":"bye"
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate field `hash`"));
+    }
+}
+
+#[test]
+#[cfg(feature = "schema")]
+fn replace_schema_advertises_base_hash_and_excludes_duplicate_preconditions() {
+    let schema = serde_json::to_value(schemars::schema_for!(ReplaceArgs)).unwrap();
+    assert!(schema["properties"].get("hash").is_some());
+    assert_eq!(
+        schema["properties"]["hash"],
+        schema["properties"]["baseHash"]
+    );
+    assert!(
+        schema["allOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|constraint| { constraint == &json!({"not":{"required":["hash","baseHash"]}}) })
+    );
+}

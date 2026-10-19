@@ -65,7 +65,7 @@ fn postgres_rejects_unapproved_schemas_sections_and_arbitrary_queries() {
             "PG_DESCRIBE_SECTION",
         ),
         (
-            json!({"action":"query","sql":"DELETE FROM users"}),
+            json!({"action":"query","engine":"postgresql","sql":"DELETE FROM users"}),
             "PG_QUERY_UNAVAILABLE",
         ),
     ] {

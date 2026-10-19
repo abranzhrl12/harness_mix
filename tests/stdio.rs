@@ -14,6 +14,147 @@ struct Server {
 }
 
 #[test]
+fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.txt"), "before\n").unwrap();
+    std::fs::create_dir(root.path().join(".agents")).unwrap();
+    std::fs::write(
+        root.path().join(".agents/harness.config.json"),
+        r#"{"sqlServer":{"enabled":false},"postgresql":{"enabled":false}}"#,
+    )
+    .unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let catalog = server.request(2, "tools/list", json!({}));
+    let tools = catalog["result"]["tools"].as_array().unwrap();
+    let replace = tools
+        .iter()
+        .find(|tool| tool["name"] == "harness_replace")
+        .unwrap();
+    assert!(
+        replace["inputSchema"]["properties"]
+            .get("baseHash")
+            .is_some(),
+        "{replace}"
+    );
+    let sql_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "harness_sql")
+        .unwrap();
+    let schema_text = sql_tool["inputSchema"].to_string();
+    assert!(
+        schema_text.contains("objectType")
+            && schema_text.contains("routine")
+            && schema_text.contains("procedure"),
+        "{sql_tool}"
+    );
+    let read = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_read","arguments":{"path":"a.txt","start":1,"lines":1}}),
+    );
+    let hash = read["result"]["structuredContent"]["data"]["hash"]
+        .as_str()
+        .unwrap();
+    let replaced = server.request(4, "tools/call", json!({"name":"harness_replace","arguments":{"path":"a.txt","baseHash":hash,"oldText":"before","newText":"after"}}));
+    assert_eq!(
+        replaced["result"]["structuredContent"]["state"], "ok",
+        "{replaced}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("a.txt")).unwrap(),
+        "after\n"
+    );
+    // These calls must reach the adapter, without attempting a real configured DB.
+    for (id, arguments) in [
+        (5, json!({"sql":"SELECT 1"})),
+        (
+            6,
+            json!({"action":"describe","engine":"sqlserver","name":"dbo.Example","objectType":"procedure"}),
+        ),
+    ] {
+        let result = server.request(
+            id,
+            "tools/call",
+            json!({"name":"harness_sql","arguments":arguments}),
+        );
+        assert!(
+            result["result"]["structuredContent"]["state"].is_string(),
+            "SQL input did not reach adapter: {result}"
+        );
+        assert!(result.get("error").is_none(), "{result}");
+    }
+    let invalid = server.request(7, "tools/call", json!({"name":"harness_sql","arguments":{"action":"query","engine":42,"credentials":"DO_NOT_ECHO"}}));
+    let message = invalid.to_string();
+    assert!(
+        message.contains("Required: sql")
+            && message.contains("parameters")
+            && message.contains("engine"),
+        "{message}"
+    );
+    assert!(!message.contains("DO_NOT_ECHO"), "{message}");
+}
+
+#[test]
+fn compatibility_aliases_work_through_mcp_and_are_advertised() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.cs"), "class Controller {}\n").unwrap();
+    std::fs::write(root.path().join("b.js"), "const Controller = 1;\n").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let catalog = server.request(2, "tools/list", json!({}));
+    let tools = catalog["result"]["tools"].as_array().unwrap();
+    let search = tools
+        .iter()
+        .find(|t| t["name"] == "harness_search")
+        .unwrap();
+    assert!(
+        search["inputSchema"]["properties"].get("path").is_some(),
+        "{search}"
+    );
+    assert!(
+        search["inputSchema"]["properties"]
+            .get("includes")
+            .is_some()
+    );
+    let read = tools.iter().find(|t| t["name"] == "harness_read").unwrap();
+    assert!(
+        read["inputSchema"]["properties"].get("file").is_some(),
+        "{read}"
+    );
+    let result = server.request(3, "tools/call", json!({"name":"harness_search","arguments":{"kind":"text","query":"Controller","path":".","includes":["*.cs"]}}));
+    let data = &result["result"]["structuredContent"];
+    assert_eq!(data["state"], "ok", "{result}");
+    assert_eq!(
+        data["data"]["matches"].as_array().unwrap().len(),
+        1,
+        "{result}"
+    );
+    let result = server.request(
+        4,
+        "tools/call",
+        json!({"name":"harness_read","arguments":{"file":"a.cs","start":1,"lines":1}}),
+    );
+    assert_eq!(
+        result["result"]["structuredContent"]["state"], "ok",
+        "{result}"
+    );
+    let boot = server.request(
+        5,
+        "tools/call",
+        json!({"name":"harness_bootstrap","arguments":{"compact":true}}),
+    );
+    let session = boot["result"]["structuredContent"]["data"]["session"]
+        .as_str()
+        .unwrap();
+    let result = server.request(6, "tools/call", json!({"name":"harness_session","arguments":{"action":"checkpoint","session":session,"data":{"goal":"compatibility","decisions":["accept aliases"]}}}));
+    assert_eq!(
+        result["result"]["structuredContent"]["state"], "ok",
+        "{result}"
+    );
+}
+
+#[test]
 #[ignore = "opt-in read-only timings on an authorized existing project; no index writes"]
 fn real_project_command_timings() {
     let root = std::path::PathBuf::from(

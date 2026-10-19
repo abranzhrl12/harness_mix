@@ -699,6 +699,62 @@ pub fn describe(
     Ok(result_data)
 }
 
+/// Injects `TOP (limit)` into a top-level SELECT without one, so large tables
+/// cannot stream unbounded rows before the row budget truncates output.
+fn inject_top(sql: &str, limit: usize) -> String {
+    let bytes = sql.as_bytes();
+    let len = bytes.len();
+    let from = |mut i: usize| -> usize {
+        loop {
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i + 1 < len && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+                while i < len && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if i + 1 < len && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                i += 2;
+                while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = (i + 2).min(len);
+                continue;
+            }
+            return i;
+        }
+    };
+    let start = from(0);
+    if len < start + 6 || !sql[start..start + 6].eq_ignore_ascii_case("SELECT") {
+        // WITH-CTEs and anything else are left untouched.
+        return sql.to_owned();
+    }
+    let mut end = start + 6;
+    loop {
+        let mut next = from(end);
+        if next >= len {
+            break;
+        }
+        let word_end = next
+            + sql[next..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .count();
+        match sql[next..word_end].to_ascii_uppercase().as_str() {
+            "ALL" | "DISTINCT" => end = word_end,
+            "TOP" => return sql.to_owned(),
+            _ => break,
+        }
+    }
+    format!(
+        "{} TOP ({limit}){}",
+        &sql[..end],
+        &sql[end..]
+    )
+}
+
 pub fn query(
     project: &Project,
     args: &SqlQueryArgs,
@@ -721,6 +777,7 @@ pub fn query(
     assert_sql_read_only(&args.sql)?;
 
     let (sql_str, parameters) = parameters::prepare(&args.sql, args.parameters.as_ref())?;
+    let sql_str = inject_top(&sql_str, config.max_rows);
     let server_error = std::sync::Mutex::new(None);
     let report_error = |error: tiberius::error::Error| {
         if let Ok(mut diagnostic) = server_error.lock() {
@@ -868,6 +925,27 @@ mod safety_tests {
     #[test]
     fn literal_like_wildcards_are_escaped_without_replacement_templates() {
         assert_eq!(escape_like("a%_~[é"), "a~%~_~~~[é");
+    }
+    #[test]
+    fn top_is_injected_only_when_a_plain_select_lacks_one() {
+        for (sql, expected) in [
+            ("SELECT 1", "SELECT TOP (50) 1"),
+            ("select*from t", "select TOP (50)*from t"),
+            (
+                "select distinct name from t",
+                "select distinct TOP (50) name from t",
+            ),
+            (
+                "-- why\r\nselect /* c */ * from t",
+                "-- why\r\nselect TOP (50) /* c */ * from t",
+            ),
+            ("select top 10 * from t", "select top 10 * from t"),
+            ("select TOP (10) * from t", "select TOP (10) * from t"),
+            ("with c as (select 1) select * from c", "with c as (select 1) select * from c"),
+            ("update t set a = 1", "update t set a = 1"),
+        ] {
+            assert_eq!(inject_top(sql, 50), expected, "{sql}");
+        }
     }
     #[test]
     fn driver_error_text_is_never_exposed() {

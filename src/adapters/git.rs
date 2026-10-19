@@ -397,15 +397,66 @@ pub(super) fn diff(
             ));
         }
     }
-    let file = project.target_optional(&normalized)?;
-    if file.exists() && !file.is_file() {
+    if normalized.is_empty() {
         return Err((
-            "PATH",
-            "Git diff requires one regular file path, not a directory",
+            "ARGUMENT",
+            "Git diff requires path; use path: \".\" for the workspace or path: \"src\" for a directory",
         ));
     }
+    let file = if normalized == "." {
+        project.root.clone()
+    } else {
+        project.target_optional(&normalized)?
+    };
     let started = Instant::now();
     let reader = Reader::new(project, context)?;
+    // Enumerate first: a directory pathspec must never disclose protected files.
+    // Literal pathspecs also prevent user paths from becoming Git magic/globs.
+    // Reader already sets --literal-pathspecs globally.
+    let literal_scope = normalized.clone();
+    let mut names_args = vec![
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--ignore-submodules=all",
+    ];
+    if args.staged == Some(true) {
+        names_args.push("--cached");
+    }
+    names_args.extend(["--", &literal_scope]);
+    let names = reader.execute(&names_args, false)?;
+    let mut selected = Vec::new();
+    let mut excluded = 0;
+    let mut files_omitted = 0;
+    let mut argument_bytes = 0;
+    let mut total_files = 0;
+    for path in names.split('\0').filter(|p| !p.is_empty()) {
+        context.check()?;
+        total_files += 1;
+        let allowed = !path.split('/').any(|part| {
+            let lower = part.to_ascii_lowercase();
+            lower == ".git"
+                || lower == ".npmrc"
+                || lower == "nuget.config"
+                || (lower.starts_with("web") && lower.ends_with(".config"))
+                || (lower.starts_with("appsettings") && lower.ends_with(".json"))
+        }) && project
+            .target_optional(path)
+            .is_ok_and(|target| !target.exists() || target.is_file());
+        if !allowed {
+            excluded += 1;
+            continue;
+        }
+        if selected.len() >= 128 || argument_bytes + path.len() + 16 > 24000 {
+            files_omitted += 1;
+            continue;
+        }
+        argument_bytes += path.len() + 16;
+        selected.push(path.to_string());
+    }
     let mut args_list = vec!["diff"];
     if args.staged == Some(true) {
         args_list.push("--cached");
@@ -420,9 +471,13 @@ pub(super) fn diff(
         "--dst-prefix=b/",
         "--unified=3",
         "--",
-        &normalized,
     ]);
-    let patch = reader.execute(&args_list, false)?;
+    args_list.extend(selected.iter().map(String::as_str));
+    let patch = if selected.is_empty() {
+        String::new()
+    } else {
+        reader.execute(&args_list, false)?
+    };
     let lines: Vec<_> = patch
         .trim_end_matches('\n')
         .split('\n')
@@ -435,7 +490,7 @@ pub(super) fn diff(
         .collect::<Vec<_>>()
         .join("\n");
     let preview = prefix(&joined, chars);
-    let truncated = lines.len() > lines_limit || utf16_len(&joined) > chars;
+    let truncated = lines.len() > lines_limit || utf16_len(&joined) > chars || files_omitted > 0;
     let comparison = if args.staged == Some(true) {
         "HEAD:index"
     } else {
@@ -449,6 +504,15 @@ pub(super) fn diff(
         .collect();
     let mut result = json!({"path":normalized,"comparison":comparison,"changed":!patch.is_empty(),"binary":lines.iter().any(|s|s.starts_with("Binary files ")),"hunks":hunks,"totalLines":lines.len(),"preview":preview,"milliseconds":started.elapsed().as_millis() as u64,
         "note":"Tracked changes only; textual diff, not semantic proof. Hunk labels come from Git."});
+    result["scope"] = json!(if normalized == "." {
+        "workspace"
+    } else if file.is_dir() {
+        "directory"
+    } else {
+        "path"
+    });
+    result["files"] = json!({"changed":total_files,"included":selected.len(),"excludedByPolicy":excluded,"omittedByLimit":files_omitted,"limit":128});
+    result["complete"] = json!(files_omitted == 0 && excluded == 0);
     if truncated {
         result["truncated"] = json!(true);
         result["_detail"] = json!({"path":normalized,"comparison":comparison,"patch":patch});

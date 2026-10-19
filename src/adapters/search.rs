@@ -67,10 +67,10 @@ fn glob_matcher(
         Some(patterns) => patterns,
         None => return Ok(None),
     };
-    if !matches!(kind, Kind::Files | Kind::FileSize) {
+    if !matches!(kind, Kind::Text | Kind::Files | Kind::FileSize) {
         return Err((
             "ARGUMENT",
-            "globs solo es válido para kind files o file_size",
+            "globs solo es válido para kind text, files o file_size",
         ));
     }
     if patterns.is_empty() || patterns.len() > 64 {
@@ -139,6 +139,7 @@ pub fn search_with_context(
         ));
     }
     if !file_size
+        && !(matches!(args.kind, Kind::Files) && args.globs.is_some() && args.query.is_empty())
         && (args.query.is_empty()
             || utf16_len(&args.query) > 16000
             || args.query.contains(['\n', '\r', '\0']))
@@ -271,7 +272,7 @@ pub fn search_with_context(
         }
         match args.kind {
             Kind::Files => {
-                if relative.contains(&args.query) {
+                if args.query.is_empty() || relative.contains(&args.query) {
                     all.push(json!(relative));
                 }
             }
@@ -566,6 +567,22 @@ mod tests {
     }
 
     #[test]
+    fn globs_alone_list_files_without_a_query() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.rs"), "text\n").unwrap();
+        fs::write(dir.path().join("b.txt"), "text\n").unwrap();
+        let p = Project::new(dir.path()).unwrap();
+        let args: SearchArgs = serde_json::from_value(json!({
+            "kind":"files","globs":["*.rs"],"scope":"."}))
+        .expect("SearchArgs");
+        let result = search(&p, &args).unwrap();
+        let paths = result["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].as_str().unwrap().ends_with("a.rs"));
+        assert_eq!(result["complete"], true);
+    }
+
+    #[test]
     fn large_files_make_results_explicitly_incomplete() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
@@ -636,7 +653,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sizes["files"].as_array().unwrap().len(), 2);
-        let rejected = search(
+        let text = search(
             &p,
             &SearchArgs {
                 external_scope: None,
@@ -649,7 +666,49 @@ mod tests {
                 session: None,
             },
         )
-        .unwrap_err();
-        assert_eq!(rejected.0, "ARGUMENT");
+        .unwrap();
+        assert_eq!(text["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(text["bytesRead"], 7);
+        assert_eq!(text["skipped"], 0);
+        assert_eq!(text["complete"], true);
+        assert_eq!(text["globs"], json!(["*.vue"]));
+    }
+
+    #[test]
+    fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Views/Orders")).unwrap();
+        fs::create_dir(dir.path().join("node_modules")).unwrap();
+        fs::write(dir.path().join("Views/Orders/Index.cshtml"), "needle\n").unwrap();
+        fs::write(dir.path().join("Views/Orders/app.js"), "needle\n").unwrap();
+        fs::write(dir.path().join("Views/Orders/ignored.bin"), [0xff; 128]).unwrap();
+        fs::write(dir.path().join("node_modules/vendor.cshtml"), "needle\n").unwrap();
+        let p = Project::new(dir.path()).unwrap();
+        let args = SearchArgs {
+            external_scope: None,
+            min_lines: None,
+            globs: Some(vec!["*.cshtml".into(), "*.js".into()]),
+            kind: Kind::Text,
+            query: "needle".into(),
+            scope: None,
+            limit: None,
+            session: None,
+        };
+        let result = search(&p, &args).unwrap();
+        assert_eq!(result["matches"].as_array().unwrap().len(), 2);
+        assert_eq!(result["bytesRead"], 14);
+        assert_eq!(result["skipped"], 0);
+        assert_eq!(result["complete"], true);
+        let scoped = search(
+            &p,
+            &SearchArgs {
+                scope: Some("Views/Orders".into()),
+                globs: Some(vec!["Views/**/*.cshtml".into()]),
+                ..args
+            },
+        )
+        .unwrap();
+        assert_eq!(scoped["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(scoped["bytesRead"], 7);
     }
 }

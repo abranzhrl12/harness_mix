@@ -35,10 +35,12 @@ pub struct ReadArgs {
     {"required":["end"],"not":{"required":["lines"]}},
     {"required":["lines"],"not":{"required":["end"]}}
 ])))]
+#[cfg_attr(feature = "schema", schemars(transform = read_alias_schema))]
 struct ReadInput {
     #[serde(rename = "externalScope")]
     external_scope: Option<String>,
-    #[serde(alias = "target_path")]
+    /// File path; file and target_path are accepted aliases. Supply only one.
+    #[serde(alias = "target_path", alias = "file")]
     path: String,
     start: usize,
     end: Option<usize>,
@@ -46,6 +48,54 @@ struct ReadInput {
     lines: Option<usize>,
     #[serde(alias = "sessionId")]
     session: Option<String>,
+}
+
+#[cfg(feature = "schema")]
+fn add_schema_alias(schema: &mut schemars::Schema, canonical: &str, alias: &str) {
+    let object = schema.as_object_mut().expect("object schema");
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        if let Some(property) = properties.get(canonical).cloned() {
+            properties.insert(alias.to_string(), property);
+        }
+    }
+    let required = object.get_mut("required").and_then(Value::as_array_mut);
+    let was_required = required.is_some_and(|required| {
+        let present = required.iter().any(|value| value == canonical);
+        required.retain(|value| value != canonical);
+        present
+    });
+    let constraints = object
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]));
+    let constraints = constraints.as_array_mut().expect("allOf array");
+    constraints.push(serde_json::json!({"not":{"required":[canonical,alias]}}));
+    if was_required {
+        constraints
+            .push(serde_json::json!({"anyOf":[{"required":[canonical]},{"required":[alias]}]}));
+    }
+}
+
+#[cfg(feature = "schema")]
+fn read_alias_schema(schema: &mut schemars::Schema) {
+    // target_path predates file; one selector is required and multiple selectors are invalid.
+    add_schema_alias(schema, "path", "file");
+    add_schema_alias(schema, "path", "target_path");
+    let object = schema.as_object_mut().expect("object schema");
+    let constraints = object.get_mut("allOf").unwrap().as_array_mut().unwrap();
+    // Replace the initial two-way requirement with all three accepted names.
+    constraints.retain(|value| value.get("anyOf").is_none());
+    constraints.push(serde_json::json!({"oneOf":[{"required":["path"]},{"required":["file"]},{"required":["target_path"]}]}));
+}
+
+#[cfg(feature = "schema")]
+fn search_alias_schema(schema: &mut schemars::Schema) {
+    add_schema_alias(schema, "scope", "path");
+    add_schema_alias(schema, "globs", "includes");
+}
+
+#[cfg(feature = "schema")]
+fn replace_alias_schema(schema: &mut schemars::Schema) {
+    add_schema_alias(schema, "hash", "baseHash");
 }
 
 impl TryFrom<ReadInput> for ReadArgs {
@@ -92,9 +142,10 @@ pub enum Kind {
     Syntax,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(transform = search_alias_schema))]
 pub struct SearchArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
@@ -103,10 +154,53 @@ pub struct SearchArgs {
     pub query: String,
     #[serde(rename = "minLines")]
     pub min_lines: Option<usize>,
+    /// File patterns; includes is accepted as an alias. Supply only one.
+    #[serde(alias = "includes")]
     pub globs: Option<Vec<String>>,
+    /// Search file or directory; path is an alias. Supply only one, e.g. {"kind":"text","query":"Controller","scope":"Controllers"}.
+    #[serde(alias = "path")]
     pub scope: Option<String>,
     pub limit: Option<usize>,
     pub session: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for SearchArgs {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Input {
+            #[serde(rename = "externalScope")]
+            external_scope: Option<String>,
+            kind: Kind,
+            #[serde(default, alias = "pattern")]
+            query: String,
+            #[serde(rename = "minLines")]
+            min_lines: Option<usize>,
+            #[serde(alias = "includes")]
+            globs: Option<Vec<String>>,
+            #[serde(alias = "path")]
+            scope: Option<String>,
+            limit: Option<usize>,
+            session: Option<String>,
+        }
+        let mut value = Value::deserialize(deserializer)?;
+        strip_inocuous(&mut value);
+        let input = Input::deserialize(value).map_err(|error| {
+            serde::de::Error::custom(format!(
+                "{error}; use scope or its alias path (only one), e.g. {{\"kind\":\"text\",\"query\":\"Controller\",\"scope\":\"Controllers\"}}"
+            ))
+        })?;
+        Ok(Self {
+            external_scope: input.external_scope,
+            kind: input.kind,
+            query: input.query,
+            min_lines: input.min_lines,
+            globs: input.globs,
+            scope: input.scope,
+            limit: input.limit,
+            session: input.session,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -129,7 +223,18 @@ pub struct VerifyArgs {
     pub session: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// Harmless envelope keys some clients add; never part of these tool arguments.
+const INOCUOUS_FIELDS: &[&str] = &["action", "object", "objectType"];
+
+fn strip_inocuous(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        for key in INOCUOUS_FIELDS {
+            object.remove(*key);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[serde(try_from = "ReplaceInput")]
@@ -137,6 +242,7 @@ pub struct ReplaceArgs {
     pub path: String,
     /// Override UTF-8 BOM. Omitted preserves an existing BOM and enables it for Razor on Windows.
     pub bom: Option<bool>,
+    /// Current source SHA-256; baseHash is accepted as an alias. Supply only one.
     /// Optional on the wire; an omitted hash is bound to the source read during this edit.
     #[serde(default)]
     pub hash: String,
@@ -153,6 +259,19 @@ pub struct ReplaceArgs {
     #[serde(default)]
     pub preview: bool,
     pub session: Option<String>,
+}
+
+impl<'de> serde::Deserialize<'de> for ReplaceArgs {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = Value::deserialize(deserializer)?;
+        strip_inocuous(&mut value);
+        let input: ReplaceInput = serde_json::from_value(value).map_err(|_| {
+            serde::de::Error::custom(
+                "Invalid harness_replace arguments: path plus oldText/newText (or chunks); hash/baseHash optional",
+            )
+        })?;
+        Self::try_from(input).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Default for ReplaceArgs {
@@ -247,11 +366,13 @@ pub struct ReplaceChunk {
 #[derive(Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(transform = replace_alias_schema))]
 struct ReplaceInput {
     #[serde(alias = "target_path")]
     path: String,
     bom: Option<bool>,
-    #[serde(default)]
+    /// Current source SHA-256. baseHash is an accepted alias; supply only one name.
+    #[serde(default, alias = "baseHash")]
     hash: String,
     chunks: Option<Vec<ReplaceChunk>>,
     #[serde(rename = "oldText")]
@@ -471,6 +592,7 @@ pub struct TasksArgs {
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[serde(try_from = "CheckpointInput")]
 pub struct CheckpointArgs {
     pub session: String,
     pub goal: Option<String>,
@@ -478,6 +600,51 @@ pub struct CheckpointArgs {
     pub pending: Option<Vec<String>>,
     #[serde(rename = "refreshFreshness")]
     pub refresh_freshness: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+struct CheckpointInput {
+    session: String,
+    goal: Option<String>,
+    decisions: Option<Vec<String>>,
+    pending: Option<Vec<String>>,
+    #[serde(rename = "refreshFreshness")]
+    refresh_freshness: Option<bool>,
+    /// Alternate envelope for goal, decisions and pending. Duplicate fields are rejected.
+    data: Option<CheckpointData>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+struct CheckpointData {
+    goal: Option<String>,
+    decisions: Option<Vec<String>>,
+    pending: Option<Vec<String>>,
+}
+
+impl TryFrom<CheckpointInput> for CheckpointArgs {
+    type Error = String;
+    fn try_from(input: CheckpointInput) -> Result<Self, Self::Error> {
+        let data = input.data.unwrap_or_default();
+        fn merge<T>(root: Option<T>, nested: Option<T>, field: &str) -> Result<Option<T>, String> {
+            if root.is_some() && nested.is_some() {
+                return Err(format!(
+                    "duplicate checkpoint field {field}: supply it at the root or in data, not both"
+                ));
+            }
+            Ok(root.or(nested))
+        }
+        Ok(Self {
+            session: input.session,
+            goal: merge(input.goal, data.goal, "goal")?,
+            decisions: merge(input.decisions, data.decisions, "decisions")?,
+            pending: merge(input.pending, data.pending, "pending")?,
+            refresh_freshness: input.refresh_freshness,
+        })
+    }
 }
 impl CheckpointArgs {
     pub fn has_updates(&self) -> bool {
@@ -1049,6 +1216,110 @@ pub struct LogsArgs {
     pub request_id: Option<String>,
     pub after: Option<u64>,
     pub session: Option<String>,
+}
+
+#[cfg(test)]
+mod compatibility_contract_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn inocuous_envelope_fields_are_tolerated_for_edit_and_search() {
+        use crate::hash;
+        let replace: ReplaceArgs = serde_json::from_value(json!({
+            "action":"harness_replace","object":"file","objectType":"text",
+            "path":"a.txt","oldText":"a","newText":"b","baseHash":hash(b"abc")
+        }))
+        .unwrap();
+        assert_eq!(replace.old_text, "a");
+        assert_eq!(replace.hash, hash(b"abc"));
+        let search: SearchArgs = serde_json::from_value(json!({
+            "action":"harness_search","object":"files",
+            "kind":"files","query":"a","scope":"."  })).unwrap();
+        assert_eq!(search.query, "a");
+        assert!(
+            serde_json::from_value::<ReplaceArgs>(json!({
+                "path":"a.txt","oldText":"a","newText":"b","unknown":true})).is_err()
+        );
+    }
+
+    #[test]
+    fn search_aliases_normalize_and_reject_duplicates_with_example() {
+        let args: SearchArgs = serde_json::from_value(json!({
+            "kind":"text", "query":"Controller", "path":"Controllers", "includes":["*.cs"]
+        }))
+        .unwrap();
+        assert_eq!(args.scope.as_deref(), Some("Controllers"));
+        assert_eq!(args.globs.unwrap(), vec!["*.cs"]);
+        for input in [
+            json!({"kind":"text","path":"a","scope":"b"}),
+            json!({"kind":"text","scope":42}),
+            json!({"kind":"text","includes":["*.cs"],"globs":["*.js"]}),
+        ] {
+            let error = serde_json::from_value::<SearchArgs>(input)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("\"scope\":\"Controllers\""), "{error}");
+        }
+    }
+
+    #[test]
+    fn read_file_alias_normalizes_and_rejects_duplicate_selectors() {
+        let args: ReadArgs =
+            serde_json::from_value(json!({"file":"view.cshtml","start":1,"lines":5})).unwrap();
+        assert_eq!(args.path, "view.cshtml");
+        assert_eq!(args.end, 5);
+        let error =
+            serde_json::from_value::<ReadArgs>(json!({"file":"a","path":"b","start":1,"end":5}))
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("duplicate field `path`"), "{error}");
+    }
+
+    #[test]
+    fn checkpoint_data_normalizes_dispatches_and_rejects_conflicts() {
+        let args: SessionArgs = serde_json::from_value(json!({
+            "action":"checkpoint","session":"s","data":{"goal":"fix","decisions":["aliases"],"pending":["test"]}
+        })).unwrap();
+        let request = args.into_request();
+        assert!(request.is_mutating());
+        let canonical = request.arguments();
+        assert_eq!(canonical["goal"], "fix");
+        assert_eq!(canonical["decisions"], json!(["aliases"]));
+        assert!(canonical.get("data").is_none());
+        assert!(
+            serde_json::from_value::<SessionArgs>(json!({
+                "action":"checkpoint","session":"s","goal":"a","data":{"goal":"b"}
+            }))
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate checkpoint field goal")
+        );
+        assert!(
+            serde_json::from_value::<SessionArgs>(json!({
+                "action":"checkpoint","session":"s","data":{"unknown":true}
+            }))
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn input_schemas_advertise_aliases_and_checkpoint_envelope() {
+        let search = serde_json::to_value(schemars::schema_for!(SearchArgs)).unwrap();
+        assert!(search["properties"].get("path").is_some());
+        assert!(search["properties"].get("includes").is_some());
+        let read = serde_json::to_value(schemars::schema_for!(ReadArgs)).unwrap();
+        assert!(read["properties"].get("file").is_some());
+        assert!(
+            !read["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("path"))
+        );
+        let checkpoint = serde_json::to_value(schemars::schema_for!(CheckpointArgs)).unwrap();
+        assert!(checkpoint["properties"].get("data").is_some());
+    }
 }
 
 #[cfg(test)]

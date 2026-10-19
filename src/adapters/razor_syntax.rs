@@ -91,6 +91,125 @@ pub(super) fn block_end(bytes: &[u8], open: usize) -> Option<usize> {
     delimited_end(bytes, open, b'{', b'}')
 }
 
+/// HTML quotes are not C# strings: backslashes do not escape the delimiter.
+/// Razor expressions inside an attribute temporarily switch back to C# quoting.
+fn attribute_end(
+    bytes: &[u8],
+    start: usize,
+    quoted: bool,
+    pattern: bool,
+    out: &mut Vec<Finding>,
+) -> usize {
+    let quote = quoted.then(|| bytes[start]);
+    let value_start = start + usize::from(quoted);
+    let mut i = value_start;
+    while i < bytes.len()
+        && !quote.map_or_else(
+            || bytes[i].is_ascii_whitespace() || bytes[i] == b'>' || bytes[i..].starts_with(b"/>"),
+            |quote| bytes[i] == quote,
+        )
+    {
+        if bytes[i] != b'@' {
+            i += 1;
+            continue;
+        }
+        let at = i;
+        if bytes[i..].starts_with(b"@@") {
+            i += 2;
+            continue;
+        }
+        if bytes[i..].starts_with(b"@*") {
+            i += 2;
+            while i + 1 < bytes.len() && !bytes[i..].starts_with(b"*@") {
+                i += 1;
+            }
+            if i + 1 >= bytes.len() {
+                finding(
+                    out,
+                    "RAZOR_COMMENT",
+                    "Unterminated Razor comment (@* ... *@)",
+                    at,
+                );
+                return bytes.len();
+            }
+            i += 2;
+            continue;
+        }
+        // Razor leaves ordinary email addresses literal. A regex character class
+        // before @ is not an email local part and still starts a Razor transition.
+        let email = i > value_start
+            && (word(bytes[i - 1]) || matches!(bytes[i - 1], b'.' | b'-' | b'+'))
+            && bytes.get(i + 1).is_some_and(|b| word(*b))
+            && (!pattern
+                || bytes[value_start..i]
+                    .iter()
+                    .all(|b| word(*b) || matches!(*b, b'.' | b'-' | b'+')));
+        if email {
+            i += 1;
+            continue;
+        }
+        let next = bytes.get(i + 1).copied();
+        let identifier = next.is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b >= 128);
+        if next != Some(b'(') && (!identifier || (pattern && i != value_start)) {
+            finding(
+                out,
+                "RAZOR_ATTRIBUTE_TRANSITION",
+                "Invalid or literal @ in HTML attribute; escape a literal @ as @@ (including regular expressions)",
+                at,
+            );
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if identifier {
+            while i < bytes.len() && (word(bytes[i]) || bytes[i] >= 128 || bytes[i] == b'.') {
+                i += 1;
+            }
+        }
+        // Skip calls/indexers as well as explicit @(...) expressions so their
+        // C# strings may contain the same quote as the surrounding HTML value.
+        while matches!(bytes.get(i), Some(b'(' | b'[')) {
+            let left = bytes[i];
+            let right = if left == b'(' { b')' } else { b']' };
+            if let Some(end) = delimited_end(bytes, i, left, right) {
+                if skip_space(bytes, i + 1) == end - 1 && i == at + 1 {
+                    finding(
+                        out,
+                        "RAZOR_ATTRIBUTE_EXPRESSION",
+                        "Razor explicit attribute expression cannot be empty",
+                        at,
+                    );
+                }
+                i = end;
+            } else {
+                finding(
+                    out,
+                    "RAZOR_EXPRESSION_UNCLOSED",
+                    "Razor attribute expression is missing a closing ')' or ']'",
+                    at,
+                );
+                return bytes.len();
+            }
+            while i < bytes.len() && (word(bytes[i]) || bytes[i] >= 128 || bytes[i] == b'.') {
+                i += 1;
+            }
+        }
+    }
+    if quoted && i < bytes.len() { i + 1 } else { i }
+}
+
+fn pattern_attribute(bytes: &[u8], tag_end: usize, equals: usize) -> bool {
+    let name_end = bytes[tag_end..equals]
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map_or(tag_end, |n| tag_end + n + 1);
+    let name_start = bytes[tag_end..name_end]
+        .iter()
+        .rposition(|b| !word(*b) && *b != b'-')
+        .map_or(tag_end, |n| tag_end + n + 1);
+    bytes[name_start..name_end].eq_ignore_ascii_case(b"pattern")
+}
+
 fn scan(source: &str, context: &OperationContext) -> Result<Vec<Finding>, Failure> {
     if source.len() > 2 * 1024 * 1024 {
         return Err(("PARSER_LIMIT", "Basic Razor parser is limited to 2 MiB"));
@@ -321,8 +440,27 @@ fn scan(source: &str, context: &OperationContext) -> Result<Vec<Finding>, Failur
         }
         i = end;
         while i < bytes.len() && bytes[i] != b'>' {
-            if matches!(bytes[i], b'"' | b'\'') {
-                i = quoted(bytes, i);
+            if bytes[i] == b'=' {
+                let pattern = pattern_attribute(bytes, end, i);
+                i = skip_space(bytes, i + 1);
+                if i < bytes.len() && bytes[i] != b'>' {
+                    i = attribute_end(
+                        bytes,
+                        i,
+                        matches!(bytes[i], b'"' | b'\''),
+                        pattern,
+                        &mut out,
+                    );
+                }
+            } else if matches!(bytes[i], b'"' | b'\'') {
+                let equals = bytes[end..i]
+                    .iter()
+                    .rposition(|b| !b.is_ascii_whitespace())
+                    .map(|p| p + end);
+                let pattern = equals
+                    .filter(|p| bytes[*p] == b'=')
+                    .is_some_and(|p| pattern_attribute(bytes, end, p));
+                i = attribute_end(bytes, i, true, pattern, &mut out);
             } else {
                 i += 1;
             }
@@ -490,5 +628,49 @@ mod tests {
                 .0,
             "RAZOR_UNESCAPED_MEDIA"
         );
+    }
+
+    #[test]
+    fn html_attributes_check_razor_transitions_and_nested_csharp_quotes() {
+        let ctx = OperationContext::default();
+        for source in [
+            r#"<input value=@Model.Email pattern=@@ />"#,
+            r#"<input value=@(Model.Email) pattern=^[^@@]+$>"#,
+            r#"<input value=user@example.com/>"#,
+            r#"<input pattern="^[^\s@@]+@@[^\s@@]+$" />"#,
+            r#"<input value="@Model.Email" pattern="@Model.Pattern" />"#,
+            r#"<input value="@(Model.Email ?? "a@b.com")" />"#,
+            r#"<input value='@Html.Raw("hello")' />"#,
+            r#"<input value="@Model.Items[0].Email" />"#,
+            r#"<a href="mailto:support@example.com" data-email="user@example.com">Mail</a>"#,
+            r#"<input value="prefix @Model.Email suffix" />"#,
+            r#"<input value="@* ignore @ here *@OK" />"#,
+            r#"<input value="path\" />"#,
+        ] {
+            assert!(validate("x.cshtml", source, &ctx).is_ok(), "{source}");
+        }
+        for (source, code) in [
+            (r#"<input pattern=^[^@]+$>"#, "RAZOR_ATTRIBUTE_TRANSITION"),
+            (
+                r#"<input pattern="^[^\s@]+@[^\s@]+$" />"#,
+                "RAZOR_ATTRIBUTE_TRANSITION",
+            ),
+            (
+                r#"<input pattern="^[a-z]+@example\.com$" />"#,
+                "RAZOR_ATTRIBUTE_TRANSITION",
+            ),
+            (r#"<input value="@(" />"#, "RAZOR_EXPRESSION_UNCLOSED"),
+            (r#"<input value="@()" />"#, "RAZOR_ATTRIBUTE_EXPRESSION"),
+            (
+                r#"<input value="@Model.Items[0" />"#,
+                "RAZOR_EXPRESSION_UNCLOSED",
+            ),
+        ] {
+            assert_eq!(
+                validate("x.cshtml", source, &ctx).unwrap_err().0,
+                code,
+                "{source}"
+            );
+        }
     }
 }

@@ -12,7 +12,7 @@ subgraph; dynamic references and macros may be missing. Detail retains the graph
 and omitted callers. `requireMatchingFiles:true` rejects stale contributing files,
 but does not certify global index coverage.
 
-`harness_patch_preview` accepts the same arguments as `harness_replace`: `path`,
+`harness_replace` with `preview:true` accepts `path`,
 `hash`, either `oldText`/`newText` or `chunks`, and optional `session`. It prepares
 the candidate with the same hash checks and validates syntax, returning `patch`,
 `baseHash`, `candidateHash`, `syntax` and `published:false`. Syntax failures still
@@ -21,7 +21,8 @@ each hunk; alignment work is bounded and may produce a nonminimal diff for large
 replacements. CRLF and missing final newlines are preserved. The compact
 patch is limited to 12000 characters; retrieve the full patch with `harness_detail`
 if truncated. To apply, call `harness_replace` with the same replacement and the
-returned `baseHash`; the source is checked again. Preview does not reserve files,
+returned `baseHash` as the input `hash` (canonical) or `baseHash` (compatible alias),
+never both; the source is checked again. Preview does not reserve files,
 validate types or compile the project. Both planning tools are available in the
 investigate profile as well as edit/full.
 
