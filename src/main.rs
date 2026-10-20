@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut collected: Vec<_> = args.by_ref().collect();
     if collected.len() == 1 && (collected[0] == "--help" || collected[0] == "-h") {
         println!(
-            "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --init-index            Crear un índice nuevo\n  --sync                 Sincronizar el índice existente\n  --reindex              Reextraer el índice existente\n  --sync-plan            Mostrar un plan sin modificar el índice\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda"
+            "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
         );
         println!(
             "\nConfiguración opcional: --init-config crea .agents/harness.config.json sin sobrescribir. SQL funciona sin JSON usando una cadena en .env o variables de entorno."
@@ -18,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if collected.first().is_some_and(|flag| {
         [
+            "--index",
             "--init-index",
             "--init-config",
             "--sync",
@@ -66,8 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("too many command-line arguments".into());
     }
     let (root, persist_logs) = match input {
-        (Some(flag), Some(root), Some(option), None)
-            if flag == "--root" && option == "--reindex" =>
+        (Some(flag), Some(root), Some(option), val)
+            if flag == "--root"
+                && (option == "--reindex"
+                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("rebuild")))) =>
         {
             // A bounded multi-file rebuild is not a single MCP request. Keep
             // cancellation/deadline checks, but allow the CLI batch five minutes.
@@ -85,8 +88,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), None)
-            if flag == "--root" && option == "--init-index" =>
+        (Some(flag), Some(root), Some(option), val)
+            if flag == "--root"
+                && (option == "--init-index"
+                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("init")))) =>
         {
             let context = harness_domain::execution::OperationContext::default();
             let result =
@@ -95,7 +100,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), None) if flag == "--root" && option == "--sync" => {
+        (Some(flag), Some(root), Some(option), val)
+            if flag == "--root"
+                && (option == "--sync"
+                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("sync")))) =>
+        {
             // CLI batches need a workspace budget independent of MCP's 30s request deadline.
             let context = harness_domain::execution::OperationContext::with_timeout(
                 std::time::Duration::from_secs(300),
@@ -126,8 +135,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         (Some(flag), Some(root), None, None) if flag == "--root" => (PathBuf::from(root), false),
-        (Some(flag), Some(root), Some(option), None)
-            if flag == "--root" && option == "--sync-plan" =>
+        (Some(flag), Some(root), Some(option), val)
+            if flag == "--root"
+                && (option == "--sync-plan"
+                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("plan")))) =>
         {
             let context = harness_domain::execution::OperationContext::default();
             let result =
@@ -152,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: agent-harness [--root <workspace>] [--persist-logs | --init-index | --reindex | --sync-plan | --sync | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
+                "usage: agent-harness [--root <workspace>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into(),
             );
         }
     };

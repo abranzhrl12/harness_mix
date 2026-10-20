@@ -265,7 +265,7 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
-        description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status, list, events, cancel y observe no bloquean la conversación. action=observe permite inspeccionar stdout/stderr retenido con regex, líneas de contexto y cursor incremental sin necesidad de una herramienta separada. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
+        description = "Verificación en segundo plano: action=start|status|observe|cancel."
     )]
     async fn harness_jobs(
         &self,
@@ -287,7 +287,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Registrar/listar/revocar un alcance externo de solo lectura ligado a session durante 1 hora. grant requiere root absoluto y userAuthorized=true, solo si el usuario autorizó esa ruta para la tarea. No inferir autorización de archivos. No permite escritura, ejecución ni carpetas vecinas."
+        description = "Scope externo de solo lectura: action=grant|list|revoke."
     )]
     async fn harness_external_scope(
         &self,
@@ -297,7 +297,7 @@ impl McpHarness {
         self.call(Request::ExternalScope(args), context).await
     }
     #[tool(
-        description = "Leer configuración XML/JSON redactada antes de truncar. XML: atributos/textos ocultos. JSON: sección top-level exacta; nombres de propiedades y escalares ocultos, claves duplicadas usan último valor. raw=true activa modo heurístico IIS/ASP.NET clásico preservando nombres de claves y atributos, redactando contraseñas, connectionStrings, tokens y tags <value>. Sin referencias externas ni fuente original. Límite 1 MiB. No modifica el runtime."
+        description = "Lee configuración XML/JSON redactada por sección."
     )]
     async fn harness_config(
         &self,
@@ -307,7 +307,7 @@ impl McpHarness {
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "1–4 lecturas independientes: SQL PostgreSQL/SQL Server mediante tool=harness_sql, archivos, símbolos, Git, XLSX y SVG. Para describir varias tablas usa jobs con action=describe, engine y name exactos; hasta 2 hijos concurrentes, plazo/admisión compartidos. No mutaciones, verify ni batches anidados. Valida tipos antes de ejecutar; resultados por índice, no snapshot transaccional compartido."
+        description = "Ejecuta 1–4 lecturas independientes en paralelo."
     )]
     async fn harness_batch(
         &self,
@@ -317,7 +317,7 @@ impl McpHarness {
         self.call(Request::Batch(args), context).await
     }
     #[tool(
-        description = "Diagnóstico integral y observabilidad del entorno, procesos y código. action=env: comprueba el entorno (versions, connection) y registro MCP. action=syntax: diagnóstico rápido de sintaxis en archivos (files, maxFiles, buildScope). action=logs: inspección de logs y eventos recientes (limit, level, tool, requestId). action=process / action=health: consulta PID, runId, puertos TCP y healthchecks HTTP loopback (pid, runId, port, healthUrl, timeoutMs)."
+        description = "Diagnóstico: action=env|syntax|logs|process|health."
     )]
     async fn harness_doctor(
         &self,
@@ -352,7 +352,7 @@ impl McpHarness {
         result
     }
     #[tool(
-        description = "Git de solo lectura. action=status: includeUntracked (true), offset, limit. action=diff: path relativo de archivo o directorio; path=\".\" para workspace. staged false=index:worktree, true=HEAD:index; maxLines 1..500, maxChars 500..12000. Hasta 128 archivos y presupuesto de argumentos; files informa exclusiones y omisiones. Devuelve hunks y patch, también eliminados; no contenido untracked. Sin submódulos, secretos, filtros externos ni textconv. No fetch, stage, commit ni push."
+        description = "Git de solo lectura: action=status|diff."
     )]
     async fn harness_git(
         &self,
@@ -362,7 +362,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Relaciones y blast radius de un símbolo. view=impact: callers entrantes acotados (requiere filePath y symbol/symbolId; limit 1..100, maxDepth 1..4) con directos/recursivos, archivos afectados, ambigüedad y frescura. view=summary: firmas y conteos. view=full: cuerpos numerados. Grafo completo en data_query resultRef=detail.ref. direction=inbound/outbound/both; maxDepth=1..4. Solo lectura salvo syncIndex explícito. requireMatchingFiles comprueba hashes, no cobertura global. Resúmenes no sirven para editar."
+        description = "Relaciones de un símbolo: view=impact|summary|full."
     )]
     async fn harness_explore(
         &self,
@@ -372,7 +372,7 @@ impl McpHarness {
         self.call(Request::Explore(args), context).await
     }
     #[tool(
-        description = "Operaciones unificadas de sesión. action=checkpoint: goal, decisions y pending en raíz o dentro de data (no duplicar campos); refreshFreshness en raíz. action=tasks: fases (phase), estado (status) o timeline. action=status: estado consolidado. action=handover: reporte Markdown (summary, adr o pr_body)."
+        description = "Sesión: action=checkpoint|tasks|status|handover."
     )]
     async fn harness_session(
         &self,
@@ -382,7 +382,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales Rust/JS/TS por AST y estructura Vue SFC. action=outline: path, query y maxChars opcionales; Vue muestra bloques script/setup, imports/macros, jerarquía template y selectores CSS/SCSS con asociaciones conservadoras. El detalle conserva omisiones. action=read: path y symbol obligatorios, container/symbolId opcionales; view=signature o full con fuente exacta y hash. Estas dos acciones admiten externalScope y session. action=extract_preview para Vue: path, expectedHash SHA-256, symbolId de elemento template, targetPath inexistente y componentName PascalCase; devuelve diff conjunto padre/hijo, interfaz propuesta, reglas BEM exclusivas y dependencias sin resolver, sin escribir archivos. Contenido completo en detail; revisión manual obligatoria para dependencias inciertas. No hay aplicación multiarchivo automática. No sustituye al compilador Vue/Sass ni a comprobaciones de tipos. Para relaciones del grafo usar harness_explore."
+        description = "AST local: action=outline|read (view=signature|full)."
     )]
     async fn harness_symbols(
         &self,
@@ -392,7 +392,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Replace existing UTF-8 files with optional SHA-256 hash (baseHash is an alias; supply only one). preview=true returns diff and syntax diagnostics without publishing. Without hash, bind to the source read internally and recheck before atomic publication. oldText/newText or chunks (1..128, 64000 bytes total), unique in the original, no overlap. allowUnvalidatedText=true permits formats without a parser, not syntax errors. Razor checks are basic; Vue checks inline scripts. Existing .agents/knowledge/**/*.md docs may be edited; other protected paths remain blocked. Use harness_write to create files. Reread after an uncertain outcome."
+        description = "Reemplaza texto con hash; preview=true no publica."
     )]
     async fn harness_replace(
         &self,
@@ -402,7 +402,7 @@ impl McpHarness {
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Create one UTF-8 file. createParents=true creates up to 32 safe parent levels. Identical existing bytes return already_present; different bytes conflict, never overwrite. expectedHash=<sha256> turns the write into an atomic whole-file replace of an existing file whose current hash must match it (STALE otherwise; missing destination is rejected). allowUnvalidatedText=true permits formats without a parser, not syntax errors in supported formats. Vue inline scripts are checked; template/style are reported not checked. Existing .agents/knowledge/**/*.md docs may be created or edited; other protected paths remain blocked. Returns hash, postcheck, syntax, change summary and createdDirectories; no build. Failures may retain reported empty directories. Windows only; MCP input 128 KiB including JSON, internal file limit 2 MiB. Reuse bootstrap session."
+        description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide."
     )]
     async fn harness_write(
         &self,
@@ -412,7 +412,7 @@ impl McpHarness {
         self.call(Request::Write(args), context).await
     }
     #[tool(
-        description = "Mueve o renombra un archivo regular dentro del workspace: from y to relativos. Windows y mismo volumen. El destino debe estar libre y su carpeta padre debe existir. No crea carpetas; rechaza rutas protegidas y enlaces. Renombres solo de mayúsculas requieren un nombre intermedio libre. No modifica imports. changed=true confirma el movimiento; revisar index.status y verified antes de reintentar."
+        description = "Mueve o renombra un archivo dentro del workspace."
     )]
     async fn harness_move(
         &self,
@@ -422,7 +422,7 @@ impl McpHarness {
         self.call(Request::Move(args), context).await
     }
     #[tool(
-        description = "Verify with local tools, no arbitrary commands. Rust defaults to cargo check; optional package adds -p <crate>, scope selects crate directory or Cargo.toml, action=build|test remains explicit. Rust process deadline 60 s plus 5 s cleanup, combined output 2 MiB; command and output tails retained on timeout. Other language processes retain 30 s budgets. TS/TSX build is syntax only, no type checking or tests; .NET requires explicit project and SDK without restore. Executes project code, not a sandbox. Reuse session from bootstrap."
+        description = "Compila o prueba con herramientas locales, sin shell."
     )]
     async fn harness_verify(
         &self,
@@ -433,7 +433,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "SQL: enviar sql permite omitir action (query) y engine (sqlserver). Query: {sql,parameters?,session?}; explícito action=query, engine=sqlserver|postgresql; PG query arbitraria NO disponible. status {connect?} no conecta por defecto. search {query,objectType?,schema?,limit?} descubre nombres. describe {name,kind?,sections?,refresh?}: kind acepta relation/routine; objectType es alias, table/view equivalen a relation y procedure/function a routine. No duplicar kind/objectType. Para status/search/describe, indicar engine si ambos motores están habilitados. PG refresh:true renueva caché opt-in. Cero filas no prueba ausencia."
+        description = "SQL de solo lectura: action=query|status|search|describe."
     )]
     async fn harness_sql(
         &self,
@@ -444,7 +444,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Start or reuse a Rust session. compact=true reduces the initial catalog while retaining project rules, safety notices and execution limits; full catalog remains in detail. Copy data.session into later calls. Reuse sessions instead of repeating bootstrap."
+        description = "Inicia o reutiliza la sesión; compact=true reduce el catálogo."
     )]
     async fn harness_bootstrap(
         &self,
@@ -455,7 +455,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Leer hasta 300 líneas UTF-8 (máximo 16000 bytes de texto) con hash SHA-256 y dos líneas de contexto por lado. path acepta alias file o target_path (solo uno). Ejemplo: file=Views/Home/Index.cshtml, start=1, lines=30. Para implementaciones usar harness_symbols action=read view=full."
+        description = "Lee hasta 300 líneas UTF-8 con hash y contexto."
     )]
     async fn harness_read(
         &self,
@@ -466,7 +466,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Recuperar detalle por referencia local al proceso, con paginación UTF-16 compatible con JavaScript. Máximo 16000 caracteres."
+        description = "Recupera detalle paginado por ref (máx. 16000 chars)."
     )]
     async fn harness_detail(
         &self,
@@ -477,7 +477,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Búsqueda nativa text/files/file_size/syntax. scope acota ruta; path es alias. globs (alias includes) filtra archivos antes de leer en text/files/file_size, p.ej. kind=text, query=Controller, globs=[\"*.cs\",\"*.cshtml\"]. syntax solo declaraciones Rust declaration_kind[:nombre], sin globs ni callers. file_size usa minLines sin query. Límites 2 MiB/archivo, 5 s cooperativos y salida parcial explícita. Scopes externos autorizados Windows."
+        description = "Busca text/files/file_size/syntax con scope y globs."
     )]
     async fn harness_search(
         &self,
@@ -488,7 +488,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Libro XLSX de solo lectura. Si no se especifica `sheet`, inspecciona metadatos, nombres de hojas y dimensiones sin volcar filas. Si se proporciona `sheet`, lee un rango acotado o paginado de celdas (range, rowOffset, pageSize, formulas opcionales)."
+        description = "Inspecciona o lee un libro XLSX por rango o página."
     )]
     async fn harness_xlsx(
         &self,
@@ -499,7 +499,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Inspecciona o previsualiza SVG estático seguro de hasta 256 KiB. Modo inspect: árbol acotado, dimensiones y referencias. Modo preview: metadatos de renderizado seguro para modelos de visión."
+        description = "Inspecciona o previsualiza SVG estático (≤256 KiB)."
     )]
     async fn harness_svg(
         &self,
@@ -510,7 +510,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Proyectar JSON con JMESPath. Exactamente uno de path (JSON local), data o resultRef (raíz JSON almacenada, TTL del detalle). Redacta claves y patrones sensibles antes de evaluar y guardar; es heurístico, no detección universal de secretos. Límites 1 MiB/10000 nodos/profundidad 64; maxChars 500..32000 UTF-16; recorte Unicode seguro y detalle recuperable. No repite la operación original."
+        description = "Proyecta JSON con JMESPath (path|data|resultRef)."
     )]
     async fn harness_data_query(
         &self,

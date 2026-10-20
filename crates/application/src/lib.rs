@@ -625,6 +625,36 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "Copy data.session into the session argument of later calls. sessionId is a legacy response alias."
         );
         result["exampleCall"] = json!({"tool":"harness_explore","arguments":{"query":"main","session":session.id},"note":"Replace main with the exact symbol you want; other arguments have read-only context defaults."});
+        let available_tools = self.tool_profile.tools();
+        let quick_guide: Vec<Value> = [
+            ("harness_bootstrap", "compact=true; reutiliza data.session"),
+            ("harness_explore", "view=impact exige filePath+symbol; summary firmas; full cuerpos"),
+            ("harness_symbols", "outline=estructura; read=fuente exacta + hash"),
+            ("harness_read", "start/lines o end; path o file"),
+            ("harness_search", "kind=text|files|file_size|syntax; globs filtra; scope acota"),
+            ("harness_detail", "ref de salida truncada; offset/maxChars"),
+            ("harness_replace", "oldText/newText o chunks; preview=true no publica"),
+            ("harness_write", "expectedHash permite reemplazo atómico"),
+            ("harness_move", "from/to relativos; el padre debe existir"),
+            ("harness_verify", "language; action=build|test; package/scope"),
+            ("harness_jobs", "start devuelve taskId; observe sigue stdout/stderr"),
+            ("harness_git", "diff exige path; staged true=HEAD:index"),
+            ("harness_sql", "indica engine si hay dos motores"),
+            ("harness_xlsx", "sin sheet=metadatos; range/rowOffset/pageSize"),
+            ("harness_svg", "mode=inspect|preview"),
+            ("harness_config", "section obligatoria; raw=true IIS/ASP.NET"),
+            ("harness_doctor", "env|syntax|logs|process|health"),
+            ("harness_external_scope", "grant exige root y userAuthorized=true"),
+            ("harness_data_query", "exactamente uno de path|data|resultRef"),
+            ("harness_batch", "jobs[1..4]; maxConcurrent 2..4"),
+            ("harness_session", "checkpoint goal/decisions/pending; tasks timeline"),
+        ]
+        .iter()
+        .copied()
+        .filter(|(tool, _)| available_tools.iter().any(|name| name.as_str() == *tool))
+        .map(|(tool, usage)| json!({"tool": tool, "usage": usage}))
+        .collect();
+        result["quickGuide"] = json!(quick_guide);
         result["rulesHash"] = json!(rules_hash);
         result["capabilitiesHash"] = json!(capabilities_hash);
         result["sessionRestored"] = json!(session.restored);

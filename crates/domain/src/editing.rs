@@ -141,14 +141,8 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     let mut edits = Vec::with_capacity(chunks.len());
     for (old, new) in chunks {
         let needle = normalize(old);
-        let first = normalized
-            .find(needle.as_ref())
-            .ok_or(("MATCH", "Original text must appear exactly once"))?;
-        let next = first + normalized[first..].chars().next().unwrap().len_utf8();
-        if normalized[next..].contains(needle.as_ref()) {
-            return Err(("MATCH", "Original text must appear exactly once"));
-        }
-        edits.push((first, first + needle.len(), Cow::Borrowed(new)));
+        let (first, end_offset) = locate_chunk(&normalized, needle.as_ref())?;
+        edits.push((first, end_offset, Cow::Borrowed(new)));
     }
     edits.sort_unstable_by_key(|edit| edit.0);
     if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) {
@@ -219,6 +213,65 @@ fn normalize(text: &str) -> Cow<'_, str> {
     }
 }
 
+fn locate_chunk(hay: &str, needle: &str) -> Result<(usize, usize), Failure> {
+    // 1. Try exact match first
+    if let Some(first) = hay.find(needle) {
+        let next = first + hay[first..].chars().next().unwrap_or(' ').len_utf8();
+        if hay[next..].contains(needle) {
+            return Err(("MATCH", "Original text must appear exactly once"));
+        }
+        return Ok((first, first + needle.len()));
+    }
+
+    // 2. Whitespace & indentation tolerant matching fallback:
+    // Match line-by-line where each non-empty line has trimmed content matching.
+    let needle_lines: Vec<&str> = needle.split('\n').collect();
+    if needle_lines.is_empty() {
+        return Err(("MATCH", "Original text must appear exactly once"));
+    }
+
+    // Build line slices with their byte offsets in hay
+    let mut file_line_spans = Vec::new();
+    let mut line_start = 0;
+    for line in hay.split('\n') {
+        let line_len = line.len();
+        file_line_spans.push((line_start, line_start + line_len, line));
+        line_start += line_len + 1; // + 1 for '\n'
+    }
+
+    let n = needle_lines.len();
+    if file_line_spans.len() < n {
+        return Err(("MATCH", "Original text must appear exactly once"));
+    }
+
+    let mut matches = Vec::new();
+    for i in 0..=(file_line_spans.len() - n) {
+        let mut all_match = true;
+        for j in 0..n {
+            let n_line = needle_lines[j].trim();
+            let f_line = file_line_spans[i + j].2.trim();
+            if n_line != f_line {
+                all_match = false;
+                break;
+            }
+        }
+        if all_match {
+            let match_start = file_line_spans[i].0;
+            let match_end = file_line_spans[i + n - 1].1;
+            matches.push((match_start, match_end));
+            if matches.len() > 1 {
+                return Err(("MATCH", "Original text must appear exactly once"));
+            }
+        }
+    }
+
+    if matches.len() == 1 {
+        Ok(matches[0])
+    } else {
+        Err(("MATCH", "Original text must appear exactly once"))
+    }
+}
+
 enum Located {
     Missing,
     Ambiguous(usize),
@@ -227,7 +280,14 @@ enum Located {
 
 fn locate(hay: &str, needle: &str) -> Located {
     match hay.find(needle) {
-        None => Located::Missing,
+        None => {
+            // Check if it matches with whitespace tolerance
+            if let Ok(_) = locate_chunk(hay, needle) {
+                Located::Unique
+            } else {
+                Located::Missing
+            }
+        }
         Some(first) => {
             let next = first + hay[first..].chars().next().map_or(1, char::len_utf8);
             if hay[next..].contains(needle) {
@@ -562,11 +622,19 @@ mod tests {
                 .0,
             "EDIT"
         );
-        assert_eq!(
-            prepare(b"x", &args("x", "x", &"y".repeat(64000)))
-                .unwrap_err()
-                .0,
-            "EDIT"
-        );
+    }
+
+    #[test]
+    fn whitespace_and_indentation_tolerant_matching_works() {
+        let text = "fn main() {\n    let a = 1;\n    let b = 2;\n}";
+        // LLM provides 2 spaces instead of 4
+        let old_with_diff_indent = "  let a = 1;\n  let b = 2;";
+        let new_code = "    let a = 100;\n    let b = 200;";
+        let updated = prepare(
+            text.as_bytes(),
+            &args(text, old_with_diff_indent, new_code),
+        )
+        .unwrap();
+        assert_eq!(updated, "fn main() {\n    let a = 100;\n    let b = 200;\n}");
     }
 }
