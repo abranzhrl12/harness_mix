@@ -19,7 +19,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.0.0.
 | harness_jobs | rust |
 | harness_move | rust |
 | harness_outline | node |
-| harness_process_status | node, rust |
+| harness_process_status | node |
 | harness_read | node, rust |
 | harness_read_symbol | node |
 | harness_regression | node |

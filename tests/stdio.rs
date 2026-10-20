@@ -431,7 +431,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 22);
+    assert_eq!(tools.len(), 21);
     assert!(
         tools
             .iter()
@@ -1273,7 +1273,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 22);
+    assert_eq!(names.len(), 21);
     let mut actual = names.clone();
     actual.sort();
     let mut expected = harness_domain::tool_contract::tool_names("rust");
@@ -1302,7 +1302,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     assert!(names.contains(&"harness_doctor"));
     assert!(!names.contains(&"harness_diagnostics"));
     assert!(!names.contains(&"harness_logs"));
-    assert!(names.contains(&"harness_process_status"));
+    assert!(!names.contains(&"harness_process_status"));
     assert!(names.contains(&"harness_data_query"));
     assert!(names.contains(&"harness_explore"));
     assert!(names.contains(&"harness_config") && names.contains(&"harness_external_scope"));

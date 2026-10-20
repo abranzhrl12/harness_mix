@@ -317,7 +317,7 @@ impl McpHarness {
         self.call(Request::Batch(args), context).await
     }
     #[tool(
-        description = "Diagnóstico integral y observabilidad del entorno y del código. action=env: comprueba el entorno (versions, connection) y registro MCP. action=syntax: diagnóstico rápido de sintaxis en archivos (files, maxFiles, buildScope). action=logs: inspección de logs y eventos recientes (limit, level, tool, requestId)."
+        description = "Diagnóstico integral y observabilidad del entorno, procesos y código. action=env: comprueba el entorno (versions, connection) y registro MCP. action=syntax: diagnóstico rápido de sintaxis en archivos (files, maxFiles, buildScope). action=logs: inspección de logs y eventos recientes (limit, level, tool, requestId). action=process / action=health: consulta PID, runId, puertos TCP y healthchecks HTTP loopback (pid, runId, port, healthUrl, timeoutMs)."
     )]
     async fn harness_doctor(
         &self,
@@ -507,17 +507,6 @@ impl McpHarness {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Svg(args), context).await
-    }
-
-    #[tool(
-        description = "Consulta PID, trabajos persistentes compartidos (runId=taskId; list active/recent), puerto TCP y healthcheck HTTP loopback. HTTPS se rechaza explícitamente. Existencia de PID no demuestra identidad ni respuesta de la aplicación."
-    )]
-    async fn harness_process_status(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::ProcessStatusArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::ProcessStatus(args), context).await
     }
 
     #[tool(

@@ -209,7 +209,7 @@ fn completed_job_result_and_event_cursor_survive_graceful_restart() {
     let legacy = server.request(
         30,
         "tools/call",
-        json!({"name":"harness_process_status","arguments":{"runId":task_id,"list":"recent"}}),
+        json!({"name":"harness_doctor","arguments":{"action":"process","runId":task_id,"list":"recent"}}),
     );
     let legacy = &legacy["result"]["structuredContent"];
     assert_eq!(legacy["state"], "ok", "{legacy}");
@@ -261,7 +261,7 @@ fn completed_job_result_and_event_cursor_survive_graceful_restart() {
     let legacy = restored.request(
         30,
         "tools/call",
-        json!({"name":"harness_process_status","arguments":{"runId":task_id}}),
+        json!({"name":"harness_doctor","arguments":{"action":"process","runId":task_id}}),
     );
     assert_eq!(
         legacy["result"]["structuredContent"]["data"]["run"]["state"], "succeeded",

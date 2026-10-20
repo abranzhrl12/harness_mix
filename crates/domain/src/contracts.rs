@@ -236,27 +236,20 @@ fn strip_inocuous(value: &mut Value) {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(deny_unknown_fields)]
-#[serde(try_from = "ReplaceInput")]
+#[cfg_attr(feature = "schema", schemars(transform = replace_alias_schema))]
 pub struct ReplaceArgs {
     pub path: String,
     /// Override UTF-8 BOM. Omitted preserves an existing BOM and enables it for Razor on Windows.
     pub bom: Option<bool>,
     /// Current source SHA-256; baseHash is accepted as an alias. Supply only one.
     /// Optional on the wire; an omitted hash is bound to the source read during this edit.
-    #[serde(default)]
     pub hash: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunks: Option<Vec<ReplaceChunk>>,
-    #[serde(default, rename = "oldText")]
     pub old_text: String,
-    #[serde(default, rename = "newText")]
     pub new_text: String,
     /// Explicitly permit UTF-8 text when no syntax parser is available.
-    #[serde(default, rename = "allowUnvalidatedText")]
     pub allow_unvalidated_text: bool,
     /// When true, preview unified diff and syntax diagnostics without publishing.
-    #[serde(default)]
     pub preview: bool,
     pub session: Option<String>,
 }
@@ -265,11 +258,7 @@ impl<'de> serde::Deserialize<'de> for ReplaceArgs {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let mut value = Value::deserialize(deserializer)?;
         strip_inocuous(&mut value);
-        let input: ReplaceInput = serde_json::from_value(value).map_err(|_| {
-            serde::de::Error::custom(
-                "Invalid harness_replace arguments: path plus oldText/newText (or chunks); hash/baseHash optional",
-            )
-        })?;
+        let input: ReplaceInput = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
         Self::try_from(input).map_err(serde::de::Error::custom)
     }
 }
@@ -1046,8 +1035,7 @@ impl Request {
             Self::XlsxInspect(_) | Self::XlsxRead(_) => "harness_xlsx",
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",
-            Self::ProcessStatus(_) => "harness_process_status",
-            Self::Diagnostics(_) => "harness_doctor",
+            Self::ProcessStatus(_) | Self::Diagnostics(_) => "harness_doctor",
             Self::DataQuery(_) => "harness_data_query",
         }
     }
@@ -1118,7 +1106,7 @@ pub struct DoctorEnvArgs {
 
 pub type DoctorArgs = DoctorEnvArgs;
 
-/// Unified system diagnostics, file syntax checks, and log inspection.
+/// Unified system diagnostics, file syntax checks, log inspection, and process/health probing.
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
@@ -1127,6 +1115,8 @@ pub enum DoctorToolArgs {
     Env(DoctorEnvArgs),
     Syntax(DiagnosticsArgs),
     Logs(LogsArgs),
+    Process(ProcessStatusArgs),
+    Health(ProcessStatusArgs),
 }
 
 impl<'de> serde::Deserialize<'de> for DoctorToolArgs {
@@ -1146,6 +1136,12 @@ impl<'de> serde::Deserialize<'de> for DoctorToolArgs {
             Some("logs") => serde_json::from_value(value)
                 .map(Self::Logs)
                 .map_err(serde::de::Error::custom),
+            Some("process") => serde_json::from_value(value)
+                .map(Self::Process)
+                .map_err(serde::de::Error::custom),
+            Some("health") => serde_json::from_value(value)
+                .map(Self::Health)
+                .map_err(serde::de::Error::custom),
             Some("env") | None => serde_json::from_value(value)
                 .map(Self::Env)
                 .map_err(serde::de::Error::custom),
@@ -1162,6 +1158,7 @@ impl DoctorToolArgs {
             Self::Env(args) => Request::Doctor(args),
             Self::Syntax(args) => Request::Diagnostics(args),
             Self::Logs(args) => Request::Logs(args),
+            Self::Process(args) | Self::Health(args) => Request::ProcessStatus(args),
         }
     }
 }
@@ -1515,6 +1512,28 @@ mod doctor_contract_tests {
         }))
         .unwrap();
         let req = logs.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // process
+        let proc: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "process",
+            "pid": 1234,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = proc.into_request();
+        assert_eq!(req.name(), "harness_doctor");
+        assert!(!req.is_mutating());
+
+        // health
+        let health: DoctorToolArgs = serde_json::from_value(json!({
+            "action": "health",
+            "port": 8080,
+            "session": "s1"
+        }))
+        .unwrap();
+        let req = health.into_request();
         assert_eq!(req.name(), "harness_doctor");
         assert!(!req.is_mutating());
     }

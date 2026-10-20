@@ -14,16 +14,20 @@
   "postgresql": {
     "enabled": true,
     "defaultSchema": "public",
-    "allowedSchemas": ["public"],
+    "allowedSchemas": [
+      "public"
+    ],
     "maxRows": 50,
     "timeoutSeconds": 15,
     "maxChars": 8000,
-    "schemaCacheSeconds": 0,
+    "schemaCacheSeconds": 150,
     "connection": {
       "source": "environment",
       "name": "HARNESS_SQL_CONNECTION_STRING",
       "envFile": ".env"
     },
-    "tls": { "mode": "disable" }
+    "tls": {
+      "mode": "disable"
+    }
   }
 }

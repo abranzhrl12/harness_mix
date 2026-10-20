@@ -86,12 +86,28 @@ usuario, indícalo; no declares la conexión operativa antes de verificarla.
 
 En `harness_symbols` el nombre se selecciona con `symbol`, no con `name`.
 Usa las entradas unificadas actuales; el servidor Rust ya no anuncia
-`harness_outline`, `harness_read_symbol`, `harness_git_status` ni `harness_git_diff`.
+`harness_outline`, `harness_read_symbol`, `harness_git_status`, `harness_git_diff`
+ni `harness_process_status` (unificado en `harness_doctor` con `action="process"` o `action="health"`).
 SQL usa `harness_sql` y hojas de cálculo usan `harness_xlsx`, con las acciones de
 sus esquemas actuales.
 
 Agrupa con `harness_batch` únicamente lecturas independientes admitidas por su
-esquema. No agrupes pasos donde el segundo necesita el resultado del primero.
+esquema. Usa concurrencia real (`maxConcurrent: 2` a `4`) para reducir viajes de
+red/stdio al inspeccionar múltiples tablas o leer archivos simultáneamente. No
+agrupes pasos donde el segundo necesita el resultado del primero.
+
+### Optimizaciones operativas y de rendimiento
+
+- **Caché de esquema SQL (`schemaCacheSeconds`)**: En llamadas a `harness_sql` con
+  `action="describe"`, aprovecha el caché (`schemaCacheSeconds: 300`) configurado
+  en `.agents/harness.config.json` o pásalo como argumento para que el catálogo de
+  tablas frecuentes se lea en memoria (0 ms) sin reconsultar el motor de BD.
+- **Concurrencia en batch (`harness_batch`)**: Emplea `maxConcurrent: 2` a `4` para
+  paralelizar lecturas o inspecciones independientes en una sola llamada agregada.
+- **Proyecciones con `harness_data_query`**: Cuando una consulta SQL o búsqueda
+  produzca resultados voluminosos o devuelva un `detail.ref`, usa `harness_data_query`
+  con expresiones puntuales JMESPath para extraer solo columnas clave, agregaciones
+  o registros necesarios en lugar de volcar payloads enteros al contexto.
 
 ## 4. Conserva contexto y edita con precisión
 
