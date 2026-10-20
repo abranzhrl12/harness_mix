@@ -54,7 +54,7 @@ hash-aware compaction; do not bootstrap before each operation.
 
 ## Limits and distribution
 
-`harness_read` accepts up to 300 lines (`start` plus `end`, or `start` plus
+`harness_read` accepts up to 400 lines (`start` plus `end`, or `start` plus
 `lines`). Its existing 16000-byte snippet budget remains unchanged. Larger
 requests fail explicitly; source is never silently truncated. For one specific
 implementation prefer `harness_symbols` with `action=read` and `view=full`.

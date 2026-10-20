@@ -207,8 +207,26 @@ y `harness_search` (`text`, `files` y `file_size`), además de `harness_verify` 
 y `harness_replace` en Windows. También `harness_symbols` (`action=outline|read`)
 para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git` (`action=status|diff`), `harness_doctor`, `harness_batch`
-y `harness_logs`, `harness_config`, `harness_external_scope` y `harness_explore`
+y `harness_logs`, `harness_config`, `harness_external_scope`, `harness_ignore`
+y `harness_explore`
 y la herramienta SQL Server nativa `harness_sql` con TDS/Tiberius directo y cuatro acciones (`status`, `search`, `describe`, `query`) seleccionadas con el campo `action`.
+
+## Exclusiones de búsqueda con `.harnessignore`
+
+`harness_ignore` gestiona policy files con sintaxis gitignore:
+`action=list|add|remove|init`, `scope` (directorio relativo, por defecto la raíz),
+`patterns` (1..128 para add/remove), `reason` opcional y `session`.
+
+`.harnessignore` se aplica siempre en `harness_search`, en cada directorio, con
+mayor precedencia que `.ignore`/`.gitignore`; admite negación `!patrón`. Los
+defaults `node_modules/` y `target/` usan overrides y no pueden re-incluirse.
+Metadatos VCS (`.git`, `.hg`, `.svn`) y rutas de secretos tampoco pueden
+re-incluirse. Se rechazan rutas absolutas, `..`, NUL/controles, patrones que
+excluyan todo el workspace y policy files de más de 128 patrones. La escritura es
+atómica y `add` es idempotente. Un `scope` explícito en `harness_search` omite
+`.harnessignore` y devuelve `SCOPE_OVERRIDES_EXCLUSIONS`, pero nunca los defaults,
+VCS ni secretos. Las exclusiones de política no cuentan como `skippedFiles` ni
+hacen `complete=false`; el resultado las reporta en `exclusionPolicy`.
 
 ## Configuración XML/JSON redactada
 
@@ -270,8 +288,9 @@ archivo, hash, nombre, container, kind, start/end, firma y symbolId; no cuerpos.
 function_signature_item distingue métodos de trait sin cuerpo. Los IDs sirven
 para la navegación existente y quedan obsoletos si cambia el snapshot de origen.
 
-Respeta ignores, exclusiones de secretos, scopes relativos y permisos externos
-Windows; funciona dentro de batch. limit=1..200 (40 por defecto), detalle paginado
+Respeta `.harnessignore`, `.gitignore`, exclusiones de secretos, scopes relativos
+y permisos externos Windows; funciona dentro de batch. limit=1..200 (40 por
+defecto), detalle paginado
 para coincidencias omitidas. El recorrido tiene límites de 10000 archivos visitados,
 2 MiB/archivo, 64 MiB reservados, 10000 coincidencias, 4 MiB de metadata y 5 s
 cooperativos. El parser conserva sus propios presupuestos más estrictos. Los .rs
@@ -1051,7 +1070,7 @@ borrar sus archivos. No ejecutar servidores concurrentes que escriban la misma s
 
 Read devuelve rango, texto UTF-8 y hash SHA-256 del archivo entero;
 incluye anchors con hasta dos líneas antes/después, limitadas a 1000 unidades
-UTF-16 por lado sin cortar caracteres. Conserva límites de 300 líneas, 16000 bytes de fragmento y
+UTF-16 por lado sin cortar caracteres. Conserva límites de 400 líneas, 16000 bytes de fragmento y
 2 MiB por archivo. Rechaza rutas absolutas, traversal, secretos y enlaces/reparse points.
 El rechazo de `..` es más estricto que el servidor Node, incluso para rutas internas.
 No está endurecido contra un proceso hostil que cambie directorios ancestros

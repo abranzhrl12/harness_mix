@@ -100,6 +100,12 @@ impl OriginalOffsets {
 }
 
 pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
+    if args.line == Some(0) || (args.line.is_some() && args.chunks.is_some()) {
+        return Err((
+            "EDIT",
+            "line must be positive and used with oldText/newText, not chunks",
+        ));
+    }
     let chunks: Vec<(&str, &str)> = match &args.chunks {
         Some(chunks) => {
             if !args.old_text.is_empty() || !args.new_text.is_empty() {
@@ -141,7 +147,10 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     let mut edits = Vec::with_capacity(chunks.len());
     for (old, new) in chunks {
         let needle = normalize(old);
-        let (first, end_offset) = locate_chunk(&normalized, needle.as_ref())?;
+        let (first, end_offset) = match args.line {
+            Some(line) => locate_chunk_at_line(&normalized, needle.as_ref(), line)?,
+            None => locate_chunk(&normalized, needle.as_ref())?,
+        };
         edits.push((first, end_offset, Cow::Borrowed(new)));
     }
     edits.sort_unstable_by_key(|edit| edit.0);
@@ -211,6 +220,32 @@ fn normalize(text: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(text)
     }
+}
+
+/// Restrict matching to a block starting at the requested one-based line.
+/// A line disambiguates repeated text, but never skips validating oldText.
+fn locate_chunk_at_line(hay: &str, needle: &str, line: usize) -> Result<(usize, usize), Failure> {
+    let start = if line == 1 {
+        0
+    } else {
+        hay.match_indices('\n')
+            .nth(line - 2)
+            .map(|(offset, _)| offset + 1)
+            .filter(|offset| *offset < hay.len())
+            .ok_or(("MATCH", "Requested line is outside the file"))?
+    };
+    let tail = &hay[start..];
+    // Include exactly as many physical lines as oldText spans. Exact matching
+    // remains unique inside this block, and the fallback retains indentation.
+    let end = tail
+        .match_indices('\n')
+        .nth(needle.bytes().filter(|byte| *byte == b'\n').count())
+        .map_or(hay.len(), |(offset, _)| start + offset);
+    let (first, last) = locate_chunk(&hay[start..end], needle)?;
+    if tail.find('\n').is_some_and(|newline| first > newline) {
+        return Err(("MATCH", "Original text must start on the requested line"));
+    }
+    Ok((start + first, start + last))
 }
 
 fn locate_chunk(hay: &str, needle: &str) -> Result<(usize, usize), Failure> {
@@ -579,6 +614,7 @@ mod tests {
             bom: None,
             path: "file.txt".into(),
             hash: hash(text.as_bytes()),
+            line: None,
             chunks: None,
             old_text: old.into(),
             new_text: new.into(),
@@ -630,11 +666,62 @@ mod tests {
         // LLM provides 2 spaces instead of 4
         let old_with_diff_indent = "  let a = 1;\n  let b = 2;";
         let new_code = "    let a = 100;\n    let b = 200;";
-        let updated = prepare(
-            text.as_bytes(),
-            &args(text, old_with_diff_indent, new_code),
-        )
-        .unwrap();
-        assert_eq!(updated, "fn main() {\n    let a = 100;\n    let b = 200;\n}");
+        let updated =
+            prepare(text.as_bytes(), &args(text, old_with_diff_indent, new_code)).unwrap();
+        assert_eq!(
+            updated,
+            "fn main() {\n    let a = 100;\n    let b = 200;\n}"
+        );
+    }
+
+    #[test]
+    fn direct_replace_binds_unique_text_or_a_validated_line() {
+        let source = "🙂\r\n  padding: 5px;\r\n  padding: 5px;\r\nend";
+        let mut request = args(source, "padding: 5px;", "padding: 8px;");
+        request.hash.clear();
+        assert_eq!(prepare(source.as_bytes(), &request).unwrap_err().0, "MATCH");
+        request.line = Some(3);
+        assert_eq!(
+            prepare(source.as_bytes(), &request).unwrap(),
+            "🙂\r\n  padding: 5px;\r\n  padding: 8px;\r\nend"
+        );
+        for line in [1, 4, 5, usize::MAX] {
+            request.line = Some(line);
+            assert_eq!(prepare(source.as_bytes(), &request).unwrap_err().0, "MATCH");
+        }
+        request.line = Some(0);
+        assert_eq!(prepare(source.as_bytes(), &request).unwrap_err().0, "EDIT");
+        request.line = Some(2);
+        request.hash = hash(b"stale");
+        assert_eq!(prepare(source.as_bytes(), &request).unwrap_err().0, "STALE");
+        let mut request = args("abc", "b", "B");
+        request.hash.clear();
+        assert_eq!(prepare(b"abc", &request).unwrap(), "aBc");
+    }
+
+    #[test]
+    fn line_replace_preserves_multiline_offsets_and_rejects_ambiguity() {
+        let source = "🙂\r\n  a\r\n  b\r\n  a\r\n  b\r\n";
+        let mut request = args(source, "a\nb", "A\nB");
+        request.hash.clear();
+        request.line = Some(4);
+        assert_eq!(
+            prepare(source.as_bytes(), &request).unwrap(),
+            "🙂\r\n  a\r\n  b\r\nA\r\nB\r\n"
+        );
+        request = args("same same\n", "same", "new");
+        request.line = Some(1);
+        assert_eq!(prepare(b"same same\n", &request).unwrap_err().0, "MATCH");
+        let mut request = args("a\nb\nc\n", "b\n", "B\n");
+        request.line = Some(1);
+        assert_eq!(prepare(b"a\nb\nc\n", &request).unwrap_err().0, "MATCH");
+        request.line = Some(2);
+        assert_eq!(prepare(b"a\nb\nc\n", &request).unwrap(), "a\nB\nc\n");
+        let mut request = args("a\nb\n", "\n", "!");
+        request.line = Some(1);
+        assert_eq!(prepare(b"a\nb\n", &request).unwrap(), "a!b\n");
+        let mut request = multi("abc", &[("a", "A")]);
+        request.line = Some(1);
+        assert_eq!(prepare(b"abc", &request).unwrap_err().0, "EDIT");
     }
 }

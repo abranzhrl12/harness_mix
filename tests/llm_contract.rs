@@ -52,7 +52,7 @@ fn investigation_profile_filters_bootstrap_and_blocks_operations_before_executio
         serde_json::from_value(json!({})).unwrap(),
     ));
     assert_eq!(boot["data"]["toolProfile"], "investigate");
-    assert_eq!(boot["data"]["supportedTools"].as_array().unwrap().len(), 11);
+    assert_eq!(boot["data"]["supportedTools"].as_array().unwrap().len(), 12);
     assert_eq!(
         boot["data"]["supportedTools"],
         boot["data"]["toolContract"]["tools"]
@@ -101,8 +101,8 @@ fn investigation_profile_filters_bootstrap_and_blocks_operations_before_executio
 fn edit_profile_adds_validated_edits_without_enabling_sql() {
     use harness_domain::tool_contract::ToolProfile;
     assert!(ToolProfile::parse("typo").is_err());
-    assert_eq!(ToolProfile::Full.tools().len(), 21);
-    assert_eq!(ToolProfile::Edit.tools().len(), 15);
+    assert_eq!(ToolProfile::Full.tools().len(), 22);
+    assert_eq!(ToolProfile::Edit.tools().len(), 16);
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("example.txt"), "old").unwrap();
     let app = adapters::application(root.path())
@@ -281,10 +281,10 @@ fn llm_bootstrap_reports_actual_registry_and_sql_batch_support() {
         result["data"]["backend"]["version"],
         env!("CARGO_PKG_VERSION")
     );
-    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.0.0");
+    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.1.0");
     assert_eq!(
         result["data"]["supportedTools"].as_array().unwrap().len(),
-        21
+        22
     );
     for name in result["data"]["toolContract"]["features"]["batchTools"]
         .as_array()

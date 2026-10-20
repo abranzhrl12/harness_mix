@@ -353,8 +353,8 @@ impl Project {
         end: usize,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        if start == 0 || end < start || end - start >= 300 {
-            return Err(("RANGE", "indicar rango positivo de máximo 300 líneas"));
+        if start == 0 || end < start || end - start >= 400 {
+            return Err(("RANGE", "indicar rango positivo de máximo 400 líneas"));
         }
         let bytes = self.bytes_with_context(relative, context)?;
         let text = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "archivo no UTF-8"))?;
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(value["text"], "uno\r\ndos");
         assert_eq!(value["totalLines"], 3);
         assert_eq!(value["hash"], hash(b"uno\r\ndos\r\n"));
-        for (start, end) in [(0, 1), (2, 1), (1, 301), (4, 4)] {
+        for (start, end) in [(0, 1), (2, 1), (1, 401), (4, 4)] {
             assert_eq!(p.read("example.txt", start, end).unwrap_err().0, "RANGE");
         }
     }
@@ -395,11 +395,11 @@ mod tests {
     fn wider_reads_keep_byte_and_range_limits() {
         let dir = tempfile::tempdir().unwrap();
         let p = Project::new(dir.path()).unwrap();
-        fs::write(dir.path().join("many.txt"), "x\r\n".repeat(350)).unwrap();
-        let value = p.read("many.txt", 1, 300).unwrap();
-        assert_eq!(value["end"], 300);
-        assert_eq!(value["text"].as_str().unwrap().split("\r\n").count(), 300);
-        assert_eq!(p.read("many.txt", 1, 301).unwrap_err().0, "RANGE");
+        fs::write(dir.path().join("many.txt"), "x\r\n".repeat(450)).unwrap();
+        let value = p.read("many.txt", 1, 400).unwrap();
+        assert_eq!(value["end"], 400);
+        assert_eq!(value["text"].as_str().unwrap().split("\r\n").count(), 400);
+        assert_eq!(p.read("many.txt", 1, 401).unwrap_err().0, "RANGE");
         fs::write(
             dir.path().join("long.txt"),
             format!("{}\n", "x".repeat(100)).repeat(300),

@@ -114,6 +114,8 @@ fn package_check_skips_broken_siblings_and_logs_command_and_error_tails() {
             package: Some(package.into()),
             scope: None,
             action: None,
+            engine: None,
+            warnings: None,
             session: None,
         }))
     };

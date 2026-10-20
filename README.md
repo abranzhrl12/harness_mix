@@ -112,4 +112,4 @@ cargo test --locked --workspace -- --test-threads=1
 agent-harness --help
 ```
 
-[Referencia completa](docs/REFERENCE.md) · [Aliases, búsquedas filtradas y diff del workspace](docs/TOOL-COMPATIBILITY.md) · [Estado y límites](docs/MIGRATION-STATUS.md) · [Salida a producción](docs/PRODUCTION.md) · [Distribución Windows](release/README.md)
+[Referencia completa](docs/REFERENCE.md) · [Contexto, selectores CSS y edición directa](docs/SEARCH-CSS-EDITING.md) · [Aliases, búsquedas filtradas y diff del workspace](docs/TOOL-COMPATIBILITY.md) · [Estado y límites](docs/MIGRATION-STATUS.md) · [Salida a producción](docs/PRODUCTION.md) · [Distribución Windows](release/README.md)

@@ -94,7 +94,7 @@ No hay mejora demostrada de latencia por operación: las muestras posteriores
 fueron más lentas y no se aisló CPU, caché ni carga del sistema. La mejora
 funcional validada elimina un corte arbitrario por 100 líneas en read_symbol:
 un cuerpo de hasta 16000 bytes se devuelve completo, aunque tenga más líneas.
-Los cuerpos mayores conservan detail/paginación; harness_read permite 300 líneas con límite de 16000 bytes por fragmento.
+Los cuerpos mayores conservan detail/paginación; harness_read permite 400 líneas con límite de 16000 bytes por fragmento.
 La respuesta de main pasó de 844 bytes (sin cuerpo) a 5636 bytes (cuerpo exacto).
 No se promete menos tokens por llamada: se evita obligar a una llamada adicional.
 

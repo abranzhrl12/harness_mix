@@ -97,6 +97,7 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
         "PATH"
     );
     let search = app.execute(Request::Search(SearchArgs {
+        context_lines: None,
         kind: Kind::Files,
         query: "a".into(),
         min_lines: None,
@@ -110,6 +111,7 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
     assert_eq!(search["data"]["paths"], json!(["a.rs"]));
     assert!(!search.to_string().contains("private neighbor"));
     let syntax = app.execute(Request::Search(SearchArgs {
+        context_lines: None,
         kind: Kind::Syntax,
         query: "function_item:allowed".into(),
         min_lines: None,

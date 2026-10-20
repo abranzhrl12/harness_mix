@@ -74,6 +74,29 @@ fn postgres_rejects_unapproved_schemas_sections_and_arbitrary_queries() {
 }
 
 #[test]
+fn postgres_catalog_search_accepts_all_allowed_schemas_without_widening_permissions() {
+    let root = setup(
+        json!({"enabled":true,"allowedSchemas":["public","taller"],"connection":{"source":"environment","name":"HARNESS_TEST_MISSING_CATALOG_DSN"}}),
+        false,
+    );
+    for schema in [Value::Null, json!("*"), json!("taller")] {
+        let result = call(
+            root.path(),
+            json!({"action":"search","query":"ORDEN_SERVICIO_DETALLE","schema":schema}),
+        );
+        assert_eq!(
+            result["diagnostics"][0]["code"], "PG_CREDENTIALS",
+            "{result}"
+        );
+    }
+    let denied = call(
+        root.path(),
+        json!({"action":"search","query":"users","schema":"private"}),
+    );
+    assert_eq!(denied["diagnostics"][0]["code"], "PG_SCHEMA");
+}
+
+#[test]
 fn invalid_config_is_reported_without_returning_its_contents() {
     let root = setup(
         json!({"enabled":true,"maxRows":0,"password":"do-not-return-this"}),

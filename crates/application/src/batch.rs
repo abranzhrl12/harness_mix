@@ -16,6 +16,10 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if !(1..=4).contains(&args.jobs.len()) {
             return Err(("ARGUMENT", "Batch requires 1..4 independent read jobs"));
         }
+        let max_concurrent = args.max_concurrent.unwrap_or(2);
+        if !(2..=4).contains(&max_concurrent) {
+            return Err(("ARGUMENT", "maxConcurrent must be between 2 and 4"));
+        }
         // Decode all children before any execution. Runtime path/bounds checks still apply per child.
         let jobs = args
             .jobs
@@ -25,7 +29,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let mut results = Vec::new();
         let mut jobs = jobs.into_iter().enumerate();
         loop {
-            let pair: Vec<_> = jobs.by_ref().take(2).collect();
+            let pair: Vec<_> = jobs.by_ref().take(max_concurrent).collect();
             if pair.is_empty() {
                 break;
             }
@@ -77,8 +81,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             json!({"index":item["index"],"tool":item["tool"],"state":result["state"],
                 "requestId":result["requestId"],"data":result["data"],"diagnostics":result["diagnostics"],"omitted":result["omitted"],"detail":result["detail"]})
         }).collect();
-        let mut output =
-            json!({"ok":ok,"results":compact,"atomic":false,"maxConcurrentChildren":2});
+        let mut output = json!({"ok":ok,"results":compact,"atomic":false,"maxConcurrentChildren":max_concurrent});
         if utf16_len(&output.to_string()) > 20000 {
             output["results"] = json!(results.iter().map(|item|json!({"index":item["index"],"tool":item["tool"],"requestId":item["result"]["requestId"],"state":item["result"]["state"],"fullResultInBatchDetail":true})).collect::<Vec<_>>());
             output["truncated"] = json!(true);

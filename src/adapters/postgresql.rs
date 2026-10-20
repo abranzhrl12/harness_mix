@@ -510,9 +510,9 @@ fn schema<'a>(config: &'a Config, requested: Option<&'a str>) -> Result<&'a str,
     Ok(schema)
 }
 
-const RELATIONS: &str = "SELECT n.nspname::text AS schema,c.relname::text AS name,CASE c.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'view' ELSE 'table' END::text AS kind FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind IN ('r','p','v','m') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_table_privilege(c.oid,'SELECT') AND ($3='' OR CASE WHEN c.relkind IN ('v','m') THEN 'view' ELSE 'table' END=$3) AND strpos(lower(c.relname),lower($2))>0 ORDER BY c.relname LIMIT $4";
-const COLUMNS: &str = "SELECT n.nspname::text AS schema,c.relname::text AS name,a.attname::text AS column,'column'::text AS kind,pg_catalog.format_type(a.atttypid,a.atttypmod)::text AS data_type FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND a.attnum>0 AND NOT a.attisdropped AND c.relkind IN ('r','p','v','m') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_column_privilege(c.oid,a.attnum,'SELECT') AND strpos(lower(a.attname),lower($2))>0 AND $3='' ORDER BY c.relname,a.attnum LIMIT $4";
-const ROUTINES: &str = "SELECT n.nspname::text AS schema,p.proname::text AS name,CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END::text AS kind,left(pg_catalog.pg_get_function_identity_arguments(p.oid),1000)::text AS identity_arguments FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=$1 AND p.prokind IN ('f','p') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_function_privilege(p.oid,'EXECUTE') AND strpos(lower(p.proname),lower($2))>0 AND ($3='' OR CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END=$3) ORDER BY p.proname,p.oid LIMIT $4";
+const RELATIONS: &str = "SELECT n.nspname::text AS schema,c.relname::text AS name,CASE c.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'view' ELSE 'table' END::text AS kind FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=ANY($1) AND c.relkind IN ('r','p','v','m') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_table_privilege(c.oid,'SELECT') AND ($3='' OR CASE WHEN c.relkind IN ('v','m') THEN 'view' ELSE 'table' END=$3) AND strpos(lower(c.relname),lower($2))>0 ORDER BY n.nspname,c.relname LIMIT $4";
+const COLUMNS: &str = "SELECT n.nspname::text AS schema,c.relname::text AS name,a.attname::text AS column,'column'::text AS kind,pg_catalog.format_type(a.atttypid,a.atttypmod)::text AS data_type FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=ANY($1) AND a.attnum>0 AND NOT a.attisdropped AND c.relkind IN ('r','p','v','m') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_column_privilege(c.oid,a.attnum,'SELECT') AND strpos(lower(a.attname),lower($2))>0 AND $3='' ORDER BY n.nspname,c.relname,a.attnum LIMIT $4";
+const ROUTINES: &str = "SELECT n.nspname::text AS schema,p.proname::text AS name,CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END::text AS kind,left(pg_catalog.pg_get_function_identity_arguments(p.oid),1000)::text AS identity_arguments FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=ANY($1) AND p.prokind IN ('f','p') AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_function_privilege(p.oid,'EXECUTE') AND strpos(lower(p.proname),lower($2))>0 AND ($3='' OR CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END=$3) ORDER BY n.nspname,p.proname,p.oid LIMIT $4";
 
 pub(super) fn search(
     project: &Project,
@@ -524,7 +524,10 @@ pub(super) fn search(
     if args.query.is_empty() || args.query.len() > 128 {
         return Err(("ARGUMENT", "Catalog query must contain 1..128 bytes"));
     }
-    let selected_schema = schema(&config, args.schema.as_deref())?;
+    let selected_schemas: Vec<String> = match args.schema.as_deref() {
+        None | Some("*") => config.allowed_schemas.clone(),
+        requested => vec![schema(&config, requested)?.to_owned()],
+    };
     let limit = args.limit.unwrap_or(20).min(config.max_rows);
     if limit == 0 {
         return Err(("ARGUMENT", "limit must be positive"));
@@ -547,10 +550,11 @@ pub(super) fn search(
         &config,
         context,
         sql,
-        &[&selected_schema, &args.query, &kind, &count],
+        &[&selected_schemas, &args.query, &kind, &count],
         limit,
         None,
     ))?;
+    result["schemas"] = json!(selected_schemas);
     result["objectTypeDefault"] =
         json!("relations; specify function/procedure/column for other catalogs");
     Ok(result)

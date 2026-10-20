@@ -53,7 +53,9 @@ pub(super) fn find_frontmatter(source: &str) -> Result<Option<(usize, usize, usi
     while cursor < bytes.len() {
         // Line start
         let mut line_cursor = cursor;
-        while line_cursor < bytes.len() && (bytes[line_cursor] == b' ' || bytes[line_cursor] == b'\t') {
+        while line_cursor < bytes.len()
+            && (bytes[line_cursor] == b' ' || bytes[line_cursor] == b'\t')
+        {
             line_cursor += 1;
         }
         if source[line_cursor..].starts_with("---") {
@@ -85,7 +87,10 @@ pub(super) fn find_frontmatter(source: &str) -> Result<Option<(usize, usize, usi
             break;
         }
     }
-    Err(("SYNTAX_ERROR", "Unterminated Astro frontmatter fence (missing closing ---)"))
+    Err((
+        "SYNTAX_ERROR",
+        "Unterminated Astro frontmatter fence (missing closing ---)",
+    ))
 }
 
 /// Validate Astro syntax: frontmatter script, inline template scripts, and tags.
@@ -100,14 +105,15 @@ pub(super) fn validate(
     context.check()?;
 
     let mut frontmatter_checked = false;
-    let template_start = if let Some((body_start, body_end, after_fence)) = find_frontmatter(source)? {
-        let body = &source[body_start..body_end];
-        ts_syntax::validate_syntax("component.astro.ts", body, context)?;
-        frontmatter_checked = true;
-        after_fence
-    } else {
-        0
-    };
+    let template_start =
+        if let Some((body_start, body_end, after_fence)) = find_frontmatter(source)? {
+            let body = &source[body_start..body_end];
+            ts_syntax::validate_syntax("component.astro.ts", body, context)?;
+            frontmatter_checked = true;
+            after_fence
+        } else {
+            0
+        };
 
     // Scan template for inline <script> and <style> tags
     let mut cursor = template_start;
@@ -143,12 +149,18 @@ pub(super) fn validate(
                 // External or self-closing script
             }
             "script" => {
-                let (body_end, after) = lex::closing_tag(source, cursor, "script")
-                    .ok_or(("SYNTAX_ERROR", "Astro template <script> block is not closed"))?;
+                let (body_end, after) = lex::closing_tag(source, cursor, "script").ok_or((
+                    "SYNTAX_ERROR",
+                    "Astro template <script> block is not closed",
+                ))?;
                 let body = &source[cursor..body_end];
                 if !lex::has_attribute(tag.attrs, "src") {
                     let is_inline = lex::has_attribute(tag.attrs, "is:inline");
-                    let virtual_path = if is_inline { "script.astro.js" } else { "script.astro.ts" };
+                    let virtual_path = if is_inline {
+                        "script.astro.js"
+                    } else {
+                        "script.astro.ts"
+                    };
                     ts_syntax::validate_syntax(virtual_path, body, context)?;
                     scripts_checked += 1;
                 }
@@ -222,8 +234,10 @@ pub(super) fn collect_symbols(
         context.check()?;
         if let Statement::ImportDeclaration(decl) = stmt {
             let range = body_start + decl.span.start as usize..body_start + decl.span.end as usize;
-            let id = hash(format!("{digest}:astro_import:{}:{}", range.start, range.end).as_bytes())[..24]
-                .to_owned();
+            let id =
+                hash(format!("{digest}:astro_import:{}:{}", range.start, range.end).as_bytes())
+                    [..24]
+                    .to_owned();
             symbols.push(Symbol {
                 name: format!("import {}", decl.source.value),
                 container: "frontmatter".into(),
@@ -269,7 +283,11 @@ const { title } = Astro.props;
 
         let digest = hash(valid.as_bytes());
         let symbols = collect_symbols("test.astro", valid, &digest, &ctx).unwrap();
-        assert!(symbols.iter().any(|s| s.name == "Props" && s.kind == "interface_declaration"));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "Props" && s.kind == "interface_declaration")
+        );
         assert!(symbols.iter().any(|s| s.name == "title"));
         assert!(symbols.iter().any(|s| s.kind == "astro_import"));
     }
@@ -278,7 +296,10 @@ const { title } = Astro.props;
     fn rejects_unterminated_frontmatter_or_script() {
         let ctx = OperationContext::default();
         let unclosed = "--- \nconst a = 1;\n<div>hello</div>";
-        assert_eq!(validate("bad.astro", unclosed, &ctx).unwrap_err().0, "SYNTAX_ERROR");
+        assert_eq!(
+            validate("bad.astro", unclosed, &ctx).unwrap_err().0,
+            "SYNTAX_ERROR"
+        );
 
         let bad_script = "---\nconst a = 1;\n---\n<script>\nconst x: = ;\n</script>";
         assert!(validate("bad_js.astro", bad_script, &ctx).is_err());

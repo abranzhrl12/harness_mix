@@ -500,7 +500,8 @@ pub fn search(
     }
 
     let limit = args.limit.unwrap_or(20).clamp(1, 50).min(config.max_rows);
-    let schema = args.schema.as_deref().unwrap_or(&config.default_schema);
+    let schema = args.schema.as_deref().unwrap_or("*");
+    let schema = if schema == "*" { "" } else { schema };
 
     let types_clause = match args.object_type {
         Some(SqlObjectType::Table) => "'U'",
@@ -570,7 +571,7 @@ pub fn search(
         "results": rows_data.values,
         "truncated": rows_data.truncated,
         "query": query,
-        "schema": schema
+        "schema": if schema.is_empty() { "*" } else { schema }
     }))
 }
 
@@ -733,7 +734,7 @@ fn inject_top(sql: &str, limit: usize) -> String {
     }
     let mut end = start + 6;
     loop {
-        let mut next = from(end);
+        let next = from(end);
         if next >= len {
             break;
         }
@@ -748,11 +749,7 @@ fn inject_top(sql: &str, limit: usize) -> String {
             _ => break,
         }
     }
-    format!(
-        "{} TOP ({limit}){}",
-        &sql[..end],
-        &sql[end..]
-    )
+    format!("{} TOP ({limit}){}", &sql[..end], &sql[end..])
 }
 
 pub fn query(
@@ -941,7 +938,10 @@ mod safety_tests {
             ),
             ("select top 10 * from t", "select top 10 * from t"),
             ("select TOP (10) * from t", "select TOP (10) * from t"),
-            ("with c as (select 1) select * from c", "with c as (select 1) select * from c"),
+            (
+                "with c as (select 1) select * from c",
+                "with c as (select 1) select * from c",
+            ),
             ("update t set a = 1", "update t set a = 1"),
         ] {
             assert_eq!(inject_top(sql, 50), expected, "{sql}");

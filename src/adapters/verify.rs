@@ -15,7 +15,36 @@ pub(super) enum BackgroundVerificationPlan {
     TypeScriptSyntax,
 }
 
+fn validate_verify_options(args: &VerifyArgs) -> Result<(), Failure> {
+    if !matches!(
+        args.engine.as_deref().unwrap_or("auto"),
+        "auto" | "dotnet" | "msbuild"
+    ) {
+        return Err(("VERIFY_ENGINE", "engine must be auto, dotnet or msbuild"));
+    }
+    if !matches!(
+        args.warnings.as_deref().unwrap_or("all"),
+        "all" | "changed-files" | "none"
+    ) {
+        return Err((
+            "VERIFY_WARNINGS",
+            "warnings must be all, changed-files or none",
+        ));
+    }
+    if (args.engine.is_some() || args.warnings.is_some())
+        && !args.language.eq_ignore_ascii_case("dotnet")
+        && !args.language.eq_ignore_ascii_case("csharp")
+    {
+        return Err((
+            "VERIFY_OPTIONS",
+            "engine and warnings are supported only for .NET",
+        ));
+    }
+    Ok(())
+}
+
 fn typescript_scope(project: &Project, args: &VerifyArgs) -> Result<Option<String>, Failure> {
+    validate_verify_options(args)?;
     if args.package.is_some() && !args.language.eq_ignore_ascii_case("rust") {
         return Err(("VERIFY_PACKAGE", "package is supported only for Rust"));
     }
@@ -172,7 +201,241 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     )
 }
 
+fn classic_aspnet(source: &str) -> bool {
+    // Comments can contain examples or obsolete imports; ignore them.
+    let mut source = source.to_ascii_lowercase();
+    while let Some(start) = source.find("<!--") {
+        let Some(end) = source[start + 4..].find("-->") else {
+            source.truncate(start);
+            break;
+        };
+        source.replace_range(start..start + 4 + end + 3, "");
+    }
+    source.contains("microsoft.webapplication.targets")
+        || (source.contains("<projecttypeguids")
+            && source.contains("349c5851-65df-11da-9384-00065b846f21"))
+}
+
+fn dotnet_source(path: &std::path::Path) -> Result<String, Failure> {
+    if std::fs::metadata(path)
+        .map_err(|_| ("VERIFY_SCOPE", "Cannot inspect .NET project"))?
+        .len()
+        > 2 * 1024 * 1024
+    {
+        return Err((
+            "VERIFY_SCOPE",
+            ".NET project metadata exceeds inspection budget",
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|_| ("VERIFY_SCOPE", "Cannot read .NET project metadata"))
+}
+
+fn classic_dotnet_target(project: &Project, target: &std::path::Path) -> Result<bool, Failure> {
+    let source = dotnet_source(target)?;
+    if target
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("csproj"))
+    {
+        return Ok(classic_aspnet(&source));
+    }
+    // Inspect only project references declared in this solution, inside the root.
+    let parent = target
+        .parent()
+        .ok_or(("VERIFY_SCOPE", "Solution parent unavailable"))?;
+    for line in source
+        .lines()
+        .filter(|line| line.trim_start().starts_with("Project("))
+    {
+        let fields: Vec<_> = line.split('"').collect();
+        let Some(path) = fields
+            .get(5)
+            .filter(|path| path.to_ascii_lowercase().ends_with(".csproj"))
+        else {
+            continue;
+        };
+        let relative = parent.join(path.replace('\\', "/"));
+        let relative = relative
+            .strip_prefix(&project.root)
+            .map_err(|_| ("PATH", "Solution project outside workspace"))?;
+        let child = project.target(
+            relative
+                .to_str()
+                .ok_or(("PATH", "Solution project must be UTF-8"))?,
+        )?;
+        if classic_aspnet(&dotnet_source(&child)?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn changed_verification_files(
+    project: &Project,
+    context: &OperationContext,
+) -> Result<std::collections::BTreeSet<String>, Failure> {
+    let runner = NativeProcessRunner::new(&project.root)?;
+    let mut paths = std::collections::BTreeSet::new();
+    for arguments in [
+        vec!["diff", "HEAD", "--name-only", "-z", "--"],
+        vec!["ls-files", "--others", "--exclude-standard", "-z"],
+    ] {
+        let spec = ProcessSpec::new(
+            Program::Git,
+            arguments.into_iter().map(String::from).collect(),
+            Duration::from_secs(5),
+            2 * 1024 * 1024,
+        )?;
+        let outcome = runner.run(&spec, context)?;
+        if outcome.reason != StopReason::Exited || outcome.exit_code != Some(0) {
+            return Err(("VERIFY_GIT", "Changed-file warning coverage unavailable"));
+        }
+        for path in outcome
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
+            paths.insert(
+                String::from_utf8_lossy(path)
+                    .replace('\\', "/")
+                    .to_ascii_lowercase(),
+            );
+        }
+    }
+    Ok(paths)
+}
+
+fn diagnostic_lines(output: &str, severity: &str) -> std::collections::BTreeSet<String> {
+    output
+        .lines()
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains(&format!(": {severity} ")) || lower.contains(&format!(": {severity}:"))
+                || (severity == "warning" && (lower.contains(": advertencia ") || lower.contains(": advertencia:")))
+        })
+        .map(|line| line.trim().to_owned())
+        .collect()
+}
+
+fn diagnostic_count(output: &str, severity: &str, fallback: usize) -> usize {
+    // MSBuild prints final totals, including warnings repeated in its summary.
+    output
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim().to_ascii_lowercase();
+            let mut words = line.split_whitespace();
+            let count = words.next()?.parse::<usize>().ok()?;
+            let label = words.next()?;
+            (label.starts_with(severity)
+                || (severity == "warning" && label.starts_with("advertencia"))
+                || (severity == "error" && label.starts_with("errore")))
+            .then_some(count)
+        })
+        .last()
+        .unwrap_or(fallback)
+}
+
+fn warning_matches_file(
+    line: &str,
+    root: &std::path::Path,
+    files: &std::collections::BTreeSet<String>,
+) -> bool {
+    let normalized = line.replace('\\', "/").to_ascii_lowercase();
+    let Some(marker) = [": warning ", ": warning:", ": advertencia ", ": advertencia:"]
+        .iter().filter_map(|marker| normalized.find(marker)).min() else { return false };
+    let mut path = normalized[..marker].trim();
+    // The final numeric parentheses belong to the source location. Earlier
+    // parentheses may be part of directory or file names, e.g. Program Files (x86).
+    if path.ends_with(')') {
+        if let Some(start) = path.rfind('(') {
+            if path[start + 1..path.len() - 1].chars().all(|c| c.is_ascii_digit() || c == ',' || c.is_ascii_whitespace()) {
+                path = path[..start].trim_end();
+            }
+        }
+    }
+    let root = root.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let root = root.trim_start_matches("//?/").trim_end_matches('/');
+    let path = path.trim_start_matches("//?/");
+    let relative = path.strip_prefix(&format!("{root}/")).unwrap_or(path).trim_start_matches("./");
+    if files.contains(relative) { return true; }
+    // Absolute diagnostics must belong to this workspace. Relative diagnostics
+    // may be emitted relative to the owning project rather than the build cwd.
+    if path.starts_with('/') || path.as_bytes().get(1) == Some(&b':') { return false; }
+    let Some((_, project)) = normalized.rsplit_once('[') else { return false };
+    let Some(project) = project.strip_suffix(']').filter(|project| project.ends_with(".csproj")) else { return false };
+    let project = project.trim_start_matches("//?/");
+    let project = project.strip_prefix(&format!("{root}/")).unwrap_or(project).trim_start_matches("./");
+    if project.starts_with('/') || project.as_bytes().get(1) == Some(&b':') { return false; }
+    let Some((parent, _)) = project.rsplit_once('/') else { return false };
+    let joined = format!("{parent}/{relative}");
+    let mut components = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {},
+            ".." => { if components.pop().is_none() { return false; } },
+            _ => components.push(part),
+        }
+    }
+    files.contains(&components.join("/"))
+}
+
+fn dotnet_warning_summary(
+    project: &Project,
+    args: &VerifyArgs,
+    output: &str,
+    complete: bool,
+    context: &OperationContext,
+) -> Value {
+    use std::collections::{BTreeSet, HashMap};
+    use std::sync::{Mutex, OnceLock};
+    static BASELINES: OnceLock<Mutex<HashMap<String, BTreeSet<String>>>> = OnceLock::new();
+    let warnings = diagnostic_lines(output, "warning");
+    let errors = diagnostic_lines(output, "error");
+    let files = changed_verification_files(project, context);
+    let changed: Vec<_> = warnings
+        .iter()
+        .filter(|line| {
+            files
+                .as_ref()
+                .is_ok_and(|files| warning_matches_file(line, &project.root, files))
+        })
+        .cloned()
+        .collect();
+    let key = format!(
+        "{}|{}|{}|{}|{:?}",
+        project.root.display(),
+        args.session.as_deref().unwrap_or(""),
+        args.scope.as_deref().unwrap_or(""),
+        args.engine.as_deref().unwrap_or("auto"),
+        args.action
+    );
+    let mut new_warnings = None;
+    let mut baseline_available = false;
+    if complete && args.session.is_some() {
+        if let Ok(mut baselines) = BASELINES.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+            if let Some(previous) = baselines.get(&key) {
+                baseline_available = true;
+                new_warnings = Some(warnings.difference(previous).count());
+            }
+            // Bounded process cache; session references remain independent.
+            if baselines.len() >= 256 && !baselines.contains_key(&key) {
+                baselines.clear();
+            }
+            baselines.insert(key, warnings.clone());
+        }
+    }
+    json!({
+        "errors": if complete { Some(diagnostic_count(output, "error", errors.len())) } else { None },
+        "warnings": if complete { Some(diagnostic_count(output, "warning", warnings.len())) } else { None },
+        "observedErrors":errors.len(), "observedWarnings":warnings.len(),
+        "newWarnings":new_warnings, "warningBaselineAvailable":baseline_available,
+        "warningBaseline":"previous_complete_verification_in_session",
+        "changedFilesWarnings":changed, "changedFilesWarningsComplete":files.is_ok() && complete,
+        "warningCountsComplete":complete,
+    })
+}
+
 fn dotnet_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    validate_verify_options(args)?;
     let scope = args
         .scope
         .as_deref()
@@ -201,7 +464,42 @@ fn dotnet_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
         .ok_or(("PATH", ".NET scope must be relative UTF-8"))?;
     #[cfg(windows)]
     let relative = relative.replace('\\', "/");
-    // No auto-discovery of neighboring projects, free MSBuild flags, restore or servers.
+    let engine = args.engine.as_deref().unwrap_or("auto");
+    if !matches!(engine, "auto" | "dotnet" | "msbuild") {
+        return Err(("VERIFY_ENGINE", "engine must be auto, dotnet or msbuild"));
+    }
+    let classic = classic_dotnet_target(project, &target)?;
+    let use_msbuild = engine == "msbuild" || (engine == "auto" && classic);
+    if classic && engine == "dotnet" {
+        return Err((
+            "VERIFY_ENGINE",
+            "Classic ASP.NET requires engine=auto or msbuild",
+        ));
+    }
+    if use_msbuild {
+        if matches!(args.action, Some(VerifyAction::Test)) {
+            return Err((
+                "VERIFY_ACTION",
+                "Visual Studio MSBuild verification currently supports build only",
+            ));
+        }
+        return ProcessSpec::new(
+            Program::Msbuild,
+            vec![
+                format!("./{relative}"),
+                "/t:Build".into(),
+                "/nologo".into(),
+                "/verbosity:minimal".into(),
+                "/consoleloggerparameters:Summary".into(),
+                "/nodeReuse:false".into(),
+                "/maxCpuCount:1".into(),
+                "/p:UseSharedCompilation=false".into(),
+            ],
+            Duration::from_secs(30),
+            32 * 1024 * 1024,
+        );
+    }
+    // Closed local build commands; no restore or servers.
     ProcessSpec::new(
         Program::Dotnet,
         vec![
@@ -221,7 +519,7 @@ fn dotnet_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Fail
             "-p:UseSharedCompilation=false".into(),
         ],
         Duration::from_secs(30),
-        2 * 1024 * 1024,
+        32 * 1024 * 1024,
     )
 }
 
@@ -480,6 +778,15 @@ pub(super) fn verify(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     context.check()?;
+    if !matches!(
+        args.warnings.as_deref().unwrap_or("all"),
+        "all" | "changed-files" | "none"
+    ) {
+        return Err((
+            "VERIFY_WARNINGS",
+            "warnings must be all, changed-files or none",
+        ));
+    }
     let native_typescript = typescript_scope(project, args)?.is_some();
     let spec = if native_typescript {
         None
@@ -512,7 +819,7 @@ pub(super) fn verify(
     let cancelled = outcome.reason == StopReason::Cancelled;
     let timed_out = outcome.reason == StopReason::TimedOut;
     let mut result = json!({
-        "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet | Program::Msbuild) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", None if program == Some(Program::Cargo) => "check", _ => "build" },
         "package":args.package,
         "command":spec.as_ref().map(|spec| json!({"program":format!("{:?}",spec.program()).to_ascii_lowercase(),"arguments":spec.arguments()})),
@@ -536,7 +843,46 @@ pub(super) fn verify(
         result["codeExecuted"] = json!(false);
         result["testCountVerified"] = json!(false);
     }
-    if program == Some(Program::Dotnet) {
+    if matches!(program, Some(Program::Dotnet | Program::Msbuild)) {
+        let summary = dotnet_warning_summary(
+            project,
+            args,
+            &output,
+            !limited && !cancelled && !timed_out,
+            context,
+        );
+        for (key, value) in summary.as_object().unwrap() {
+            result[key] = value.clone();
+        }
+        result["engine"] = json!(if program == Some(Program::Msbuild) {
+            "msbuild"
+        } else {
+            "dotnet"
+        });
+        result["warningsFilter"] = json!(args.warnings.as_deref().unwrap_or("all"));
+        if matches!(args.warnings.as_deref(), Some("changed-files" | "none")) {
+            let selected: Vec<String> = result["changedFilesWarnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect();
+            let filter = |text: &str| {
+                text.lines()
+                    .filter(|line| {
+                        diagnostic_lines(line, "warning").is_empty()
+                            || (args.warnings.as_deref() == Some("changed-files")
+                                && selected.iter().any(|selected| selected == line.trim()))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            let display_output = filter(&output);
+            result["output"] = json!(prefix(&display_output, 12000));
+            result["stdoutTail"] = json!(prefix(&filter(&stdout), 4000));
+            result["stderrTail"] = json!(prefix(&filter(&stderr), 4000));
+        }
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "dotnet_test"
         } else {
@@ -568,8 +914,7 @@ pub(super) fn verify(
     } else if cancelled {
         result["diagnostics"] = json!([{"code":"CANCELLED","message":"Verification cancelled; captured output may be partial"}]);
     } else if limited {
-        result["diagnostics"] =
-            json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded 2 MiB"}]);
+        result["diagnostics"] = json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded the bounded capture budget","limitBytes":spec.as_ref().map(ProcessSpec::output_limit)}]);
     }
     if utf16_len(&output) > 12000 || limited {
         result["truncated"] = json!(true);
@@ -583,6 +928,107 @@ mod tests {
     use super::*;
 
     #[test]
+    fn classic_aspnet_detection_and_solution_engine() {
+        assert!(classic_aspnet(
+            "<Project><ProjectTypeGuids>{349C5851-65DF-11DA-9384-00065B846F21}</ProjectTypeGuids></Project>"
+        ));
+        assert!(classic_aspnet(
+            "<Import Project='$(VSToolsPath)\\WebApplications\\Microsoft.WebApplication.targets'/>"
+        ));
+        assert!(!classic_aspnet(
+            "<!-- <Import Project='Microsoft.WebApplication.targets'/> --><Project Sdk='Microsoft.NET.Sdk.Web'/>"
+        ));
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("Web.csproj"),
+            "<Import Project='Microsoft.WebApplication.targets'/>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("Web.sln"),
+            "Project(\"{guid}\") = \"Web\", \"Web.csproj\", \"{guid}\"\nEndProject",
+        )
+        .unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let mut args = VerifyArgs {
+            language: "dotnet".into(),
+            scope: Some("Web.sln".into()),
+            package: None,
+            action: Some(VerifyAction::Build),
+            engine: Some("auto".into()),
+            warnings: None,
+            session: None,
+        };
+        let spec = plan(&project, &args).unwrap();
+        assert_eq!(spec.program(), Program::Msbuild);
+        assert_eq!(spec.output_limit(), 32 * 1024 * 1024);
+        assert!(spec.arguments().iter().any(|arg| arg == "/t:Build"));
+        assert!(!spec.arguments().iter().any(|arg| arg.contains("Restore")));
+        args.engine = Some("dotnet".into());
+        assert_eq!(plan(&project, &args).unwrap_err().0, "VERIFY_ENGINE");
+        args.engine = Some("invalid".into());
+        assert!(matches!(
+            background_plan(root.path(), &args, None),
+            Err(("VERIFY_ENGINE", _))
+        ));
+        args.engine = Some("auto".into());
+        args.warnings = Some("invalid".into());
+        assert!(matches!(
+            background_plan(root.path(), &args, None),
+            Err(("VERIFY_WARNINGS", _))
+        ));
+        args.warnings = None;
+        args.action = Some(VerifyAction::Test);
+        assert_eq!(plan(&project, &args).unwrap_err().0, "VERIFY_ACTION");
+    }
+
+    #[test]
+    fn dotnet_warning_totals_deduplicate_and_preserve_unknown_baseline() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let mut args = VerifyArgs {
+            language: "dotnet".into(),
+            scope: Some("fixture.csproj".into()),
+            package: None,
+            action: None,
+            engine: None,
+            warnings: None,
+            session: Some(uuid::Uuid::new_v4().to_string()),
+        };
+        let output = "File.cs(1,2): warning CS0001: old warning [fixture.csproj]\nFile.cs(1,2): warning CS0001: old warning [fixture.csproj]\n    742 Warning(s)\n    0 Error(s)";
+        let context = OperationContext::default();
+        let first = dotnet_warning_summary(&project, &args, output, true, &context);
+        assert_eq!(first["warnings"], 742);
+        assert_eq!(first["observedWarnings"], 1);
+        assert_eq!(first["errors"], 0);
+        assert!(first["newWarnings"].is_null());
+        let repeated = dotnet_warning_summary(&project, &args, output, true, &context);
+        assert_eq!(repeated["newWarnings"], 0);
+        let added = format!("{output}\nOther.cs(2,3): warning CS0002: new warning");
+        let next = dotnet_warning_summary(&project, &args, &added, true, &context);
+        assert_eq!(next["newWarnings"], 1);
+        let partial = dotnet_warning_summary(&project, &args, output, false, &context);
+        assert!(partial["warnings"].is_null());
+        assert!(partial["newWarnings"].is_null());
+        args.session = None;
+        assert!(
+            dotnet_warning_summary(&project, &args, output, true, &context)["newWarnings"]
+                .is_null()
+        );
+        let files = std::collections::BTreeSet::from(["src/file.cs".to_owned()]);
+        assert!(warning_matches_file(
+            "src\\file.cs(1,2): warning CS1: issue",
+            root.path(),
+            &files
+        ));
+        assert!(!warning_matches_file(
+            "other/file.cs(1,2): warning CS1: issue",
+            root.path(),
+            &files
+        ));
+    }
+
+    #[test]
     fn dotnet_plan_requires_explicit_project_and_disables_restore_servers() {
         let root = tempfile::tempdir().unwrap();
         let project = Project::new(root.path()).unwrap();
@@ -593,6 +1039,8 @@ mod tests {
                 let spec = plan(
                     &project,
                     &VerifyArgs {
+                        engine: None,
+                        warnings: None,
                         language: "csharp".into(),
                         package: None,
                         scope: Some(scope.into()),
@@ -635,6 +1083,8 @@ mod tests {
             Some("C:/a.sln"),
         ] {
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "dotnet".into(),
                 package: None,
                 scope: scope.map(String::from),
@@ -719,6 +1169,8 @@ mod tests {
         let app = super::super::application(root.path()).unwrap();
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "dotnet".into(),
                 package: None,
                 scope: Some(scope.into()),
@@ -768,6 +1220,8 @@ mod tests {
                 let spec = plan(
                     &project,
                     &VerifyArgs {
+                        engine: None,
+                        warnings: None,
                         language: "JS".into(),
                         package: None,
                         scope: Some(scope.clone()),
@@ -806,6 +1260,8 @@ mod tests {
             Some("C:/a.js"),
         ] {
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "javascript".into(),
                 package: None,
                 scope: scope.map(String::from),
@@ -816,6 +1272,8 @@ mod tests {
         }
         for language in ["javascript", "typescript", "ts"] {
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: language.into(),
                 package: None,
                 scope: Some("a.ts".into()),
@@ -846,6 +1304,8 @@ mod tests {
         ] {
             std::fs::write(root.path().join(scope), source).unwrap();
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "typescript".into(),
                 package: None,
                 scope: Some(scope.into()),
@@ -871,6 +1331,8 @@ mod tests {
         let path = root.path().join("check.ts");
         std::fs::write(&path, "const value: number = 1;").unwrap();
         let mut args = VerifyArgs {
+            engine: None,
+            warnings: None,
             language: "ts".into(),
             package: None,
             scope: Some("check.ts".into()),
@@ -922,6 +1384,8 @@ mod tests {
         let app = super::super::application(root.path()).unwrap();
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "javascript".into(),
                 package: None,
                 scope: Some(scope.into()),
@@ -966,6 +1430,8 @@ mod tests {
         std::fs::create_dir(root.path().join("tests with spaces")).unwrap();
         let project = Project::new(root.path()).unwrap();
         let mut args = VerifyArgs {
+            engine: None,
+            warnings: None,
             language: "PYTHON".into(),
             package: None,
             scope: Some("file with spaces.py".into()),
@@ -1004,6 +1470,8 @@ mod tests {
             Some("C:/a.py"),
         ] {
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "python".into(),
                 package: None,
                 scope: scope.map(String::from),
@@ -1013,6 +1481,8 @@ mod tests {
             assert!(plan(&project, &args).is_err());
         }
         let args = VerifyArgs {
+            engine: None,
+            warnings: None,
             language: "python".into(),
             package: None,
             scope: Some("a.txt".into()),
@@ -1048,6 +1518,8 @@ mod tests {
         let app = super::super::application(root.path()).unwrap();
         let call = |scope: &str, action| {
             app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "python".into(),
                 package: None,
                 scope: Some(scope.into()),
@@ -1093,6 +1565,8 @@ mod tests {
         for action in [VerifyAction::Build, VerifyAction::Test] {
             let test = matches!(action, VerifyAction::Test);
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "GO".into(),
                 package: None,
                 scope: Some("module with spaces/go.mod".into()),
@@ -1130,6 +1604,8 @@ mod tests {
             ".\\..\\go.mod",
         ] {
             let args = VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "go".into(),
                 package: None,
                 scope: Some(scope.into()),
@@ -1160,6 +1636,8 @@ mod tests {
         let app = super::super::application(root.path()).unwrap();
         for action in [VerifyAction::Build, VerifyAction::Test] {
             let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+                engine: None,
+                warnings: None,
                 language: "go".into(),
                 package: None,
                 scope: None,
@@ -1177,6 +1655,8 @@ mod tests {
         )
         .unwrap();
         let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            engine: None,
+            warnings: None,
             language: "go".into(),
             package: None,
             scope: None,
@@ -1199,6 +1679,8 @@ mod tests {
         .unwrap();
         let project = Project::new(root.path()).unwrap();
         let mut args = VerifyArgs {
+            engine: None,
+            warnings: None,
             language: "rust".into(),
             package: None,
             scope: Some("crate with spaces".into()),

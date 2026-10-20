@@ -94,6 +94,38 @@ fn validates_every_child_before_execution_and_refuses_mutations_or_recursion() {
 }
 
 #[test]
+fn accepts_args_alias_and_requested_concurrency_and_rejects_invalid_values() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.txt"), "first").unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    for concurrency in [2, 3, 4] {
+        let args: BatchArgs = serde_json::from_value(json!({
+            "jobs": (0..4).map(|_| json!({"tool":"harness_read","args":{"path":"a.txt","start":1,"lines":1}})).collect::<Vec<_>>(),
+            "maxConcurrent":concurrency
+        })).unwrap();
+        let result = app.execute(Request::Batch(args));
+        assert_eq!(result["state"], "ok", "{result}");
+        assert_eq!(result["data"]["maxConcurrentChildren"], concurrency);
+        assert_eq!(result["data"]["results"].as_array().unwrap().len(), 4);
+    }
+    for concurrency in [0, 1, 5] {
+        let args: BatchArgs =
+            serde_json::from_value(json!({"jobs":[job("a.txt")],"maxConcurrent":concurrency}))
+                .unwrap();
+        assert_eq!(
+            app.execute(Request::Batch(args))["diagnostics"][0]["code"],
+            "ARGUMENT"
+        );
+    }
+    assert!(
+        serde_json::from_value::<BatchArgs>(json!({"jobs":[{
+            "tool":"harness_read","args":{},"arguments":{}
+        }]}))
+        .is_err()
+    );
+}
+
+#[test]
 fn oversized_aggregate_is_saved_in_batch_detail() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.txt"), "a".repeat(8000)).unwrap();

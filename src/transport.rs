@@ -264,9 +264,7 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 
 #[tool_router]
 impl McpHarness {
-    #[tool(
-        description = "Verificación en segundo plano: action=start|status|observe|cancel."
-    )]
+    #[tool(description = "Verificación en segundo plano: action=start|status|observe|cancel.")]
     async fn harness_jobs(
         &self,
         Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
@@ -286,9 +284,7 @@ impl McpHarness {
         ))
     }
 
-    #[tool(
-        description = "Scope externo de solo lectura: action=grant|list|revoke."
-    )]
+    #[tool(description = "Scope externo de solo lectura: action=grant|list|revoke.")]
     async fn harness_external_scope(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ExternalScopeArgs>,
@@ -296,9 +292,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::ExternalScope(args), context).await
     }
-    #[tool(
-        description = "Lee configuración XML/JSON redactada por sección."
-    )]
+    #[tool(description = "Lee configuración XML/JSON redactada por sección.")]
     async fn harness_config(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ConfigArgs>,
@@ -306,9 +300,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Config(args), context).await
     }
-    #[tool(
-        description = "Ejecuta 1–4 lecturas independientes en paralelo."
-    )]
+    #[tool(description = "Ejecuta 1–4 lecturas independientes en paralelo.")]
     async fn harness_batch(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::BatchArgs>,
@@ -316,9 +308,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Batch(args), context).await
     }
-    #[tool(
-        description = "Diagnóstico: action=env|syntax|logs|process|health."
-    )]
+    #[tool(description = "Diagnóstico: action=env|syntax|logs|process|health.")]
     async fn harness_doctor(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::DoctorToolArgs>,
@@ -351,9 +341,7 @@ impl McpHarness {
         }
         result
     }
-    #[tool(
-        description = "Git de solo lectura: action=status|diff."
-    )]
+    #[tool(description = "Git de solo lectura: action=status|diff.")]
     async fn harness_git(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::GitArgs>,
@@ -361,9 +349,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(
-        description = "Relaciones de un símbolo: view=impact|summary|full."
-    )]
+    #[tool(description = "Relaciones de un símbolo: view=impact|summary|full.")]
     async fn harness_explore(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ExploreArgs>,
@@ -371,9 +357,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Explore(args), context).await
     }
-    #[tool(
-        description = "Sesión: action=checkpoint|tasks|status|handover."
-    )]
+    #[tool(description = "Sesión: action=checkpoint|tasks|status|handover.")]
     async fn harness_session(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::SessionArgs>,
@@ -381,9 +365,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(
-        description = "AST local: action=outline|read (view=signature|full)."
-    )]
+    #[tool(description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): action=outline|read, view=signature|full.")]
     async fn harness_symbols(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::SymbolsArgs>,
@@ -391,9 +373,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(
-        description = "Reemplaza texto con hash; preview=true no publica."
-    )]
+    #[tool(description = "Reemplaza oldText único o por line; hash opcional ligado a lectura interna; preview=true no publica. Acepta snake_case.")]
     async fn harness_replace(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
@@ -401,9 +381,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Replace(args), context).await
     }
-    #[tool(
-        description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide."
-    )]
+    #[tool(description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide.")]
     async fn harness_write(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::WriteArgs>,
@@ -411,9 +389,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Write(args), context).await
     }
-    #[tool(
-        description = "Mueve o renombra un archivo dentro del workspace."
-    )]
+    #[tool(description = "Mueve o renombra un archivo dentro del workspace.")]
     async fn harness_move(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::MoveArgs>,
@@ -421,9 +397,7 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Move(args), context).await
     }
-    #[tool(
-        description = "Compila o prueba con herramientas locales, sin shell."
-    )]
+    #[tool(description = "Compila o prueba con herramientas locales, sin shell.")]
     async fn harness_verify(
         &self,
         Parameters(args): Parameters<VerifyArgs>,
@@ -432,9 +406,7 @@ impl McpHarness {
         self.call(Request::Verify(args), context).await
     }
 
-    #[tool(
-        description = "SQL de solo lectura: action=query|status|search|describe."
-    )]
+    #[tool(description = "SQL de solo lectura: action=query|status|search|describe.")]
     async fn harness_sql(
         &self,
         Parameters(args): Parameters<harness_domain::sql::SqlArgs>,
@@ -443,9 +415,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
 
-    #[tool(
-        description = "Inicia o reutiliza la sesión; compact=true reduce el catálogo."
-    )]
+    #[tool(description = "Inicia o reutiliza la sesión; compact=true reduce el catálogo.")]
     async fn harness_bootstrap(
         &self,
         Parameters(args): Parameters<BootstrapArgs>,
@@ -454,9 +424,7 @@ impl McpHarness {
         self.call(Request::Bootstrap(args), context).await
     }
 
-    #[tool(
-        description = "Lee hasta 300 líneas UTF-8 con hash y contexto."
-    )]
+    #[tool(description = "Lee hasta 400 líneas UTF-8 con hash y contexto.")]
     async fn harness_read(
         &self,
         Parameters(args): Parameters<ReadArgs>,
@@ -465,9 +433,7 @@ impl McpHarness {
         self.call(Request::Read(args), context).await
     }
 
-    #[tool(
-        description = "Recupera detalle paginado por ref (máx. 16000 chars)."
-    )]
+    #[tool(description = "Recupera detalle paginado por ref (máx. 16000 chars).")]
     async fn harness_detail(
         &self,
         Parameters(args): Parameters<DetailArgs>,
@@ -476,9 +442,7 @@ impl McpHarness {
         self.call(Request::Detail(args), context).await
     }
 
-    #[tool(
-        description = "Busca text/files/file_size/syntax con scope y globs."
-    )]
+    #[tool(description = "Busca text/files/file_size/syntax con scope y globs; contextLines=0..20 añade fuente exacta y hash en kind=text.")]
     async fn harness_search(
         &self,
         Parameters(args): Parameters<SearchArgs>,
@@ -488,8 +452,17 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Inspecciona o lee un libro XLSX por rango o página."
+        description = "Gestiona .harnessignore: action=list|add|remove|init; scope, patterns, reason."
     )]
+    async fn harness_ignore(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::IgnoreArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Ignore(args), context).await
+    }
+
+    #[tool(description = "Inspecciona o lee un libro XLSX por rango o página.")]
     async fn harness_xlsx(
         &self,
         Parameters(args): Parameters<harness_domain::xlsx::XlsxArgs>,
@@ -498,9 +471,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
 
-    #[tool(
-        description = "Inspecciona o previsualiza SVG estático (≤256 KiB)."
-    )]
+    #[tool(description = "Inspecciona o previsualiza SVG estático (≤256 KiB).")]
     async fn harness_svg(
         &self,
         Parameters(args): Parameters<harness_domain::svg::SvgArgs>,
@@ -509,9 +480,7 @@ impl McpHarness {
         self.call(Request::Svg(args), context).await
     }
 
-    #[tool(
-        description = "Proyecta JSON con JMESPath (path|data|resultRef)."
-    )]
+    #[tool(description = "Proyecta JSON con JMESPath (path|data|resultRef).")]
     async fn harness_data_query(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::DataQueryArgs>,
@@ -795,6 +764,7 @@ mod tests {
             bom: None,
             path: "file.txt".into(),
             hash: "unused-by-fake".into(),
+            line: None,
             chunks: None,
             old_text: "old".into(),
             new_text: "new".into(),

@@ -34,6 +34,9 @@ impl NativeProcessRunner {
 }
 
 pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
+    if program == Program::Msbuild {
+        return visual_studio_msbuild();
+    }
     let name = match program {
         Program::Cargo => "cargo",
         Program::Rustc => "rustc",
@@ -42,6 +45,7 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
         Program::Python => "python",
         Program::Node => "node",
         Program::Dotnet => "dotnet",
+        Program::Msbuild => unreachable!(),
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     for directory in std::env::var_os("PATH")
@@ -76,6 +80,92 @@ pub(super) fn executable(program: Program) -> Result<PathBuf, Failure> {
     ))
 }
 
+#[cfg(any(windows, test))]
+fn has_visual_studio_web_targets(executable: &std::path::Path) -> bool {
+    let Some(msbuild) = executable.ancestors().find(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("MSBuild"))
+    }) else {
+        return false;
+    };
+    let Ok(versions) = std::fs::read_dir(msbuild.join("Microsoft/VisualStudio")) else {
+        return false;
+    };
+    versions.filter_map(Result::ok).take(128).any(|version| {
+        version.file_name().to_string_lossy().starts_with('v')
+            && version
+                .path()
+                .join("WebApplications/Microsoft.WebApplication.targets")
+                .is_file()
+    })
+}
+
+#[cfg(windows)]
+fn visual_studio_msbuild() -> Result<PathBuf, Failure> {
+    let installer = std::env::var_os("ProgramFiles(x86)")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or((
+            "MSBUILD_UNAVAILABLE",
+            "Visual Studio Installer location unavailable",
+        ))?
+        .join("Microsoft Visual Studio/Installer/vswhere.exe");
+    if !installer.is_file() {
+        return Err((
+            "MSBUILD_UNAVAILABLE",
+            "Install Visual Studio Build Tools with Web build tools (vswhere.exe missing)",
+        ));
+    }
+    let mut command = Command::new(installer);
+    command.args([
+        "-utf8",
+        "-products",
+        "*",
+        "-requires",
+        "Microsoft.Component.MSBuild",
+        "-find",
+        "MSBuild\\**\\Bin\\MSBuild.exe",
+    ]);
+    let spec = ProcessSpec::new(Program::Msbuild, vec![], Duration::from_secs(5), 16384)?;
+    let outcome = run_command_observed(
+        command,
+        &spec,
+        &OperationContext::with_timeout(Duration::from_secs(5)),
+        &mut |_, _| {},
+    )?;
+    if outcome.reason != StopReason::Exited || outcome.exit_code != Some(0) {
+        return Err((
+            "MSBUILD_UNAVAILABLE",
+            "vswhere failed to locate Visual Studio MSBuild",
+        ));
+    }
+    let candidates: Vec<_> = String::from_utf8_lossy(&outcome.stdout)
+        .lines()
+        .map(|line| PathBuf::from(line.trim().trim_start_matches('\u{feff}')))
+        .filter(|path| path.is_absolute() && path.is_file())
+        .collect();
+    // Prefer an installed WebApplication target, even when a newer VS instance
+    // only has basic MSBuild. Explicit modern-project builds retain a fallback.
+    candidates
+        .iter()
+        .find(|path| has_visual_studio_web_targets(path))
+        .cloned()
+        .or_else(|| candidates.into_iter().next())
+        .ok_or((
+            "MSBUILD_UNAVAILABLE",
+            "Visual Studio MSBuild not found; install Visual Studio Web build tools",
+        ))
+}
+
+#[cfg(not(windows))]
+fn visual_studio_msbuild() -> Result<PathBuf, Failure> {
+    Err((
+        "MSBUILD_UNAVAILABLE",
+        "Classic ASP.NET requires Visual Studio MSBuild on Windows",
+    ))
+}
+
 fn go_environment(command: &mut Command) {
     // These overrides apply to the child only; never mutate the harness environment.
     command
@@ -99,6 +189,8 @@ fn go_environment(command: &mut Command) {
 fn dotnet_environment(command: &mut Command) {
     command
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .env("DOTNET_CLI_UI_LANGUAGE", "en-US")
+        .env("VSLANG", "1033")
         .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
         .env("DOTNET_NOLOGO", "1")
         .env("DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE", "1")
@@ -139,7 +231,7 @@ impl NativeProcessRunner {
         context.check()?;
         let mut command = Command::new(executable(spec.program())?);
         command.args(spec.arguments()).current_dir(&self.root);
-        if spec.program() == Program::Dotnet {
+        if matches!(spec.program(), Program::Dotnet | Program::Msbuild) {
             dotnet_environment(&mut command);
         }
         if spec.program() == Program::Node {
@@ -391,6 +483,28 @@ fn run_command_observed(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn finds_web_targets_from_both_msbuild_architectures() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("MSBuild");
+        let targets = base.join("Microsoft/VisualStudio/v17.0/WebApplications");
+        let executable = base.join("Current/Bin/MSBuild.exe");
+        assert!(!super::has_visual_studio_web_targets(&executable));
+        std::fs::create_dir_all(&targets).unwrap();
+        std::fs::write(
+            targets.join("Microsoft.WebApplication.targets"),
+            "<Project/>",
+        )
+        .unwrap();
+        assert!(super::has_visual_studio_web_targets(&executable));
+        assert!(super::has_visual_studio_web_targets(
+            &base.join("Current/Bin/amd64/MSBuild.exe")
+        ));
+        assert!(!super::has_visual_studio_web_targets(
+            &root.path().join("Other/MSBuild.exe")
+        ));
+    }
+
     #[test]
     fn dotnet_policy_disables_startup_hooks_profilers_and_node_reuse() {
         let mut command = std::process::Command::new("unused-fixture");

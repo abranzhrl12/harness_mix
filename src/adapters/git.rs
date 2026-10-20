@@ -366,11 +366,93 @@ pub(super) fn status(
     Ok(full)
 }
 
+/// Report observed edits even when Git omits ignored paths from ordinary status.
+/// Content is never read; persisted means the edited path still exists on disk.
+pub(super) fn session_changes(
+    project: &Project,
+    edits: &[Value],
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    if edits.is_empty() {
+        return Ok(json!([]));
+    }
+    let reader = Reader::new(project, context)?;
+    let mut seen = BTreeSet::new();
+    let mut changes = Vec::new();
+    for edit in edits.iter().rev() {
+        let Some(path) = edit["path"].as_str() else {
+            continue;
+        };
+        if !seen.insert(path.to_string()) {
+            continue;
+        }
+        let target = project.target_optional(path)?;
+        let output = reader.execute(
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--ignored=matching",
+                "--untracked-files=all",
+                "--ignore-submodules=all",
+                "--",
+                path,
+            ],
+            false,
+        )?;
+        let code = output.get(..2).unwrap_or("");
+        let git_status = match code {
+            "!!" => "ignored",
+            "??" => "untracked",
+            "" => "clean",
+            _ => "tracked",
+        };
+        changes.push(
+            json!({"path":path,"gitStatus":git_status,"xy":code,"persisted":target.is_file()}),
+        );
+    }
+    Ok(json!(changes))
+}
+
 pub(super) fn diff(
     project: &Project,
     args: &GitDiffArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    let comparison = args
+        .comparison
+        .as_deref()
+        .unwrap_or(if args.staged == Some(true) {
+            "HEAD:index"
+        } else {
+            "index:worktree"
+        });
+    if comparison == "auto" {
+        let mut comparisons = serde_json::Map::new();
+        let mut changed = false;
+        for mode in ["HEAD:index", "index:worktree", "HEAD:worktree"] {
+            let selected = GitDiffArgs {
+                path: args.path.clone(),
+                staged: args.staged,
+                comparison: Some(mode.into()),
+                max_lines: args.max_lines,
+                max_chars: args.max_chars,
+                session: args.session.clone(),
+            };
+            let result = diff(project, &selected, context)?;
+            changed |= result["changed"] == true;
+            comparisons.insert(mode.into(), result);
+        }
+        return Ok(
+            json!({"path":args.path,"comparison":"auto","changed":changed,"comparisons":comparisons}),
+        );
+    }
+    if !["HEAD:index", "index:worktree", "HEAD:worktree"].contains(&comparison) {
+        return Err((
+            "ARGUMENT",
+            "Git comparison must be auto, HEAD:index, index:worktree or HEAD:worktree",
+        ));
+    }
     let lines_limit = args.max_lines.unwrap_or(120);
     let chars = args.max_chars.unwrap_or(6000);
     if !(1..=500).contains(&lines_limit)
@@ -423,8 +505,10 @@ pub(super) fn diff(
         "--no-renames",
         "--ignore-submodules=all",
     ];
-    if args.staged == Some(true) {
+    if comparison == "HEAD:index" {
         names_args.push("--cached");
+    } else if comparison == "HEAD:worktree" {
+        names_args.push("HEAD");
     }
     names_args.extend(["--", &literal_scope]);
     let names = reader.execute(&names_args, false)?;
@@ -458,8 +542,10 @@ pub(super) fn diff(
         selected.push(path.to_string());
     }
     let mut args_list = vec!["diff"];
-    if args.staged == Some(true) {
+    if comparison == "HEAD:index" {
         args_list.push("--cached");
+    } else if comparison == "HEAD:worktree" {
+        args_list.push("HEAD");
     }
     args_list.extend([
         "--no-ext-diff",
@@ -491,11 +577,6 @@ pub(super) fn diff(
         .join("\n");
     let preview = prefix(&joined, chars);
     let truncated = lines.len() > lines_limit || utf16_len(&joined) > chars || files_omitted > 0;
-    let comparison = if args.staged == Some(true) {
-        "HEAD:index"
-    } else {
-        "index:worktree"
-    };
     let hunks: Vec<_> = lines
         .iter()
         .filter(|s| s.starts_with("@@"))
@@ -504,6 +585,29 @@ pub(super) fn diff(
         .collect();
     let mut result = json!({"path":normalized,"comparison":comparison,"changed":!patch.is_empty(),"binary":lines.iter().any(|s|s.starts_with("Binary files ")),"hunks":hunks,"totalLines":lines.len(),"preview":preview,"milliseconds":started.elapsed().as_millis() as u64,
         "note":"Tracked changes only; textual diff, not semantic proof. Hunk labels come from Git."});
+    if comparison == "index:worktree" && patch.is_empty() {
+        let staged = reader.execute(
+            &[
+                "diff",
+                "--cached",
+                "--name-only",
+                "-z",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "--ignore-submodules=all",
+                "--",
+                &literal_scope,
+            ],
+            false,
+        )?;
+        if !staged.is_empty() {
+            result["stagedChangesAvailable"] = json!(true);
+            result["warning"] = json!(
+                "No hay cambios sin stage, pero sí hay cambios staged. Use comparison: HEAD:index o auto."
+            );
+        }
+    }
     result["scope"] = json!(if normalized == "." {
         "workspace"
     } else if file.is_dir() {

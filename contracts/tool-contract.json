@@ -1,5 +1,5 @@
 {
-  "contractVersion": "3.0.0",
+  "contractVersion": "3.1.0",
   "toolProfiles": {
     "investigate": [
       "harness_bootstrap",
@@ -10,11 +10,13 @@
       "harness_detail",
       "harness_data_query",
       "harness_git",
+      "harness_ignore",
       "harness_doctor",
       "harness_batch",
       "harness_session"
     ],
     "edit": [
+      "harness_ignore",
       "harness_replace",
       "harness_write",
       "harness_move",
@@ -212,7 +214,7 @@
           "action": "search",
           "limit": 10
         },
-        "then": "Inspect exact objects with action=describe; never guess columns. Batch independent SQL describes with harness_batch jobs tool=harness_sql (1..4 jobs, max concurrency 2). PostgreSQL arbitrary query is unavailable; opt-in schemaCacheSeconds 0..300 caches describe snapshots, refresh=true bypasses and replaces them. Cached permissions/DDL are not revalidated."
+        "then": "Inspect exact objects with action=describe; never guess columns. Batch independent SQL describes with harness_batch jobs tool=harness_sql (1..4 jobs, maxConcurrent 2..4, default 2). PostgreSQL arbitrary query is unavailable; opt-in schemaCacheSeconds 0..300 caches describe snapshots, refresh=true bypasses and replaces them. Cached permissions/DDL are not revalidated."
       },
       {
         "need": "Run verification in background and follow completion without blocking",
@@ -280,6 +282,25 @@
       "searchSyntax": "ast-pattern"
     },
     "rust": {
+      "verification": {
+        "dotnetEngines": ["auto", "dotnet", "msbuild"],
+        "classicAspNetDetection": ["ProjectTypeGuids", "Microsoft.WebApplication.targets"],
+        "msbuildDiscovery": "Visual Studio MSBuild.exe through vswhere",
+        "warnings": ["all", "changed-files", "none"],
+        "summary": ["passed", "errors", "warnings", "newWarnings", "changedFilesWarnings"],
+        "warningBaseline": "Previous complete verification for the same session/scope/engine; null without a comparable baseline"
+      },
+      "searchRoot": "scope omitted, null, empty or .",
+      "searchOmissions": ["skippedFiles.path", "skippedFiles.reason", "unvisitedFiles"],
+      "sqlSearchSchemas": "Omitted or * searches all schemas authorized by the connection",
+      "detailRetention": {
+        "sessionReferences": "Retained for server process lifetime, not restored after restart",
+        "capacity": "64 MiB / 1024 references; reject new details instead of evicting session references",
+        "expiresAt": "Unix seconds for unscoped TTL references; null for session references",
+        "pagination": "nextCall preserves ref, offset, maxChars and session; reads do not consume references"
+      },
+      "gitComparison": ["auto", "HEAD:index", "index:worktree", "HEAD:worktree"],
+      "gitSessionChanges": ["path", "gitStatus", "xy", "persisted"],
       "postgresql": {
         "tool": "harness_sql",
         "engine": "postgresql",
@@ -307,7 +328,8 @@
           "tool": "harness_batch",
           "childTool": "harness_sql",
           "maxJobs": 4,
-          "maxConcurrent": 2,
+          "maxConcurrent": 4,
+          "defaultConcurrent": 2,
           "sharedSnapshot": false
         },
         "tlsDefault": "disable",
@@ -333,7 +355,9 @@
         "batchAliases": [
           "read",
           "search"
-        ]
+        ],
+        "batchJobArgumentsAlias": "args",
+        "batchMaxConcurrent": {"min": 2, "max": 4, "default": 2}
       },
       "batchTools": [
         "harness_config",
@@ -471,6 +495,12 @@
       "name": "harness_git_status",
       "backends": [
         "node"
+      ]
+    },
+    {
+      "name": "harness_ignore",
+      "backends": [
+        "rust"
       ]
     },
     {

@@ -84,6 +84,7 @@ fn replace_with_preview_flag_matches_patch_preview_and_never_publishes() {
         bom: None,
         path: "sample.rs".into(),
         hash: hash(before.as_bytes()),
+        line: None,
         chunks: None,
         old_text: "1".into(),
         new_text: "2".into(),
@@ -95,7 +96,12 @@ fn replace_with_preview_flag_matches_patch_preview_and_never_publishes() {
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["published"], false);
     assert_eq!(result["data"]["syntax"]["status"], "valid");
-    assert!(result["data"]["patch"].as_str().unwrap().contains("+fn sample() { let x = 2; }\r\n"));
+    assert!(
+        result["data"]["patch"]
+            .as_str()
+            .unwrap()
+            .contains("+fn sample() { let x = 2; }\r\n")
+    );
 
     // File content remains strictly untouched on disk
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);

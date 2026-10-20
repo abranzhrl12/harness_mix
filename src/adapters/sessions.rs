@@ -274,7 +274,10 @@ impl Sessions {
             s if s.starts_with("resume:") => {
                 let id = &s["resume:".len()..];
                 if !valid_id(id) {
-                    return Err(("SESSION", "Identificador de sesión inválido en resume:<uuid>"));
+                    return Err((
+                        "SESSION",
+                        "Identificador de sesión inválido en resume:<uuid>",
+                    ));
                 }
                 if !self.entries.iter().any(|(k, _)| k == id) && self.load(id).is_err() {
                     return Err(("SESSION", "La sesión a reanudar no existe o fue descartada"));
@@ -284,7 +287,10 @@ impl Sessions {
             }
             other => {
                 if !valid_id(other) {
-                    return Err(("SESSION", "Identificador de sesión inválido; use 'current', 'new', 'resume:<uuid>' o un UUID v4"));
+                    return Err((
+                        "SESSION",
+                        "Identificador de sesión inválido; use 'current', 'new', 'resume:<uuid>' o un UUID v4",
+                    ));
                 }
                 Ok(other.to_string())
             }

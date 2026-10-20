@@ -4,14 +4,14 @@ use serde_json::json;
 #[test]
 fn wider_read_accepts_aliases_but_rejects_duplicate_names_and_overflow() {
     let args: ReadArgs = serde_json::from_value(
-        json!({"target_path":"a.rs","start":1,"lines":300,"sessionId":"session"}),
+        json!({"target_path":"a.rs","start":1,"lines":400,"sessionId":"session"}),
     )
     .unwrap();
     assert_eq!(args.path, "a.rs");
-    assert_eq!(args.end, 300);
+    assert_eq!(args.end, 400);
     assert_eq!(args.session.as_deref(), Some("session"));
     for value in [
-        json!({"path":"a.rs","start":1,"lines":301}),
+        json!({"path":"a.rs","start":1,"lines":401}),
         json!({"path":"a.rs","start":usize::MAX,"lines":2}),
         json!({"path":"a.rs","target_path":"b.rs","start":1,"lines":1}),
         json!({"path":"a.rs","start":1,"lines":1,"session":"a","sessionId":"b"}),

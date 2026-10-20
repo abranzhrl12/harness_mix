@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 fn search(app: &NativeApplication, query: &str, limit: usize) -> Value {
     app.execute(Request::Search(SearchArgs {
+        context_lines: None,
         kind: Kind::Syntax,
         query: query.into(),
         min_lines: None,

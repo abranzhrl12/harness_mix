@@ -87,6 +87,7 @@ fn edits_are_observed_then_restored_as_history_not_new_current_facts() {
         session: Some(id.clone()),
         path: "file.txt".into(),
         hash: harness_domain::hash(b"old"),
+        line: None,
         chunks: None,
         old_text: "old".into(),
         new_text: "new".into(),
@@ -145,6 +146,8 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
         package: None,
         scope: None,
         action: Some(VerifyAction::Build),
+        engine: None,
+        warnings: None,
         session: Some(id.clone()),
     }));
     assert_eq!(result["state"], "ok", "{result}");
@@ -244,6 +247,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
             package: None,
             scope: None,
             action: Some(VerifyAction::Build),
+            engine: None,
+            warnings: None,
             session: Some(id.clone()),
         }));
         assert_eq!(result["state"], "ok", "{result}");
@@ -294,6 +299,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
         package: None,
         scope: None,
         action: Some(VerifyAction::Build),
+        engine: None,
+        warnings: None,
         session: Some(id.clone()),
     }));
     assert_eq!(rerun["state"], "ok", "{rerun}");
@@ -313,6 +320,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
         package: None,
         scope: None,
         action: Some(VerifyAction::Build),
+        engine: None,
+        warnings: None,
         session: Some(id.clone()),
     }));
     assert_eq!(next["state"], "ok", "{next}");
@@ -331,6 +340,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
             session: Some(id.clone()),
             path: "src/lib.rs".into(),
             hash: harness_domain::hash(b"pub fn sample() {}\n"),
+            line: None,
             chunks: None,
             old_text: "sample".into(),
             new_text: "changed".into(),

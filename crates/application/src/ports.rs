@@ -51,6 +51,13 @@ pub trait Workspace: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Git status adapter unavailable"))
     }
+    fn git_session_changes(
+        &self,
+        _edits: &[Value],
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Ok(serde_json::json!([]))
+    }
     fn git_diff(
         &self,
         _args: &harness_domain::contracts::GitDiffArgs,
@@ -202,6 +209,13 @@ pub trait Workspace: Send + Sync {
     fn capabilities(&self) -> Value;
     fn read(&self, args: &ReadArgs, context: &OperationContext) -> Result<Value, Failure>;
     fn search(&self, args: &SearchArgs, context: &OperationContext) -> Result<Value, Failure>;
+    fn ignore(
+        &self,
+        _args: &harness_domain::contracts::IgnoreArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Ignore policy adapter unavailable"))
+    }
     fn verify(
         &self,
         _args: &harness_domain::contracts::VerifyArgs,

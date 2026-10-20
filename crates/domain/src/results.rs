@@ -2,13 +2,15 @@ use crate::Failure;
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 struct Entry {
     id: String,
     text: String,
     created: Instant,
+    session: Option<String>,
+    expires_at: Option<u64>,
 }
 
 pub struct Results {
@@ -24,8 +26,8 @@ impl Default for Results {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
-            max_bytes: 8 * 1024 * 1024,
-            max_entries: 64,
+            max_bytes: 64 * 1024 * 1024,
+            max_entries: 1024,
             ttl: Duration::from_secs(600),
         }
     }
@@ -73,36 +75,68 @@ impl Results {
             .ok_or(("DETAIL", "detalle vencido, descartado o inexistente"))?;
         serde_json::from_str(&entry.text).map_err(|_| ("DETAIL", "stored result is not valid JSON"))
     }
-    fn remove_oldest(&mut self) {
-        if let Some(entry) = self.entries.pop_front() {
-            self.bytes -= entry.text.len();
-        }
+    fn remove_oldest(&mut self) -> bool {
+        let Some(index) = self
+            .entries
+            .iter()
+            .position(|entry| entry.session.is_none())
+        else {
+            return false;
+        };
+        let entry = self.entries.remove(index).expect("existing entry");
+        self.bytes -= entry.text.len();
+        true
     }
     fn prune(&mut self) {
-        while self
-            .entries
-            .front()
-            .is_some_and(|entry| entry.created.elapsed() >= self.ttl)
-        {
-            self.remove_oldest();
-        }
+        self.entries.retain(|entry| {
+            let keep = entry.session.is_some() || entry.created.elapsed() < self.ttl;
+            if !keep {
+                self.bytes -= entry.text.len();
+            }
+            keep
+        });
     }
     pub fn save(&mut self, value: &Value, complete: bool) -> Option<Value> {
+        self.save_for_session(value, complete, None)
+    }
+    pub fn save_for_session(
+        &mut self,
+        value: &Value,
+        complete: bool,
+        session: Option<&str>,
+    ) -> Option<Value> {
         self.prune();
         let text = value.to_string();
         if text.len() > self.max_bytes {
             return None;
         }
         while self.entries.len() >= self.max_entries || self.bytes + text.len() > self.max_bytes {
-            self.remove_oldest();
+            if !self.remove_oldest() {
+                return None;
+            }
         }
         let id = uuid::Uuid::new_v4().to_string();
-        let detail = json!({"ref":id,"characters":utf16_len(&text),"complete":complete});
+        let expires_at = if session.is_some() {
+            None
+        } else {
+            Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    .saturating_add(self.ttl.as_secs()),
+            )
+        };
+        let detail = json!({"ref":id,"characters":utf16_len(&text),"complete":complete,
+            "expiresAt":expires_at,"expirationFormat":"unix-seconds","retention":if session.is_some() {"server-session"} else {"ttl-or-capacity"},
+            "nextCall":{"tool":"harness_detail","arguments":{"ref":id,"offset":0,"maxChars":16000,"session":session}}});
         self.bytes += text.len();
         self.entries.push_back(Entry {
             id,
             text,
             created: Instant::now(),
+            session: session.map(str::to_owned),
+            expires_at,
         });
         Some(detail)
     }
@@ -135,7 +169,7 @@ impl Results {
             (end, end_units)
         };
         Ok(
-            json!({"ref":id,"offset":offset,"text":entry.text[start..end],"nextOffset":if end_units < total { Some(end_units) } else { None },"totalCharacters":total,"format":"json-text"}),
+            json!({"ref":id,"offset":offset,"text":entry.text[start..end],"nextOffset":if end_units < total { Some(end_units) } else { None },"totalCharacters":total,"format":"json-text","expiresAt":entry.expires_at,"expirationFormat":"unix-seconds","retention":if entry.session.is_some() {"server-session"} else {"ttl-or-capacity"},"nextCall":if end_units < total {json!({"tool":"harness_detail","arguments":{"ref":id,"offset":end_units,"maxChars":max_chars,"session":entry.session}})} else {Value::Null}}),
         )
     }
     pub fn envelope(&mut self, tool: &str, args: &Value, result: Result<Value, Failure>) -> Value {
@@ -196,7 +230,14 @@ impl Results {
                 let detail = map
                     .remove("_detail")
                     .map(|value| {
-                        self.save(&value, complete).unwrap_or_else(|| {
+                        self.save_for_session(
+                            &value,
+                            complete,
+                            args.get("session")
+                                .and_then(Value::as_str)
+                                .or_else(|| map.get("session").and_then(Value::as_str)),
+                        )
+                        .unwrap_or_else(|| {
                             omitted["detailUnavailable"] = json!(true);
                             Value::Null
                         })
@@ -276,6 +317,51 @@ mod tests {
         assert!(store.get(id, 1000, 1).is_err());
         assert!(store.get(id, 0, 0).is_err());
     }
+    #[test]
+    fn session_references_survive_ttl_capacity_and_repeated_paging() {
+        let mut store = Results {
+            max_entries: 2,
+            max_bytes: 1024,
+            ..Results::default()
+        };
+        let first = store
+            .save_for_session(&json!({"text":"a".repeat(80)}), true, Some("s"))
+            .unwrap();
+        let id = first["ref"].as_str().unwrap();
+        assert!(first["expiresAt"].is_null());
+        assert_eq!(first["retention"], "server-session");
+        store.ttl = Duration::ZERO;
+        let page = store.get(id, 0, 16).unwrap();
+        assert_eq!(page["nextCall"]["arguments"]["offset"], 16);
+        assert_eq!(page["nextCall"]["arguments"]["session"], "s");
+        assert!(
+            store
+                .save_for_session(&json!({"b":2}), true, Some("s"))
+                .is_some()
+        );
+        assert!(
+            store
+                .save_for_session(&json!({"c":3}), true, Some("s"))
+                .is_none()
+        );
+        assert!(store.value(id).is_ok());
+        assert_eq!(store.get(id, 0, 16).unwrap()["text"], page["text"]);
+        assert!(store.get(id, 16, 16).is_ok());
+    }
+
+    #[test]
+    fn envelope_pins_session_details_including_bootstrap() {
+        let mut store = Results::default();
+        for (args, data) in [
+            (json!({"session":"s"}), json!({"_detail":{"a":1}})),
+            (json!({}), json!({"session":"s","_detail":{"a":1}})),
+        ] {
+            let result = store.envelope("test", &args, Ok(data));
+            assert_eq!(result["detail"]["retention"], "server-session");
+            assert_eq!(result["detail"]["nextCall"]["arguments"]["session"], "s");
+        }
+    }
+
     #[test]
     fn eviction_ttl_and_byte_limits() {
         let mut store = Results {

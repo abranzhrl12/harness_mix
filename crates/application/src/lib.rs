@@ -177,18 +177,20 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let args = request.arguments();
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
-            Request::Explore(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| {
-                    let impact = args.view == Some(harness_domain::contracts::ExploreView::Impact);
-                    self.workspace.explore(&args, context).map(|result| {
-                        if impact {
-                            harness_domain::assistance::impact(&args, result)
-                        } else {
-                            result
-                        }
+            Request::Explore(args) => {
+                self.lease(args.session.as_deref(), &mut lease)
+                    .and_then(|()| {
+                        let impact =
+                            args.view == Some(harness_domain::contracts::ExploreView::Impact);
+                        self.workspace.explore(&args, context).map(|result| {
+                            if impact {
+                                harness_domain::assistance::impact(&args, result)
+                            } else {
+                                result
+                            }
+                        })
                     })
-                }),
+            }
             Request::Bootstrap(args) => self.bootstrap(args, context, &mut lease),
             Request::ExternalScope(args) => {
                 if matches!(
@@ -215,9 +217,33 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Doctor(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.doctor(&args, context)),
-            Request::GitStatus(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.git_status(&args, context)),
+            Request::GitStatus(args) => {
+                self.lease(args.session.as_deref(), &mut lease)
+                    .and_then(|()| {
+                        let mut result = self.workspace.git_status(&args, context)?;
+                        let mut edits = Vec::new();
+                        if let Some(id) = args.session.as_deref() {
+                            let snapshot = self
+                                .sessions
+                                .lock()
+                                .map_err(|_| ("INTERNAL", "Sessions unavailable"))?
+                                .snapshot(id)?;
+                            if let Some(previous) =
+                                snapshot["historical"]["modifiedFiles"].as_array()
+                            {
+                                edits.extend(previous.iter().cloned());
+                            }
+                            if let Some(observed) =
+                                snapshot["observedByHarness"]["modifiedFiles"].as_array()
+                            {
+                                edits.extend(observed.iter().cloned());
+                            }
+                        }
+                        result["sessionChanges"] =
+                            self.workspace.git_session_changes(&edits, context)?;
+                        Ok(result)
+                    })
+            }
             Request::GitDiff(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.git_diff(&args, context)),
@@ -305,20 +331,28 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     self.lease(args.session.as_deref(), &mut lease)
                         .and_then(|()| self.workspace.patch_preview(&args, context))
                 } else {
-                    self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
-                        let mut result = self.workspace.replace(&args, context)?;
-                        self.record_result(
-                            session_id,
-                            name,
-                            &serde_json::to_value(&args).unwrap(),
-                            &mut result,
-                        );
-                        Ok(result)
-                    })
+                    self.with_session_write(
+                        args.session.as_deref(),
+                        &mut lease,
+                        context,
+                        |session_id| {
+                            let mut result = self.workspace.replace(&args, context)?;
+                            self.record_result(
+                                session_id,
+                                name,
+                                &serde_json::to_value(&args).unwrap(),
+                                &mut result,
+                            );
+                            Ok(result)
+                        },
+                    )
                 }
             }
-            Request::Write(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
+            Request::Write(args) => self.with_session_write(
+                args.session.as_deref(),
+                &mut lease,
+                context,
+                |session_id| {
                     let mut result = self.workspace.write(&args, context)?;
                     self.record_result(
                         session_id,
@@ -327,10 +361,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                         &mut result,
                     );
                     Ok(result)
-                })
-            }
-            Request::Move(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
+                },
+            ),
+            Request::Move(args) => self.with_session_write(
+                args.session.as_deref(),
+                &mut lease,
+                context,
+                |session_id| {
                     let mut result = self.workspace.move_file(&args, context)?;
                     self.record_result(
                         session_id,
@@ -339,16 +376,41 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                         &mut result,
                     );
                     Ok(result)
-                })
-            }
+                },
+            ),
             Request::Read(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.read(&args, context)),
             Request::Search(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.search(&args, context)),
-            Request::Verify(args) => {
-                self.with_session_write(args.session.as_deref(), &mut lease, context, |session_id| {
+            Request::Ignore(args) => {
+                if args.action == harness_domain::contracts::IgnoreAction::List {
+                    self.lease(args.session.as_deref(), &mut lease)
+                        .and_then(|()| self.workspace.ignore(&args, context))
+                } else {
+                    self.with_session_write(
+                        args.session.as_deref(),
+                        &mut lease,
+                        context,
+                        |session_id| {
+                            let mut result = self.workspace.ignore(&args, context)?;
+                            self.record_result(
+                                session_id,
+                                name,
+                                &serde_json::to_value(&args).unwrap(),
+                                &mut result,
+                            );
+                            Ok(result)
+                        },
+                    )
+                }
+            }
+            Request::Verify(args) => self.with_session_write(
+                args.session.as_deref(),
+                &mut lease,
+                context,
+                |session_id| {
                     let mut result = self.workspace.verify(&args, context)?;
                     self.record_result(
                         session_id,
@@ -357,8 +419,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                         &mut result,
                     );
                     Ok(result)
-                })
-            }
+                },
+            ),
             Request::Tasks(args) => {
                 let session = args.session.clone();
                 if matches!(
@@ -625,21 +687,24 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "Copy data.session into the session argument of later calls. sessionId is a legacy response alias."
         );
         result["exampleCall"] = json!({"tool":"harness_explore","arguments":{"query":"main","session":session.id},"note":"Replace main with the exact symbol you want; other arguments have read-only context defaults."});
+        result["batchExample"] = json!({"tool":"harness_batch","arguments":{"jobs":[{"tool":"harness_search","arguments":{"kind":"files","query":"Cargo","scope":"."}},{"tool":"harness_git","arguments":{"action":"status"}}],"maxConcurrent":4,"session":session.id},"aliases":{"args":"arguments"}});
+        result["detailRetention"] = json!({"session":"References with a session remain available for this server process lifetime; restart does not restore them.","capacity":"Bounded store rejects new details rather than evict session references.","expiresAt":null});
         let available_tools = self.tool_profile.tools();
         let quick_guide: Vec<Value> = [
             ("harness_bootstrap", "compact=true; reutiliza data.session"),
             ("harness_explore", "view=impact exige filePath+symbol; summary firmas; full cuerpos"),
-            ("harness_symbols", "outline=estructura; read=fuente exacta + hash"),
+            ("harness_symbols", "outline=estructura; read=fuente exacta + hash; selectores CSS en CSS/HTML/Razor"),
             ("harness_read", "start/lines o end; path o file"),
-            ("harness_search", "kind=text|files|file_size|syntax; globs filtra; scope acota"),
+            ("harness_search", "kind=text|files|file_size|syntax; scope omitido/null/./vacío=raíz; contextLines=0..20 añade fuente y hash"),
+            ("harness_ignore", "action=list|add|remove|init; scope opcional; .harnessignore con sintaxis gitignore"),
             ("harness_detail", "ref de salida truncada; offset/maxChars"),
-            ("harness_replace", "oldText/newText o chunks; preview=true no publica"),
+            ("harness_replace", "oldText/newText o chunks; line opcional; hash omitido=lectura interna; preview=true no publica"),
             ("harness_write", "expectedHash permite reemplazo atómico"),
             ("harness_move", "from/to relativos; el padre debe existir"),
-            ("harness_verify", "language; action=build|test; package/scope"),
+            ("harness_verify", "language; action=build|test; package/scope; dotnet engine=auto|dotnet|msbuild; warnings=all|changed-files|none"),
             ("harness_jobs", "start devuelve taskId; observe sigue stdout/stderr"),
-            ("harness_git", "diff exige path; staged true=HEAD:index"),
-            ("harness_sql", "indica engine si hay dos motores"),
+            ("harness_git", "diff exige path; comparison=auto muestra staged/worktree/total; status incluye sessionChanges"),
+            ("harness_sql", "indica engine si hay dos motores; search schema omitido o *=todos los esquemas autorizados"),
             ("harness_xlsx", "sin sheet=metadatos; range/rowOffset/pageSize"),
             ("harness_svg", "mode=inspect|preview"),
             ("harness_config", "section obligatoria; raw=true IIS/ASP.NET"),
@@ -673,7 +738,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             "Git solo lectura; requiere git instalado y raíz Git o worktree vinculado registrado",
             "No sustituye el servidor actual"
         ]);
-        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":2,"queue":"reject_when_full","timeoutMs":30000,"rustVerifyProcessTimeoutMs":60000,"verifyCleanupGraceMs":5000,"cancellation":"cooperative"});
+        result["executionPolicy"] = json!({"maxActive":admission::MAX_ACTIVE,"maxSearches":admission::MAX_SEARCHES,"maxBatchCoordinators":admission::MAX_BATCHES,"maxChildrenPerBatch":4,"queue":"reject_when_full","timeoutMs":30000,"rustVerifyProcessTimeoutMs":60000,"verifyCleanupGraceMs":5000,"cancellation":"cooperative"});
         if is_new {
             result["tasks"] = session.task_summary;
         }

@@ -13,6 +13,7 @@ mod explore;
 mod external_scopes;
 mod fingerprint;
 mod git;
+mod ignore;
 pub mod index_extract;
 mod index_freshness;
 mod index_inventory;
@@ -45,6 +46,7 @@ pub mod index_store {
         ))
     }
 }
+mod astro_syntax;
 pub mod data_query;
 pub mod database_setup;
 pub mod diagnostics;
@@ -55,6 +57,7 @@ pub mod process;
 pub mod process_status;
 mod process_tree;
 mod project;
+mod razor_syntax;
 mod rust_symbols;
 mod rust_syntax;
 mod search;
@@ -72,8 +75,6 @@ mod tasks_store;
 mod ts_symbols;
 mod ts_syntax;
 mod verify;
-mod astro_syntax;
-mod razor_syntax;
 mod vue_structure;
 mod vue_syntax;
 pub mod xlsx;
@@ -317,6 +318,13 @@ impl Workspace for NativeWorkspace {
         context: &OperationContext,
     ) -> Result<Value, Failure> {
         git::status(&self.project, args, context)
+    }
+    fn git_session_changes(
+        &self,
+        edits: &[Value],
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        git::session_changes(&self.project, edits, context)
     }
     fn git_diff(
         &self,
@@ -585,6 +593,13 @@ impl Workspace for NativeWorkspace {
                 }
             },
         )
+    }
+    fn ignore(
+        &self,
+        args: &harness_domain::contracts::IgnoreArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        ignore::ignore(&self.project, args, context)
     }
     fn verify(
         &self,

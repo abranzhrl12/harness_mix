@@ -88,14 +88,33 @@ fn read_alias_schema(schema: &mut schemars::Schema) {
 }
 
 #[cfg(feature = "schema")]
+fn batch_job_alias_schema(schema: &mut schemars::Schema) {
+    add_schema_alias(schema, "arguments", "args");
+}
+
+#[cfg(feature = "schema")]
 fn search_alias_schema(schema: &mut schemars::Schema) {
     add_schema_alias(schema, "scope", "path");
     add_schema_alias(schema, "globs", "includes");
+    add_schema_alias(schema, "contextLines", "context_lines");
+}
+
+#[cfg(feature = "schema")]
+fn replace_chunk_alias_schema(schema: &mut schemars::Schema) {
+    add_schema_alias(schema, "oldText", "old_text");
+    add_schema_alias(schema, "newText", "new_text");
 }
 
 #[cfg(feature = "schema")]
 fn replace_alias_schema(schema: &mut schemars::Schema) {
     add_schema_alias(schema, "hash", "baseHash");
+    for (canonical, alias) in [
+        ("oldText", "old_text"),
+        ("newText", "new_text"),
+        ("allowUnvalidatedText", "allow_unvalidated_text"),
+    ] {
+        add_schema_alias(schema, canonical, alias);
+    }
 }
 
 impl TryFrom<ReadInput> for ReadArgs {
@@ -103,12 +122,12 @@ impl TryFrom<ReadInput> for ReadArgs {
     fn try_from(input: ReadInput) -> Result<Self, Self::Error> {
         let end = match (input.end, input.lines) {
             (Some(end), None) => end,
-            (None, Some(count)) if count > 0 && count <= 300 => input
+            (None, Some(count)) if count > 0 && count <= 400 => input
                 .start
                 .checked_add(count - 1)
                 .ok_or("read range overflow")?,
             (Some(_), Some(_)) => return Err("use either end or lines, not both".into()),
-            _ => return Err("provide end or lines (1..300)".into()),
+            _ => return Err("provide end or lines (1..400)".into()),
         };
         Ok(Self {
             external_scope: input.external_scope,
@@ -157,10 +176,14 @@ pub struct SearchArgs {
     /// File patterns; includes is accepted as an alias. Supply only one.
     #[serde(alias = "includes")]
     pub globs: Option<Vec<String>>,
-    /// Search file or directory; path is an alias. Supply only one, e.g. {"kind":"text","query":"Controller","scope":"Controllers"}.
+    /// Search file or directory; omitted, null, "." or "" selects the workspace root.
+    /// path is an alias; supply only one selector, e.g. {"kind":"text","query":"Controller","scope":"Controllers"}.
     #[serde(alias = "path")]
     pub scope: Option<String>,
     pub limit: Option<usize>,
+    /// Surrounding lines per text match (0..20), including exact source and file SHA-256.
+    #[serde(rename = "contextLines", alias = "context_lines")]
+    pub context_lines: Option<usize>,
     pub session: Option<String>,
 }
 
@@ -181,6 +204,8 @@ impl<'de> Deserialize<'de> for SearchArgs {
             #[serde(alias = "path")]
             scope: Option<String>,
             limit: Option<usize>,
+            #[serde(rename = "contextLines", alias = "context_lines")]
+            context_lines: Option<usize>,
             session: Option<String>,
         }
         let mut value = Value::deserialize(deserializer)?;
@@ -198,6 +223,7 @@ impl<'de> Deserialize<'de> for SearchArgs {
             globs: input.globs,
             scope: input.scope,
             limit: input.limit,
+            context_lines: input.context_lines,
             session: input.session,
         })
     }
@@ -220,6 +246,12 @@ pub struct VerifyArgs {
     /// Rust package name, passed as a single cargo -p argument.
     pub package: Option<String>,
     pub action: Option<VerifyAction>,
+    /// .NET build engine: auto (default), dotnet or msbuild.
+    #[cfg_attr(feature = "schema", schemars(extend("enum" = ["auto", "dotnet", "msbuild", null])))]
+    pub engine: Option<String>,
+    /// Warning output: all (default), changed-files or none.
+    #[cfg_attr(feature = "schema", schemars(extend("enum" = ["all", "changed-files", "none", null])))]
+    pub warnings: Option<String>,
     pub session: Option<String>,
 }
 
@@ -235,8 +267,6 @@ fn strip_inocuous(value: &mut Value) {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "schema", schemars(transform = replace_alias_schema))]
 pub struct ReplaceArgs {
     pub path: String,
     /// Override UTF-8 BOM. Omitted preserves an existing BOM and enables it for Razor on Windows.
@@ -244,6 +274,8 @@ pub struct ReplaceArgs {
     /// Current source SHA-256; baseHash is accepted as an alias. Supply only one.
     /// Optional on the wire; an omitted hash is bound to the source read during this edit.
     pub hash: String,
+    /// Optional 1-based start line for oldText; disambiguates repeated text. Not valid with chunks.
+    pub line: Option<usize>,
     pub chunks: Option<Vec<ReplaceChunk>>,
     pub old_text: String,
     pub new_text: String,
@@ -258,9 +290,59 @@ impl<'de> serde::Deserialize<'de> for ReplaceArgs {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let mut value = Value::deserialize(deserializer)?;
         strip_inocuous(&mut value);
-        let input: ReplaceInput = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        normalize_replace_keys(&mut value).map_err(serde::de::Error::custom)?;
+        let input: ReplaceInput =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
         Self::try_from(input).map_err(serde::de::Error::custom)
     }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for ReplaceArgs {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ReplaceArgs".into()
+    }
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        ReplaceInput::json_schema(generator)
+    }
+}
+
+/// Accept casing and underscore variants without accepting unknown keys or
+/// silently choosing between two spellings of the same argument.
+fn normalize_replace_keys(value: &mut Value) -> Result<(), String> {
+    let Some(object) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let mut normalized = serde_json::Map::new();
+    for (key, mut value) in std::mem::take(object) {
+        let folded = key.replace('_', "").to_ascii_lowercase();
+        let canonical = match folded.as_str() {
+            "path" | "targetpath" => "path",
+            "bom" => "bom",
+            "hash" | "basehash" => "hash",
+            "chunks" => "chunks",
+            "oldtext" => "oldText",
+            "newtext" => "newText",
+            "allowunvalidatedtext" => "allowUnvalidatedText",
+            "preview" => "preview",
+            "session" | "sessionid" => "session",
+            "line" => "line",
+            _ => &key,
+        }
+        .to_string();
+        if canonical == "chunks" {
+            if let Some(chunks) = value.as_array_mut() {
+                for chunk in chunks {
+                    normalize_replace_keys(chunk)?;
+                }
+            }
+        }
+        if normalized.insert(canonical.clone(), value).is_some() {
+            return Err(format!("duplicate field `{canonical}`"));
+        }
+    }
+    *object = normalized;
+    Ok(())
 }
 
 impl Default for ReplaceArgs {
@@ -269,6 +351,7 @@ impl Default for ReplaceArgs {
             path: String::new(),
             bom: None,
             hash: String::new(),
+            line: None,
             chunks: None,
             old_text: String::new(),
             new_text: String::new(),
@@ -325,6 +408,9 @@ impl Serialize for ReplaceArgs {
         if !self.hash.is_empty() {
             map.serialize_entry("hash", &self.hash)?;
         }
+        if let Some(line) = self.line {
+            map.serialize_entry("line", &line)?;
+        }
         if let Some(chunks) = &self.chunks {
             map.serialize_entry("chunks", chunks)?;
         } else {
@@ -345,10 +431,11 @@ impl Serialize for ReplaceArgs {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(transform = replace_chunk_alias_schema))]
 pub struct ReplaceChunk {
-    #[serde(rename = "oldText")]
+    #[serde(rename = "oldText", alias = "old_text")]
     pub old_text: String,
-    #[serde(rename = "newText")]
+    #[serde(rename = "newText", alias = "new_text")]
     pub new_text: String,
 }
 
@@ -363,6 +450,8 @@ struct ReplaceInput {
     /// Current source SHA-256. baseHash is an accepted alias; supply only one name.
     #[serde(default, alias = "baseHash")]
     hash: String,
+    /// Optional 1-based start line for oldText. Omit hash to bind to the internally read source.
+    line: Option<usize>,
     chunks: Option<Vec<ReplaceChunk>>,
     #[serde(rename = "oldText")]
     old_text: Option<String>,
@@ -389,6 +478,7 @@ impl TryFrom<ReplaceInput> for ReplaceArgs {
             path: input.path,
             bom: input.bom,
             hash: input.hash,
+            line: input.line,
             chunks: input.chunks,
             old_text,
             new_text,
@@ -778,6 +868,9 @@ pub struct GitStatusArgs {
 pub struct GitDiffArgs {
     pub path: String,
     pub staged: Option<bool>,
+    /// auto returns HEAD:index, index:worktree and HEAD:worktree separately.
+    #[cfg_attr(feature = "schema", schemars(extend("enum" = ["auto", "HEAD:index", "index:worktree", "HEAD:worktree", null])))]
+    pub comparison: Option<String>,
     #[serde(rename = "maxLines")]
     pub max_lines: Option<usize>,
     #[serde(rename = "maxChars")]
@@ -855,8 +948,10 @@ pub enum BatchTool {
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", schemars(transform = batch_job_alias_schema))]
 pub struct BatchJob {
     pub tool: BatchTool,
+    #[serde(alias = "args")]
     pub arguments: serde_json::Map<String, Value>,
 }
 #[derive(Debug, Deserialize, Serialize)]
@@ -864,6 +959,10 @@ pub struct BatchJob {
 #[serde(deny_unknown_fields)]
 pub struct BatchArgs {
     pub jobs: Vec<BatchJob>,
+    /// Concurrent independent reads, from 2 to 4 (default 2).
+    #[serde(rename = "maxConcurrent")]
+    #[cfg_attr(feature = "schema", schemars(range(min = 2, max = 4)))]
+    pub max_concurrent: Option<usize>,
     pub session: Option<String>,
 }
 impl BatchJob {
@@ -978,6 +1077,7 @@ pub enum Request {
     ProcessStatus(ProcessStatusArgs),
     Diagnostics(DiagnosticsArgs),
     DataQuery(DataQueryArgs),
+    Ignore(IgnoreArgs),
 }
 impl Request {
     pub fn execution_timeout(&self) -> std::time::Duration {
@@ -1005,6 +1105,7 @@ impl Request {
         ) || matches!(self, Self::Checkpoint(args) if args.has_updates())
             || matches!(self, Self::Handover(args) if args.target_file.is_some())
             || matches!(self, Self::Explore(args) if args.sync_index == Some(true))
+            || matches!(self, Self::Ignore(args) if args.action != IgnoreAction::List)
     }
     pub fn name(&self) -> &'static str {
         match self {
@@ -1037,6 +1138,7 @@ impl Request {
             Self::Handover(_) => "harness_handover",
             Self::ProcessStatus(_) | Self::Diagnostics(_) => "harness_doctor",
             Self::DataQuery(_) => "harness_data_query",
+            Self::Ignore(_) => "harness_ignore",
         }
     }
     pub fn arguments(&self) -> Value {
@@ -1089,6 +1191,7 @@ impl Request {
             Self::ProcessStatus(args) => serde_json::to_value(args),
             Self::Diagnostics(args) => serde_json::to_value(args),
             Self::DataQuery(args) => serde_json::to_value(args),
+            Self::Ignore(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
     }
@@ -1200,6 +1303,31 @@ pub struct ExternalScopeArgs {
     pub scope_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum IgnoreAction {
+    List,
+    Add,
+    Remove,
+    Init,
+}
+
+/// Manages `.harnessignore` policy files. Patterns use gitignore syntax.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct IgnoreArgs {
+    pub action: IgnoreAction,
+    /// Directory whose `.harnessignore` is managed; defaults to the workspace root.
+    pub scope: Option<String>,
+    /// Patterns for add/remove; ignored by list/init.
+    pub patterns: Option<Vec<String>>,
+    /// Optional note written as a comment above newly added patterns.
+    pub reason: Option<String>,
+    pub session: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -1232,11 +1360,13 @@ mod compatibility_contract_tests {
         assert_eq!(replace.hash, hash(b"abc"));
         let search: SearchArgs = serde_json::from_value(json!({
             "action":"harness_search","object":"files",
-            "kind":"files","query":"a","scope":"."  })).unwrap();
+            "kind":"files","query":"a","scope":"."  }))
+        .unwrap();
         assert_eq!(search.query, "a");
         assert!(
             serde_json::from_value::<ReplaceArgs>(json!({
-                "path":"a.txt","oldText":"a","newText":"b","unknown":true})).is_err()
+                "path":"a.txt","oldText":"a","newText":"b","unknown":true}))
+            .is_err()
         );
     }
 
@@ -1306,6 +1436,26 @@ mod compatibility_contract_tests {
         let search = serde_json::to_value(schemars::schema_for!(SearchArgs)).unwrap();
         assert!(search["properties"].get("path").is_some());
         assert!(search["properties"].get("includes").is_some());
+        assert!(search["properties"].get("contextLines").is_some());
+        assert!(search["properties"].get("context_lines").is_some());
+        let replace = serde_json::to_value(schemars::schema_for!(ReplaceArgs)).unwrap();
+        for key in [
+            "oldText",
+            "old_text",
+            "newText",
+            "new_text",
+            "allowUnvalidatedText",
+            "allow_unvalidated_text",
+            "line",
+        ] {
+            assert!(replace["properties"].get(key).is_some(), "{key}: {replace}");
+        }
+        assert!(
+            !replace["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("hash"))
+        );
         let read = serde_json::to_value(schemars::schema_for!(ReadArgs)).unwrap();
         assert!(read["properties"].get("file").is_some());
         assert!(

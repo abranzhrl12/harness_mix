@@ -12,6 +12,7 @@ pub enum Program {
     Python,
     Node,
     Dotnet,
+    Msbuild,
 }
 
 #[derive(Debug)]
@@ -36,10 +37,15 @@ impl ProcessSpec {
                 "Process timeout must be within 60 seconds",
             ));
         }
-        if output_limit == 0 || output_limit > 2 * 1024 * 1024 {
+        let maximum_output = if matches!(program, Program::Dotnet | Program::Msbuild) {
+            32 * 1024 * 1024
+        } else {
+            2 * 1024 * 1024
+        };
+        if output_limit == 0 || output_limit > maximum_output {
             return Err((
                 "PROCESS_BUDGET",
-                "Process output limit must be within 2 MiB",
+                "Process output exceeds its tool-specific bounded budget",
             ));
         }
         if arguments.len() > 128
@@ -136,6 +142,25 @@ mod tests {
         assert_eq!(valid.arguments()[1], "path with spaces");
         assert_eq!(valid.timeout(), Duration::from_secs(30));
         assert_eq!(valid.output_limit(), 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn dotnet_has_a_larger_but_bounded_warning_capture_budget() {
+        for program in [Program::Dotnet, Program::Msbuild] {
+            assert!(
+                ProcessSpec::new(program, vec![], Duration::from_secs(30), 32 * 1024 * 1024)
+                    .is_ok()
+            );
+            assert!(
+                ProcessSpec::new(
+                    program,
+                    vec![],
+                    Duration::from_secs(30),
+                    32 * 1024 * 1024 + 1
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

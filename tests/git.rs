@@ -51,6 +51,7 @@ fn diff(app: &NativeApplication, path: &str, staged: bool, max_lines: usize) -> 
         GitArgs::Diff(GitDiffArgs {
             path: path.into(),
             staged: Some(staged),
+            comparison: None,
             max_lines: Some(max_lines),
             max_chars: None,
             session: None,
@@ -58,6 +59,88 @@ fn diff(app: &NativeApplication, path: &str, staged: bool, max_lines: usize) -> 
         .into_request(),
     )
 }
+#[test]
+fn automatic_diff_exposes_staged_and_worktree_comparisons() {
+    let root = fixture();
+    std::fs::write(root.path().join("tracked.txt"), "before\n").unwrap();
+    git(root.path(), &["add", "."]);
+    git(
+        root.path(),
+        &["commit", "--quiet", "--no-verify", "-m", "fixture"],
+    );
+    std::fs::write(root.path().join("tracked.txt"), "staged\n").unwrap();
+    git(root.path(), &["add", "."]);
+    let app = adapters::application(root.path()).unwrap();
+    let ordinary = diff(&app, "tracked.txt", false, 120);
+    assert_eq!(ordinary["data"]["changed"], false);
+    assert_eq!(ordinary["data"]["stagedChangesAvailable"], true);
+    std::fs::write(root.path().join("tracked.txt"), "worktree\n").unwrap();
+    let args: GitArgs = serde_json::from_value(serde_json::json!({
+        "action":"diff", "path":"tracked.txt", "comparison":"auto"
+    }))
+    .unwrap();
+    let result = app.execute(args.into_request());
+    assert_eq!(result["state"], "ok", "{result}");
+    let comparisons = &result["data"]["comparisons"];
+    for mode in ["HEAD:index", "index:worktree", "HEAD:worktree"] {
+        assert_eq!(comparisons[mode]["changed"], true, "{result}");
+        assert_eq!(comparisons[mode]["comparison"], mode);
+    }
+    assert!(
+        comparisons["HEAD:index"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("+staged")
+    );
+    assert!(
+        comparisons["HEAD:worktree"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("+worktree")
+    );
+}
+
+#[test]
+fn status_keeps_ignored_session_edits_visible() {
+    use harness_domain::contracts::{BootstrapArgs, ReplaceArgs, Request};
+    let root = fixture();
+    std::fs::write(root.path().join(".gitignore"), "ignored.sql\n").unwrap();
+    std::fs::write(root.path().join("ignored.sql"), "before").unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let bootstrap = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
+        session: None,
+        include_rules: None,
+    }));
+    let id = bootstrap["data"]["session"].as_str().unwrap().to_string();
+    let edit = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
+        path: "ignored.sql".into(),
+        hash: harness_domain::hash(b"before"),
+        line: None,
+        chunks: None,
+        old_text: "before".into(),
+        new_text: "after".into(),
+        allow_unvalidated_text: true,
+        preview: false,
+        session: Some(id.clone()),
+    }));
+    assert_eq!(edit["state"], "ok", "{edit}");
+    let result = app.execute(
+        GitArgs::Status(GitStatusArgs {
+            include_untracked: None,
+            offset: None,
+            limit: None,
+            session: Some(id),
+        })
+        .into_request(),
+    );
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["sessionChanges"][0]["path"], "ignored.sql");
+    assert_eq!(result["data"]["sessionChanges"][0]["gitStatus"], "ignored");
+    assert_eq!(result["data"]["sessionChanges"][0]["persisted"], true);
+}
+
 fn fixture() -> tempfile::TempDir {
     let root = tempfile::Builder::new()
         .prefix("harness-git-fixture-")

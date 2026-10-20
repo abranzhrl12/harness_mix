@@ -154,6 +154,7 @@ fn write_with(
                         path: args.path.clone(),
                         bom: args.bom,
                         hash: expected.clone(),
+                        line: None,
                         chunks: None,
                         old_text: String::new(),
                         new_text: content.clone(),
@@ -161,13 +162,8 @@ fn write_with(
                         preview: false,
                         session: args.session.clone(),
                     };
-                    let mut result = edit_commit::publish(
-                        project,
-                        &replace_args,
-                        &target,
-                        &content,
-                        context,
-                    )?;
+                    let mut result =
+                        edit_commit::publish(project, &replace_args, &target, &content, context)?;
                     result["path"] = json!(args.path);
                     result["created"] = json!(false);
                     result["previousHash"] = json!(expected);

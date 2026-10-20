@@ -8,6 +8,8 @@ fn verify(application: &adapters::NativeApplication, action: VerifyAction) -> Va
         package: None,
         scope: Some("crate with spaces".into()),
         action: Some(action),
+        engine: None,
+        warnings: None,
         session: None,
     }))
 }
@@ -87,6 +89,8 @@ fn test_extended_verify_plans() {
         package: None,
         scope: Some("go.mod".into()),
         action: Some(VerifyAction::Test),
+        engine: None,
+        warnings: None,
         session: None,
     }));
     // Since go might not have installed packages, we check that it dispatched with valid scope
@@ -102,6 +106,8 @@ fn test_extended_verify_plans() {
         package: None,
         scope: Some("py_tests".into()),
         action: Some(VerifyAction::Test),
+        engine: None,
+        warnings: None,
         session: None,
     }));
     assert_ne!(py_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
@@ -112,6 +118,8 @@ fn test_extended_verify_plans() {
         package: None,
         scope: Some("py_tests/test_sample.py".into()),
         action: Some(VerifyAction::Test),
+        engine: None,
+        warnings: None,
         session: None,
     }));
     assert_ne!(py_file_res["diagnostics"][0]["code"], "VERIFY_SCOPE");
@@ -123,6 +131,8 @@ fn test_extended_verify_plans() {
         package: None,
         scope: Some("index.ts".into()),
         action: Some(VerifyAction::Build),
+        engine: None,
+        warnings: None,
         session: None,
     }));
     assert_ne!(ts_res["diagnostics"][0]["code"], "VERIFY_SCOPE");

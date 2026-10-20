@@ -217,21 +217,25 @@ fn publish_staged(
             // was applied. Remove the orphan candidate and backup automatically.
             let candidate_removed = fs::remove_file(&staged_path).is_ok();
             let backup_removed = fs::remove_file(&backup).is_ok();
-            return Ok(json!({"ok":false,"changed":false,"commitStatus":"unchanged",
+            return Ok(
+                json!({"ok":false,"changed":false,"commitStatus":"unchanged",
                 "targetHash":target_hash,
                 "recovery":{"candidate":Value::Null,"backup":Value::Null,
                     "candidateRemoved":candidate_removed,"backupRemoved":backup_removed},
                 "diagnostics":[{"code":"EDIT_OUTCOME_UNKNOWN",
                     "message":"Publication failed but the target is unchanged; staging artifacts were removed",
-                    "retryable":false,"requiredAction":"retry_edit_with_a_fresh_hash"}]}));
+                    "retryable":false,"requiredAction":"retry_edit_with_a_fresh_hash"}]}),
+            );
         }
         // Truly unknown outcome: preserve both recovery artifacts and report the post-failure hash.
-        return Ok(json!({"ok":false,"changed":Value::Null,"commitStatus":"unknown",
+        return Ok(
+            json!({"ok":false,"changed":Value::Null,"commitStatus":"unknown",
             "targetHash":target_hash,
             "recovery":{"backup":relative(&backup),"candidate":relative(&staged_path)},
             "diagnostics":[{"code":"EDIT_OUTCOME_UNKNOWN",
                 "message":"Publication failed; inspect target and recovery artifacts before retrying",
-                "retryable":false,"requiredAction":"reread_target_then_retry"}]}));
+                "retryable":false,"requiredAction":"reread_target_then_retry"}]}),
+        );
     }
     let warning = if fs::remove_file(&backup).is_err() {
         Some(relative(&backup))
@@ -286,6 +290,7 @@ mod tests {
                 bom: None,
                 path: "file.txt".into(),
                 hash: hash(b"old"),
+                line: None,
                 chunks: None,
                 old_text: "old".into(),
                 new_text: "new".into(),

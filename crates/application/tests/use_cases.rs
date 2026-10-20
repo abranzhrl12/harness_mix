@@ -121,6 +121,8 @@ fn verification_admission_prevents_io_and_releases_session_lease() {
             package: None,
             scope: Some("crate".into()),
             action: None,
+            engine: None,
+            warnings: None,
             session: Some(id.into()),
         })
     };
@@ -169,6 +171,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
     assert_eq!(read["scope"], json!({"tool":"harness_read","path":"a.txt"}));
     let search = app.execute(Request::Search(SearchArgs {
+        context_lines: None,
         external_scope: None,
         min_lines: None,
         globs: None,
@@ -233,6 +236,7 @@ fn read_request() -> Request {
 }
 fn search_request() -> Request {
     Request::Search(SearchArgs {
+        context_lines: None,
         external_scope: None,
         min_lines: None,
         globs: None,

@@ -112,6 +112,7 @@ mod tests {
                     bom: None,
                     path: "file.txt".into(),
                     hash: harness_domain::hash(b"old"),
+                    line: None,
                     chunks: None,
                     old_text: "old".into(),
                     new_text: "new".into(),

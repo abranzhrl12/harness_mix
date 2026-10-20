@@ -1,7 +1,7 @@
 use agent_harness::adapters::{self, NativeApplication};
 use harness_domain::contracts::{
-    BatchArgs, BootstrapArgs, CheckpointArgs, HandoverArgs, Kind, MoveArgs, ReadArgs,
-    ReplaceArgs, Request, SearchArgs, TasksAction, TasksArgs, WriteArgs,
+    BatchArgs, BootstrapArgs, CheckpointArgs, HandoverArgs, Kind, MoveArgs, ReadArgs, ReplaceArgs,
+    Request, SearchArgs, TasksAction, TasksArgs, WriteArgs,
 };
 use serde_json::json;
 
@@ -60,7 +60,10 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         refresh_freshness: Some(false),
     }));
     assert_eq!(ckpt["state"], "ok", "{ckpt}");
-    assert_eq!(ckpt["data"]["declaredByAgent"]["goal"], "test session alias");
+    assert_eq!(
+        ckpt["data"]["declaredByAgent"]["goal"],
+        "test session alias"
+    );
 
     // Handover with session = "current" succeeds
     let ho = app.execute(Request::Handover(HandoverArgs {
@@ -85,6 +88,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
     assert_eq!(read_res["data"]["text"], "hello world");
 
     let search_res = app.execute(Request::Search(SearchArgs {
+        context_lines: None,
         external_scope: None,
         kind: Kind::Text,
         query: "hello".into(),
@@ -102,6 +106,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         path: "demo.txt".into(),
         session: Some("current".into()),
         hash: harness_domain::hash(b"hello world\n"),
+        line: None,
         chunks: None,
         old_text: "world".into(),
         new_text: "universe".into(),
@@ -151,7 +156,10 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         refresh_freshness: Some(false),
     }));
     assert_eq!(new_ckpt["state"], "ok", "{new_ckpt}");
-    assert_ne!(new_ckpt["data"]["declaredByAgent"]["goal"], "test session alias");
+    assert_ne!(
+        new_ckpt["data"]["declaredByAgent"]["goal"],
+        "test session alias"
+    );
 
     // Resume the first session with "resume:<uuid>"
     let resume_res = app.execute(Request::Checkpoint(CheckpointArgs {
@@ -162,7 +170,10 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         refresh_freshness: Some(false),
     }));
     assert_eq!(resume_res["state"], "ok", "{resume_res}");
-    assert_eq!(resume_res["data"]["declaredByAgent"]["goal"], "test session alias");
+    assert_eq!(
+        resume_res["data"]["declaredByAgent"]["goal"],
+        "test session alias"
+    );
 
     // Now "current" points back to the resumed session!
     let current_again = app.execute(Request::Checkpoint(CheckpointArgs {
@@ -173,7 +184,10 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         refresh_freshness: Some(false),
     }));
     assert_eq!(current_again["state"], "ok", "{current_again}");
-    assert_eq!(current_again["data"]["declaredByAgent"]["goal"], "test session alias");
+    assert_eq!(
+        current_again["data"]["declaredByAgent"]["goal"],
+        "test session alias"
+    );
 }
 
 #[test]
@@ -272,7 +286,10 @@ fn unified_session_tool_supports_tasks_checkpoint_status_and_handover() {
     .unwrap();
     let res = app.execute(ckpt.into_request());
     assert_eq!(res["state"], "ok", "{res}");
-    assert_eq!(res["data"]["declaredByAgent"]["goal"], "validate unified harness_session");
+    assert_eq!(
+        res["data"]["declaredByAgent"]["goal"],
+        "validate unified harness_session"
+    );
 
     // 2. Session: action=tasks (update phase & status)
     let tasks: SessionArgs = serde_json::from_value(json!({
@@ -308,7 +325,10 @@ fn unified_session_tool_supports_tasks_checkpoint_status_and_handover() {
     let res = app.execute(status.into_request());
     assert_eq!(res["state"], "ok", "{res}");
     assert_eq!(res["data"]["sessionId"], id);
-    assert_eq!(res["data"]["declaredByAgent"]["goal"], "validate unified harness_session");
+    assert_eq!(
+        res["data"]["declaredByAgent"]["goal"],
+        "validate unified harness_session"
+    );
 
     // 5. Session: action=handover (generates summary report preview)
     let handover: SessionArgs = serde_json::from_value(json!({
@@ -322,4 +342,3 @@ fn unified_session_tool_supports_tasks_checkpoint_status_and_handover() {
     assert_eq!(res["data"]["kind"], "summary");
     assert!(res["data"]["preview"].as_str().is_some());
 }
-

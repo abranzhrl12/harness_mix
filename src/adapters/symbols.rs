@@ -13,6 +13,9 @@ use harness_domain::{
 use serde_json::{Value, json};
 use std::path::Path;
 
+#[path = "css_symbols.rs"]
+mod css_symbols;
+
 fn snapshot(
     project: &Project,
     path: &str,
@@ -33,10 +36,12 @@ fn snapshot(
         "astro" => "astro",
         "cs" => "csharp",
         "cshtml" => "razor",
+        "css" => "css",
+        "html" | "htm" => "html",
         _ => {
             return Err((
                 "PARSER_UNAVAILABLE",
-                "Symbol navigation only supports Rust, JavaScript, TypeScript, Vue, Astro and C# in this release",
+                "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS and HTML",
             ));
         }
     };
@@ -49,7 +54,13 @@ fn snapshot(
     let symbols = match lang {
         "rust" => rust_symbols::collect(&text, &digest, context)?,
         "csharp" => super::csharp_syntax::collect(&text, &digest, context)?,
-        "razor" => super::csharp_syntax::collect_cshtml(&text, &digest, context)?,
+        "razor" => {
+            let mut items = super::csharp_syntax::collect_cshtml(&text, &digest, context)?;
+            items.extend(css_symbols::collect(&text, &digest, true, context)?);
+            items.sort_by_key(|item| item.bytes.start);
+            items
+        }
+        "css" | "html" => css_symbols::collect(&text, &digest, lang == "html", context)?,
         "vue" => {
             let document = super::vue_structure::parse(&text, &digest, context)?;
             if include_structure {
@@ -117,6 +128,13 @@ pub(super) fn outline(
         *by_kind.entry(item.kind).or_default() += 1;
     }
     let coverage = match lang {
+        "css" => {
+            "conservative CSS rule scanner; rules and grouping at-rule containers; no CSS validation or nested selector expansion"
+        }
+        "html" => "CSS rules in embedded style blocks; no HTML or CSS validation",
+        "razor" => {
+            "C# declarations and CSS rules in embedded style blocks; no Razor compilation or CSS validation"
+        }
         "rust" => {
             "declarations, inline modules, impl and trait members; no local items or macro expansion"
         }

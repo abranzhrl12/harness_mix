@@ -38,6 +38,7 @@ pub struct SqlSearchArgs {
     pub limit: Option<usize>,
     #[serde(rename = "objectType")]
     pub object_type: Option<SqlObjectType>,
+    /// Omitted, null or * searches every schema allowed by the connection policy.
     pub schema: Option<String>,
     pub session: Option<String>,
 }

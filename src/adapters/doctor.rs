@@ -27,7 +27,7 @@ fn numeric_version(program: Program, output: &[u8]) -> Option<String> {
         Program::Go => "go version go",
         Program::Python => "Python ",
         Program::Node => "v",
-        Program::Dotnet => "",
+        Program::Dotnet | Program::Msbuild => "",
     };
     let candidate = text.strip_prefix(prefix)?.split_whitespace().next()?;
     let numeric: String = candidate
