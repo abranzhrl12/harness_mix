@@ -62,12 +62,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let mut args = collected.into_iter();
-    let input = (args.next(), args.next(), args.next(), args.next());
+    let input = (args.next(), args.next(), args.next(), args.next(), args.next());
     if args.next().is_some() {
         return Err("too many command-line arguments".into());
     }
     let (root, persist_logs) = match input {
-        (Some(flag), Some(root), Some(option), val)
+        (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--reindex"
                     || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("rebuild")))) =>
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), val)
+        (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--init-index"
                     || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("init")))) =>
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), val)
+        (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--sync"
                     || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("sync")))) =>
@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), Some(relative))
+        (Some(flag), Some(root), Some(option), Some(relative), None)
             if flag == "--root" && option == "--sync-file" =>
         {
             let context = harness_domain::execution::OperationContext::default();
@@ -134,8 +134,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
-        (Some(flag), Some(root), None, None) if flag == "--root" => (PathBuf::from(root), false),
-        (Some(flag), Some(root), Some(option), val)
+        (Some(flag), Some(root), Some(option), Some(relative), Some(force))
+            if flag == "--root" && option == "--sync-file" && force == "--force" =>
+        {
+            let context = harness_domain::execution::OperationContext::default();
+            let relative = relative.to_str().ok_or("source path must be UTF-8")?;
+            let result = agent_harness::adapters::index_store::sync_file_forced(
+                &PathBuf::from(root),
+                relative,
+                &context,
+            )
+            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        (Some(flag), Some(root), None, None, None) if flag == "--root" => (PathBuf::from(root), false),
+        (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--sync-plan"
                     || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("plan")))) =>
@@ -147,17 +161,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
-        (Some(flag), Some(root), Some(option), None)
+        (Some(flag), Some(root), Some(option), None, None)
             if flag == "--root" && option == "--persist-logs" =>
         {
             (PathBuf::from(root), true)
         }
-        (None, None, None, None) => {
+        (None, None, None, None, None) => {
             let root = auto_detect_workspace()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             (root, false)
         }
-        (Some(flag), None, None, None) if flag == "--version" => {
+        (Some(flag), None, None, None, None) if flag == "--version" => {
             println!("agent-harness {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }

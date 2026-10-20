@@ -27,6 +27,8 @@ const MAX_ROWS: usize = 20_000;
 
 #[path = "index_candidates.rs"]
 mod candidates;
+#[path = "index_razor_invalidation.rs"]
+mod razor_invalidation;
 
 #[cfg(windows)]
 #[path = "index_writer.rs"]
@@ -44,6 +46,8 @@ pub(crate) mod scope;
 
 #[path = "index_imports.rs"]
 mod imports;
+#[path = "index_razor_receivers.rs"]
+mod razor_receivers;
 #[path = "index_paths.rs"]
 mod paths;
 #[path = "index_rust.rs"]
@@ -270,6 +274,8 @@ fn sync_workspace_with_limit(
     let mut results = Vec::new();
     let mut processed = 0;
     let mut changed = 0;
+    let mut provider_dependent = 0;
+    let mut failed = 0;
     let mut failure = None;
     #[cfg(windows)]
     let mut writer = None;
@@ -295,10 +301,40 @@ fn sync_workspace_with_limit(
                 }
             }
             Err((code, message)) => {
-                failure = Some(
-                    json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
-                );
-                break;
+                let entry = json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
+                // Provider-dependent files (framework or synthesized graph data
+                // the native publisher cannot reproduce) are a documented
+                // limitation: they are reported and skipped.
+                if code == "SYNC_UNSUPPORTED_RELATION" || code == "SYNC_LEGACY_REFERENCE" {
+                    provider_dependent += 1;
+                    unsupported += 1;
+                    if results.len() < 32 {
+                        results.push(json!({"path":path,"skipped":true,"code":code,"message":message,"commitState":"not_committed"}));
+                    }
+                    continue;
+                }
+                // A per-file failure does not stop the rest of the workspace:
+                // the first failure is reported and the remaining files are
+                // still published. Systemic failures still stop the run.
+                if failure.is_none() {
+                    failure = Some(entry.clone());
+                }
+                if results.len() < 32 {
+                    results.push(entry);
+                }
+                if matches!(
+                    code,
+                    "SYNC_SCHEMA"
+                        | "SYNC_INTEGRITY"
+                        | "SYNC_COMMIT_UNCERTAIN"
+                        | "SYNC_LIMIT"
+                        | "LIMIT"
+                        | "PATH"
+                ) {
+                    break;
+                }
+                failed += 1;
+                continue;
             }
         }
     }
@@ -310,10 +346,10 @@ fn sync_workspace_with_limit(
     let native_complete = failure.is_none() && processed == total;
     Ok(
         json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
-        "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total-processed,
-        "filesProcessed":processed,"fileReportsOmitted":processed-results.len(),"fileReportLimit":32,
+        "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
+        "filesProcessed":processed,"fileReportsOmitted":processed.saturating_sub(results.len()),"fileReportLimit":32,
         "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
-        "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,
+        "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
         "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
@@ -357,6 +393,27 @@ pub fn sync_file(
     #[cfg(windows)]
     {
         sync_file_windows(root, relative, context)
+    }
+}
+
+/// Republishes one file even when its content did not change. The native
+/// extractor runs again and the graph of that file is refreshed.
+pub fn sync_file_forced(
+    root: &Path,
+    relative: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    #[cfg(not(windows))]
+    {
+        let _ = (root, relative, context);
+        Err((
+            "UNSUPPORTED",
+            "Native index publication requires Windows path pinning",
+        ))
+    }
+    #[cfg(windows)]
+    {
+        sync_file_config_force(root, relative, None, context, || {}, true)
     }
 }
 
@@ -415,6 +472,11 @@ fn sync_file_config_with(
     )
 }
 
+/// Windows callers pass native separators; the graph stores POSIX-style paths.
+fn normalize_relative(relative: &str) -> String {
+    relative.replace('\\', "/")
+}
+
 #[cfg(windows)]
 fn sync_file_config_force(
     root: &Path,
@@ -447,6 +509,9 @@ fn sync_file_config_reuse(
     writer: &mut Option<writer::Writer>,
 ) -> Result<Value, Failure> {
     context.check()?;
+    // Windows callers pass native separators; the graph stores POSIX-style paths.
+    let normalized = normalize_relative(relative);
+    let relative = normalized.as_str();
     if relative.is_empty()
         || relative.len() > 1000
         || relative.contains('\\')
@@ -484,9 +549,8 @@ fn sync_file_config_reuse(
         // triggers require trusted_schema; it is enabled only after validation.
         sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
         context.check()?;
-        let mut configuration =
+        let configuration =
             tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
-        configuration.1 |= force;
         let (mut result, import_sources) = publish(
             &tx,
             &project,
@@ -495,6 +559,7 @@ fn sync_file_config_reuse(
             source.as_deref(),
             context,
             configuration,
+            force,
         )?;
         result["tsconfig"] = import_sources.config.stamp();
         before_recheck();
@@ -512,10 +577,13 @@ fn sync_file_config_reuse(
             ));
         }
         context.check()?;
+        // The publication only writes the edges of this file, so the integrity
+        // check is scoped to them. A full database scan would make every
+        // publication cost grow with the size of the project.
         let violations: bool = result["changed"] == true
             && sql(tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)",
-                [],
+                "SELECT EXISTS(SELECT 1 FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE (e.source IN(SELECT id FROM nodes WHERE file_path=?1) OR e.target IN(SELECT id FROM nodes WHERE file_path=?1)) AND (s.id IS NULL OR t.id IS NULL))",
+                [relative],
                 |row| row.get(0),
             ))?;
         if violations {
@@ -699,6 +767,103 @@ fn identity_map(
     Ok(result)
 }
 
+/// Pending JS/TS references whose imported export became available. The
+/// reference names the local alias, so the import binding of the referencing
+/// file carries the real name to match.
+fn pending_import_refs(
+    db: &Connection,
+    new_names: &BTreeSet<String>,
+) -> Result<Vec<i64>, Failure> {
+    if new_names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut statement = sql(db.prepare(
+        "SELECT r.id,r.reference_name,n.signature FROM unresolved_refs r JOIN nodes n ON n.file_path=r.file_path AND n.kind='import' WHERE r.status='pending' AND r.language IN ('typescript','tsx','javascript','jsx') LIMIT 20001",
+    ))?;
+    let rows = sql(statement.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+        ))
+    }))?;
+    let mut result = Vec::new();
+    for row in rows {
+        let (id, reference, signature) = sql(row)?;
+        let Some(signature) = signature else {
+            continue;
+        };
+        let Some((_module, names)) = codegraph_native::named_imports(&signature) else {
+            continue;
+        };
+        for (original, local) in names {
+            if local == reference && new_names.contains(&original) {
+                result.push(id);
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+#[derive(Clone)]
+struct ProviderEdge {
+    source: String,
+    target: String,
+    kind: String,
+    line: Option<i64>,
+    col: Option<i64>,
+    metadata: Option<String>,
+    provenance: Option<String>,
+    source_path: String,
+    target_path: String,
+}
+/// Provider-owned framework nodes of one file. The native extractor never
+/// produces them, so the publication keeps them instead of dropping them.
+fn provider_node_ids(db: &Connection, path: &str) -> Result<BTreeSet<String>, Failure> {
+    let mut statement = sql(db.prepare(
+        "SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component') LIMIT 20001",
+    ))?;
+    let rows = sql(statement.query_map([path], |r| r.get::<_, String>(0)))?;
+    let mut result = BTreeSet::new();
+    for row in rows {
+        let row = sql(row)?;
+        if result.len() >= MAX_ROWS {
+            return Err(LIMIT);
+        }
+        result.insert(row);
+    }
+    Ok(result)
+}
+/// Edges incident to the provider nodes of one file, with the source file of
+/// every edge so the publication can tell provider-owned edges from the
+/// incoming edges it already retains.
+fn provider_edges(db: &Connection, path: &str) -> Result<Vec<ProviderEdge>, Failure> {
+    let mut statement = sql(db.prepare(
+        "SELECT e.source,e.target,e.kind,e.line,e.col,e.metadata,e.provenance,ifnull(s.file_path,''),ifnull(t.file_path,'') FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE e.source IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component')) OR e.target IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component')) LIMIT 20001",
+    ))?;
+    let rows = sql(statement.query_map([path], |r| {
+        Ok(ProviderEdge {
+            source: r.get(0)?,
+            target: r.get(1)?,
+            kind: r.get(2)?,
+            line: r.get(3)?,
+            col: r.get(4)?,
+            metadata: r.get(5)?,
+            provenance: r.get(6)?,
+            source_path: r.get(7)?,
+            target_path: r.get(8)?,
+        })
+    }))?;
+    let mut result = Vec::new();
+    for row in rows {
+        let row = sql(row)?;
+        if result.len() >= MAX_ROWS {
+            return Err(LIMIT);
+        }
+        result.push(row);
+    }
+    Ok(result)
+}
 #[derive(Clone)]
 struct Incoming {
     source: String,
@@ -768,6 +933,7 @@ fn publish(
     bytes: Option<&[u8]>,
     context: &OperationContext,
     configuration: (tsconfig::Snapshot, bool),
+    force: bool,
 ) -> Result<(Value, imports::Sources), Failure> {
     let (configuration, config_changed) = configuration;
     let record: Option<(String, Option<String>)> = sql(db
@@ -783,6 +949,7 @@ fn publish(
         })
     });
     if !config_changed
+        && !force
         && ((bytes.is_none() && record.is_none())
             || (clean
                 && bytes.is_some_and(|bytes| {
@@ -806,10 +973,21 @@ fn publish(
         })
         .transpose()?;
     let extracted = extracted_value.as_ref();
-    let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
+    let razor_changes = if language == "csharp" {
+        Some(razor_invalidation::Changes::capture(db, path, extracted)?)
+    } else {
+        None
+    };
+    // Provider-owned framework nodes (routes, components) and the edges the
+    // provider synthesized around them cannot be reproduced by the native
+    // extractor. The publication keeps them and writes the native nodes of
+    // this file next to them. Only provider data that the native publisher
+    // cannot reproduce at all still blocks the transaction.
+    let provider_ids: BTreeSet<String> = provider_node_ids(db, path)?;
+    let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')) OR target IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component'))) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
     let third_file:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') END IS NOT NULL AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END >= ?1 AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END < ?2)",params![format!("{path}:"),format!("{path};")],|r|r.get(0)))?;
     let synthesis_table:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synthesis_inputs' AND upper(sql) LIKE 'CREATE TABLE%')",[],|r|r.get(0)))?;
-    let prior_synthesis_input = if synthesis_table {
+    let _prior_synthesis_input = if synthesis_table {
         sql(db.query_row(
             "SELECT EXISTS(SELECT 1 FROM synthesis_inputs WHERE file_path=?1)",
             [path],
@@ -818,19 +996,33 @@ fn publish(
     } else {
         false
     };
-    let framework_nodes: bool = sql(db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM nodes WHERE file_path=?1 AND kind IN('route','component'))",
-        [path],
-        |r| r.get(0),
-    ))?;
-    if synthesized || third_file || prior_synthesis_input || framework_nodes {
+    // A file the provider listed as a synthesis input can still be published
+    // natively: its provider nodes and edges are preserved and the recorded
+    // input stays, so the provider can synthesize again. Only a provider
+    // relation that points at the native nodes of this file blocks it.
+    if synthesized || third_file {
         return Err((
             "SYNC_UNSUPPORTED_RELATION",
             "Affected framework/synthesized graph data requires the provider resolver; index unchanged",
         ));
     }
+    // Provider nodes and their edges survive the publication.
+    let provider_edges: Vec<ProviderEdge> = provider_edges(db, path)?;
     let prior = identities(db, path)?;
     let paired = identity_map(prior, extracted)?;
+    // A name that other files resolve against is a name this file publishes.
+    // A pending ref can only be unblocked by a name that appears now or that
+    // becomes published now.
+    let mut prior_published: BTreeSet<String> = BTreeSet::new();
+    {
+        let mut statement = sql(db.prepare(
+            "SELECT name FROM nodes WHERE file_path=?1 AND ifnull(is_exported,0)=1 LIMIT 20001",
+        ))?;
+        let rows = sql(statement.query_map([path], |r| r.get::<_, String>(0)))?;
+        for row in rows {
+            prior_published.insert(sql(row)?);
+        }
+    }
     let incoming = incoming(db, path)?;
     // Capture original refs BEFORE deleting nodes/edges; never turn receiver.foo
     // into foo. Legacy unpaired edges without stamps block the entire transaction.
@@ -838,6 +1030,11 @@ fn publish(
     let mut retained = Vec::new();
     for mut edge in incoming {
         context.check()?;
+        if provider_ids.contains(&edge.target) {
+            // The provider node survives the publication; the edge keeps it.
+            retained.push(edge);
+            continue;
+        }
         if let Some(target) = paired.get(&edge.target) {
             edge.target = target.clone();
             retained.push(edge);
@@ -873,9 +1070,10 @@ fn publish(
         .optional())?
     .unwrap_or(0);
     // Explicit deletion also supports indexes produced with foreign_keys off.
-    sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1)",[path]))?;
+    // Provider nodes and their pending references survive the publication.
+    sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component'))",[path]))?;
     sql(db.execute("DELETE FROM edges WHERE source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)",[path]))?;
-    sql(db.execute("DELETE FROM nodes WHERE file_path=?1", [path]))?;
+    sql(db.execute("DELETE FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')", [path]))?;
     let mut refs = BTreeSet::new();
     let mut node_count = 0;
     if let Some(extracted) = extracted {
@@ -915,7 +1113,7 @@ fn publish(
                 ])
             },
         )?;
-        node_count = nodes.len();
+        node_count = nodes.len() + provider_ids.len();
         batches::insert(
             db,
             "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES ",
@@ -996,32 +1194,89 @@ fn publish(
             return Err(LIMIT);
         }
     }
-    let import_rechecks =
-        if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
-            imports::invalidate(db)?
+    // Provider-owned edges are republished with their native endpoints remapped.
+    // Edges that arrive from another file are already retained above.
+    let mut provider_kept = 0usize;
+    let mut provider_dropped = 0usize;
+    for edge in &provider_edges {
+        context.check()?;
+        if edge.source_path != path {
+            continue;
+        }
+        let source = if edge.source_path != path {
+            edge.source.clone()
+        } else if provider_ids.contains(&edge.source) {
+            edge.source.clone()
+        } else if let Some(next) = paired.get(&edge.source) {
+            next.clone()
         } else {
-            Vec::new()
+            provider_dropped += 1;
+            continue;
         };
+        let target = if edge.target_path != path {
+            edge.target.clone()
+        } else if provider_ids.contains(&edge.target) {
+            edge.target.clone()
+        } else if let Some(next) = paired.get(&edge.target) {
+            next.clone()
+        } else {
+            provider_dropped += 1;
+            continue;
+        };
+        let duplicate: bool = sql(db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges WHERE source=?1 AND target=?2 AND kind=?3)",
+            params![source, target, edge.kind],
+            |r| r.get(0),
+        ))?;
+        if duplicate {
+            continue;
+        }
+        sql(db.execute("INSERT INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![source,target,edge.kind,edge.line,edge.col,edge.metadata,edge.provenance]))?;
+        provider_kept += 1;
+    }
+    // A publication only invalidates the whole import graph when the
+    // configuration changed or the file content changed, that is when its
+    // exports or its import specifiers may have changed. Otherwise only the
+    // import edges this file can affect are rechecked, so the work stays
+    // proportional to the file instead of the whole project.
+
+    let import_rechecks = if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
+        imports::invalidate(db)?
+    } else {
+        Vec::new()
+    };
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
     if language == "rust" {
         refs.extend(imports::invalidate_rust(db)?);
     }
+    let razor_recheck_count = if let Some(changes) = &razor_changes {
+        let rechecks = changes.recheck(db, context)?;
+        let count = rechecks.len();
+        refs.extend(rechecks);
+        count
+    } else {
+        0
+    };
     if refs.len() > MAX_ROWS {
         return Err(LIMIT);
     }
-    // Retry pending/failed refs whose exact name became available in this file.
-    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) LIMIT 20001"))?;
+    // Retry the pending refs whose exact name became available in this file.
+    // The failed ones are retried by the engine that produced them (the razor
+    // tail index, the import invalidation). The project-wide import clause
+    // only applies to a JS/TS publication: a C# or Razor source cannot change
+    // the resolution of a JavaScript import.
+    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (?2 IN ('typescript','tsx','javascript','jsx') AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref'))) LIMIT 20001"))?;
     for row in sql(statement.query_map(params![path, language], |r| r.get::<_, i64>(0)))? {
         refs.insert(sql(row)?);
         if refs.len() > MAX_ROWS {
             return Err(LIMIT);
         }
     }
+    let mut candidate_snapshot = candidates::Snapshot::default();
     let mut resolved = 0;
     let mut import_sources = imports::Sources::configured(configuration);
-    // Node writes are complete; only edges/refs change during this loop.
-    let mut candidate_snapshot = candidates::Snapshot::default();
+    let mut mvc_snapshot = super::razor_mvc::Snapshot::default();
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(
@@ -1031,6 +1286,7 @@ fn publish(
             context,
             &mut import_sources,
             &mut candidate_snapshot,
+            &mut mvc_snapshot,
         )?);
     }
     if import_sources.config.digest.is_some()
@@ -1052,7 +1308,7 @@ fn publish(
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
     Ok((
-        json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"importReferencesRechecked":import_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false}),
+        json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false}),
         import_sources,
     ))
 }
@@ -1065,15 +1321,33 @@ fn resolve_exact(
     context: &OperationContext,
     sources: &mut imports::Sources,
     candidate_snapshot: &mut candidates::Snapshot,
+    mvc_snapshot: &mut super::razor_mvc::Snapshot,
 ) -> Result<bool, Failure> {
     let reference:Option<ResolutionReference> = sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
         return Ok(false);
     };
+    if language == "razor" && kind == "mvc_route" {
+        let Some(target) = mvc_snapshot.resolve(db, &name, &path, context)? else {
+            razor_invalidation::mark_failed(db, id, &name, &kind)?;
+            return Ok(false);
+        };
+        let metadata = json!({"refName":name,"refKind":kind,
+            "resolvedBy":"razor-mvc-literal-route-subset-v1",
+            "confidence":0.9}).to_string();
+        sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
+    }
+    if language == "razor" && kind == "calls" {
+        // The tail index permits exact affected-name retries after C# edits.
+        razor_invalidation::mark_failed(db, id, &name, &kind)?;
+    }
     let allowed: &[&str] = match kind.as_str() {
         "calls" | "function_ref" => &["function", "method"],
         "instantiates" => &["class", "struct"],
         "extends" | "implements" => &["class", "struct", "interface", "trait"],
+        "references" if language == "razor" => &["class", "struct", "record", "interface", "enum"],
         _ => return Ok(false),
     };
     let js = matches!(
@@ -1119,6 +1393,16 @@ fn resolve_exact(
         imports::Scope::Binding { path, name } => (name.as_str(), Some(path.as_str())),
         _ => (name.as_str(), None),
     };
+    // The C# kernel qualifies the namespace/type boundary with `::`; Razor's
+    // @model directive uses C# source spelling (`Demo.Model`).
+    let model_lookup = if language == "razor" && kind == "references" {
+        lookup
+            .rsplit_once('.')
+            .map(|(namespace, name)| format!("{namespace}::{name}"))
+    } else {
+        None
+    };
+    let lookup = model_lookup.as_deref().unwrap_or(lookup);
     // Receivers/chains are never stripped. Named imports override global names;
     // unsupported import forms defer instead of falling back to a homonym.
     let rust_target = if language == "rust" && matches!(kind.as_str(), "calls" | "function_ref") {
@@ -1130,15 +1414,73 @@ fn resolve_exact(
     } else {
         None
     };
-    let mut candidates = if let Some(target) = &rust_target {
+    // An absolute C# type receiver cannot be a local variable or a Razor
+    // member. Resolve only unique public static methods; instance receivers,
+    // aliases, unqualified names and overloads still need semantic binding.
+    let razor_static_target = if language == "razor" && kind == "calls" {
+        if let Some(absolute) = name.strip_prefix("global::") {
+            if absolute.split('.').count() >= 2
+                && absolute.split('.').all(|part| {
+                    !part.is_empty()
+                        && part.bytes().enumerate().all(|(i, b)| {
+                            b == b'_' || b.is_ascii_alphabetic() || (i > 0 && b.is_ascii_digit())
+                        })
+                })
+            {
+                let mut statement = sql(db.prepare_cached(
+                    "SELECT id FROM nodes WHERE name=?2 COLLATE BINARY AND language='csharp' AND kind='method' AND visibility='public' AND is_static=1 AND replace(qualified_name,'::','.')=?1 COLLATE BINARY LIMIT 2",
+                ))?;
+                let matches = sql(statement.query_map(
+                    [absolute, absolute.rsplit('.').next().unwrap_or("")],
+                    |row| row.get::<_, String>(0),
+                ))?
+                .collect::<Result<Vec<_>, _>>();
+                let matches = sql(matches)?;
+                (matches.len() == 1).then(|| matches[0].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let razor_instance_target = if language == "razor" && kind == "calls" && razor_static_target.is_none() && name.contains('.') {
+        sources.razor_instance_target(db, project, context, &path, &name, line, col)?
+    } else { None };
+    let mut candidates = if let Some((target, _)) = &razor_instance_target {
+        vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
+    } else if let Some(target) = &rust_target {
+        vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
+    } else if let Some(target) = &razor_static_target {
         vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
     } else {
-        candidate_snapshot.lookup(db, lookup, &language, imported_path, context)?
+        candidate_snapshot.lookup(
+            db,
+            lookup,
+            if language == "razor" && kind == "references" {
+                "csharp"
+            } else {
+                &language
+            },
+            imported_path,
+            context,
+        )?
     };
     if candidates.len() > 64 {
         return Ok(false);
     }
     candidates.retain(|n| allowed.contains(&n.1.as_str()));
+    // Member blocks belong to the generated class of this view. A homonymous
+    // method in another view is never proof of a Razor call target.
+    if language == "razor"
+        && matches!(kind.as_str(), "calls" | "function_ref")
+        && razor_static_target.is_none()
+        && razor_instance_target.is_none()
+    {
+        candidates.retain(|n| n.2 == path);
+    }
     if let Some(target) = imported_path {
         candidates.retain(|n| n.2 == target && n.1 == "function" && n.3 == lookup);
     } else if matches!(scope, imports::Scope::LocalOnly) {
@@ -1150,8 +1492,8 @@ fn resolve_exact(
         candidates.retain(|n| n.2 == path || n.4.as_deref() == Some("public") || n.5);
     }
     let qualified = lookup.contains('.') || lookup.contains("::");
-    if rust_target.is_some() {
-        // The Rust syntax/module proof already selected the exact declaration.
+    if rust_target.is_some() || razor_static_target.is_some() || razor_instance_target.is_some() {
+        // The language-specific proof already selected the exact declaration.
     } else if qualified {
         candidates.retain(|n| n.3 == lookup);
     } else if imported_path.is_none() {
@@ -1187,6 +1529,13 @@ fn resolve_exact(
         &kind
     };
     let mut metadata = json!({"refName":name,"refKind":kind,"resolvedBy":if imported_path.is_some(){"native-relative-named-import-subset"}else{"native-exact-name-subset"},"confidence":0.9});
+    if razor_static_target.is_some() {
+        metadata["resolvedBy"] = json!("razor-absolute-static-method-subset-v1");
+    }
+    if let Some((_, receiver_type)) = &razor_instance_target {
+        metadata["resolvedBy"] = json!("razor-typed-instance-method-subset-v1");
+        metadata["receiverType"] = json!(receiver_type.strip_prefix("global::").unwrap_or(receiver_type));
+    }
     if rust_target.is_some() {
         metadata["resolvedBy"] = json!(if candidates[0].2 == path {
             "syn-lexical-subset-v1"

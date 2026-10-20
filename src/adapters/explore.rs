@@ -220,6 +220,18 @@ fn query_symbols(args: &ExploreArgs) -> Vec<&str> {
         .collect()
 }
 
+fn razor_file_selector(args: &ExploreArgs) -> bool {
+    args.query.trim().is_empty()
+        && args.symbol.is_none()
+        && args.symbol_id.is_none()
+        && args.container.is_none()
+        && args.view != Some(ExploreView::Impact)
+        && args.file_path.as_deref().is_some_and(|path| {
+            std::path::Path::new(path).extension().and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("cshtml"))
+        })
+}
+
 fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
     let symbols = query_symbols(args);
     let max_files = args.max_files.unwrap_or(4);
@@ -252,7 +264,7 @@ fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
             .as_ref()
             .is_some_and(|p| p.is_empty() || p.len() > 1024 || p.contains('\0'))
         || args.query.contains('\0')
-        || symbols.is_empty()
+        || (symbols.is_empty() && args.symbol_id.is_none() && !razor_file_selector(args))
         || symbols.len() > 4
         || symbols
             .iter()
@@ -476,15 +488,15 @@ fn explore_inner(
     }
     diagnostic.borrow_mut()["stage"] = json!("graph_query");
     let query = if has_qualified {
-        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name IN (SELECT value FROM json_each(?1)) COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||name COLLATE BINARY OR qualified_name=?4||'.'||name COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE (name IN (SELECT value FROM json_each(?1)) COLLATE BINARY OR (?1='[]' AND ?3 IS NOT NULL) OR (?5 AND kind='file')) AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||name COLLATE BINARY OR qualified_name=?4||'.'||name COLLATE BINARY) ORDER BY file_path,start_line,id LIMIT 101"
     } else {
-        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE name IN (SELECT value FROM json_each(?1)) COLLATE BINARY AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL ORDER BY file_path,start_line,id LIMIT 101"
+        "SELECT id,name,kind,file_path,start_line FROM nodes WHERE (name IN (SELECT value FROM json_each(?1)) COLLATE BINARY OR (?1='[]' AND ?3 IS NOT NULL) OR (?5 AND kind='file')) AND (?2 IS NULL OR file_path=?2 COLLATE BINARY) AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL ORDER BY file_path,start_line,id LIMIT 101"
     };
     let mut search = db.prepare(query).map_err(failed)?;
     let symbol_names = serde_json::to_string(&query_symbols(args)).map_err(|_| CONTRACT)?;
     let mut hits = search
         .query_map(
-            rusqlite::params![symbol_names, args.file_path, args.symbol_id, args.container],
+            rusqlite::params![symbol_names, args.file_path, args.symbol_id, args.container, razor_file_selector(args)],
             |r| node(r, 0),
         )
         .map_err(failed)?
@@ -499,6 +511,11 @@ fn explore_inner(
     }
     let mut truncated = hits.len() > 100;
     hits.truncate(100);
+    let symbol = if symbol.is_empty() {
+        hits.first().map(|hit| hit.name.clone()).unwrap_or_default()
+    } else {
+        symbol.to_owned()
+    };
     let candidates: Vec<_> = hits.iter().take(20).cloned().collect();
     let candidates_omitted = hits.len().saturating_sub(candidates.len());
     let mut selection_limited = truncated;
@@ -659,7 +676,7 @@ fn explore_inner(
     let mut text = if summary {
         format!("Símbolo: {symbol}\nRelaciones indexadas; vigencia no certificada.\n")
     } else {
-        presentation::header(symbol)
+        presentation::header(&symbol)
     };
     let (related_context, context_omitted) = if summary {
         (Vec::new(), 0)
@@ -672,6 +689,10 @@ fn explore_inner(
         .chain(related_context.iter().copied())
         .collect();
     for selected in &context_targets {
+        // File targets anchor render/helper relationships; they have no local method body.
+        if selected.kind == "file" && razor_file_selector(args) {
+            continue;
+        }
         let file = &selected.file_path;
         let related = related_ids.contains(selected.id.as_str());
         context.check()?;
@@ -914,7 +935,7 @@ fn explore_inner(
         }
     }
     Ok(
-        json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") {"resolved"} else {"unresolved"}},
+        json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") || (razor_file_selector(args) && !targets.is_empty()) {"resolved"} else {"unresolved"}},
         "view":if impact {"impact"} else if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
         "reuseGuidance":"Use complete definitions already present in your context; do not read them again unless missing or changed. For partial/signature_only definitions use nextCall only when the missing body is needed. Hashes identify the observed source, not future freshness. Numbered Markdown is not replacement text.",
         "contextSelection":{"requestedSymbols":query_symbols(args),"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls; production before tests; ambiguous local bodies are not guessed"},

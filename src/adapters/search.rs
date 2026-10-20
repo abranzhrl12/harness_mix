@@ -405,6 +405,7 @@ pub fn search_with_context(
     // certified against the working tree and stale files are reparsed live, so
     // a published row is always true for the current source.
     let mut graph_outcome: Option<GraphOutcome> = None;
+    let mut live_languages = std::collections::BTreeSet::new();
     let mut index_diagnostics: Vec<Value> = Vec::new();
     if syntax {
         let (canonical, name) = selected.expect("syntax selector is present");
@@ -507,10 +508,9 @@ pub fn search_with_context(
             bytes: 0,
         };
         if syntax
-            && !entry
-                .path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+            && !entry.path().extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("rs") || ext.eq_ignore_ascii_case("cshtml")
+            })
         {
             continue;
         }
@@ -594,7 +594,16 @@ pub fn search_with_context(
                 };
                 if let Some((kind, name)) = selected {
                     let digest = harness_domain::hash(&file);
-                    let symbols = match super::rust_symbols::collect(text, &digest, context) {
+                    let collected = if entry
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("cshtml"))
+                    {
+                        super::csharp_syntax::collect_cshtml(text, &digest, context)
+                    } else {
+                        super::rust_symbols::collect(text, &digest, context)
+                    };
+                    let symbols = match collected {
                         Ok(symbols) => symbols,
                         Err((code, _)) if code == "CANCELLED" || code == "TIMEOUT" => {
                             cancelled = code == "CANCELLED";
@@ -610,6 +619,7 @@ pub fn search_with_context(
                         }
                     };
                     stable_files += 1;
+                    live_languages.insert(language_of(relative).unwrap_or_else(|| "rust".into()));
                     for symbol in symbols {
                         if let Err((code, _)) = context.check() {
                             cancelled = code == "CANCELLED";
@@ -788,7 +798,7 @@ pub fn search_with_context(
         result["globs"] = json!(patterns);
     }
     if syntax {
-        let coverage = "Rust declarations, inline modules, impl/trait members; no local items, macro expansion, references or AST patterns";
+        let coverage = "Rust declarations and Razor directives/C# members; no local items, macro expansion, reference resolution, Razor compilation or AST patterns";
         result["kind"] = json!("syntax");
         result["syntaxOnly"] = json!(true);
         result["selector"] = json!(args.query);
@@ -814,7 +824,12 @@ pub fn search_with_context(
             }
             None => {
                 result["discovery"] = json!("live");
-                result["language"] = json!("rust");
+                result["language"] = json!(match live_languages.len() {
+                    0 => "rust",
+                    1 => live_languages.first().expect("one language"),
+                    _ => "multiple",
+                });
+                result["languages"] = json!(live_languages);
                 result["coverage"] = json!(coverage);
                 result["parsedFiles"] = json!(stable_files);
                 result["parseErrors"] = json!(parse_errors);

@@ -73,6 +73,112 @@ fn six_languages_extract_provider_nodes_edges_and_references_without_node() {
 }
 
 #[test]
+fn razor_declarations_enter_the_graph_without_markup_call_guesses() {
+    let source = "@model Demo.Model\r\n@section Scripts { <script>fake();</script> }\r\n@functions {\r\n public string Hello() { return \"á😀\"; }\r\n}\r\n";
+    let result = extract("Views/Index.cshtml", source, &OperationContext::default()).unwrap();
+    let nodes = result["nodes"].as_array().unwrap();
+    assert_eq!(language("Views/Index.cshtml"), Some("razor"));
+    for (name, kind, line) in [
+        ("Demo.Model", "type", 1),
+        ("Scripts", "module", 2),
+        ("Hello", "method", 4),
+    ] {
+        let node = nodes.iter().find(|n| n["name"] == name).unwrap();
+        assert_eq!(node["kind"], kind);
+        assert_eq!(node["startLine"], line);
+        assert_eq!(node["language"], "razor");
+        assert!(
+            result["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["target"] == node["id"] && e["kind"] == "contains")
+        );
+    }
+    assert!(!nodes.iter().any(|n| n["name"] == "fake"));
+    assert!(
+        result["unresolvedReferences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["referenceName"] == "Demo.Model" && r["referenceKind"] == "references")
+    );
+    assert!(
+        extract(
+            "bad.cshtml",
+            "@section Scripts {",
+            &OperationContext::default()
+        )
+        .is_err()
+    );
+    let repeated = extract("Views/Index.cshtml", source, &OperationContext::default()).unwrap();
+    assert_eq!(result, repeated);
+    let other = extract("Views/Other.cshtml", source, &OperationContext::default()).unwrap();
+    assert_ne!(result["nodes"][1]["id"], other["nodes"][1]["id"]);
+}
+
+#[test]
+fn razor_native_member_projection_preserves_calls_fields_and_positions() {
+    let source = "@* @functions { void Fake() {} } *@\r\n<div>😀</div>\r\n@functions {\r\n private int counter = 0;\r\n public void Run() { Helper(); }\r\n}\r\n@code {\r\n public void Helper() { counter++; }\r\n}\r\n";
+    let result = extract("Views/Index.CSHTML", source, &OperationContext::default()).unwrap();
+    let nodes = result["nodes"].as_array().unwrap();
+    assert!(
+        !nodes
+            .iter()
+            .any(|n| n["name"] == "Fake" || n["name"] == "__HarnessRazor")
+    );
+    for (name, line) in [("counter", 4), ("Run", 5), ("Helper", 8)] {
+        let node = nodes.iter().find(|n| n["name"] == name).unwrap();
+        assert_eq!(node["startLine"], line, "{result}");
+        assert_eq!(node["filePath"], "Views/Index.CSHTML");
+    }
+    let run = nodes.iter().find(|n| n["name"] == "Run").unwrap();
+    assert!(
+        result["unresolvedReferences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["fromNodeId"] == run["id"]
+                && r["referenceName"] == "Helper"
+                && r["line"] == 5)
+    );
+    assert!(
+        extract(
+            "bad.cshtml",
+            "@functions { public void Run( {} }",
+            &OperationContext::default()
+        )
+        .is_err()
+    );
+    let context = OperationContext::default();
+    context.cancel();
+    assert_eq!(
+        extract("view.cshtml", source, &context).unwrap_err().0,
+        "CANCELLED"
+    );
+}
+
+#[test]
+fn razor_does_not_index_directive_text_in_markup() {
+    let source = r#"<!-- @functions { void Comment() {} } -->
+<script>const text = '@functions { void Script() {} }';</script>
+<style>p::after { content: '@functions { void Style() {} }'; }</style>
+<div title='@functions { void Attribute() {} }'></div>
+@functions { public void Real() {} }"#;
+    let result = extract("Index.cshtml", source, &OperationContext::default()).unwrap();
+    let names = result["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|n| n["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"Real"), "{result}");
+    for fake in ["Comment", "Script", "Style", "Attribute"] {
+        assert!(!names.contains(&fake), "{result}");
+    }
+}
+
+#[test]
 fn parser_errors_and_unsupported_languages_do_not_publish_partial_graphs() {
     assert_eq!(
         extract("broken.rs", "fn broken( {", &OperationContext::default())

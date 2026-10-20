@@ -58,6 +58,8 @@ pub mod process_status;
 mod process_tree;
 mod project;
 mod razor_syntax;
+mod razor_render;
+mod razor_mvc;
 mod rust_symbols;
 mod rust_syntax;
 mod symbol_graph;

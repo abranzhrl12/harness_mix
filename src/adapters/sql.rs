@@ -405,6 +405,18 @@ fn operation_failed((code, message): Failure) -> Value {
         "connectionDisposition":"closed_if_opened","cancellationRequestSent":false,"serverCancellationConfirmed":false})
 }
 
+/// Keep the public diagnostic consistent with the bounded server diagnostic.
+fn operation_failed_with_server_diagnostic(error: Failure, diagnostic: Option<&Value>) -> Value {
+    let mut output = operation_failed(error);
+    if let Some(diagnostic) = diagnostic {
+        if let Some(message) = diagnostic["message"].as_str() {
+            output["diagnostics"][0]["message"] = json!(message);
+        }
+        output["serverError"] = diagnostic.clone();
+    }
+    output
+}
+
 pub fn status(
     project: &Project,
     args: &SqlStatusArgs,
@@ -876,16 +888,11 @@ pub fn query(
     )) {
         Ok(value) => value,
         Err(error) => {
-            let mut output = operation_failed(error);
-            if let Ok(diagnostic) = server_error.lock() {
-                if let Some(diagnostic) = diagnostic.as_ref() {
-                    if let Some(message) = diagnostic["message"].as_str() {
-                        output["diagnostics"][0]["message"] = json!(message);
-                    }
-                    output["serverError"] = diagnostic.clone();
-                }
-            }
-            return Ok(output);
+            let diagnostic = server_error.lock().ok();
+            return Ok(operation_failed_with_server_diagnostic(
+                error,
+                diagnostic.as_deref().and_then(Option::as_ref),
+            ));
         }
     };
 
@@ -1002,6 +1009,32 @@ mod safety_tests {
             server_diagnostic(&tiberius::error::Error::Protocol("Password=secret".into()))
                 .is_none()
         );
+    }
+    #[test]
+    fn invalid_column_is_visible_in_the_public_failure_without_raw_server_text() {
+        for (raw, expected) in [
+            (
+                "Invalid column name 'tEmpresaRuc'.",
+                "SQL Server 207: Invalid column name 'tEmpresaRuc'.",
+            ),
+            (
+                "Invalid column name 'x';Password=secret'.",
+                "SQL Server 207: Invalid column name",
+            ),
+        ] {
+            let diagnostic = json!({
+                "number": 207,
+                "message": safe_schema_message(207, raw),
+                "messageSanitized": true
+            });
+            let output = operation_failed_with_server_diagnostic(
+                ("SQL_INVALID_COLUMN", "SQL Server 207: Invalid column name"),
+                Some(&diagnostic),
+            );
+            assert_eq!(output["diagnostics"][0]["message"], expected);
+            assert_eq!(output["diagnostics"][0]["code"], "SQL_INVALID_COLUMN");
+            assert!(!output.to_string().contains("Password=secret"));
+        }
     }
     #[tokio::test]
     async fn sync_bridge_handles_current_thread_runtime() {

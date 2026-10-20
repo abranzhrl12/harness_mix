@@ -8,6 +8,7 @@ macro_rules! stack_guard {
 }
 pub mod buffers;
 mod csharp;
+pub mod csharp_receivers;
 mod docstring;
 mod ids;
 #[allow(unused_mut)] // Preserve the pinned upstream source unchanged.

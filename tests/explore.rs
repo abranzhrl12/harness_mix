@@ -10,6 +10,35 @@ use rusqlite::params;
 use serde_json::{Value, json};
 
 #[test]
+fn explicit_symbol_does_not_require_a_duplicate_query() {
+    let root = tempfile::tempdir().unwrap();
+    drop(graph_fixture::fixture(root.path()));
+    let app = adapters::application(root.path()).unwrap();
+    for view in ["summary", "full", "impact"] {
+        let args: ExploreArgs = serde_json::from_value(json!({
+            "view": view, "filePath": "lib.rs", "symbol": "target"
+        })).unwrap();
+        assert!(args.query.is_empty());
+        let result = app.execute(Request::Explore(args));
+        assert_eq!(result["state"], "ok", "{view}: {result}");
+        assert_eq!(result["data"]["focus"]["symbol"], "target", "{result}");
+    }
+    for input in [json!({}), json!({"symbol":""}), json!({"symbol":"bad name"})] {
+        let args: ExploreArgs = serde_json::from_value(input).unwrap();
+        let result = app.execute(Request::Explore(args));
+        assert_eq!(result["state"], "error", "{result}");
+        assert_eq!(result["diagnostics"][0]["code"], "ARGUMENT", "{result}");
+    }
+    let args: ExploreArgs = serde_json::from_value(json!({
+        "view":"impact", "filePath":"lib.rs", "symbolId":"t"
+    })).unwrap();
+    let result = app.execute(Request::Explore(args));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["symbol"], "target", "{result}");
+    assert_eq!(result["data"]["counts"]["directCallers"], 1, "{result}");
+}
+
+#[test]
 #[ignore = "opt-in retrieval comparison against an existing index; no synchronization"]
 fn compare_context_on_existing_index() {
     let root = std::path::PathBuf::from(

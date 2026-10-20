@@ -61,7 +61,7 @@ pub fn impact(args: &ExploreArgs, result: Value) -> Value {
     let omitted = all.len().saturating_sub(limit);
     let graph_limited = graph["truncated"] == true;
     let ambiguous = result["selection"]["multipleTargets"] == true;
-    json!({"view":"impact","file":args.file_path,"symbol":args.symbol.as_deref().unwrap_or(args.query.trim()),"focus":result["focus"],"files":files,
+    json!({"view":"impact","file":args.file_path,"symbol":result["focus"]["symbol"],"focus":result["focus"],"files":files,
         "callers":all.iter().take(limit).collect::<Vec<_>>(),"callersOmitted":omitted,
         "counts":{"callers":all.len(),"directCallers":all.iter().filter(|n|n["direct"]==true).count(),"files":files.len(),"scope":"returned-subgraph-not-global"},
         "relationshipKinds":kinds,"locationKind":"caller-declaration-not-call-site",

@@ -75,8 +75,16 @@ del proyecto ni avisos de seguridad; el catálogo completo queda recuperable en 
 Ambas herramientas admiten `bom: true` para UTF-8 con BOM y `bom: false`
 para omitirlo. Por defecto conservan el BOM existente y los `.cshtml` en Windows
 se guardan con BOM. Los hashes y las comprobaciones posteriores incluyen sus bytes.
-La navegación local de Razor reconoce `@model`, `@section` y `@helper`;
-las relaciones del grafo siguen dependiendo de la cobertura del índice.
+La navegación local de Razor reconoce `@model`, `@section` y `@helper`.
+La indexación de `.cshtml` incorpora esas declaraciones y extrae con el kernel C#
+los campos, propiedades, métodos y referencias de `@functions`/`@code` en una sola
+proyección por vista, conservando líneas y columnas UTF-16. Publica relaciones
+`contains`, resuelve llamadas entre miembros de la misma vista y referencias
+`@model` a tipos C# públicos no ambiguos. La búsqueda admite `razor_model`,
+`razor_section` y `razor_helper`, también al reparar archivos desactualizados.
+No compila Razor ni resuelve expresiones del markup, tipos genéricos de `@model`
+o dependencias dinámicas entre vistas; conserva referencias sin resolver.
+Los índices existentes necesitan sincronizar o reindexar las vistas para incluirlas.
 
 Las consultas SQL Server incluyen el número del error y, para errores habituales
 de columna, tabla o procedimiento, un mensaje con el identificador sanitizado.

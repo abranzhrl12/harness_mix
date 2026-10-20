@@ -7,6 +7,34 @@ use std::{fs, process::Command};
 mod graph_fixture;
 
 #[test]
+fn razor_inventory_and_preview_include_views_and_respect_ignores() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    drop(db);
+    fs::write(
+        root.path().join("Index.cshtml"),
+        "@functions { public void Run() {} }",
+    )
+    .unwrap();
+    fs::write(root.path().join("Hidden.cshtml"), "@section Hidden {}").unwrap();
+    fs::write(root.path().join(".gitignore"), "Hidden.cshtml\n").unwrap();
+    let result = plan_workspace(root.path(), &OperationContext::default()).unwrap();
+    assert_eq!(
+        result["plan"]["added"],
+        serde_json::json!(["Index.cshtml"]),
+        "{result}"
+    );
+    assert!(
+        result["extractionPreview"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "Index.cshtml"
+                && file["status"] == "extracted_not_published")
+    );
+}
+
+#[test]
 fn native_inventory_drives_plan_without_writing_index_or_sources() {
     let dir = tempfile::tempdir().unwrap();
     let db = graph_fixture::fixture(dir.path());

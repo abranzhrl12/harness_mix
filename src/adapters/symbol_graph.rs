@@ -75,14 +75,15 @@ pub(super) fn canonical_kind(kind: &str) -> Option<&'static str> {
         | "method"
         | "method_definition"
         | "method_signature"
-        | "constructor" => "function_item",
+        | "constructor"
+        | "razor_helper" => "function_item",
         "function_signature_item" => "function_signature_item",
         "struct_item" | "struct" | "class" | "class_declaration" | "record" => "struct_item",
         "enum_item" | "enum" | "enum_declaration" => "enum_item",
         "union_item" | "union" => "union_item",
         "trait_item" | "trait" | "interface" | "interface_declaration" => "trait_item",
-        "mod_item" | "module" | "namespace" | "internal_module" => "mod_item",
-        "type_item" | "type" | "type_alias_declaration" => "type_item",
+        "mod_item" | "module" | "namespace" | "internal_module" | "razor_section" => "mod_item",
+        "type_item" | "type" | "type_alias_declaration" | "razor_model" => "type_item",
         "const_item" | "const" | "constant" => "const_item",
         "static_item" | "static" => "static_item",
         "macro_definition" | "macro" => "macro_definition",
@@ -95,6 +96,9 @@ pub(super) fn canonical_kind(kind: &str) -> Option<&'static str> {
 
 /// Every kind a selector may ask for: canonical names and their aliases.
 pub(super) const SELECTOR_KINDS: &[&str] = &[
+    "razor_helper",
+    "razor_section",
+    "razor_model",
     "function_item",
     "function_signature_item",
     "struct_item",

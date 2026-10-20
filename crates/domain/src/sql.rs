@@ -465,6 +465,29 @@ mod unified_tool_tests {
         assert!(parse(json!({"action":"describe","name":"dbo.Object","kind":"routine","objectType":"procedure"})).is_err());
     }
 
+    #[test]
+    fn describe_qualified_table_needs_no_explicit_type() {
+        for name in ["taller.ORDEN_SERVICIO", "dbo.Customer"] {
+            let SqlArgs::Describe(args) = parse(json!({"action":"describe","name":name})).unwrap()
+            else {
+                panic!("expected describe")
+            };
+            assert_eq!(args.name, name);
+            assert!(args.kind.is_none());
+        }
+    }
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn describe_schema_requires_neither_kind_nor_object_type() {
+        let schema = serde_json::to_value(schemars::schema_for!(SqlDescribeArgs)).unwrap();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("name")));
+        assert!(!required.contains(&json!("kind")));
+        assert!(!required.contains(&json!("objectType")));
+        assert!(schema["properties"].get("objectType").is_some());
+    }
+
     #[cfg(feature = "schema")]
     #[test]
     fn schema_query_accepts_implicit_action() {

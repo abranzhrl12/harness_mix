@@ -1,6 +1,6 @@
 //! Conservative JS/TS named-import scope. Uses indexed data, never probes paths.
 use super::{Failure, INDEX, LIMIT, OperationContext, Project, hash, read_source, sql};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeMap;
 
 #[path = "index_exports.rs"]
@@ -14,6 +14,9 @@ pub(super) struct Sources {
     semantic_reserved: usize,
     rust: BTreeMap<String, super::rust::Facts>,
     rust_reserved: usize,
+    razor: BTreeMap<String, super::razor_receivers::Facts>,
+    razor_reserved: usize,
+    razor_targets: super::razor_receivers::Targets,
     routes: Option<super::paths::Routes>,
     pub(super) config: super::tsconfig::Snapshot,
 }
@@ -23,6 +26,39 @@ pub(super) struct ExportTarget {
     pub contributors: Vec<serde_json::Value>,
 }
 impl Sources {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn razor_instance_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        name: &str,
+        line: i64,
+        col: i64,
+    ) -> Result<Option<(String, String)>, Failure> {
+        if !self.observe(db, project, context, path)? {
+            return Ok(None);
+        }
+        if !self.razor.contains_key(path) {
+            let source =
+                std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
+            let facts = super::razor_receivers::analyze(source, context)?;
+            self.razor_reserved += facts.reserved();
+            if self.razor_reserved > 16 * 1024 * 1024 {
+                return Err(LIMIT);
+            }
+            self.razor.insert(path.into(), facts);
+        }
+        self.razor_targets.resolve(
+            db,
+            self.razor.get(path).ok_or(INDEX)?,
+            name,
+            line,
+            col,
+            context,
+        )
+    }
     fn rust_rooted(
         &mut self,
         db: &Connection,
@@ -315,6 +351,56 @@ pub(super) enum Scope {
 /// make a formerly unique path ambiguous even if it has no incoming edges yet.
 pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
     invalidate_engine(db, "native-relative-named-import-subset")
+}
+/// Invalidates only the import edges this file can affect: the ones it
+/// publishes and the ones of other files that point into it. The rest of the
+/// import graph is unaffected by the publication and stays untouched.
+pub(super) fn invalidate_scoped(db: &Connection, path: &str) -> Result<Vec<i64>, Failure> {
+    invalidate_engine_scoped(db, "native-relative-named-import-subset", path)
+}
+fn invalidate_engine_scoped(
+    db: &Connection,
+    engine: &str,
+    path: &str,
+) -> Result<Vec<i64>, Failure> {
+    let mut statement = sql(db.prepare("SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END=?1 AND (s.file_path=?2 OR e.target IN(SELECT id FROM nodes WHERE file_path=?2)) LIMIT 20001"))?;
+    let rows = sql(statement.query_map(params![engine, path], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, String>(5)?,
+            r.get::<_, String>(6)?,
+        ))
+    }))?;
+    let mut original = Vec::new();
+    let mut reserved = 0;
+    for row in rows {
+        let row = sql(row)?;
+        reserved += row.0.len() + row.1.len() + row.2.len() + row.5.len() + row.6.len();
+        if original.len() >= super::MAX_ROWS || reserved > 16 * 1024 * 1024 {
+            return Err(LIMIT);
+        }
+        original.push(row);
+    }
+    sql(db.execute("DELETE FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.resolvedBy') END=?1 AND (source IN(SELECT id FROM nodes WHERE file_path=?2) OR target IN(SELECT id FROM nodes WHERE file_path=?2))", params![engine, path]))?;
+    original
+        .into_iter()
+        .map(|(source, name, kind, line, col, path, language)| {
+            super::insert_ref(
+                db,
+                &source,
+                &name,
+                &kind,
+                line,
+                col,
+                None,
+                (&path, &language),
+            )
+        })
+        .collect()
 }
 pub(super) fn invalidate_rust(db: &Connection) -> Result<Vec<i64>, Failure> {
     invalidate_engine(db, "syn-module-subset-v1")

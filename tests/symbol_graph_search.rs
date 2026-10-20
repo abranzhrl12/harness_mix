@@ -56,6 +56,42 @@ fn index(
 }
 
 #[test]
+fn razor_selectors_work_live_and_repair_stale_graph_declarations() {
+    let root = tempfile::tempdir().unwrap();
+    let source = "@model Demo.Model\n@section Scripts { <script>fake();</script> }\n@helper Label() { <b>Label</b> }\n";
+    std::fs::write(root.path().join("Index.cshtml"), source).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    for selector in [
+        "razor_model:Demo.Model",
+        "razor_section:Scripts",
+        "razor_helper:Label",
+    ] {
+        let result = search(&app, selector);
+        assert_eq!(result["state"], "ok", "{result}");
+        assert_eq!(
+            result["data"]["matches"].as_array().unwrap().len(),
+            1,
+            "{result}"
+        );
+    }
+    let db = index(
+        root.path(),
+        &[("Index.cshtml", source)],
+        &[("section", "Scripts", "module", "Index.cshtml", 2)],
+    );
+    db.execute("UPDATE nodes SET language='razor';", [])
+        .unwrap();
+    let fresh = search(&app, "razor_section:Scripts");
+    assert_eq!(fresh["data"]["discovery"], "index", "{fresh}");
+    std::fs::write(root.path().join("Index.cshtml"), "@section Removed {}\n").unwrap();
+    let stale = search(&app, "razor_section:Scripts");
+    assert!(
+        stale["data"]["matches"].as_array().unwrap().is_empty(),
+        "{stale}"
+    );
+}
+
+#[test]
 fn without_index_the_live_path_answers_and_declares_itself() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("lib.rs"), "pub fn real() {}\n").unwrap();

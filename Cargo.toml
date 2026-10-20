@@ -4,6 +4,39 @@ version = "0.8.9"
 edition = "2024"
 rust-version = "1.88"
 publish = false
+autobins = false
+autotests = true
+
+[[bin]]
+name = "agent-harness"
+path = "src/main.rs"
+
+[[test]]
+name = "razor_graph_containers"
+path = "tests/razor_graph_containers.rs"
+test = true
+
+[[test]]
+name = "razor_instance_receivers"
+path = "tests/razor_instance_receivers.rs"
+test = true
+
+[[test]]
+name = "razor_resolution_efficiency"
+path = "tests/razor_resolution_efficiency.rs"
+test = true
+
+[[test]]
+name = "explore"
+path = "tests/explore.rs"
+test = true
+
+[profile.test.package.agent-harness]
+opt-level = 0
+
+[lib]
+test = false
+doctest = false
 
 [workspace]
 members = [

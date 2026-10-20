@@ -994,6 +994,8 @@ impl BatchJob {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploreArgs {
+    /// Optional with symbol/symbolId, or filePath alone for non-impact Razor render relationships.
+    #[serde(default)]
     pub query: String,
     /// Summary returns signatures and graph counts; detail retains the graph.
     pub view: Option<ExploreView>,

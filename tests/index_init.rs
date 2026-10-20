@@ -165,6 +165,21 @@ fn full_sync_failure_keeps_prior_commits_in_aggregate_report() {
 }
 
 #[test]
+fn a_deferred_source_does_not_stop_the_rest_of_the_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(root.path(), &context).unwrap();
+    fs::write(root.path().join("a.rs"), "fn preserved() {}").unwrap();
+    fs::write(root.path().join("m.ts"), "export type * from './missing';").unwrap();
+    fs::write(root.path().join("z.rs"), "fn afterwards() {}").unwrap();
+    let report = sync_workspace_all(root.path(), &context).unwrap();
+    assert_eq!(report["failure"]["path"], "m.ts", "{report}");
+    assert_eq!(report["changedFilesCommitted"], 2, "{report}");
+    assert_eq!(report["filesProcessed"], 2, "{report}");
+    assert_eq!(report["failedFiles"], 1, "{report}");
+}
+
+#[test]
 fn fresh_index_can_be_explored_without_provider() {
     use harness_domain::contracts::Request;
     let root = tempfile::tempdir().unwrap();

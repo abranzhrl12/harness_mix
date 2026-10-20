@@ -651,14 +651,17 @@
     "harness_explore": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "query"
+      "anyOf": [
+        { "required": ["query"] },
+        { "required": ["symbol"] },
+        { "required": ["symbolId"] },
+        { "required": ["filePath"], "properties": { "filePath": { "pattern": "\\.[cC][sS][hH][tT][mM][lL]$" } } }
       ],
       "properties": {
         "query": {
           "type": "string",
           "maxLength": 2000,
-          "description": "Rust: 1..4 whitespace-separated exact identifiers; explicit symbol overrides query. Use multiple names to inspect a flow; this is not natural-language or fuzzy search."
+          "description": "Rust: 1..4 whitespace-separated exact identifiers; optional when symbol or symbolId is supplied, including view=impact. Explicit symbol overrides query. Use multiple names to inspect a flow; this is not natural-language or fuzzy search."
         },
         "symbol": {
           "type": "string",
@@ -678,7 +681,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096,
-          "description": "Exact workspace-relative indexed file path"
+          "description": "Exact workspace-relative indexed file path. For Razor render/helper relationships, filePath ending .cshtml alone selects its file node without query/symbol; omit container and use summary/full (not impact). Example: {filePath:'Views/Orders/Index.cshtml',view:'full',direction:'outbound'}."
         },
         "container": {
           "type": "string",

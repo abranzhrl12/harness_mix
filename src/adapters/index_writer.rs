@@ -24,12 +24,11 @@ pub(super) struct Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        // Once commit/rollback is definitive, permit SQLite's normal WAL/SHM
-        // cleanup. Holding deny-DELETE sidecar handles during sqlite3_close
-        // makes Windows retry their unlink for seconds. The database and all
-        // directory handles stay pinned until AFTER SQLite closes. If a
-        // transaction remains active, retain every pin during final rollback.
+        // Fold the write-ahead log back into the database before releasing the
+        // sidecars. A passive checkpoint never blocks and keeps the next
+        // publication from paying for a large log.
         if self.db.is_autocommit() {
+            let _ = self.db.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
             self.sidecars.clear();
         }
     }
@@ -144,7 +143,7 @@ impl Writer {
         }
         sql(db.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, 1024 * 1024))?;
         sql(db.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_SQL_LENGTH, 16384))?;
-        sql(db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096;"))?;
+        sql(db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; PRAGMA wal_autocheckpoint=8000;"))?;
         Ok(Self {
             db,
             sidecars: sidecar_pins,

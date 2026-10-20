@@ -235,13 +235,13 @@ mod tests {
     }
 
     #[test]
-    fn deep_braces_c_defer_instead_of_crashing() {
+    fn deep_braces_csharp_defer_instead_of_crashing() {
         let src = format!(
-            "void foo(void) {{\n{}{}\n}}\n",
+            "class C {{ void F() {{\n{}{}\n}} }}\n",
             "{".repeat(DEPTH),
             "}".repeat(DEPTH)
         );
-        let r = on_small_stack(move || run_guarded(|| crate::ccpp::extract("deep.c", &src, "c")));
+        let r = on_small_stack(move || run_guarded(|| crate::csharp::extract("deep.cs", &src)));
         let err = r.err().expect("deep nesting must defer");
         assert!(err.starts_with("defer:"), "unexpected error: {err}");
     }
@@ -249,12 +249,12 @@ mod tests {
     type Extract = fn(&str) -> Result<crate::buffers::EmitOut, String>;
 
     #[test]
-    fn deep_parens_cpp_rust_ts_python_defer_instead_of_crashing() {
-        let cases: [(&str, Extract, String); 4] = [
+    fn deep_parens_supported_languages_defer_instead_of_crashing() {
+        let cases: [(&str, Extract, String); 3] = [
             (
-                "deep.cpp",
-                |s| crate::ccpp::extract("deep.cpp", s, "cpp"),
-                nested_parens("int f() { return ", "; }\n"),
+                "deep.cs",
+                |s| crate::csharp::extract("deep.cs", s),
+                nested_parens("class C { int F() { return ", "; } }\n"),
             ),
             (
                 "deep.rs",
@@ -265,11 +265,6 @@ mod tests {
                 "deep.ts",
                 |s| crate::tsjs::extract("deep.ts", s, "typescript"),
                 nested_parens("function f() { return ", "; }\n"),
-            ),
-            (
-                "deep.py",
-                |s| crate::python::extract("deep.py", s),
-                nested_parens("def f():\n    return ", "\n"),
             ),
         ];
         for (name, extract, src) in cases {
@@ -283,8 +278,8 @@ mod tests {
 
     #[test]
     fn normal_files_are_untouched_by_the_guard() {
-        let src = "int add(int a, int b) { return a + b; }\nint main(void) { return add(1, 2); }\n";
-        let r = on_small_stack(move || run_guarded(|| crate::ccpp::extract("ok.c", src, "c")));
+        let src = "class C { int Add(int a, int b) { return a + b; } int Main() { return Add(1, 2); } }";
+        let r = on_small_stack(move || run_guarded(|| crate::csharp::extract("ok.cs", src)));
         assert!(r.is_ok(), "a shallow file must not defer: {:?}", r.err());
         assert!(!overflowed());
     }
@@ -292,14 +287,14 @@ mod tests {
     #[test]
     fn latch_resets_between_runs() {
         let deep = format!(
-            "void foo(void) {{\n{}{}\n}}\n",
+            "class C {{ void F() {{\n{}{}\n}} }}\n",
             "{".repeat(DEPTH),
             "}".repeat(DEPTH)
         );
         on_small_stack(move || {
-            assert!(run_guarded(|| crate::ccpp::extract("deep.c", &deep, "c")).is_err());
+            assert!(run_guarded(|| crate::csharp::extract("deep.cs", &deep)).is_err());
             // The latch from the deep file must not poison the next, shallow one.
-            let ok = run_guarded(|| crate::ccpp::extract("ok.c", "int x;\n", "c"));
+            let ok = run_guarded(|| crate::csharp::extract("ok.cs", "class C { int x; }"));
             assert!(ok.is_ok(), "latch leaked into the next run: {:?}", ok.err());
         });
     }

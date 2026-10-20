@@ -27,6 +27,91 @@ fn count(root: &Path, query: &str) -> i64 {
 }
 
 #[test]
+fn razor_publication_resolves_members_and_model_and_updates_atomically() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(
+        root.path().join("Model.cs"),
+        "namespace Demo; public class Model {}",
+    )
+    .unwrap();
+    sync(root.path(), "Model.cs");
+    let source = "@model Demo.Model\n@section Scripts { <script>fake();</script> }\n@functions { public void Run() { Helper(); } public void Helper() {} }\n";
+    fs::write(root.path().join("Index.cshtml"), source).unwrap();
+    let first = sync(root.path(), "Index.cshtml");
+    assert_eq!(first["committed"], true, "{first}");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE language='razor'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND s.name='Run' AND t.name='Helper'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.kind='references' AND t.file_path='Model.cs'"
+        ),
+        1
+    );
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    let request = serde_json::from_value(
+        serde_json::json!({"query":"Run","filePath":"Index.cshtml","symbol":"Run","view":"full"}),
+    )
+    .unwrap();
+    let explored = app.execute(harness_domain::contracts::Request::Explore(request));
+    assert_eq!(explored["state"], "ok", "{explored}");
+    let unchanged = sync(root.path(), "Index.cshtml");
+    assert_eq!(unchanged["extractionPerformed"], false);
+    fs::write(
+        root.path().join("Index.cshtml"),
+        "@functions { public void Run( {} }",
+    )
+    .unwrap();
+    assert!(sync_file(root.path(), "Index.cshtml", &OperationContext::default()).is_err());
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='Helper'"
+        ),
+        1
+    );
+    fs::write(
+        root.path().join("Index.cshtml"),
+        "@functions { public void Changed() {} }",
+    )
+    .unwrap();
+    sync(root.path(), "Index.cshtml");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='Helper'"
+        ),
+        0
+    );
+    fs::remove_file(root.path().join("Index.cshtml")).unwrap();
+    sync(root.path(), "Index.cshtml");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE language='razor'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+}
+
+#[test]
 fn oxc_emitted_specifiers_rebind_between_ts_source_and_existing_js() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
@@ -980,14 +1065,19 @@ fn third_file_wiring_and_recorded_synthesis_inputs_are_preserved() {
         .execute("INSERT INTO synthesis_inputs VALUES('wiring.rs')", [])
         .unwrap();
     drop(connection);
+    // A recorded synthesis input can be published natively: the recorded input
+    // and the provider data survive the publication.
+    let published = sync_file(root.path(), "wiring.rs", &OperationContext::default()).unwrap();
+    assert_eq!(published["committed"], true, "{published}");
     assert_eq!(
-        sync_file(root.path(), "wiring.rs", &OperationContext::default())
-            .unwrap_err()
-            .0,
-        "SYNC_UNSUPPORTED_RELATION"
+        count(root.path(), "SELECT count(*) FROM nodes WHERE name='changed'"),
+        1
     );
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM nodes WHERE name='wire'"),
+        count(
+            root.path(),
+            "SELECT count(*) FROM synthesis_inputs WHERE file_path='wiring.rs'"
+        ),
         1
     );
 }
@@ -1142,4 +1232,71 @@ fn missing_fts_triggers_are_rejected_instead_of_silently_staling_search() {
         count(root.path(), "SELECT count(*) FROM nodes WHERE name='old'"),
         1
     );
+}
+
+#[test]
+fn windows_separators_are_normalized_before_path_validation() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/a.rs"), "pub fn first() {}\n").unwrap();
+    let result = sync_file(root.path(), "src\\a.rs", &OperationContext::default()).unwrap();
+    assert_eq!(result["committed"], true, "{result}");
+    assert_eq!(result["path"], "src/a.rs");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM files WHERE path='src/a.rs'"), 1);
+}
+
+#[test]
+fn provider_framework_nodes_survive_a_native_publication() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("a.rs"), "pub fn first() {}\n").unwrap();
+    sync(root.path(), "a.rs");
+    // A provider-owned framework node for the same file.
+    db(root.path())
+        .execute(
+            "INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,updated_at) VALUES('component:view','component','View','a.rs::View','a.rs','razor',1,1,0,0,0)",
+            [],
+        )
+        .unwrap();
+    fs::write(root.path().join("a.rs"), "pub fn second() {}\n").unwrap();
+    let result = sync_file(root.path(), "a.rs", &OperationContext::default()).unwrap();
+    assert_eq!(result["committed"], true, "{result}");
+    assert_eq!(result["providerNodesPreserved"], 1);
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM nodes WHERE id='component:view'"),
+        1
+    );
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='second'"), 1);
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='first'"), 0);
+}
+
+#[test]
+fn provider_edges_around_framework_nodes_are_republished() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("a.rs"), "pub fn first() {}\n").unwrap();
+    fs::write(root.path().join("b.rs"), "pub fn other() {}\n").unwrap();
+    sync(root.path(), "a.rs");
+    sync(root.path(), "b.rs");
+    // A provider framework node in this file with an edge to another file.
+    db(root.path())
+        .execute_batch(
+            "INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,updated_at) VALUES('component:view','component','View','a.rs::View','a.rs','razor',1,1,0,0,0);
+             INSERT INTO edges(source,target,kind,metadata) SELECT 'component:view',id,'calls','{\"synthesizedBy\":\"framework\"}' FROM nodes WHERE name='other';",
+        )
+        .unwrap();
+    fs::write(root.path().join("a.rs"), "pub fn second() {}\n").unwrap();
+    let result = sync_file(root.path(), "a.rs", &OperationContext::default()).unwrap();
+    assert_eq!(result["committed"], true, "{result}");
+    assert_eq!(result["providerNodesPreserved"], 1);
+    assert_eq!(result["providerEdgesRetained"], 1);
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target WHERE e.source='component:view' AND t.name='other'"
+        ),
+        1
+    );
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='second'"), 1);
 }
