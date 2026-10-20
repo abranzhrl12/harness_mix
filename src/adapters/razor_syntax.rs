@@ -49,11 +49,45 @@ fn quoted(bytes: &[u8], start: usize) -> usize {
     bytes.len()
 }
 
+fn tag_name_at(bytes: &[u8], start: usize, name: &[u8]) -> bool {
+    bytes.len() >= start + name.len()
+        && bytes[start..start + name.len()].eq_ignore_ascii_case(name)
+        && bytes
+            .get(start + name.len())
+            .is_none_or(|b| b.is_ascii_whitespace() || matches!(*b, b'>' | b'/'))
+}
+
+/// Advance past a `<script>...</script>` element. Braces inside JavaScript
+/// (strings, template literals, regexes) are not Razor block delimiters.
+fn raw_script_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start;
+    while i < bytes.len() && bytes[i] != b'>' {
+        i += 1;
+    }
+    i = (i + 1).min(bytes.len());
+    while i < bytes.len() {
+        if bytes[i] == b'<'
+            && bytes.get(i + 1) == Some(&b'/')
+            && tag_name_at(bytes, i + 2, b"script")
+        {
+            let mut end = i + 2;
+            while end < bytes.len() && bytes[end] != b'>' {
+                end += 1;
+            }
+            return (end + 1).min(bytes.len());
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
 pub(super) fn delimited_end(bytes: &[u8], open: usize, left: u8, right: u8) -> Option<usize> {
     let mut depth = 1usize;
     let mut i = open + 1;
     while i < bytes.len() {
-        if bytes[i..].starts_with(b"@*") || bytes[i..].starts_with(b"/*") {
+        if left == b'{' && bytes[i] == b'<' && tag_name_at(bytes, i + 1, b"script") {
+            i = raw_script_end(bytes, i);
+        } else if bytes[i..].starts_with(b"@*") || bytes[i..].starts_with(b"/*") {
             let close = if bytes[i] == b'@' { b"*@" } else { b"*/" };
             i += 2;
             while i + 1 < bytes.len() && &bytes[i..i + 2] != close {

@@ -65,11 +65,13 @@ fn write_with(
                 "Protected instruction, index or version control path",
             ));
         }
-        let validation = match edit::syntax(&args.path, &content, context) {
+        let validation = match edit::syntax_allowing_unvalidated(
+            &args.path,
+            &content,
+            args.allow_unvalidated_text,
+            context,
+        ) {
             Ok(value) => value,
-            Err(("PARSER_UNAVAILABLE", _)) if args.allow_unvalidated_text => {
-                json!({"status":"not_checked","validation":"none","reason":"parser_unavailable","explicitlyAllowed":true})
-            }
             Err((code, message)) => return Ok(validation_error(args, code, message)),
         };
         let parent = target.parent().ok_or(("PATH", "Missing parent"))?;

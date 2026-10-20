@@ -695,7 +695,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             ("harness_explore", "view=impact exige filePath+symbol; summary firmas; full cuerpos"),
             ("harness_symbols", "outline=estructura; read=fuente exacta + hash; selectores CSS en CSS/HTML/Razor"),
             ("harness_read", "start/lines o end; path o file"),
-            ("harness_search", "kind=text|files|file_size|syntax; scope omitido/null/./vacío=raíz; contextLines=0..20 añade fuente y hash"),
+            ("harness_search", "kind=text|files|file_size|syntax; scope omitido/null/./vacío=raíz; contextLines=0..20 añade fuente y hash; kind=syntax consulta el índice de símbolos cuando lo cubre y repara en vivo lo obsoleto (discovery en la respuesta)"),
             ("harness_ignore", "action=list|add|remove|init; scope opcional; .harnessignore con sintaxis gitignore"),
             ("harness_detail", "ref de salida truncada; offset/maxChars"),
             ("harness_replace", "oldText/newText o chunks; line opcional; hash omitido=lectura interna; preview=true no publica"),

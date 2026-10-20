@@ -16,7 +16,7 @@ use std::path::Path;
 #[path = "css_symbols.rs"]
 mod css_symbols;
 
-fn snapshot(
+pub(super) fn snapshot(
     project: &Project,
     path: &str,
     context: &OperationContext,

@@ -33,33 +33,23 @@ impl Drop for FolderTiming<'_> {
 }
 
 // A deliberately small declaration selector, not ast-grep pattern syntax.
-fn selector(query: &str) -> Result<(&str, Option<&str>), Failure> {
+// Kinds are normalized to one canonical vocabulary shared by the live parsers
+// and the graph, so the same selector means the same declaration everywhere.
+fn selector(query: &str) -> Result<(&'static str, Option<&str>), Failure> {
     let (kind, name) = query
         .split_once(':')
         .map_or((query, None), |(k, n)| (k, Some(n)));
-    if ![
-        "function_item",
-        "function_signature_item",
-        "struct_item",
-        "enum_item",
-        "union_item",
-        "trait_item",
-        "mod_item",
-        "type_item",
-        "const_item",
-        "static_item",
-        "macro_definition",
-        "impl_item",
-    ]
-    .contains(&kind)
+    let canonical = super::symbol_graph::canonical_kind(kind)
+        .filter(|_| super::symbol_graph::SELECTOR_KINDS.contains(&kind));
+    if canonical.is_none()
         || name.is_some_and(|n| n.is_empty() || n.contains(':') || n.chars().any(char::is_control))
     {
         return Err((
             "ARGUMENT",
-            "Rust syntax selector requires declaration_kind[:exact name]; AST patterns are not supported",
+            "Syntax selector requires declaration_kind[:exact name]; AST patterns are not supported",
         ));
     }
-    Ok((kind, name))
+    Ok((canonical.expect("validated canonical kind"), name))
 }
 
 fn glob_matcher(
@@ -116,6 +106,171 @@ fn excluded(name: &str) -> bool {
         || name.starts_with("secret")
         || name.starts_with("mcp_config.json")
         || ["oauth_creds.json", "id_rsa", "id_ed25519"].contains(&name.as_str())
+}
+
+/// Rows published by the graph discovery path.
+struct GraphOutcome {
+    rows: Vec<Value>,
+    freshness: Value,
+    languages: Vec<String>,
+    certified_files: usize,
+    repaired_files: usize,
+    missing_files: usize,
+}
+
+/// Container of a qualified symbol name, without the symbol itself.
+fn container_of(qualified: &str, name: &str) -> String {
+    if qualified.is_empty() || name.is_empty() || !qualified.ends_with(name) {
+        return String::new();
+    }
+    let prefix = &qualified[..qualified.len() - name.len()];
+    prefix
+        .trim_end_matches(':')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+/// Build the published rows for graph candidates.
+///
+/// Fresh candidates are published from the index because the indexed content
+/// hash still matches the file on disk. Stale or unverifiable files are
+/// reparsed live, so their rows describe the current source; files that no
+/// longer exist are dropped instead of published.
+fn graph_rows(
+    project: &Project,
+    candidates: &[super::symbol_graph::Candidate],
+    verdicts: &BTreeMap<String, super::symbol_graph::Verdict>,
+    canonical: &str,
+    name: Option<&str>,
+    context: &OperationContext,
+) -> GraphOutcome {
+    let mut rows = Vec::new();
+    let mut languages: Vec<String> = Vec::new();
+    let mut repaired_files: Vec<String> = Vec::new();
+    let mut missing_files: Vec<String> = Vec::new();
+    let mut certified_files: Vec<String> = Vec::new();
+    let mut repaired_cache: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for candidate in candidates {
+        let verdict = verdicts
+            .get(&candidate.file_path)
+            .copied()
+            .unwrap_or(super::symbol_graph::Verdict::Unknown);
+        match verdict {
+            super::symbol_graph::Verdict::Fresh => {
+                if !certified_files.contains(&candidate.file_path) {
+                    certified_files.push(candidate.file_path.clone());
+                }
+                let language = if candidate.language.is_empty() {
+                    language_of(&candidate.file_path)
+                } else {
+                    Some(candidate.language.clone())
+                };
+                if let Some(language) = language
+                    && !languages.contains(&language)
+                {
+                    languages.push(language);
+                }
+                rows.push(json!({
+                    "file": candidate.file_path,
+                    "hash": candidate.indexed_hash,
+                    "name": candidate.name,
+                    "container": container_of(&candidate.qualified_name, &candidate.name),
+                    "kind": candidate.kind,
+                    "start": candidate.start_line,
+                    "end": candidate.end_line,
+                    "signature": candidate.signature,
+                    "doc": candidate.docstring,
+                    "symbolId": candidate.id,
+                    "freshness": "fresh",
+                }));
+            }
+            super::symbol_graph::Verdict::Missing => {
+                if !missing_files.contains(&candidate.file_path) {
+                    missing_files.push(candidate.file_path.clone());
+                }
+            }
+            super::symbol_graph::Verdict::Stale | super::symbol_graph::Verdict::Unknown => {
+                if !repaired_files.contains(&candidate.file_path) {
+                    repaired_files.push(candidate.file_path.clone());
+                }
+                let live = repaired_cache
+                    .entry(candidate.file_path.clone())
+                    .or_insert_with(|| {
+                        live_symbols(project, &candidate.file_path, canonical, name, context)
+                    });
+                rows.extend(live.iter().cloned());
+            }
+        }
+    }
+    languages.sort();
+    GraphOutcome {
+        freshness: json!({
+            "certifiedFiles": certified_files.len(),
+            "repairedFiles": repaired_files.len(),
+            "missingFiles": missing_files.len(),
+            "verdicts": super::symbol_graph::freshness_summary(verdicts),
+        }),
+        rows,
+        languages,
+        certified_files: certified_files.len(),
+        repaired_files: repaired_files.len(),
+        missing_files: missing_files.len(),
+    }
+}
+
+/// Reparse one file live and keep the symbols that match the selector.
+fn live_symbols(
+    project: &Project,
+    relative: &str,
+    canonical: &str,
+    name: Option<&str>,
+    context: &OperationContext,
+) -> Vec<Value> {
+    let Ok((_, digest, symbols, _, _)) =
+        super::symbols::snapshot(project, relative, context, false)
+    else {
+        return Vec::new();
+    };
+    symbols
+        .into_iter()
+        .filter(|symbol| {
+            super::symbol_graph::canonical_kind(symbol.kind) == Some(canonical)
+                && name.is_none_or(|name| symbol.name == name)
+        })
+        .map(|symbol| {
+            json!({
+                "file": relative,
+                "hash": digest,
+                "name": symbol.name,
+                "container": symbol.container,
+                "kind": symbol.kind,
+                "start": symbol.start,
+                "end": symbol.end,
+                "signature": symbol.signature,
+                "doc": symbol.doc,
+                "symbolId": symbol.id,
+                "freshness": "repaired",
+            })
+        })
+        .collect()
+}
+
+/// Language of a file, used to report which languages a query covered.
+fn language_of(relative: &str) -> Option<String> {
+    let extension = relative.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(
+        match extension.as_str() {
+            "rs" => "rust",
+            "cs" => "csharp",
+            "ts" | "mts" | "cts" => "typescript",
+            "tsx" => "tsx",
+            "js" | "mjs" | "cjs" => "javascript",
+            "jsx" => "jsx",
+            "cshtml" | "razor" => "razor",
+            _ => return None,
+        }
+        .to_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -245,7 +400,41 @@ pub fn search_with_context(
     let mut timed_out = false;
     let mut cancelled = false;
     let mut truncated = false;
+    // Symbol discovery prefers the graph index when it covers the scope: it is
+    // bounded SQL instead of a full tree walk. Every candidate file is then
+    // certified against the working tree and stale files are reparsed live, so
+    // a published row is always true for the current source.
+    let mut graph_outcome: Option<GraphOutcome> = None;
+    let mut index_diagnostics: Vec<Value> = Vec::new();
+    if syntax {
+        let (canonical, name) = selected.expect("syntax selector is present");
+        match super::symbol_graph::discover(project, canonical, name, scope, limit, context) {
+            Ok(Some(candidates)) => {
+                let verdicts = super::symbol_graph::certify(project, &candidates, context);
+                graph_outcome = Some(graph_rows(
+                    project,
+                    &candidates,
+                    &verdicts,
+                    canonical,
+                    name,
+                    context,
+                ));
+                all = graph_outcome
+                    .as_ref()
+                    .map(|outcome| outcome.rows.clone())
+                    .unwrap_or_default();
+            }
+            Ok(None) => {}
+            Err((code, message)) => {
+                index_diagnostics.push(json!({"code":code,"message":message}));
+            }
+        }
+    }
     'scan: for entry in builder.build() {
+        if graph_outcome.is_some() {
+            // The graph already answered this query; the live walk is skipped.
+            break 'scan;
+        }
         let pending_path = entry
             .as_ref()
             .ok()
@@ -433,7 +622,9 @@ pub fn search_with_context(
                             skipped_files.push(json!({"path":pending_path,"reason":"time_budget"}));
                             break 'scan;
                         }
-                        if symbol.kind == kind && name.is_none_or(|name| symbol.name == name) {
+                        if super::symbol_graph::canonical_kind(symbol.kind) == Some(kind)
+                            && name.is_none_or(|name| symbol.name == name)
+                        {
                             let row = json!({"file":relative,"hash":digest,"name":symbol.name,
                                 "container":symbol.container,"kind":symbol.kind,"start":symbol.start,
                                 "end":symbol.end,"signature":symbol.signature,"symbolId":symbol.id});
@@ -599,16 +790,41 @@ pub fn search_with_context(
     if syntax {
         let coverage = "Rust declarations, inline modules, impl/trait members; no local items, macro expansion, references or AST patterns";
         result["kind"] = json!("syntax");
-        result["language"] = json!("rust");
         result["syntaxOnly"] = json!(true);
         result["selector"] = json!(args.query);
-        result["coverage"] = json!(coverage);
-        result["parsedFiles"] = json!(stable_files);
-        result["parseErrors"] = json!(parse_errors);
+        match &graph_outcome {
+            Some(outcome) => {
+                result["discovery"] = json!("index");
+                result["language"] = json!(if outcome.languages.len() == 1 {
+                    outcome.languages[0].clone()
+                } else {
+                    "multiple".to_owned()
+                });
+                result["languages"] = json!(outcome.languages);
+                result["indexFreshness"] = outcome.freshness.clone();
+                result["certifiedFiles"] = json!(outcome.certified_files);
+                result["repairedFiles"] = json!(outcome.repaired_files);
+                result["missingFiles"] = json!(outcome.missing_files);
+                result["parsedFiles"] = json!(outcome.certified_files + outcome.repaired_files);
+                result["parseErrors"] = json!(0);
+                result["absenceProven"] = json!(false);
+                result["coverage"] = json!(
+                    "Indexed declarations certified against the working tree; stale files are reparsed live. Absence is not proven and the index may not cover every file."
+                );
+            }
+            None => {
+                result["discovery"] = json!("live");
+                result["language"] = json!("rust");
+                result["coverage"] = json!(coverage);
+                result["parsedFiles"] = json!(stable_files);
+                result["parseErrors"] = json!(parse_errors);
+            }
+        }
         result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":5000});
-        result["_detail"]["coverage"] = json!(coverage);
+        result["_detail"]["coverage"] = json!(result["coverage"].clone());
         result["_detail"]["syntaxOnly"] = json!(true);
-        result["_detail"]["language"] = json!("rust");
+        result["_detail"]["language"] = json!(result["language"].clone());
+        result["_detail"]["discovery"] = json!(result["discovery"].clone());
     }
     if file_size {
         result["kind"] = json!("file_size");
@@ -627,6 +843,14 @@ pub fn search_with_context(
     }
     if !complete {
         result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":"búsqueda parcial por presupuesto, plazo o archivos no accesibles; revisar complete/skipped/limited"}]);
+    }
+    if !index_diagnostics.is_empty() {
+        let mut diagnostics = result["diagnostics"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        diagnostics.extend(index_diagnostics);
+        result["diagnostics"] = json!(diagnostics);
     }
     Ok(result)
 }

@@ -11,18 +11,20 @@ pub(super) fn write(
     super::create_file::write(project, args, context)
 }
 
+fn extension(path: &str) -> String {
+    Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
 pub(super) fn syntax(
     path: &str,
     source: &str,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    match Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match extension(path).as_str() {
         "rs" => {
             super::rust_syntax::with_ast(source, context, |_, _| Ok(()))?;
             Ok(json!({"status":"valid","language":"rust","validation":"syntax_only"}))
@@ -43,7 +45,7 @@ pub(super) fn syntax(
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;
             Ok(json!({"status":"valid","language":"json","validation":"syntax_only"}))
         }
-        "md" | "txt" => {
+        "md" | "txt" | "sql" | "xml" | "css" => {
             Ok(json!({"status":"not_applicable","language":"text","validation":"none"}))
         }
         _ => Err((
@@ -53,7 +55,7 @@ pub(super) fn syntax(
     }
 }
 
-fn syntax_allowing_unvalidated(
+pub(super) fn syntax_allowing_unvalidated(
     path: &str,
     source: &str,
     allow_unvalidated_text: bool,
@@ -61,6 +63,13 @@ fn syntax_allowing_unvalidated(
 ) -> Result<Value, Failure> {
     match syntax(path, source, context) {
         Ok(value) => Ok(value),
+        // Razor checks are lexical heuristics; an explicit opt-in must never block
+        // the edit on a suspected false positive. Other parsers stay authoritative.
+        Err((code, _)) if allow_unvalidated_text && extension(path) == "cshtml" => Ok(json!({
+            "status":"not_checked","validation":"none",
+            "reason":"explicitly_allowed","skippedSyntaxError":code,
+            "explicitlyAllowed":true
+        })),
         Err(("PARSER_UNAVAILABLE", _)) if allow_unvalidated_text => Ok(json!({
             "status":"not_checked","validation":"none",
             "reason":"parser_unavailable","explicitlyAllowed":true

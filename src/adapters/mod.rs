@@ -60,6 +60,7 @@ mod project;
 mod razor_syntax;
 mod rust_symbols;
 mod rust_syntax;
+mod symbol_graph;
 mod search;
 mod session_workflow;
 mod sessions;

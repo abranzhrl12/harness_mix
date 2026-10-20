@@ -1,5 +1,5 @@
 use agent_harness::adapters;
-use harness_domain::contracts::{DiagnosticsArgs, Request};
+use harness_domain::contracts::{DiagnosticsArgs, ReplaceArgs, Request};
 use std::fs;
 use tempfile::tempdir;
 
@@ -94,5 +94,58 @@ fn razor_attribute_errors_block_write_and_replace_without_changing_disk() {
         fs::read_to_string(root.path().join("new.cshtml"))
             .unwrap()
             .contains("@(Model.Email)")
+    );
+}
+
+#[test]
+fn razor_section_ignores_javascript_braces_and_opt_in_bypasses_checks() {
+    use serde_json::json;
+    let root = tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let valid = "@section Scripts {\n<script>\nfunction foo() { return /{/; }\n</script>\n}\n";
+    fs::write(root.path().join("view.cshtml"), valid).unwrap();
+    let replaced = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
+        path: "view.cshtml".into(),
+        hash: harness_domain::hash(valid.as_bytes()),
+        line: None,
+        chunks: None,
+        old_text: "function foo()".into(),
+        new_text: "function bar()".into(),
+        allow_unvalidated_text: false,
+        preview: false,
+        session: None,
+    }));
+    assert_eq!(replaced["state"], "ok", "{replaced}");
+    assert!(
+        fs::read_to_string(root.path().join("view.cshtml"))
+            .unwrap()
+            .contains("function bar()")
+    );
+
+    let bad = r#"<input pattern="^[^@]+@[^@]+$" />"#;
+    fs::write(root.path().join("bad.cshtml"), bad).unwrap();
+    let denied = app.execute(Request::Replace(
+        serde_json::from_value(json!({
+            "path":"bad.cshtml", "oldText":"pattern", "newText":"pattern "
+        }))
+        .unwrap(),
+    ));
+    assert!(
+        denied.to_string().contains("RAZOR_ATTRIBUTE_TRANSITION"),
+        "{denied}"
+    );
+    let allowed = app.execute(Request::Replace(
+        serde_json::from_value(json!({
+            "path":"bad.cshtml", "oldText":"pattern", "newText":"pattern ",
+            "allowUnvalidatedText":true
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(allowed["state"], "ok", "{allowed}");
+    assert_eq!(allowed["data"]["syntax"]["status"], "not_checked");
+    assert_eq!(
+        allowed["data"]["syntax"]["skippedSyntaxError"],
+        "RAZOR_ATTRIBUTE_TRANSITION"
     );
 }

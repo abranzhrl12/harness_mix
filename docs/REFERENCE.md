@@ -298,6 +298,33 @@ inválidos, binarios o no legibles se omiten y marcan complete=false; parseError
 cuenta fallos del parser sin devolver su contenido. No es paridad completa con
 la búsqueda AST multilenguaje de Node.
 
+### kind=syntax sobre el índice de símbolos
+
+Cuando el proyecto tiene un índice `.codegraph` que cubre el scope, kind=syntax
+descubre símbolos con SQL acotado sobre `nodes` en lugar de recorrer el árbol de
+archivos. El índice es una caché, nunca una segunda fuente de verdad: cada archivo
+candidato se certifica comparando su `content_hash` indexado con el archivo en
+disco, y los archivos que no coinciden se vuelven a parsear en vivo antes de
+publicar sus filas. Un archivo borrado no se publica y se cuenta en
+`missingFiles`; la ausencia nunca se da por probada (`absenceProven:false`).
+
+La respuesta declara el camino seguido: `discovery` es "index" o "live",
+`certifiedFiles`/`repairedFiles`/`missingFiles` cuantifican la certificación,
+`indexFreshness` resume los veredictos por archivo y cada coincidencia lleva
+`freshness` ("fresh" o "repaired"). Si el índice no existe, no cubre el scope,
+no soporta el esquema vigente o no representa el tipo pedido, la ruta en vivo
+responde y `discovery` es "live".
+
+Los tipos del selector se normalizan a un vocabulario canónico común a los
+parsers en vivo y al grafo, de modo que el mismo selector significa lo mismo en
+todos los lenguajes: function_item (function, method, constructor),
+function_signature_item, struct_item (struct, class, record), enum_item,
+union_item, trait_item (trait, interface), mod_item (module, namespace),
+type_item, const_item (const, constant), static_item, macro_definition,
+property_item, variable_item (variable, field) e impl_item. `impl_item` no tiene
+representación en el grafo, por lo que ese selector se resuelve siempre en vivo.
+El nombre sigue siendo exacto y sensible a mayúsculas.
+
 ## Alcances externos autorizados (Windows)
 
 `harness_external_scope`: action=grant/list/revoke y session requerida. grant
@@ -818,18 +845,21 @@ es informativo y nunca altera ni amplía el matching.
 Conserva BOM y bytes fuera de la región. Presupuesto conjunto oldText/newText:
 64000 bytes; archivo original/candidato: máximo 2 MiB. Rechaza NUL y texto no UTF-8.
 
-Por ahora valida Rust con syn y JSON con serde_json antes de escribir; Markdown y
-TXT indican `syntax.status: "not_applicable"`, no una validación de su contenido.
-Los demás formatos se rechazan con PARSER_UNAVAILABLE, sin escribir. Rust tiene
-un límite de 256 KiB y un filtro conservador de anidamiento de delimitadores (64),
-que también puede rechazar comentarios o literales muy anidados. No comprueba tipos,
-expansión de macros ni semántica. Exige candidato válido completo; a diferencia de
-Node, no permite conservar errores sintácticos preexistentes.
+Por ahora valida Rust con syn y JSON con serde_json antes de escribir; Markdown,
+TXT, SQL, XML y CSS indican `syntax.status: "not_applicable"`, no una validación de
+su contenido. Los demás formatos se rechazan con PARSER_UNAVAILABLE, sin escribir.
+Rust tiene un límite de 256 KiB y un filtro conservador de anidamiento de
+delimitadores (64), que también puede rechazar comentarios o literales muy
+anidados. No comprueba tipos, expansión de macros ni semántica. Exige candidato
+válido completo; a diferencia de Node, no permite conservar errores sintácticos
+preexistentes.
 
 `harness_replace` (y su preview) acepta `allowUnvalidatedText=true`: un formato sin
 parser (p.ej. `.scss`) se publica con `syntax.status="not_checked"` en lugar de
-rechazarse con PARSER_UNAVAILABLE. Nunca elude errores de sintaxis de los parsers
-existentes (Rust/JS/TS/Vue/Astro/JSON), que siguen siendo fatales.
+rechazarse con PARSER_UNAVAILABLE. En `.cshtml` también omite los diagnósticos
+léxicos de Razor y publica con `syntax.skippedSyntaxError`, porque son
+comprobaciones heurísticas que pueden dar falsos positivos. Nunca elude errores de
+sintaxis de los parsers Rust/JS/TS/Vue/Astro/JSON, que siguen siendo fatales.
 
 Rechaza secretos, aliases Windows, symlinks/junctions, hardlinks, archivos readonly,
 metadata de Git y toda la carpeta `.agents`, además de `AGENTS.md`. Fija los

@@ -349,3 +349,52 @@ fn match_failure_reports_diverging_line_without_writing() {
         before
     );
 }
+
+#[test]
+fn sql_xml_and_css_are_editable_as_text_by_default() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    for (path, before, old, new, after) in [
+        (
+            "proc.sql",
+            "SELECT 1;\r\nSELECT 2;\r\n",
+            "SELECT 2;",
+            "SELECT 3;",
+            "SELECT 1;\r\nSELECT 3;\r\n",
+        ),
+        (
+            "view.xml",
+            "<root><value>1</value></root>\n",
+            "<value>1</value>",
+            "<value>2</value>",
+            "<root><value>2</value></root>\n",
+        ),
+        (
+            "styles.css",
+            ".a { color: red; }\n",
+            "color: red",
+            "color: blue",
+            ".a { color: blue; }\n",
+        ),
+    ] {
+        std::fs::write(root.path().join(path), before).unwrap();
+        let result = app.execute(Request::Replace(ReplaceArgs {
+            bom: None,
+            path: path.into(),
+            hash: hash(before.as_bytes()),
+            line: None,
+            chunks: None,
+            old_text: old.into(),
+            new_text: new.into(),
+            allow_unvalidated_text: false,
+            preview: false,
+            session: None,
+        }));
+        assert_eq!(result["state"], "ok", "{path}: {result}");
+        assert_eq!(result["data"]["syntax"]["status"], "not_applicable");
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(path)).unwrap(),
+            after
+        );
+    }
+}
