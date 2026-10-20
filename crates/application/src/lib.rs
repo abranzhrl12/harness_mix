@@ -179,7 +179,16 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let result = context.check().and_then(|()| match request {
             Request::Explore(args) => self
                 .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.explore(&args, context)),
+                .and_then(|()| {
+                    let impact = args.view == Some(harness_domain::contracts::ExploreView::Impact);
+                    self.workspace.explore(&args, context).map(|result| {
+                        if impact {
+                            harness_domain::assistance::impact(&args, result)
+                        } else {
+                            result
+                        }
+                    })
+                }),
             Request::Bootstrap(args) => self.bootstrap(args, context, &mut lease),
             Request::ExternalScope(args) => {
                 if matches!(
@@ -279,15 +288,6 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     }
                     self.workspace.data_query(&args, context)
                 }),
-            Request::Impact(args) => {
-                self.lease(args.session.as_deref(), &mut lease)
-                    .and_then(|()| {
-                        let exploration = args.exploration()?;
-                        self.workspace
-                            .explore(&exploration, context)
-                            .map(|result| harness_domain::assistance::impact(&args, result))
-                    })
-            }
             Request::PatchPreview(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.patch_preview(&args, context)),

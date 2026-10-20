@@ -4,7 +4,6 @@
     "investigate": [
       "harness_bootstrap",
       "harness_explore",
-      "harness_impact",
       "harness_symbols",
       "harness_search",
       "harness_read",
@@ -50,15 +49,16 @@
     "routing": [
       {
         "need": "Assess indexed callers before renaming or changing a signature",
-        "tool": "harness_impact",
+        "tool": "harness_explore",
         "backends": [
           "rust"
         ],
         "defaults": {
+          "view": "impact",
           "maxDepth": 1,
           "limit": 20
         },
-        "then": "Use file and exact symbol. Inspect ambiguity, freshness and graph limits; locations are caller declarations."
+        "then": "Use filePath and exact symbol. Inspect ambiguity, freshness and graph limits; locations are caller declarations."
       },
       {
         "need": "Preview a replacement and syntax diagnostics without publishing",
@@ -474,12 +474,6 @@
       ]
     },
     {
-      "name": "harness_impact",
-      "backends": [
-        "rust"
-      ]
-    },
-    {
       "name": "harness_jobs",
       "backends": [
         "rust"
@@ -646,9 +640,10 @@
           "type": "string",
           "enum": [
             "summary",
-            "full"
+            "full",
+            "impact"
           ],
-          "description": "summary: target signatures and graph counts; full graph remains in detail. full (default): numbered target bodies plus at most four direct-call neighbors, unique caller/test-file hints and explicit omissions. Related bodies are budgeted; not exhaustive impact."
+          "description": "summary: target signatures and graph counts; full graph remains in detail. full (default): numbered target bodies plus at most four direct-call neighbors, unique caller/test-file hints and explicit omissions. impact: bounded inbound callers only; requires filePath and symbol/symbolId, forces inbound traversal, and honors limit 1..100. Related bodies are budgeted; not exhaustive impact."
         },
         "filePath": {
           "type": "string",
@@ -678,6 +673,12 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 4
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "view=impact only: maximum displayed callers; detail retains the bounded result."
         },
         "maxFiles": {
           "type": "integer",

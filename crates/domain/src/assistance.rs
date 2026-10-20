@@ -1,50 +1,11 @@
-//! Read-only planning contracts and compact projections of indexed impact.
-use crate::contracts::{ExploreArgs, ExploreDirection, ExploreView};
+//! Read-only compact projections of indexed impact (harness_explore view=impact).
+use crate::contracts::ExploreArgs;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ImpactArgs {
-    #[serde(alias = "filePath")]
-    pub file: String,
-    pub symbol: String,
-    pub container: Option<String>,
-    pub symbol_id: Option<String>,
-    /// Indexed inbound hops, 1..4; defaults to 1.
-    pub max_depth: Option<usize>,
-    /// Maximum displayed callers, 1..100; detail retains the bounded result.
-    pub limit: Option<usize>,
-    pub require_matching_files: Option<bool>,
-    pub session: Option<String>,
-}
-impl ImpactArgs {
-    pub fn exploration(&self) -> Result<ExploreArgs, crate::Failure> {
-        if !(1..=100).contains(&self.limit.unwrap_or(20)) {
-            return Err(("ARGUMENT", "limit must be between 1 and 100"));
-        }
-        Ok(ExploreArgs {
-            query: self.symbol.clone(),
-            symbol: Some(self.symbol.clone()),
-            file_path: Some(self.file.clone()),
-            container: self.container.clone(),
-            symbol_id: self.symbol_id.clone(),
-            view: Some(ExploreView::Summary),
-            direction: Some(ExploreDirection::Inbound),
-            max_depth: self.max_depth,
-            max_files: Some(1),
-            max_chars: Some(1000),
-            sync_index: Some(false),
-            require_matching_files: self.require_matching_files,
-            session: self.session.clone(),
-        })
-    }
-}
-
 /// Counts concern only the bounded graph. Node locations are declarations, not call sites.
-pub fn impact(args: &ImpactArgs, result: Value) -> Value {
+pub fn impact(args: &ExploreArgs, result: Value) -> Value {
     let graph = &result["_detail"]["graph"];
     let targets: BTreeSet<&str> = result["graph"]["targetIds"]
         .as_array()
@@ -100,7 +61,7 @@ pub fn impact(args: &ImpactArgs, result: Value) -> Value {
     let omitted = all.len().saturating_sub(limit);
     let graph_limited = graph["truncated"] == true;
     let ambiguous = result["selection"]["multipleTargets"] == true;
-    json!({"file":args.file,"symbol":args.symbol,"focus":result["focus"],"files":files,
+    json!({"view":"impact","file":args.file_path,"symbol":args.symbol.as_deref().unwrap_or(args.query.trim()),"focus":result["focus"],"files":files,
         "callers":all.iter().take(limit).collect::<Vec<_>>(),"callersOmitted":omitted,
         "counts":{"callers":all.len(),"directCallers":all.iter().filter(|n|n["direct"]==true).count(),"files":files.len(),"scope":"returned-subgraph-not-global"},
         "relationshipKinds":kinds,"locationKind":"caller-declaration-not-call-site",

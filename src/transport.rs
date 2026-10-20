@@ -265,17 +265,6 @@ async fn execute<W: Workspace + 'static, S: SessionRepository + 'static>(
 #[tool_router]
 impl McpHarness {
     #[tool(
-        description = "Compact indexed impact before editing: file and exact symbol, optional maxDepth 1..4 and limit 1..100. Lists inbound callers and affected files. Locations are caller declarations, not exact call sites. Reports ambiguity, freshness and bounded coverage; no index writes or exhaustive absence claims."
-    )]
-    async fn harness_impact(
-        &self,
-        Parameters(args): Parameters<harness_domain::assistance::ImpactArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(Request::Impact(args), context).await
-    }
-
-    #[tool(
         description = "Tareas de verificación en segundo plano: start devuelve taskId inmediatamente; status, list, events, cancel y observe no bloquean la conversación. action=observe permite inspeccionar stdout/stderr retenido con regex, líneas de contexto y cursor incremental sin necesidad de una herramienta separada. Paralelismo limitado, reintentos opcionales y timeout opcional. Las notificaciones MCP dependen del cliente y no garantizan despertar al LLM."
     )]
     async fn harness_jobs(
@@ -373,7 +362,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Relaciones de un símbolo: preferir filePath y view=summary para firmas, relaciones compactas y límites explícitos. Grafo completo recuperable con data_query resultRef=detail.ref, sin reenviar JSON al LLM. view=full conserva la salida anterior. symbolId es CodeGraph, no AST local. direction=inbound/outbound/both; maxDepth=1..4. Solo lectura salvo syncIndex explícito. requireMatchingFiles comprueba hashes, no cobertura global. Resúmenes no sirven para editar."
+        description = "Relaciones y blast radius de un símbolo. view=impact: callers entrantes acotados (requiere filePath y symbol/symbolId; limit 1..100, maxDepth 1..4) con directos/recursivos, archivos afectados, ambigüedad y frescura. view=summary: firmas y conteos. view=full: cuerpos numerados. Grafo completo en data_query resultRef=detail.ref. direction=inbound/outbound/both; maxDepth=1..4. Solo lectura salvo syncIndex explícito. requireMatchingFiles comprueba hashes, no cobertura global. Resúmenes no sirven para editar."
     )]
     async fn harness_explore(
         &self,

@@ -928,6 +928,8 @@ pub struct ExploreArgs {
     pub direction: Option<ExploreDirection>,
     #[serde(rename = "maxDepth")]
     pub max_depth: Option<usize>,
+    /// view=impact only: maximum displayed callers, 1..100; defaults to 20.
+    pub limit: Option<usize>,
     /// Reject results unless all contributing files match indexed hashes.
     /// This does not certify full index coverage or freshness.
     #[serde(rename = "requireMatchingFiles")]
@@ -941,6 +943,7 @@ pub struct ExploreArgs {
 pub enum ExploreView {
     Summary,
     Full,
+    Impact,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -953,7 +956,6 @@ pub enum ExploreDirection {
 }
 
 pub enum Request {
-    Impact(crate::assistance::ImpactArgs),
     PatchPreview(ReplaceArgs),
     Explore(ExploreArgs),
     ExternalScope(ExternalScopeArgs),
@@ -1017,7 +1019,6 @@ impl Request {
     }
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Impact(_) => "harness_impact",
             Self::PatchPreview(_) => "harness_patch_preview",
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
@@ -1052,7 +1053,6 @@ impl Request {
     }
     pub fn arguments(&self) -> Value {
         match self {
-            Self::Impact(args) => serde_json::to_value(args),
             Self::PatchPreview(args) => serde_json::to_value(args),
             Self::Explore(args) => serde_json::to_value(args),
             Self::ExternalScope(args) => serde_json::to_value(args),

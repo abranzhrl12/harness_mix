@@ -128,7 +128,7 @@ async function main() {
       await waitForIndex(status => status.state === 'idle' && status.batches >= 1);
       const indexed = await call('harness_explore', { query: 'automaticallyIndexed', filePath: 'sample.ts' });
       assert(indexed.definitions?.some(definition => definition.symbol?.name === 'automaticallyIndexed'), JSON.stringify(indexed));
-      const impact = await call('harness_impact', { file: 'sample.ts', symbol: 'automaticallyIndexed', requireMatchingFiles: true });
+      const impact = await call('harness_explore', { query: 'automaticallyIndexed', view: 'impact', filePath: 'sample.ts', symbol: 'automaticallyIndexed', requireMatchingFiles: true });
       assert.equal(impact.focus.status, 'resolved');
       assert(impact.counts.directCallers >= 1, JSON.stringify(impact));
       assert.equal(impact.absenceProven, false);

@@ -15,9 +15,9 @@ fn impact_reuses_inbound_graph_and_preserves_freshness_rejection() {
         .unwrap()
         .with_tool_profile(harness_domain::tool_contract::ToolProfile::Investigate);
     let query = || {
-        Request::Impact(
+        Request::Explore(
             serde_json::from_value(json!({
-                "file":"lib.rs","symbol":"target","requireMatchingFiles":true
+                "query":"target","view":"impact","filePath":"lib.rs","symbol":"target","requireMatchingFiles":true
             }))
             .unwrap(),
         )
@@ -103,9 +103,11 @@ fn replace_with_preview_flag_matches_patch_preview_and_never_publishes() {
 
 #[test]
 fn impact_projection_counts_unique_callers_and_exposes_coverage() {
-    use harness_domain::assistance::{ImpactArgs, impact};
-    let args: ImpactArgs =
-        serde_json::from_value(json!({"file":"auth.rs","symbol":"validate","limit":1})).unwrap();
+    use harness_domain::{assistance::impact, contracts::ExploreArgs};
+    let args: ExploreArgs = serde_json::from_value(json!({
+        "query":"validate","view":"impact","filePath":"auth.rs","symbol":"validate","limit":1
+    }))
+    .unwrap();
     let graph = json!({"nodes":[
         {"id":"t","name":"validate","filePath":"auth.rs","startLine":2},
         {"id":"a","name":"route","filePath":"routes.rs","startLine":40},
@@ -117,6 +119,7 @@ fn impact_projection_counts_unique_callers_and_exposes_coverage() {
         json!({"graph":{"targetIds":["t"]},"selection":{"multipleTargets":false},
         "_detail":{"graph":graph},"fileFreshness":{"status":"stale"}}),
     );
+    assert_eq!(r["view"], "impact");
     assert_eq!(r["counts"]["callers"], 2);
     assert_eq!(r["counts"]["directCallers"], 1);
     assert_eq!(r["callers"][0]["declarationLine"], 40);

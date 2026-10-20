@@ -44,8 +44,8 @@ compatible parameter aliases and initial PostgreSQL catalog access through
 
 It also adds three planning and output tools:
 
-- `harness_impact`: indexed inbound callers before changing a symbol. Supply
-  `file` and `symbol`; declaration locations are not exact call sites. Inspect
+- `harness_explore` with `view: "impact"`: indexed inbound callers before changing
+  a symbol. Supply `filePath` and `symbol`; declaration locations are not exact call sites. Inspect
   freshness, ambiguity and bounded coverage before editing.
 - `harness_patch_preview`: the same hash-checked arguments as `harness_replace`,
   returning a unified diff and syntax diagnostics without publishing. Apply the

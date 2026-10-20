@@ -2,7 +2,7 @@
 use super::{project::Project, symbols};
 use harness_domain::{
     Failure,
-    contracts::{ExploreArgs, ExploreDirection, ReadSymbolArgs},
+    contracts::{ExploreArgs, ExploreDirection, ExploreView, ReadSymbolArgs},
     execution::OperationContext,
     results::{prefix, utf16_len},
 };
@@ -225,6 +225,19 @@ fn validate_args(args: &ExploreArgs) -> Result<(), Failure> {
     let max_files = args.max_files.unwrap_or(4);
     let max_chars = args.max_chars.unwrap_or(12000);
     let max_depth = args.max_depth.unwrap_or(1);
+    let impact = args.view == Some(ExploreView::Impact);
+    if impact
+        && (args.file_path.as_ref().is_none_or(|file| file.is_empty())
+            || (args.symbol.is_none() && args.symbol_id.is_none()))
+    {
+        return Err((
+            "ARGUMENT",
+            "view=impact requires filePath and symbol (or symbolId)",
+        ));
+    }
+    if !(1..=100).contains(&args.limit.unwrap_or(20)) {
+        return Err(("ARGUMENT", "limit must be between 1 and 100"));
+    }
     if args.query.len() > 2000
         || args
             .file_path
@@ -339,19 +352,26 @@ fn explore_inner(
     if let Some(file) = &args.file_path {
         project.target(file)?;
     }
+    let impact = args.view == Some(ExploreView::Impact);
     let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
-    let max_files = args.max_files.unwrap_or(4);
-    let max_chars = args.max_chars.unwrap_or(12000);
+    let max_files = if impact {
+        1
+    } else {
+        args.max_files.unwrap_or(4)
+    };
     let max_depth = args.max_depth.unwrap_or(1);
-    let direction = args.direction.unwrap_or(ExploreDirection::Both);
-    let summary = matches!(
-        args.view,
-        Some(harness_domain::contracts::ExploreView::Summary)
-    );
-    let max_chars = if summary {
+    let direction = if impact {
+        ExploreDirection::Inbound
+    } else {
+        args.direction.unwrap_or(ExploreDirection::Both)
+    };
+    let summary = impact || args.view == Some(ExploreView::Summary);
+    let max_chars = if impact {
+        1000
+    } else if summary {
         args.max_chars.unwrap_or(2000)
     } else {
-        max_chars
+        args.max_chars.unwrap_or(12000)
     };
     let path = project
         .target_optional(".codegraph/codegraph.db")
@@ -895,7 +915,7 @@ fn explore_inner(
     }
     Ok(
         json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") {"resolved"} else {"unresolved"}},
-        "view":if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
+        "view":if impact {"impact"} else if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
         "reuseGuidance":"Use complete definitions already present in your context; do not read them again unless missing or changed. For partial/signature_only definitions use nextCall only when the missing body is needed. Hashes identify the observed source, not future freshness. Numbered Markdown is not replacement text.",
         "contextSelection":{"requestedSymbols":query_symbols(args),"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls; production before tests; ambiguous local bodies are not guessed"},
         "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",

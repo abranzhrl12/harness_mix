@@ -16,7 +16,6 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.0.0.
 | harness_git | rust |
 | harness_git_diff | node |
 | harness_git_status | node |
-| harness_impact | rust |
 | harness_jobs | rust |
 | harness_move | rust |
 | harness_outline | node |

@@ -3,7 +3,7 @@
 MCP responses use the shared Harness envelope: truncation is reported in
 `omitted.truncated`; tool fields are in `data` and saved content is in `detail`.
 
-`harness_impact {"file":"src/auth.rs","symbol":"validate_token","maxDepth":1,"limit":20}`
+`harness_explore {"view":"impact","filePath":"src/auth.rs","symbol":"validate_token","maxDepth":1,"limit":20}`
 returns unique inbound callers, affected file counts and declaration locations.
 These locations are not exact call sites. It reuses the bounded CodeGraph traversal
 without synchronizing the index. Inspect `ambiguous`, candidates, file freshness,
