@@ -14,7 +14,7 @@ mod config;
 mod create_file;
 mod csproj;
 mod disk_logs;
-pub(crate) mod doctor;
+mod doctor;
 mod edit;
 mod edit_commit;
 mod edit_security;

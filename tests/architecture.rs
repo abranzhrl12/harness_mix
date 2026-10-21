@@ -90,6 +90,8 @@ fn service_tests_stay_in_external_modules() {
         root.join("index_store.rs"),
         root.join("process.rs"),
         root.join("sql.rs"),
+        root.join("git.rs"),
+        root.join("index_watch.rs"),
     ];
     for directory in [
         "verification",
@@ -99,6 +101,8 @@ fn service_tests_stay_in_external_modules() {
         "index_store",
         "process",
         "sql",
+        "git",
+        "index_watch",
     ] {
         rust_files(&root.join(directory), &mut files);
     }

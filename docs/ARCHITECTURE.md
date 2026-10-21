@@ -92,6 +92,21 @@ flowchart TD
 
 ## Responsabilidades y límites
 
+El núcleo `application/lib.rs` conserva la construcción, admisión y propiedad de
+operaciones. `application/dispatch.rs` traduce las solicitudes tipadas hacia los
+puertos y `application/session.rs` reúne leases, persistencia y bootstrap. Los
+locks y el punto de liberación de los leases permanecen en el mismo flujo; estos
+módulos no dependen del SDK MCP ni de implementaciones nativas.
+
+La planificación de ediciones permanece pura en `domain/editing/`, separando
+codificación/BOM, coincidencias, preparación y ayudas de diagnóstico. La fachada
+mantiene sus funciones originales; las pruebas cubren offsets y bytes originales.
+El adaptador Git separa metadatos, lector de comandos, estado, diff y cambios de
+sesión. El watcher mantiene la adquisición y liberación de recursos en su fachada;
+la cola pendiente, clasificación de eventos, reportes y worker viven en módulos
+internos. Watcher, lease y pines se retienen en la closure propietaria hasta que
+el worker termina.
+
 Los puertos de workspace se agrupan por capacidad en
 `crates/application/src/ports/workspace/`: contexto y configuración, consultas de
 fuentes, edición, diagnósticos, Git, SQL, artefactos, sesiones, logs y verificación.
