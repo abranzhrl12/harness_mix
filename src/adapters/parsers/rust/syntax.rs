@@ -37,9 +37,19 @@ pub(in crate::adapters) fn with_ast<T>(
     };
     let parsed = SourceFile::parse(&prepared, Edition::Edition2024);
     context.check()?;
-    if !parsed.errors().is_empty() {
-        return Err(("SYNTAX_ERROR", "Rust source is not syntactically valid"));
-    }
+    // No Cargo edition is supplied by this interface. Preserve legacy syntax
+    // such as `fn gen()` instead of imposing 2024's new reserved keywords.
+    let parsed = if parsed.errors().is_empty() {
+        parsed
+    } else {
+        context.check()?;
+        let legacy = SourceFile::parse(&prepared, Edition::Edition2021);
+        context.check()?;
+        if !legacy.errors().is_empty() {
+            return Err(("SYNTAX_ERROR", "Rust source is not syntactically valid"));
+        }
+        legacy
+    };
     let ast = parsed.tree();
     context.check()?;
     consume(&ast, base)

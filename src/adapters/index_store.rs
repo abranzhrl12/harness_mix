@@ -38,6 +38,10 @@ mod resolution;
 #[path = "index_store/tests.rs"]
 mod tests;
 
+#[cfg(all(test, windows))]
+#[path = "index_store/rust_ra_tests.rs"]
+mod rust_ra_tests;
+
 #[path = "index_candidates.rs"]
 mod candidates;
 #[path = "index_razor_invalidation.rs"]

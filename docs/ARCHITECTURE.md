@@ -408,7 +408,7 @@ Windows usa ancestros abiertos sin FILE_SHARE_DELETE y ReplaceFileW con backup.
 Los fallos inciertos no se convierten en «archivo intacto» y conservan recuperación.
 La DACL se copia y protege antes de escribir contenido en staging.
 Referencias: [ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew)
-y [syn::parse_file](https://docs.rs/syn/latest/syn/fn.parse_file.html).
+y [RA syntax](RUST-RA-MIGRATION.md).
 
 Rust/JSON requieren candidato íntegramente válido; Markdown/TXT no tienen validador
 de contenido y se informa explícitamente. Los demás formatos fallan cerrados.
@@ -431,11 +431,11 @@ ambigüedad, vista firma/cuerpo y detalle. `rust_symbols.rs` visita declaracione
 construye datos propios; `rust_syntax.rs` comparte presupuestos y parseo con edición.
 No se usan búsquedas de texto para inferir relaciones, ni Node, ni CodeGraph.
 
-Spans de proc-macro2 se convierten a rangos UTF-8 exactos y luego a offsets UTF-16
-para los IDs. No se devuelve código generado desde AST. BOM/shebang se ajustan
-sin cambiar posiciones de los tokens. El AST muere antes de invalidar la arena de
-spans del thread; no hay referencias/tokens/spans persistentes ni caché compartida.
-Referencia: [Span::byte_range](https://docs.rs/proc-macro2/latest/proc_macro2/struct.Span.html#method.byte_range).
+Los rangos de `ra_ap_syntax` se convierten de UTF-8 a offsets UTF-16 para los IDs.
+No se devuelve código generado desde AST. BOM/shebang se ajustan sin cambiar
+posiciones de los tokens; el árbol vive solo durante la operación y no usa el
+reset de spans de proc-macro2. Se mantiene la validación estricta y los presupuestos.
+Alcance y pruebas: [migración RA](RUST-RA-MIGRATION.md).
 
 El dominio genera anclas limitadas para Read y ReadSymbol. Las firmas no se ofrecen
 como oldText. El ID cambia con todo cambio del archivo; duplicados requieren

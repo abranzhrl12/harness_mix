@@ -1,5 +1,10 @@
 # Experimento local: `syn` frente a `ra_ap_syntax`
 
+La integración ahora está en producción de código fuente; véase
+[RUST-RA-MIGRATION.md](../../docs/RUST-RA-MIGRATION.md). Los shims de comparación
+usan el baseline `syn` congelado en `baseline/`, no los archivos actuales ya
+migrados a RA. Las capturas anteriores siguen siendo resultados históricos.
+
 Este experimento compara llamadas de parser reales en un proceso release. No
 cambia el parser de producción ni mide publicación/indexación del Harness.
 
