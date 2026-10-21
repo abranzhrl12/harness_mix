@@ -37,5 +37,35 @@ pub(super) fn blank_csharp(source: &str) -> Result<String, Failure> {
             result.push('\n');
         }
     }
+    // tree-sitter-c-sharp requires preprocessor directives to end with a line
+    // terminator. C# accepts an EOF-terminated directive, so normalize only
+    // that case; ordinary EOF-terminated declarations keep their line count.
+    let last_line = result.rsplit('\n').next().unwrap_or("").trim_start();
+    let is_preprocessor_directive = last_line.strip_prefix('#').is_some_and(|directive| {
+        let word = directive
+            .trim_start_matches([' ', '\t'])
+            .split(|ch: char| ch.is_ascii_whitespace() || ch == '(')
+            .next()
+            .unwrap_or("");
+        matches!(
+            word,
+            "define"
+                | "elif"
+                | "else"
+                | "endif"
+                | "error"
+                | "if"
+                | "line"
+                | "nullable"
+                | "pragma"
+                | "region"
+                | "endregion"
+                | "undef"
+                | "warning"
+        )
+    });
+    if !result.ends_with('\n') && is_preprocessor_directive {
+        result.push('\n');
+    }
     Ok(result)
 }

@@ -174,6 +174,11 @@ fn retry_policy_is_bounded_and_preserves_failure_details() {
             Some(Duration::from_secs(seconds))
         );
     }
+    // A watcher deadline is transient: unlike deterministic inventory limits,
+    // it must schedule another reconciliation instead of leaving the index stale.
+    let timed_out = sync_report(&Err(("TIMEOUT", "Operation deadline elapsed")), true);
+    assert_eq!(timed_out["retryable"], true);
+    assert_eq!(retry_delay(&timed_out, 1), Some(Duration::from_secs(5)));
     assert!(retry_delay(&report, 0).is_none());
     assert!(retry_delay(&report, 5).is_none());
     assert!(retry_delay(&report, u32::MAX).is_none());

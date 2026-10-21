@@ -9,3 +9,6 @@
 .env.*
 *.csv
 experiments/**/results/
+D:\Nueva carpeta\harness_mix\target-release-build
+target-release-build
+target-release-build/*

@@ -5,11 +5,7 @@ use super::{
 };
 use harness_domain::{Failure, execution::OperationContext};
 use serde::Serialize;
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, path::Path};
 
 const MAX_VISITED: usize = 40_000;
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -63,7 +59,6 @@ pub(super) fn scan(
     tracked: &[String],
     context: &OperationContext,
 ) -> Result<Inventory, Failure> {
-    let started = Instant::now();
     context.report_progress("inventory", 0, None, None);
     let scope = super::index_store::scope::Snapshot::load(project, context)?;
     let mut inventory = Inventory {
@@ -94,7 +89,7 @@ pub(super) fn scan(
             inventory.scope_excluded.push(path.clone());
             continue;
         }
-        let observation = inventory.observe(project, path, started, context)?;
+        let observation = inventory.observe(project, path, context)?;
         inventory.observations.insert(path.clone(), observation);
     }
     for include_pass in [false, true] {
@@ -117,9 +112,7 @@ pub(super) fn scan(
             });
         for entry in builder.build() {
             context.check()?;
-            if started.elapsed() >= Duration::from_secs(10)
-                || inventory.visited_entries >= MAX_VISITED
-            {
+            if inventory.visited_entries >= MAX_VISITED {
                 inventory.budget_exhausted = true;
                 inventory.discovery_complete = false;
                 break;
@@ -166,7 +159,7 @@ pub(super) fn scan(
                 inventory.discovery_complete = false;
                 break;
             }
-            let observation = inventory.observe(project, &path, started, context)?;
+            let observation = inventory.observe(project, &path, context)?;
             inventory.observations.insert(path, observation);
         }
         if inventory.budget_exhausted {
@@ -183,16 +176,10 @@ impl Inventory {
         &mut self,
         project: &Project,
         relative: &str,
-        started: Instant,
         context: &OperationContext,
     ) -> Result<Observation, Failure> {
         context.check()?;
         context.report_progress("inventory", self.observations.len(), None, Some(relative));
-        if started.elapsed() >= Duration::from_secs(10) {
-            self.discovery_complete = false;
-            self.budget_exhausted = true;
-            return Ok(Observation::Unchecked);
-        }
         let path = match project.target_optional(relative) {
             Ok(path) => path,
             Err(_) => {
@@ -309,12 +296,7 @@ mod tests {
             scope: serde_json::Value::Null,
         };
         let observed = inventory
-            .observe(
-                &project,
-                "source.rs",
-                Instant::now(),
-                &OperationContext::default(),
-            )
+            .observe(&project, "source.rs", &OperationContext::default())
             .unwrap();
         assert!(matches!(observed, Observation::Unchecked));
         assert!(inventory.budget_exhausted);
