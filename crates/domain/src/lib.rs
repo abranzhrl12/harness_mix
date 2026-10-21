@@ -1,6 +1,7 @@
 //! Transport-independent contracts, hashes and result policy. No filesystem or MCP SDK.
 pub mod assistance;
 pub mod contracts;
+pub mod diagnostics;
 pub mod editing;
 pub mod execution;
 pub mod freshness;
@@ -12,10 +13,10 @@ pub mod parsing;
 pub mod process;
 pub mod process_output;
 pub mod results;
-pub mod tool_contract;
 pub mod sql;
 pub mod svg;
 pub mod tasks;
+pub mod tool_contract;
 pub mod workflow;
 pub mod xlsx;
 

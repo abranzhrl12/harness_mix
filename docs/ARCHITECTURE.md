@@ -5,6 +5,22 @@ separadas se describen en [PARSERS.md](PARSERS.md).
 
 ## Consultas y verificación
 
+El transporte MCP conserva el registro de rutas en `transport.rs`; los módulos
+`transport/execution.rs`, `profile.rs`, `presentation.rs` y `runtime.rs` separan
+cancelación/admisión, selección de herramientas, formato de respuesta y composición
+del servidor nativo. La política de severidad de diagnósticos es compartida en
+`harness_domain::diagnostics`; el transporte no llama al adaptador nativo para
+actualizarla. Las pruebas del protocolo y del lector de entrada están en archivos
+externos, manteniendo sus nombres de módulo.
+
+`domain/contracts.rs` es una fachada con reexports estables; sus submódulos agrupan
+los DTO por operación y conservan los atributos de serialización y schema. No se
+modelan esos DTO como entidades de dominio. `adapters/sql.rs` conserva los puntos
+de entrada y delega configuración, conexión, selección de motor, diagnóstico y
+operaciones SQL en módulos propios. `adapters/process.rs` coordina el runner;
+descubrimiento de ejecutables, entorno y captura/terminación de procesos viven
+en `process/`, con la misma política de comandos y presupuestos.
+
 `verify.rs` coordina la ejecución, la observación del workspace y la respuesta.
 Los planificadores por lenguaje y la validación nativa TypeScript viven en
 `verification/`; sus pruebas están separadas en `verification/tests/`.

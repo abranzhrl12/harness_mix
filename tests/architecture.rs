@@ -54,6 +54,32 @@ fn query_presenters_do_not_read_sources_or_databases() {
 }
 
 #[test]
+fn transport_keeps_test_bodies_external_and_diagnostic_policy_out_of_native_adapters() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let transport = root.join("src/transport.rs");
+    let mut files = vec![transport.clone()];
+    rust_files(&root.join("src/transport"), &mut files);
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "tests.rs" || name.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        let parsed = syn::parse_file(&source).unwrap();
+        assert!(
+            !contains_inline_test(&parsed.items),
+            "{} has inline tests",
+            path.display()
+        );
+    }
+    let source = fs::read_to_string(transport).unwrap();
+    assert!(
+        !source.contains("adapters::doctor::"),
+        "protocol diagnostics must share domain policy instead of calling a native adapter"
+    );
+}
+
+#[test]
 fn service_tests_stay_in_external_modules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters");
     let mut files = vec![
@@ -62,8 +88,18 @@ fn service_tests_stay_in_external_modules() {
         root.join("explore.rs"),
         root.join("tasks.rs"),
         root.join("index_store.rs"),
+        root.join("process.rs"),
+        root.join("sql.rs"),
     ];
-    for directory in ["verification", "search", "explore", "tasks", "index_store"] {
+    for directory in [
+        "verification",
+        "search",
+        "explore",
+        "tasks",
+        "index_store",
+        "process",
+        "sql",
+    ] {
         rust_files(&root.join(directory), &mut files);
     }
     for path in files {
