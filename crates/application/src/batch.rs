@@ -63,55 +63,71 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 "diagnostics": validation_errors,
             }));
         }
-        let mut results = Vec::new();
+        let mut results: Vec<Option<Value>> =
+            std::iter::repeat_with(|| None).take(jobs.len()).collect();
         let mut jobs = jobs.into_iter();
-        loop {
-            let pair: Vec<_> = jobs.by_ref().take(max_concurrent).collect();
-            if pair.is_empty() {
-                break;
-            }
-            std::thread::scope(|scope| {
-                let workers: Vec<_> = pair
-                    .into_iter()
-                    .map(|(index, tool, request)| {
-                        let name = tool;
-                        let (request_id, handle) = match self.prepare(request, context.clone()) {
-                            Err(output) => (None, Err(output)),
-                            Ok(operation) => {
-                                let id = operation.request_id().to_owned();
-                                let worker = std::thread::Builder::new()
-                                    .spawn_scoped(scope, move || operation.run())
-                                    .map_err(|_| {
-                                        self.failure(
-                                            name,
-                                            &json!({}),
-                                            ("INTERNAL", "Batch child worker could not start"),
-                                        )
-                                    });
-                                (Some(id), worker)
-                            }
-                        };
-                        (index, name, request_id, handle)
-                    })
-                    .collect();
-                for (index, name, request_id, worker) in workers {
-                    let mut result = match worker {
-                        Ok(worker) => worker.join().unwrap_or_else(|_| {
-                            self.failure(
-                                name,
-                                &json!({}),
-                                ("INTERNAL", "Batch child worker failed"),
-                            )
-                        }),
-                        Err(output) => output,
+        std::thread::scope(|scope| {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let mut active = 0;
+            let mut completed = 0;
+
+            while completed < results.len() {
+                while active < max_concurrent {
+                    let Some((index, tool, request)) = jobs.next() else {
+                        break;
                     };
-                    if let Some(id) = request_id {
-                        result["requestId"] = json!(id);
+                    let operation = match self.prepare(request, context.clone()) {
+                        Ok(operation) => operation,
+                        Err(result) => {
+                            results[index] = Some(json!({"index":index,"tool":tool,"result":result}));
+                            completed += 1;
+                            continue;
+                        }
+                    };
+                    let request_id = operation.request_id().to_owned();
+                    let failure_request_id = request_id.clone();
+                    let worker_sender = sender.clone();
+                    match std::thread::Builder::new().spawn_scoped(scope, move || {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            operation.run()
+                        }))
+                        .map_err(|_| ());
+                        let _ = worker_sender.send((index, tool, request_id, result));
+                    }) {
+                        Ok(_) => active += 1,
+                        Err(_) => {
+                            let mut result = self.failure(
+                                tool,
+                                &json!({}),
+                                ("INTERNAL", "Batch child worker could not start"),
+                            );
+                            result["requestId"] = json!(failure_request_id);
+                            results[index] = Some(json!({"index":index,"tool":tool,"result":result}));
+                            completed += 1;
+                        }
                     }
-                    results.push(json!({"index":index,"tool":name,"result":result}));
                 }
-            });
-        }
+
+                if active == 0 {
+                    continue;
+                }
+                let (index, tool, request_id, result) = receiver
+                    .recv()
+                    .expect("active batch workers always report completion");
+                active -= 1;
+                completed += 1;
+                let mut result = result.unwrap_or_else(|_| {
+                    self.failure(
+                        tool,
+                        &json!({}),
+                        ("INTERNAL", "Batch child worker failed"),
+                    )
+                });
+                result["requestId"] = json!(request_id);
+                results[index] = Some(json!({"index":index,"tool":tool,"result":result}));
+            }
+        });
+        let results: Vec<_> = results.into_iter().flatten().collect();
         let ok = results.iter().all(|item| item["result"]["state"] == "ok");
         let compact:Vec<_> = results.iter().map(|item| {
             let result = &item["result"];

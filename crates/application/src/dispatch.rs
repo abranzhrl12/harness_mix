@@ -1,14 +1,36 @@
 //! Typed request dispatch; admission and result wrapping remain in the application.
 use crate::Application;
+use crate::SessionLease;
 use crate::ports::{SessionRepository, Workspace};
-use harness_domain::{contracts::Request, execution::OperationContext};
+use harness_domain::{Failure, contracts::Request, execution::OperationContext};
 use serde_json::{Value, json};
 
 impl<W: Workspace, S: SessionRepository> Application<W, S> {
+    fn recorded_session_write(
+        &self,
+        session: Option<&str>,
+        lease: &mut Option<SessionLease<S>>,
+        context: &OperationContext,
+        name: &str,
+        args: &Value,
+        write: impl FnOnce() -> Result<Value, Failure>,
+    ) -> Result<Value, Failure> {
+        self.with_session_write(session, lease, context, |session_id| {
+            let mut result = write()?;
+            self.record_result(
+                session_id,
+                name,
+                args,
+                &mut result,
+            );
+            Ok(result)
+        })
+    }
+
     pub(super) fn execute_admitted(&self, request: Request, context: &OperationContext) -> Value {
         let mutating = request.is_mutating();
         let name = request.name();
-        let args = request.arguments();
+        let request_arguments = request.arguments();
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
             Request::Explore(args) => {
@@ -168,52 +190,31 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     self.lease(args.session.as_deref(), &mut lease)
                         .and_then(|()| self.workspace.patch_preview(&args, context))
                 } else {
-                    self.with_session_write(
+                    self.recorded_session_write(
                         args.session.as_deref(),
                         &mut lease,
                         context,
-                        |session_id| {
-                            let mut result = self.workspace.replace(&args, context)?;
-                            self.record_result(
-                                session_id,
-                                name,
-                                &serde_json::to_value(&args).unwrap(),
-                                &mut result,
-                            );
-                            Ok(result)
-                        },
+                        name,
+                        &request_arguments,
+                        || self.workspace.replace(&args, context),
                     )
                 }
             }
-            Request::Write(args) => self.with_session_write(
+            Request::Write(args) => self.recorded_session_write(
                 args.session.as_deref(),
                 &mut lease,
                 context,
-                |session_id| {
-                    let mut result = self.workspace.write(&args, context)?;
-                    self.record_result(
-                        session_id,
-                        name,
-                        &serde_json::to_value(&args).unwrap(),
-                        &mut result,
-                    );
-                    Ok(result)
-                },
+                name,
+                &request_arguments,
+                || self.workspace.write(&args, context),
             ),
-            Request::Move(args) => self.with_session_write(
+            Request::Move(args) => self.recorded_session_write(
                 args.session.as_deref(),
                 &mut lease,
                 context,
-                |session_id| {
-                    let mut result = self.workspace.move_file(&args, context)?;
-                    self.record_result(
-                        session_id,
-                        name,
-                        &serde_json::to_value(&args).unwrap(),
-                        &mut result,
-                    );
-                    Ok(result)
-                },
+                name,
+                &request_arguments,
+                || self.workspace.move_file(&args, context),
             ),
             Request::Read(args) => self
                 .lease(args.session.as_deref(), &mut lease)
@@ -226,37 +227,23 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     self.lease(args.session.as_deref(), &mut lease)
                         .and_then(|()| self.workspace.ignore(&args, context))
                 } else {
-                    self.with_session_write(
+                    self.recorded_session_write(
                         args.session.as_deref(),
                         &mut lease,
                         context,
-                        |session_id| {
-                            let mut result = self.workspace.ignore(&args, context)?;
-                            self.record_result(
-                                session_id,
-                                name,
-                                &serde_json::to_value(&args).unwrap(),
-                                &mut result,
-                            );
-                            Ok(result)
-                        },
+                        name,
+                        &request_arguments,
+                        || self.workspace.ignore(&args, context),
                     )
                 }
             }
-            Request::Verify(args) => self.with_session_write(
+            Request::Verify(args) => self.recorded_session_write(
                 args.session.as_deref(),
                 &mut lease,
                 context,
-                |session_id| {
-                    let mut result = self.workspace.verify(&args, context)?;
-                    self.record_result(
-                        session_id,
-                        name,
-                        &serde_json::to_value(&args).unwrap(),
-                        &mut result,
-                    );
-                    Ok(result)
-                },
+                name,
+                &request_arguments,
+                || self.workspace.verify(&args, context),
             ),
             Request::Tasks(args) => {
                 let session = args.session.clone();
@@ -367,7 +354,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             }
             value
         });
-        let output = self.output(name, &args, result);
+        let output = self.output(name, &request_arguments, result);
         drop(lease);
         output
     }
