@@ -1,18 +1,13 @@
-//! All AST/spans stay on the current thread and die before its source arena is reset.
+//! Strict RA syntax boundary shared by navigation, validation and call proofs.
 use harness_domain::{Failure, execution::OperationContext};
 
-struct ResetSpans;
-impl Drop for ResetSpans {
-    fn drop(&mut self) {
-        proc_macro2::extra::invalidate_current_thread_spans();
-    }
-}
+use ra_ap_syntax::{Edition, SourceFile};
 
-/// Callers may return owned data, never AST nodes, tokens or spans.
+/// Callers return owned data; parsing remains strict even though RA can recover.
 pub(in crate::adapters) fn with_ast<T>(
     source: &str,
     context: &OperationContext,
-    consume: impl FnOnce(&syn::File, usize) -> Result<T, Failure>,
+    consume: impl FnOnce(&SourceFile, usize) -> Result<T, Failure>,
 ) -> Result<T, Failure> {
     context.check()?;
     if source.len() > 256 * 1024 {
@@ -40,9 +35,12 @@ pub(in crate::adapters) fn with_ast<T>(
     } else {
         input.to_owned()
     };
-    let _reset = ResetSpans;
-    let ast = syn::parse_file(&prepared)
-        .map_err(|_| ("SYNTAX_ERROR", "Rust source is not syntactically valid"))?;
+    let parsed = SourceFile::parse(&prepared, Edition::Edition2024);
+    context.check()?;
+    if !parsed.errors().is_empty() {
+        return Err(("SYNTAX_ERROR", "Rust source is not syntactically valid"));
+    }
+    let ast = parsed.tree();
     context.check()?;
     consume(&ast, base)
 }

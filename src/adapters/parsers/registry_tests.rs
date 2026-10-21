@@ -113,17 +113,58 @@ fn native_registry_routes_extensions_and_keeps_edit_policy_boundaries() {
     let context = OperationContext::default();
     for path in [
         "x.rs", "x.JS", "x.MJS", "x.CJS", "x.JSX", "x.TS", "x.TSX", "x.MTS", "x.CTS", "x.VUE",
-        "x.ASTRO", "x.CSHTML",
+        "x.ASTRO", "x.CSHTML", "x.CS",
     ] {
         assert!(registry.validate(path, "", &context).is_ok(), "{path}");
     }
-    for path in ["x.json", "x.md", "x.txt", "x.sql", "x.xml", "x.css", "x.cs"] {
+    for path in ["x.json", "x.md", "x.txt", "x.sql", "x.xml", "x.css"] {
         assert_eq!(
             registry.validate(path, "", &context).unwrap_err().0,
             "PARSER_UNAVAILABLE",
             "{path}"
         );
     }
+}
+
+#[test]
+fn native_csharp_parser_accepts_valid_sources_and_rejects_unbalanced_braces() {
+    let registry = default_syntax_registry();
+    let context = OperationContext::default();
+
+    let value = registry
+        .validate(
+            "x.cs",
+            "namespace Sample;\npublic class Thing\n{\n    public int Value { get; set; }\n}\n",
+            &context,
+        )
+        .unwrap();
+    assert_eq!(value["language"], "csharp");
+    assert_eq!(value["status"], "valid");
+
+    assert_eq!(
+        registry
+            .validate("x.cs", "class Thing { void Method() { }", &context)
+            .unwrap_err()
+            .0,
+        "SYNTAX_ERROR"
+    );
+    assert_eq!(
+        registry
+            .validate("x.cs", "class Thing { } }", &context)
+            .unwrap_err()
+            .0,
+        "SYNTAX_ERROR"
+    );
+}
+
+#[test]
+fn native_csharp_parser_ignores_braces_inside_raw_string_literals() {
+    let registry = default_syntax_registry();
+    let context = OperationContext::default();
+    let source = "class Thing\n{\n    string Payload = \"\"\"\n    { not code }\n    \"\"\";\n}\n";
+
+    let value = registry.validate("x.cs", source, &context).unwrap();
+    assert_eq!(value["status"], "valid");
 }
 
 #[test]

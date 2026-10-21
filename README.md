@@ -86,6 +86,15 @@ No compila Razor ni resuelve expresiones del markup, tipos genéricos de `@model
 o dependencias dinámicas entre vistas; conserva referencias sin resolver.
 Los índices existentes necesitan sincronizar o reindexar las vistas para incluirlas.
 
+Para proyectos Razor MVC legacy, las vistas enlazan además sus destinos:
+`Url.Action`, `Html.ActionLink`, `Html.Action` y `Html.RenderAction` resuelven
+la acción del controlador; `Html.Partial` y `Html.RenderPartial` resuelven el
+archivo de vista parcial; `Layout = "..."` resuelve el layout. Estas llamadas
+también se detectan dentro de `@{ ... }`, `@(...)`, `@code` y `@functions`.
+Los nombres literales se resuelven por convención `Views/{controlador}` y
+`Views/Shared`, y una ambigüedad nunca se resuelve por conjetura. El
+subconjunto y sus límites están en [razor-legacy-mvc.md](docs/razor-legacy-mvc.md).
+
 Las consultas SQL Server incluyen el número del error y, para errores habituales
 de columna, tabla o procedimiento, un mensaje con el identificador sanitizado.
 Los mensajes arbitrarios del motor, datos de conversión y credenciales no se exponen.

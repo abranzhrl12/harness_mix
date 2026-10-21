@@ -10,3 +10,9 @@ test-astro = ["nextest", "run", "-E", "test(astro)"]
 
 # Ultra-fast compilation and type-check without linking integration test binaries
 quick = ["check", "--tests"]
+
+# Razor/MVC subset, in parallel
+test-razor = ["nextest", "run", "-E", "test(razor) or test(legacy)"]
+
+# Full suite, parallel, without stopping at the first failure
+fast-test-all = ["nextest", "run", "--no-fail-fast"]

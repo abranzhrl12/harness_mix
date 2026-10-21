@@ -23,7 +23,7 @@ use crate::adapters::project::Project;
 use harness_domain::{
     Failure,
     execution::OperationContext,
-    sql::{SqlDescribeArgs, SqlQueryArgs, SqlSearchArgs, SqlStatusArgs},
+    sql::{SqlDescribeArgs, SqlMapArgs, SqlQueryArgs, SqlSearchArgs, SqlStatusArgs},
 };
 use serde_json::Value;
 
@@ -41,6 +41,14 @@ pub fn search(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     operations::search(project, args, context)
+}
+
+pub fn map(
+    project: &Project,
+    args: &SqlMapArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    operations::map(project, args, context)
 }
 
 pub fn describe(

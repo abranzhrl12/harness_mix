@@ -32,6 +32,7 @@ pub enum Request {
     GitDiff(GitDiffArgs),
     SqlStatus(crate::sql::SqlStatusArgs),
     SqlSearch(crate::sql::SqlSearchArgs),
+    SqlMap(crate::sql::SqlMapArgs),
     SqlDescribe(crate::sql::SqlDescribeArgs),
     SqlQuery(crate::sql::SqlQueryArgs),
     XlsxInspect(crate::xlsx::XlsxInspectArgs),
@@ -94,7 +95,7 @@ impl Request {
             Self::Tasks(_) => "harness_tasks",
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) | Self::GitDiff(_) => "harness_git",
-            Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
+            Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlMap(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
                 "harness_sql"
             }
             Self::XlsxInspect(_) | Self::XlsxRead(_) => "harness_xlsx",
@@ -146,6 +147,7 @@ impl Request {
             }),
             Self::SqlStatus(args) => serde_json::to_value(args),
             Self::SqlSearch(args) => serde_json::to_value(args),
+            Self::SqlMap(args) => serde_json::to_value(args),
             Self::SqlDescribe(args) => serde_json::to_value(args),
             Self::SqlQuery(args) => serde_json::to_value(args),
             Self::XlsxInspect(args) => serde_json::to_value(args),

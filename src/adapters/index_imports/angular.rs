@@ -14,6 +14,80 @@ pub(in crate::adapters::index_store) struct AngularTarget {
 }
 
 impl Sources {
+    /// Resolve an Angular route component only through a fresh unique named import.
+    /// Local and project-wide same-name guesses are deliberately unsupported.
+    pub(in crate::adapters::index_store) fn angular_route_component_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        from_node_id: &str,
+        name: &str,
+        reference_kind: &str,
+        line: i64,
+        column: i64,
+    ) -> Result<Option<ExportTarget>, Failure> {
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(path))
+            || !self.observe(db, project, context, path)?
+        {
+            return Ok(None);
+        }
+        let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+            .map_err(|_| super::INDEX)?;
+        if !crate::adapters::index_extract::angular::router::proves_reference(
+            path,
+            source,
+            from_node_id,
+            name,
+            reference_kind,
+            line,
+            column,
+            context,
+        )? {
+            return Ok(None);
+        }
+        let Some((module, imported)) =
+            crate::adapters::index_extract::angular::router::named_runtime_import(
+                path, source, name, context,
+            )?
+        else {
+            return Ok(None);
+        };
+        let language: String = sql(db.query_row(
+            "SELECT language FROM files WHERE path=?1",
+            [path],
+            |row| row.get(0),
+        ))?;
+        let Some(resolved) = module_path(db, path, &module, &language, context, self)? else {
+            return Ok(None);
+        };
+        let Some(target) = self.runtime_export_target(
+            db,
+            project,
+            context,
+            &resolved,
+            &imported,
+            RuntimeKind::Class,
+        )?
+        else {
+            return Ok(None);
+        };
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(&target.path))
+        {
+            return Ok(None);
+        }
+        Ok(Some(target))
+    }
+
     pub(in crate::adapters::index_store) fn angular_token_target(
         &mut self,
         db: &Connection,
@@ -97,6 +171,10 @@ impl Sources {
 /// modules, barrel changes, and newly ambiguous exported classes.
 pub(in crate::adapters::index_store) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
     let mut refs = super::invalidate_engine(db, "vue-named-composable-subset-v1")?;
+    refs.extend(super::invalidate_engine(
+        db,
+        "angular-route-component-subset-v1",
+    )?);
     refs.extend(super::invalidate_engine(
         db,
         "angular-token-dependency-subset-v1",

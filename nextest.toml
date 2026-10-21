@@ -1,0 +1,13 @@
+# Parallel test execution for this workspace (Windows, 8 logical CPUs).
+# nextest runs every test in its own process, so the 78 integration test
+# binaries are scheduled concurrently instead of one after another.
+[profile.default]
+# 16 concurrent test processes on 8 logical CPUs: the suite is dominated by
+# SQLite and file synchronization, so oversubscription keeps the cores busy.
+# Measured on this host: 4 -> 122 s, 8 -> 99 s, 12 -> 97 s, 16 -> 95 s.
+test-threads = 16
+# Keep the build parallel too, otherwise compilation serializes the run.
+build-jobs = 8
+# A slow test must not block the whole suite.
+slow-timeout = { period = "60s", terminate-after = 10 }
+fail-fast = false

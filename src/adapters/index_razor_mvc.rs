@@ -1,5 +1,5 @@
 //! SQLite-backed Razor MVC route resolution, isolated from source parsing.
-use super::parsers::razor::mvc::{Route, identifier, view_context};
+use super::parsers::razor::mvc::{Route, identifier, view_candidates, view_context};
 use harness_domain::{Failure, execution::OperationContext};
 use regex::Regex;
 use rusqlite::{Connection, params};
@@ -15,6 +15,7 @@ type Actions = BTreeMap<String, Option<String>>;
 pub(in crate::adapters) struct Snapshot {
     controllers: BTreeMap<(String, String, String), Option<Actions>>,
     routes: BTreeMap<String, BTreeMap<String, Option<String>>>,
+    views: BTreeMap<String, Option<String>>,
     route_count: usize,
     bytes: usize,
     #[cfg(test)]
@@ -103,6 +104,45 @@ impl Snapshot {
                 .entry(path.to_owned())
                 .or_default()
                 .insert(name.to_owned(), target.clone());
+        }
+        Ok(target)
+    }
+
+    /// Resolve a literal partial or layout name to an indexed view file.
+    /// Ambiguous or missing targets stay unresolved; nothing is guessed.
+    pub(in crate::adapters) fn resolve_view(
+        &mut self,
+        db: &Connection,
+        name: &str,
+        path: &str,
+        context: &OperationContext,
+    ) -> Result<Option<String>, Failure> {
+        let key = format!("{path}\u{0}{name}");
+        if let Some(target) = self.views.get(&key) {
+            return Ok(target.clone());
+        }
+        let mut found: Vec<String> = Vec::new();
+        for candidate in view_candidates(path, name) {
+            context.check()?;
+            let mut statement = sql(db.prepare_cached(
+                "SELECT id FROM nodes WHERE language='razor' AND kind='file' AND file_path=?1 COLLATE NOCASE LIMIT 2",
+            ))?;
+            let rows = sql(statement.query_map([&candidate], |row| row.get::<_, String>(0)))?;
+            let rows = sql(rows.collect::<rusqlite::Result<Vec<_>>>())?;
+            for row in rows {
+                if !found.contains(&row) {
+                    found.push(row);
+                }
+            }
+        }
+        // Two files with the same partial name are ambiguous: never choose.
+        let target = if found.len() == 1 {
+            Some(found[0].clone())
+        } else {
+            None
+        };
+        if self.views.len() < 4096 {
+            self.views.insert(key, target.clone());
         }
         Ok(target)
     }

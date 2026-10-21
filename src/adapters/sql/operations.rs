@@ -15,7 +15,7 @@ use harness_domain::{
     Failure,
     execution::OperationContext,
     sql::{
-        SqlDescribeArgs, SqlDescribeKind, SqlObjectType, SqlQueryArgs, SqlSearchArgs,
+        SqlDescribeArgs, SqlDescribeKind, SqlMapArgs, SqlObjectType, SqlQueryArgs, SqlSearchArgs,
         SqlStatusArgs, assert_sql_read_only,
     },
 };
@@ -190,6 +190,133 @@ pub(super) fn search(
         "query": query,
         "schema": if schema.is_empty() { "*" } else { schema }
     }))
+}
+
+/// One round trip that answers the whole schema map: relations with their
+/// approximate size, primary keys, foreign key edges and routine parameters.
+/// Every branch is a read-only catalog projection.
+const MAP: &str = r#"
+SELECT TOP (@P2) kind, [schema], name, detail1, detail2, detail3, detail4, num1
+FROM (
+  SELECT 0 AS ord, CAST('relation' AS nvarchar(32)) AS kind, s.name AS [schema], o.name AS name,
+         CAST(CASE o.type WHEN 'U' THEN 'table' ELSE 'view' END AS nvarchar(32)) AS detail1,
+         CAST('' AS nvarchar(512)) AS detail2, CAST('' AS nvarchar(512)) AS detail3,
+         CAST('' AS nvarchar(512)) AS detail4, COALESCE(st.row_count, 0) AS num1
+  FROM sys.objects AS o
+  JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+  LEFT JOIN (
+    SELECT object_id, SUM(row_count) AS row_count
+    FROM sys.dm_db_partition_stats
+    WHERE index_id IN (0, 1)
+    GROUP BY object_id
+  ) AS st ON st.object_id = o.object_id
+  WHERE o.is_ms_shipped = 0 AND o.type IN ('U','V') AND (s.name = @P1 OR @P1 = '')
+  UNION ALL
+  SELECT 1, CAST('primaryKey' AS nvarchar(32)), s.name, t.name, c.name,
+         CAST('' AS nvarchar(512)), CAST('' AS nvarchar(512)), CAST('' AS nvarchar(512)), 0
+  FROM sys.indexes AS i
+  JOIN sys.index_columns AS ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+  JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+  JOIN sys.objects AS t ON t.object_id = i.object_id
+  JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+  WHERE i.is_primary_key = 1 AND i.is_hypothetical = 0 AND (s.name = @P1 OR @P1 = '')
+  UNION ALL
+  SELECT 2, CAST('foreignKey' AS nvarchar(32)), s.name, fk.name, child.name, cc.name, parent.name, pc.name, 0
+  FROM sys.foreign_keys AS fk
+  JOIN sys.foreign_key_columns AS fkc ON fkc.constraint_object_id = fk.object_id
+  JOIN sys.tables AS child ON child.object_id = fkc.parent_object_id
+  JOIN sys.columns AS cc ON cc.object_id = fkc.parent_object_id AND cc.column_id = fkc.parent_column_id
+  JOIN sys.tables AS parent ON parent.object_id = fkc.referenced_object_id
+  JOIN sys.columns AS pc ON pc.object_id = fkc.referenced_object_id AND pc.column_id = fkc.referenced_column_id
+  JOIN sys.schemas AS s ON s.schema_id = parent.schema_id
+  WHERE (s.name = @P1 OR @P1 = '')
+  UNION ALL
+  SELECT 3, CAST('routine' AS nvarchar(32)), s.name, o.name, p.name, t.name,
+         CAST(CASE WHEN p.is_output = 1 THEN 'out' ELSE 'in' END AS nvarchar(8)),
+         CAST(CASE o.type WHEN 'P' THEN 'procedure' ELSE 'function' END AS nvarchar(32)), 0
+  FROM sys.objects AS o
+  JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+  LEFT JOIN sys.parameters AS p ON p.object_id = o.object_id
+  LEFT JOIN sys.types AS t ON t.user_type_id = p.user_type_id
+  WHERE o.is_ms_shipped = 0 AND o.type IN ('P','FN','IF','TF') AND (s.name = @P1 OR @P1 = '')
+) AS m
+ORDER BY m.ord, m.[schema], m.name
+"#;
+
+pub(super) fn map(
+    project: &Project,
+    args: &SqlMapArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
+        return crate::adapters::postgresql::map(project, args, context);
+    }
+    context.check()?;
+    let config = load_sql_config(project);
+    if !config.enabled {
+        return Err((
+            "SQL_CONFIG",
+            "SQL Server no está habilitado en harness.config.json",
+        ));
+    }
+    let schema = args.schema.as_deref().unwrap_or("*");
+    let schema = if schema == "*" { "" } else { schema };
+    let limit = args.limit.unwrap_or(50).clamp(1, 200);
+    let row_budget = (limit * 8).min(1600);
+    let schema_param = schema.to_string();
+    let top_param = row_budget as i32;
+
+    let project_clone = project.clone();
+    let config_clone = config.clone();
+    let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
+    let rows_data = match block_on_safe(checked(
+        async {
+            let mut client = connect(&project_clone, &config_clone).await?;
+            let stream = client
+                .query(MAP, &[&schema_param, &top_param])
+                .await
+                .map_err(sql_error)?;
+            let mut rows = stream.into_row_stream();
+            let mut collected: Vec<crate::adapters::sql_map::MapRow> = Vec::new();
+            while let Some(r) = rows.try_next().await.map_err(sql_error)? {
+                if collected.len() >= row_budget {
+                    break;
+                }
+                let text = |index: usize| -> String {
+                    let value: Option<&str> = r.get(index);
+                    value.unwrap_or_default().to_owned()
+                };
+                let number: Option<i32> = r.get(7);
+                collected.push(
+                    crate::adapters::sql_map::MapRow::new(
+                        &text(0),
+                        &text(1),
+                        &text(2),
+                        &text(3),
+                        &text(4),
+                        &text(5),
+                        &text(6),
+                    )
+                    .with_number(number.map(i64::from)),
+                );
+            }
+            Ok::<Vec<crate::adapters::sql_map::MapRow>, Failure>(collected)
+        },
+        &timed,
+    )) {
+        Ok(value) => value,
+        Err(error) => return Ok(operation_failed(error)),
+    };
+
+    let mut result = crate::adapters::sql_map::assemble("sqlserver", rows_data, limit);
+    result["schemas"] = json!(if schema.is_empty() {
+        "*".to_string()
+    } else {
+        schema.to_string()
+    });
+    result["readOnly"] = json!(true);
+    result["visibility"] = json!("login_permissions");
+    Ok(result)
 }
 
 pub(super) fn describe(

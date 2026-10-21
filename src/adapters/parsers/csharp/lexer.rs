@@ -10,6 +10,35 @@ pub(super) fn line_number(source: &str, byte_offset: usize) -> usize {
         + 1
 }
 
+/// Counts the consecutive quote bytes at `start`.
+fn quote_run(bytes: &[u8], start: usize, len: usize) -> usize {
+    let mut run = 0;
+    while start + run < len && bytes[start + run] == b'"' {
+        run += 1;
+    }
+    run
+}
+
+/// Skips a C# 11 raw string literal that opens with `quotes` quote bytes.
+///
+/// The closing delimiter is a run of the same number of quotes. A longer run
+/// ends the literal as well, because the extra quotes belong to the content.
+fn raw_string_end(bytes: &[u8], start: usize, quotes: usize, len: usize) -> usize {
+    let mut i = start + quotes;
+    while i < len {
+        if bytes[i] == b'"' {
+            let run = quote_run(bytes, i, len);
+            if run >= quotes {
+                return i + run;
+            }
+            i += run;
+            continue;
+        }
+        i += 1;
+    }
+    len
+}
+
 /// Tokenizer/Lexer state for C# that strips comments and strings while tracking byte ranges.
 #[derive(Debug, Clone)]
 pub(super) enum TokenKind {
@@ -85,6 +114,15 @@ pub(super) fn tokenize(source: &str, context: &OperationContext) -> Result<Vec<T
             continue;
         }
 
+        // Raw string literals (C# 11): """...""" and $"""..."""
+        if b == b'"' {
+            let run = quote_run(bytes, i, len);
+            if run >= 3 {
+                i = raw_string_end(bytes, i, run, len);
+                continue;
+            }
+        }
+
         // Verbatim or raw strings: @"..." or $@"..." or @$"..."
         if (b == b'@' || b == b'$') && i + 1 < len {
             let mut prefix_len = 1;
@@ -94,6 +132,12 @@ pub(super) fn tokenize(source: &str, context: &OperationContext) -> Result<Vec<T
                 is_verbatim = true;
             }
             if i + prefix_len < len && bytes[i + prefix_len] == b'"' {
+                let run = quote_run(bytes, i + prefix_len, len);
+                if run >= 3 {
+                    // Interpolated raw string: $"""..."""
+                    i = raw_string_end(bytes, i + prefix_len, run, len);
+                    continue;
+                }
                 i += prefix_len + 1;
                 if is_verbatim {
                     while i < len {

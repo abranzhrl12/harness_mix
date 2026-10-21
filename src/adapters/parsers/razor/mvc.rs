@@ -203,6 +203,176 @@ fn helper_route(text: &str, html: bool, context: &Route) -> Option<Route> {
     Some(route)
 }
 
+/// Directories that can host a view referenced by name or path.
+pub(in crate::adapters) struct ViewScope {
+    /// Prefix before `Areas`/`Views`: the application root.
+    pub(in crate::adapters) app_root: String,
+    /// Prefix that owns the `Views` directory of this view.
+    pub(in crate::adapters) area_root: String,
+    pub(in crate::adapters) controller: String,
+}
+
+fn join(root: &str, rest: &str) -> String {
+    if root.is_empty() {
+        rest.to_owned()
+    } else {
+        format!("{root}/{rest}")
+    }
+}
+
+/// Scope of a view file: its application root, its area root and its
+/// controller directory.
+pub(in crate::adapters) fn view_scope(path: &str) -> Option<ViewScope> {
+    let path = path.replace('\\', "/");
+    let parts = path.split('/').collect::<Vec<_>>();
+    let views = parts.iter().rposition(|p| *p == "Views")?;
+    let controller = *parts.get(views + 1)?;
+    if !identifier(controller) {
+        return None;
+    }
+    let (app_root, area_root) = if views >= 2 && parts[views - 2] == "Areas" {
+        (parts[..views - 2].join("/"), parts[..views].join("/"))
+    } else {
+        (parts[..views].join("/"), parts[..views].join("/"))
+    };
+    Some(ViewScope {
+        app_root,
+        area_root,
+        controller: controller.to_owned(),
+    })
+}
+
+/// Candidate view files for a literal partial or layout name. Bare names
+/// resolve inside the controller directory and then the shared directory;
+/// `~/`-prefixed names resolve from the application and area roots.
+pub(in crate::adapters) fn view_candidates(path: &str, name: &str) -> Vec<String> {
+    let Some(scope) = view_scope(path) else {
+        return Vec::new();
+    };
+    let literal = name.trim();
+    if !view_name(literal).is_some() {
+        return Vec::new();
+    }
+    let mut candidates = Vec::new();
+    if literal.contains('/') {
+        let relative = literal.trim_start_matches("~/").trim_start_matches('/');
+        if relative.is_empty() {
+            return Vec::new();
+        }
+        candidates.push(join(&scope.area_root, relative));
+        candidates.push(join(&scope.app_root, relative));
+    } else {
+        let file = if literal.ends_with(".cshtml") {
+            literal.to_owned()
+        } else {
+            format!("{literal}.cshtml")
+        };
+        candidates.push(join(
+            &scope.area_root,
+            &format!("Views/{}/{}", scope.controller, file),
+        ));
+        candidates.push(join(&scope.area_root, &format!("Views/Shared/{file}")));
+    }
+    candidates.dedup();
+    candidates
+}
+
+/// Literal view name: no interpolation, no escapes and no markup delimiters.
+fn view_name(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 256 {
+        return None;
+    }
+    if value.contains(['{', '}', '$', '\\', '"', '\n', '\r']) {
+        return None;
+    }
+    Some(value)
+}
+
+/// Quoted literal view name.
+fn view_literal(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let inner = value.strip_prefix('"')?.strip_suffix('"')?;
+    view_name(inner)
+}
+
+/// MVC helper calls owned by this scanner. The C# bridge reports them as
+/// plain calls; the MVC evidence is richer and replaces them.
+pub(in crate::adapters) fn is_mvc_helper_call(name: &str) -> bool {
+    matches!(
+        name,
+        "Html.ActionLink"
+            | "Html.Partial"
+            | "Html.RenderPartial"
+            | "Html.Action"
+            | "Html.RenderAction"
+            | "Url.Action"
+    )
+}
+
+/// Byte ranges covered by C# string, char and comment literals.
+fn string_ranges(text: &[u8]) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut at = 0usize;
+    while at < text.len() {
+        match text[at] {
+            b'"' | b'\'' => {
+                let quote = text[at];
+                let start = at;
+                at += 1;
+                while at < text.len() {
+                    if text[at] == b'\\' {
+                        at += 2;
+                        continue;
+                    }
+                    if text[at] == quote {
+                        break;
+                    }
+                    at += 1;
+                }
+                at = (at + 1).min(text.len());
+                ranges.push(start..at);
+            }
+            b'/' if text.get(at + 1) == Some(&b'/') => {
+                while at < text.len() && text[at] != b'\n' {
+                    at += 1;
+                }
+            }
+            b'/' if text.get(at + 1) == Some(&b'*') => {
+                at += 2;
+                while at + 1 < text.len() && !(text[at] == b'*' && text[at + 1] == b'/') {
+                    at += 1;
+                }
+                at = (at + 2).min(text.len());
+            }
+            _ => at += 1,
+        }
+    }
+    ranges
+}
+
+/// Inline C# regions of a Razor view: `@{ ... }` and `@(...)`. Legacy views
+/// keep MVC helper calls inside them.
+fn code_regions(text: &[u8]) -> Vec<std::ops::Range<usize>> {
+    let mut regions = Vec::new();
+    let mut at = 0usize;
+    while at + 1 < text.len() {
+        if text[at] == b'@' && matches!(text[at + 1], b'{' | b'(') {
+            let left = text[at + 1];
+            let right = if left == b'{' { b'}' } else { b')' };
+            if let Some(end) =
+                crate::adapters::parsers::razor::syntax::delimited_end(text, at + 1, left, right)
+            {
+                regions.push(at + 1..end.saturating_sub(1));
+                at = end;
+                continue;
+            }
+        }
+        at += 1;
+    }
+    regions
+}
+
 /// One scan per view. Preserve byte offsets while removing comments and script
 /// bodies; text inside them never becomes MVC evidence.
 pub(in crate::adapters) fn collect(
@@ -230,57 +400,90 @@ pub(in crate::adapters) fn collect(
         r"\b(?:var|dynamic|[A-Za-z_][A-Za-z0-9_.<>?]*)\s+(Html|Url)\b|\b(Html|Url)\s*=",
     )
     .is_match(std::str::from_utf8(&visible).expect("masked UTF-8"));
+    // Member blocks contain C# strings/comments that resemble markup. Their
+    // semantic calls belong to the C# bridge, not the MVC scanner.
+    let code = visible.clone();
     for (range, _) in excluded {
-        // Member blocks contain C# strings/comments that resemble markup.
-        // Their semantic calls belong to the C# bridge, not the MVC scanner.
         visible[range.clone()].fill(b' ');
     }
-    // Explicit C# blocks/expressions may contain arbitrary strings resembling
-    // helpers or tags. They need semantic binding; only direct Razor helper
-    // expressions and markup attributes are accepted by this route subset.
-    let mut cursor = 0;
-    while cursor + 1 < visible.len() {
-        if cursor % 4096 == 0 {
-            context.check()?;
-        }
-        if visible[cursor] == b'@' && matches!(visible[cursor + 1], b'{' | b'(') {
-            let left = visible[cursor + 1];
-            let right = if left == b'{' { b'}' } else { b')' };
-            if let Some(end) = crate::adapters::parsers::razor::syntax::delimited_end(
-                &visible,
-                cursor + 1,
-                left,
-                right,
-            ) {
-                visible[cursor..end].fill(b' ');
-                cursor = end;
-                continue;
-            }
-        }
-        cursor += 1;
+    // Inline C# regions keep their helper calls: legacy views call
+    // `Html.RenderPartial` or `Html.RenderAction` inside `@{ ... }` blocks.
+    let mut regions = code_regions(&code);
+    // Member blocks are scanned as code regions too: `@code` and `@functions`
+    // may render partials or actions.
+    regions.extend(excluded.iter().map(|(range, _)| range.clone()));
+    // Markup evidence ignores inline C# regions: their strings may resemble
+    // helpers or tags and need semantic binding.
+    for region in &regions {
+        visible[region.clone()].fill(b' ');
     }
     let visible = String::from_utf8(visible).expect("spaces preserve UTF-8");
+    let code = String::from_utf8(code).expect("spaces preserve UTF-8");
     static HELPER: OnceLock<Regex> = OnceLock::new();
-    let mut found = Vec::new();
+    let mut found: Vec<(usize, &'static str, String)> = Vec::new();
     if !shadowed {
-        for capture in
-            regex(&HELPER, r"@(Html\.ActionLink|Url\.Action)\s*\(").captures_iter(&visible)
+        // One scan over markup and inline C# regions. Legacy views call
+        // `Html.RenderPartial` or `Html.RenderAction` inside `@{ ... }` blocks
+        // without the Razor transition character.
+        for capture in regex(
+            &HELPER,
+            r"(?:@)?(Html\.(?:ActionLink|RenderPartial|Partial|RenderAction|Action)|Url\.Action)\s*\(",
+        )
+        .captures_iter(&code)
         {
             context.check()?;
             let all = capture.get(0).unwrap();
-            if all.start() > 0 && visible.as_bytes()[all.start() - 1] == b'@' {
+            let method = capture.get(1).map_or("", |m| m.as_str());
+            // A call written inside a C# string is not a call.
+            if let Some(region) = regions.iter().find(|range| range.contains(&all.start())) {
+                let offset = all.start() - region.start;
+                let literals = string_ranges(code[region.clone()].as_bytes());
+                if literals.iter().any(|range| range.contains(&offset)) {
+                    continue;
+                }
+            }
+            if all.start() > 0 && code.as_bytes()[all.start() - 1] == b'@' {
                 continue;
             }
-            if let Some(end) = call_end(&visible, all.end()) {
-                if let Some(route) = helper_route(
-                    &visible[all.end()..end],
-                    &capture[1] == "Html.ActionLink",
-                    &view,
-                ) {
-                    if identifier(&route.controller) {
-                        found.push((all.start(), route));
-                    }
-                }
+            let Some(end) = call_end(&code, all.end()) else {
+                continue;
+            };
+            let arguments = &code[all.end()..end];
+            if matches!(method, "Html.Partial" | "Html.RenderPartial") {
+                let Some(arguments) = split_arguments(arguments) else {
+                    continue;
+                };
+                let Some(name) = arguments.first().and_then(|value| view_literal(value)) else {
+                    continue;
+                };
+                found.push((all.start(), "razor_partial", name.to_owned()));
+                continue;
+            }
+            if let Some(route) = helper_route(arguments, method == "Html.ActionLink", &view)
+                && identifier(&route.controller)
+            {
+                found.push((
+                    all.start(),
+                    "mvc_route",
+                    serde_json::to_string(&route).expect("route serializes"),
+                ));
+            }
+        }
+        // `Layout = "..."` selects the layout of this view.
+        static LAYOUT: OnceLock<Regex> = OnceLock::new();
+        for region in &regions {
+            context.check()?;
+            let text = &code[region.clone()];
+            for capture in regex(&LAYOUT, r#"\bLayout\s*=\s*"([^"]*)""#).captures_iter(text) {
+                context.check()?;
+                let Some(name) = capture.get(1).and_then(|value| view_name(value.as_str())) else {
+                    continue;
+                };
+                found.push((
+                    region.start + capture.get(0).unwrap().start(),
+                    "razor_layout",
+                    name.to_owned(),
+                ));
             }
         }
     }
@@ -349,18 +552,22 @@ pub(in crate::adapters) fn collect(
             route.area = (*area).to_owned();
         }
         if identifier(&route.controller) {
-            found.push((tag.start(), route));
+            found.push((
+                tag.start(),
+                "mvc_route",
+                serde_json::to_string(&route).expect("route serializes"),
+            ));
         }
     }
     if found.len() > 20_000 {
         return Err(("EXTRACTION_LIMIT", "Too many Razor MVC routes"));
     }
-    found.sort_by_key(|(at, _)| *at);
+    found.sort_by_key(|(at, _, _)| *at);
     // Compute line/UTF-16 column in one monotonic pass, rather than repeatedly
     // rescanning the view prefix for each link.
     let (mut cursor, mut line, mut column) = (0, 1usize, 0usize);
     let mut refs = Vec::with_capacity(found.len());
-    for (at, route) in found {
+    for (at, kind, name) in found {
         context.check()?;
         for ch in source[cursor..at].chars() {
             if ch == '\n' {
@@ -371,10 +578,8 @@ pub(in crate::adapters) fn collect(
             }
         }
         cursor = at;
-        refs.push(
-            json!({"fromNodeId":file_id,"referenceName":serde_json::to_string(&route).unwrap(),
-            "referenceKind":"mvc_route","line":line,"column":column,"filePath":path}),
-        );
+        refs.push(json!({"fromNodeId":file_id,"referenceName":name,
+            "referenceKind":kind,"line":line,"column":column,"filePath":path}));
     }
     Ok(refs)
 }

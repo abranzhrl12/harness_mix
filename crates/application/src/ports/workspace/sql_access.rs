@@ -17,6 +17,13 @@ pub trait SqlAccess: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "SQL search adapter unavailable"))
     }
+    fn sql_map(
+        &self,
+        _args: &harness_domain::sql::SqlMapArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "SQL map adapter unavailable"))
+    }
     fn sql_describe(
         &self,
         _args: &harness_domain::sql::SqlDescribeArgs,

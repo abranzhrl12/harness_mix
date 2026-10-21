@@ -1,4 +1,4 @@
-use super::{astro, ecmascript, razor, rust, vue};
+use super::{astro, csharp, ecmascript, razor, rust, vue};
 use harness_application::ports::parsing::SyntaxParser;
 use harness_domain::{Failure, execution::OperationContext, parsing::SourceFormat};
 use serde_json::{Value, json};
@@ -127,6 +127,26 @@ impl SyntaxParser for AstroParser {
     }
 }
 
+struct CSharpParser;
+impl SyntaxParser for CSharpParser {
+    fn supports(&self, path: &str) -> bool {
+        matches!(
+            SourceFormat::from_path(Path::new(path)),
+            Some(SourceFormat::CSharp)
+        )
+    }
+
+    fn validate(
+        &self,
+        path: &str,
+        source: &str,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        csharp::syntax::validate_syntax(path, source, context)?;
+        Ok(json!({"status":"valid","language":"csharp","validation":"syntax_only"}))
+    }
+}
+
 struct RazorParser;
 impl SyntaxParser for RazorParser {
     fn supports(&self, path: &str) -> bool {
@@ -146,14 +166,15 @@ impl SyntaxParser for RazorParser {
     }
 }
 
-/// Builds the native edit syntax registry. Text, JSON and C# remain outside
-/// this registry so edit policy can continue handling them separately.
+/// Builds the native edit syntax registry. Text and JSON remain outside this
+/// registry so edit policy can continue handling them separately.
 pub(in crate::adapters) fn default_syntax_registry() -> ParserRegistry<'static> {
     static RUST: RustParser = RustParser;
     static ECMASCRIPT: EcmascriptParser = EcmascriptParser;
     static VUE: VueParser = VueParser;
     static ASTRO: AstroParser = AstroParser;
+    static CSHARP: CSharpParser = CSharpParser;
     static RAZOR: RazorParser = RazorParser;
 
-    ParserRegistry::new(&[&RUST, &ECMASCRIPT, &VUE, &ASTRO, &RAZOR])
+    ParserRegistry::new(&[&RUST, &ECMASCRIPT, &VUE, &ASTRO, &CSHARP, &RAZOR])
 }

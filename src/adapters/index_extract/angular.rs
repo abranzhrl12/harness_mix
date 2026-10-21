@@ -4,6 +4,7 @@
 pub(in crate::adapters) mod di;
 mod metadata;
 pub(in crate::adapters) mod providers;
+pub(in crate::adapters) mod router;
 mod template;
 
 pub(super) use template::html;
@@ -16,5 +17,6 @@ pub(super) fn enrich(
 ) -> Result<(), harness_domain::Failure> {
     metadata::enrich(path, source, graph, context)?;
     di::enrich(path, source, graph, context)?;
-    providers::enrich(path, source, graph, context)
+    providers::enrich(path, source, graph, context)?;
+    router::enrich(path, source, graph, context)
 }

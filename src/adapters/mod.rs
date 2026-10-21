@@ -71,6 +71,7 @@ mod sessions;
 pub mod sql;
 mod sql_credentials;
 mod sql_discovery;
+mod sql_map;
 mod sql_policy;
 mod sql_schema_cache;
 pub mod svg;

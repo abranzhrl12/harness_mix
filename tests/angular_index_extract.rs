@@ -205,6 +205,124 @@ fn generic_html_has_structural_nodes_without_angular_claims() {
 }
 
 #[test]
+fn angular_route_extraction_requires_a_registered_static_routes_table() {
+    let source = r#"import type { Routes } from '@angular/router';
+import { RouterModule } from '@angular/router';
+import { Home } from './home';
+import { Admin, Users, AdminHome } from './admin';
+const routes: Routes = [
+  { path: 'home', component: Home },
+  { path: 'admin', component: Admin, children: [
+    { path: 'users', component: Users },
+    { path: '', component: AdminHome },
+  ] },
+  { path: '**', redirectTo: 'home' },
+  { path: ':id', matcher: customMatcher, component: Users },
+  { path: dynamicPath, component: Home },
+];
+@NgModule({ imports: [RouterModule.forRoot(routes)] })
+export class AppModule {}
+"#;
+    let graph = extract("src/app.routes.ts", source, &OperationContext::default()).unwrap();
+    let routes = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|node| node["kind"] == "route")
+        .map(|node| node["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(routes, ["/home", "/admin/users", "/admin"]);
+    let route_refs = graph["unresolvedReferences"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|reference| {
+            matches!(
+                reference["referenceKind"].as_str(),
+                Some("angular_route_component" | "angular_route_layout")
+            )
+        })
+        .map(|reference| reference["referenceName"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(route_refs, ["Home", "Users", "Admin", "AdminHome", "Admin"]);
+
+    let unregistered = r#"import { Routes } from '@angular/router';
+const routes: Routes = [{ path: 'fake', component: Fake }];
+const tabs = [{ path: 'also-fake', component: Fake }];
+"#;
+    let graph = extract(
+        "unregistered.ts",
+        unregistered,
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert!(
+        !graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| node["kind"] == "route")
+    );
+}
+
+#[test]
+fn for_child_routes_are_marked_relative_and_not_published_as_absolute_paths() {
+    let source = r#"import { Route, RouterModule } from '@angular/router';
+import { Child } from './child';
+const routes: Route[] = [{ path: 'child', component: Child }];
+@NgModule({ imports: [RouterModule.forChild(routes)] })
+export class ChildModule {}
+"#;
+    let graph = extract("child.routes.ts", source, &OperationContext::default()).unwrap();
+    let route = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["kind"] == "route")
+        .unwrap();
+    assert_eq!(route["name"], "@forChild/child");
+    assert!(
+        route["signature"]
+            .as_str()
+            .unwrap()
+            .contains("mount unresolved")
+    );
+}
+
+#[test]
+fn angular_namespaced_router_registration_uses_original_utf16_reference_coordinates() {
+    let source = "import * as ar from '@angular/router';\nimport type { Routes } from '@angular/router';\n// 😀\nconst routes: Routes = [{ path: 'home', component: Home }];\nar.RouterModule.forRoot(routes);\n";
+    let graph = extract("app.routes.ts", source, &OperationContext::default()).unwrap();
+    let reference = graph["unresolvedReferences"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|reference| reference["referenceKind"] == "angular_route_component")
+        .unwrap();
+    let position = source.find("Home").unwrap();
+    let prefix = &source[..position];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix.rsplit('\n').next().unwrap().encode_utf16().count();
+    assert_eq!(reference["line"], line);
+    assert_eq!(reference["column"], column);
+
+    let untrusted_namespace = "import * as ar from '@not-angular/router';\nimport type { Routes } from '@angular/router';\nconst routes: Routes = [{path:'fake', component: Home}];\nar.RouterModule.forRoot(routes);\n";
+    let graph = extract(
+        "untrusted.routes.ts",
+        untrusted_namespace,
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert!(
+        !graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| node["kind"] == "route")
+    );
+}
+
+#[test]
 fn interpolation_only_templates_respect_the_node_budget() {
     let source = "{{ value }}".repeat(5_001);
     let error = extract("large.html", &source, &OperationContext::default()).unwrap_err();

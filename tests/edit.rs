@@ -398,3 +398,53 @@ fn sql_xml_and_css_are_editable_as_text_by_default() {
         );
     }
 }
+
+#[test]
+fn csharp_edits_are_gated_by_the_native_csharp_syntax_check() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let before = "namespace Sample;\npublic class Thing\n{\n    public int Value { get; set; }\n}\n";
+    std::fs::write(root.path().join("Thing.cs"), before).unwrap();
+
+    let result = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
+        path: "Thing.cs".into(),
+        hash: hash(before.as_bytes()),
+        line: None,
+        chunks: None,
+        old_text: "public int Value { get; set; }".into(),
+        new_text: "public int Value { get; init; }".into(),
+        allow_unvalidated_text: false,
+        preview: false,
+        session: None,
+    }));
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["data"]["syntax"]["status"], "valid");
+    assert_eq!(result["data"]["syntax"]["language"], "csharp");
+    assert!(
+        std::fs::read_to_string(root.path().join("Thing.cs"))
+            .unwrap()
+            .contains("get; init;")
+    );
+
+    let broken = "namespace Sample;\npublic class Thing\n{\n    public int Value { get; set; }\n";
+    std::fs::write(root.path().join("Broken.cs"), broken).unwrap();
+    let rejected = app.execute(Request::Replace(ReplaceArgs {
+        bom: None,
+        path: "Broken.cs".into(),
+        hash: hash(broken.as_bytes()),
+        line: None,
+        chunks: None,
+        old_text: "public int Value { get; set; }".into(),
+        new_text: "public int Value { get; init; }".into(),
+        allow_unvalidated_text: false,
+        preview: false,
+        session: None,
+    }));
+    assert_eq!(rejected["state"], "error", "{rejected}");
+    assert_eq!(rejected["diagnostics"][0]["code"], "SYNTAX_ERROR");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("Broken.cs")).unwrap(),
+        broken
+    );
+}

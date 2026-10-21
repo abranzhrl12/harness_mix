@@ -62,6 +62,50 @@ pub(super) fn angular_provider(
     Ok(true)
 }
 
+pub(super) fn angular_route_component(
+    db: &Connection,
+    id: i64,
+    project: &Project,
+    context: &OperationContext,
+    sources: &mut imports::Sources,
+    site: Site<'_>,
+) -> Result<bool, Failure> {
+    let Some(target) = sources.angular_route_component_target(
+        db, project, context, site.path, site.from, site.name, site.kind, site.line, site.col,
+    )?
+    else {
+        return Ok(false);
+    };
+    let mut statement = sql(db.prepare_cached(
+        "SELECT id FROM nodes WHERE file_path=?1 AND name=?2 COLLATE BINARY AND kind='class' AND language IN ('typescript','tsx','javascript','jsx') LIMIT 2",
+    ))?;
+    let ids = sql(
+        statement.query_map(params![target.path, target.name], |row| {
+            row.get::<_, String>(0)
+        }),
+    )?
+    .collect::<Result<Vec<_>, _>>();
+    let ids = sql(ids)?;
+    if ids.len() != 1 {
+        return Ok(false);
+    }
+    let metadata = json!({
+        "refName":site.name,
+        "refKind":site.kind,
+        "resolvedBy":"angular-route-component-subset-v1",
+        "framework":"angular",
+        "targetPath":target.path,
+        "exportContributors":target.contributors
+    })
+    .to_string();
+    sql(db.execute(
+        "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+        params![site.from, ids[0], site.line, site.col, metadata],
+    ))?;
+    sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+    Ok(true)
+}
+
 pub(super) fn vue_method(
     db: &Connection,
     id: i64,

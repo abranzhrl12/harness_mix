@@ -33,6 +33,21 @@ URLs are not inferred. Shared views require an explicit controller. Custom
 endpoint conventions, dependency injection registrations and runtime routing
 transformers are outside this static subset.
 
+## Legacy view composition
+
+`Html.Partial` and `Html.RenderPartial` resolve a literal view name to the
+partial file; `Layout = "..."` resolves the layout. Both use the conventions
+of the referencing view: `Views/{controller}` and then `Views/Shared` of the
+same area, or an application-relative `~/` path. Two matching files stay
+unresolved instead of being guessed. These calls are also detected inside
+inline C# regions (`@{ ... }`, `@(...)`) and inside `@code`/`@functions`
+blocks, where a call written inside a C# string is not evidence.
+
+`Html.Action` and `Html.RenderAction` reuse the literal route subset above.
+Named arguments, `_ViewStart.cshtml` inheritance and `RenderSection` are not
+inferred. The complete subset and its limits are described in
+[razor-legacy-mvc.md](razor-legacy-mvc.md).
+
 ## Cost and incremental updates
 
 Receiver facts are parsed once per observed view per publication. Positive and

@@ -70,6 +70,13 @@ factory/value/multi providers, local or string tokens and injector precedence
 remain outside this subset. The regular import/export resolver and source-hash
 checks validate both class declarations; no project code is executed.
 
+The [Angular Router subset](ANGULAR-ROUTER-PILOT.md) adds literal route
+declarations registered through `forRoot`, `forChild`, or `provideRouter`.
+Nested literal children and named runtime component imports are supported;
+`forChild` mounting remains unresolved. These are declaration observations,
+not proof of runtime activation. Lazy mounting, template events, `routerLink`
+and imperative navigation remain outside this implementation.
+
 HTML extraction records bounded template structure without assuming Angular
 context. A literal `templateUrl` creates an explicit pending file reference; it
 can resolve only to a unique indexed HTML file whose bytes still match its indexed

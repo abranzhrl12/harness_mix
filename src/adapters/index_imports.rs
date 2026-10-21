@@ -412,7 +412,9 @@ pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
     invalidate_engine(db, "native-relative-named-import-subset")
 }
 pub(super) fn invalidate_rust(db: &Connection) -> Result<Vec<i64>, Failure> {
-    invalidate_engine(db, "syn-module-subset-v1")
+    let mut refs = invalidate_engine(db, "syn-module-subset-v1")?;
+    refs.extend(invalidate_engine(db, "ra-module-subset-v1")?);
+    Ok(refs)
 }
 fn invalidate_engine(db: &Connection, engine: &str) -> Result<Vec<i64>, Failure> {
     let mut statement = sql(db.prepare("SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END=?1 LIMIT 20001"))?;

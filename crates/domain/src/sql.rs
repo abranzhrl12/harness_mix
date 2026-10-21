@@ -77,6 +77,18 @@ pub struct SqlDescribeArgs {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+pub struct SqlMapArgs {
+    pub engine: Option<SqlEngine>,
+    /// Schema to map; omitted, null or * maps every schema allowed by the policy.
+    pub schema: Option<String>,
+    /// Maximum number of relations to report.
+    pub limit: Option<usize>,
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct SqlQueryArgs {
     #[serde(default = "default_query_engine")]
     pub engine: Option<SqlEngine>,
@@ -87,7 +99,7 @@ pub struct SqlQueryArgs {
 
 /// Unified SQL Server tool. `action` selects the operation and its required fields:
 /// status {connect?}, search {query, objectType?, schema?, limit?},
-/// describe {name, kind?, sections?}, query {sql, parameters?}.
+/// map {schema?, limit?}, describe {name, kind?, sections?}, query {sql, parameters?}.
 #[derive(Debug, Serialize, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
@@ -96,6 +108,7 @@ pub struct SqlQueryArgs {
 pub enum SqlArgs {
     Status(SqlStatusArgs),
     Search(SqlSearchArgs),
+    Map(SqlMapArgs),
     Describe(SqlDescribeArgs),
     Query(SqlQueryArgs),
 }
@@ -107,7 +120,7 @@ fn default_query_engine() -> Option<SqlEngine> {
 impl<'de> Deserialize<'de> for SqlArgs {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error;
-        const OVERVIEW: &str = "harness_sql expects an object: query {sql: string, engine?: sqlserver|postgresql, parameters?: object, session?: string}; action defaults to query only when sql is present. Other actions: status {action: status, engine?, connect?, session?}; search {action: search, query: string, engine?, objectType?, schema?, limit?, session?}; describe {action: describe, name: string, engine?, kind?: relation|routine (objectType alias; table/view/procedure/function accepted), sections?, refresh?, session?}. Example: {\"sql\":\"SELECT 1\"}";
+        const OVERVIEW: &str = "harness_sql expects an object: query {sql: string, engine?: sqlserver|postgresql, parameters?: object, session?: string}; action defaults to query only when sql is present. Other actions: status {action: status, engine?, connect?, session?}; search {action: search, query: string, engine?, objectType?, schema?, limit?, session?}; map {action: map, engine?, schema?, limit?, session?}; describe {action: describe, name: string, engine?, kind?: relation|routine (objectType alias; table/view/procedure/function accepted), sections?, refresh?, session?}. Example: {\"sql\":\"SELECT 1\"}";
         let value = serde_json::Value::deserialize(deserializer)?;
         let mut object = value
             .as_object()
@@ -124,6 +137,7 @@ impl<'de> Deserialize<'de> for SqlArgs {
             "query" => serde_json::from_value(value).map(Self::Query).map_err(|_| D::Error::custom("Invalid harness_sql query. Required: sql: string. Optional: action=query, engine=sqlserver|postgresql (default sqlserver), parameters: object, session: string. Example: {\"sql\":\"SELECT 1\"}")),
             "status" => serde_json::from_value(value).map(Self::Status).map_err(|_| D::Error::custom("Invalid harness_sql status. Required: action=status. Optional: engine=sqlserver|postgresql, connect: boolean, session: string. Example: {\"action\":\"status\"}")),
             "search" => serde_json::from_value(value).map(Self::Search).map_err(|_| D::Error::custom("Invalid harness_sql search. Required: action=search, query: string. Optional: engine=sqlserver|postgresql, objectType=table|view|column|procedure|function, schema: string, limit: integer, session: string. Example: {\"action\":\"search\",\"query\":\"Customer\"}")),
+            "map" => serde_json::from_value(value).map(Self::Map).map_err(|_| D::Error::custom("Invalid harness_sql map. Required: action=map. Optional: engine=sqlserver|postgresql, schema: string, limit: integer, session: string. Example: {\"action\":\"map\",\"schema\":\"public\"}")),
             "describe" => serde_json::from_value(value).map(Self::Describe).map_err(|_| D::Error::custom("Invalid harness_sql describe. Required: action=describe, name: string. Optional: engine=sqlserver|postgresql, kind=relation|routine (objectType alias; table/view/procedure/function accepted), sections: string[], refresh: boolean, session: string. Do not supply both kind and objectType. Example: {\"action\":\"describe\",\"name\":\"dbo.Customer\",\"objectType\":\"table\"}")),
             _ => Err(D::Error::custom(OVERVIEW)),
         }
@@ -138,6 +152,7 @@ impl SqlArgs {
         match self {
             Self::Status(args) => Request::SqlStatus(args),
             Self::Search(args) => Request::SqlSearch(args),
+            Self::Map(args) => Request::SqlMap(args),
             Self::Describe(args) => Request::SqlDescribe(args),
             Self::Query(args) => Request::SqlQuery(args),
         }

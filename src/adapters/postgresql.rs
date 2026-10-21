@@ -7,4 +7,4 @@ mod operations;
 mod pool;
 
 pub(in crate::adapters) use config::enabled;
-pub(in crate::adapters) use operations::{describe, search, status};
+pub(in crate::adapters) use operations::{describe, map, search, status};

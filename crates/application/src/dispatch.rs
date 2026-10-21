@@ -87,6 +87,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::SqlSearch(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.sql_search(&args, context)),
+            Request::SqlMap(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.sql_map(&args, context)),
             Request::SqlDescribe(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.sql_describe(&args, context)),

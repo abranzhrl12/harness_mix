@@ -18,6 +18,13 @@ impl SqlAccess for NativeWorkspace {
     ) -> Result<Value, Failure> {
         sql::search(&self.project, args, context)
     }
+    fn sql_map(
+        &self,
+        args: &harness_domain::sql::SqlMapArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        sql::map(&self.project, args, context)
+    }
     fn sql_describe(
         &self,
         args: &harness_domain::sql::SqlDescribeArgs,

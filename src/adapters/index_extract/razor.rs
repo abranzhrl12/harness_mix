@@ -137,6 +137,13 @@ fn extract_razor_render(
         if reference["fromNodeId"] != render || reference["referenceKind"] != "calls" {
             continue;
         }
+        // MVC helpers are resolved by the MVC scanner with richer evidence.
+        if reference["referenceName"]
+            .as_str()
+            .is_some_and(super::super::razor_mvc::is_mvc_helper_call)
+        {
+            continue;
+        }
         let Some((line, col)) = projection.location(
             reference["line"].as_u64().ok_or(CONTRACT)? as usize,
             reference["column"].as_u64().ok_or(CONTRACT)? as usize,
@@ -262,6 +269,7 @@ fn extract_razor_csharp(
         }
         edges.push(edge);
     }
+    let mut references = Vec::new();
     for reference in graph["unresolvedReferences"]
         .as_array_mut()
         .ok_or(CONTRACT)?
@@ -278,6 +286,14 @@ fn extract_razor_csharp(
                 .checked_sub(1)
                 .ok_or(CONTRACT)?
         );
+        // MVC helpers are resolved by the MVC scanner with richer evidence.
+        if reference["referenceName"]
+            .as_str()
+            .is_some_and(super::super::razor_mvc::is_mvc_helper_call)
+        {
+            continue;
+        }
+        references.push(reference.clone());
     }
-    Ok(json!({"nodes":nodes,"edges":edges,"unresolvedReferences":graph["unresolvedReferences"]}))
+    Ok(json!({"nodes":nodes,"edges":edges,"unresolvedReferences":references}))
 }

@@ -76,7 +76,7 @@ impl Changes {
         }
         // Old pending refs acquire the existing indexed failed-tail key once.
         let mut statement = sql(db.prepare_cached(
-            "SELECT id,reference_name,reference_kind FROM unresolved_refs WHERE language='razor' AND name_tail='' AND reference_kind IN('calls','mvc_route') LIMIT 20001",
+            "SELECT id,reference_name,reference_kind FROM unresolved_refs WHERE language='razor' AND name_tail='' AND reference_kind IN('calls','mvc_route','razor_partial','razor_layout') LIMIT 20001",
         ))?;
         let pending = sql(sql(statement.query_map([], |row| {
             Ok((

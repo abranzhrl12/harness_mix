@@ -23,6 +23,26 @@ pub(super) fn resolve_exact(
     };
     if matches!(
         kind.as_str(),
+        "angular_route_component" | "angular_route_layout"
+    ) {
+        return framework::angular_route_component(
+            db,
+            id,
+            project,
+            context,
+            sources,
+            framework::Site {
+                from: &from,
+                name: &name,
+                kind: &kind,
+                line,
+                col,
+                path: &path,
+            },
+        );
+    }
+    if matches!(
+        kind.as_str(),
         "angular_provider_token" | "angular_provider_implementation"
     ) {
         return framework::angular_provider(
@@ -184,6 +204,19 @@ pub(super) fn resolve_exact(
             "confidence":0.9})
         .to_string();
         sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
+    }
+    if language == "razor" && matches!(kind.as_str(), "razor_partial" | "razor_layout") {
+        let Some(target) = mvc_snapshot.resolve_view(db, &name, &path, context)? else {
+            razor_invalidation::mark_failed(db, id, &name, &kind)?;
+            return Ok(false);
+        };
+        let metadata = json!({"refName":name,"refKind":kind,
+            "resolvedBy":"razor-view-target-subset-v1",
+            "confidence":0.9})
+        .to_string();
+        sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
         sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
         return Ok(true);
     }
@@ -396,9 +429,9 @@ pub(super) fn resolve_exact(
     }
     if rust_target.is_some() {
         metadata["resolvedBy"] = json!(if candidates[0].2 == path {
-            "syn-lexical-subset-v1"
+            "ra-lexical-subset-v1"
         } else {
-            "syn-module-subset-v1"
+            "ra-module-subset-v1"
         });
     }
     if imported_path.is_some() {

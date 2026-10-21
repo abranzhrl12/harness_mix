@@ -7,7 +7,7 @@ use super::pool;
 use harness_domain::{
     Failure,
     execution::OperationContext,
-    sql::{SqlDescribeArgs, SqlDescribeKind, SqlObjectType, SqlSearchArgs, SqlStatusArgs},
+    sql::{SqlDescribeArgs, SqlDescribeKind, SqlMapArgs, SqlObjectType, SqlSearchArgs, SqlStatusArgs},
 };
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -157,6 +157,124 @@ pub(in crate::adapters) fn search(
 }
 
 const DESCRIBE: &str = "SELECT n.nspname::text AS schema,c.relname::text AS name,a.attname::text AS column,pg_catalog.format_type(a.atttypid,a.atttypmod)::text AS data_type,(NOT a.attnotnull)::text AS nullable FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2 AND c.relkind IN ('r','p','v','m') AND a.attnum>0 AND NOT a.attisdropped AND pg_catalog.has_schema_privilege(n.oid,'USAGE') AND pg_catalog.has_column_privilege(c.oid,a.attnum,'SELECT') ORDER BY a.attnum LIMIT $3";
+
+/// One round trip that answers the whole schema map: relations with their
+/// approximate size, primary keys, foreign key edges and routine parameters.
+/// Every branch is a read-only catalog projection.
+const MAP: &str = r#"
+SELECT kind, schema, name, detail1, detail2, detail3, detail4, num1
+FROM (
+  SELECT 0 AS ord, 'relation'::text AS kind, r.schema, r.name, r.kind AS detail1,
+         ''::text AS detail2, ''::text AS detail3, ''::text AS detail4, r.rows_approx AS num1
+  FROM (
+    SELECT n.nspname::text AS schema, c.relname::text AS name,
+           CASE c.relkind WHEN 'v' THEN 'view' ELSE 'table' END::text AS kind,
+           GREATEST(c.reltuples, 0)::bigint::text AS rows_approx
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = ANY($1) AND c.relkind IN ('r','p','v','m')
+      AND pg_catalog.has_schema_privilege(n.oid,'USAGE')
+      AND pg_catalog.has_table_privilege(c.oid,'SELECT')
+  ) r
+  UNION ALL
+  SELECT 1, 'primaryKey', n.nspname::text, c.relname::text, a.attname::text, '', '', '', ''
+  FROM pg_catalog.pg_constraint con
+  JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey)
+  WHERE con.contype = 'p' AND n.nspname = ANY($1)
+    AND pg_catalog.has_schema_privilege(n.oid,'USAGE')
+    AND pg_catalog.has_table_privilege(c.oid,'SELECT')
+  UNION ALL
+  SELECT 2, 'foreignKey', n.nspname::text, con.conname::text, child.relname::text,
+         child_att.attname::text, parent.relname::text, parent_att.attname::text, ''
+  FROM pg_catalog.pg_constraint con
+  JOIN pg_catalog.pg_class child ON child.oid = con.conrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = child.relnamespace
+  JOIN pg_catalog.pg_class parent ON parent.oid = con.confrelid
+  JOIN LATERAL unnest(con.conkey, con.confkey) AS k(child_attnum, parent_attnum) ON TRUE
+  JOIN pg_catalog.pg_attribute child_att
+    ON child_att.attrelid = con.conrelid AND child_att.attnum = k.child_attnum
+  JOIN pg_catalog.pg_attribute parent_att
+    ON parent_att.attrelid = con.confrelid AND parent_att.attnum = k.parent_attnum
+  WHERE con.contype = 'f' AND n.nspname = ANY($1)
+    AND pg_catalog.has_schema_privilege(n.oid,'USAGE')
+    AND pg_catalog.has_table_privilege(child.oid,'SELECT')
+  UNION ALL
+  SELECT 3, 'routine', n.nspname::text, p.proname::text,
+         COALESCE((p.proargnames::text[])[s.i], ''),
+         pg_catalog.format_type((p.proallargtypes::int[])[s.i], NULL)::text,
+         COALESCE((SELECT mode::text FROM unnest(COALESCE(p.proargmodes, ARRAY[]::"char"[]))
+                   WITH ORDINALITY AS u(mode, ord) WHERE ord = s.i), 'i'),
+         CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END::text, ''
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  LEFT JOIN LATERAL generate_subscripts(p.proallargtypes::int[], 1) AS s(i) ON TRUE
+  WHERE n.nspname = ANY($1) AND p.prokind IN ('f','p')
+    AND pg_catalog.has_schema_privilege(n.oid,'USAGE')
+    AND pg_catalog.has_function_privilege(p.oid,'EXECUTE')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
+                    WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+) m
+ORDER BY m.ord, m.schema, m.name
+LIMIT $2
+"#;
+
+pub(in crate::adapters) fn map(
+    project: &Project,
+    args: &SqlMapArgs,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    let config = required(project)?;
+    let selected_schemas: Vec<String> = match args.schema.as_deref() {
+        None | Some("*") => config.allowed_schemas.clone(),
+        requested => vec![schema(&config, requested)?.to_owned()],
+    };
+    let limit = args.limit.unwrap_or(50).clamp(1, 200);
+    let row_budget = (limit * 8).min(1600);
+    let count = row_budget as i64;
+    let result = pool::run(catalog(
+        project,
+        &config,
+        context,
+        MAP,
+        &[&selected_schemas, &count],
+        row_budget,
+        None,
+    ))?;
+    if result["ok"] == false {
+        return Ok(result);
+    }
+    let rows = result["results"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| {
+            let field = |name: &str| row[name].as_str().map(str::to_owned).unwrap_or_default();
+            Some(super::super::sql_map::MapRow {
+                kind: field("kind"),
+                schema: field("schema"),
+                name: field("name"),
+                detail1: field("detail1"),
+                detail2: field("detail2"),
+                detail3: field("detail3"),
+                detail4: field("detail4"),
+                number: row["num1"].as_str().and_then(|value| value.parse().ok()),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut map = super::super::sql_map::assemble("postgresql", rows, limit);
+    map["schemas"] = json!(selected_schemas);
+    map["readOnly"] = json!(true);
+    map["visibility"] = json!("connected_role_and_allowed_schemas");
+    if result["truncated"] == true {
+        map["truncated"] = json!(true);
+    }
+    Ok(map)
+}
+
 pub(in crate::adapters) fn describe(
     project: &Project,
     args: &SqlDescribeArgs,
