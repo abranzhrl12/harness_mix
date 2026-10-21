@@ -40,7 +40,7 @@ impl Sources {
             return Ok(None);
         }
         if !self.angular_providers.contains_key(path) {
-            let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+            let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
                 .map_err(|_| super::INDEX)?;
             let facts =
                 crate::adapters::index_extract::angular::providers::analyze(path, source, context)?;

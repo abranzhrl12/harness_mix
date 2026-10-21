@@ -3,8 +3,9 @@
 //! 1.2.14 link_stage/bind_imports_and_exports.rs and ECMAScript ResolveExport.
 //! Copyright (c) 2024-present VoidZero Inc. & Contributors (MIT).
 //! See ROLLDOWN-LICENSE.txt at the crate root for attribution/permission.
+use super::super::hash;
 use super::{
-    ExportTarget, Failure, INDEX, LIMIT, OperationContext, Project, Sources, hash, module_path, sql,
+    ExportTarget, Failure, INDEX, LIMIT, OperationContext, Project, Sources, module_path, sql,
 };
 use crate::adapters::index_semantic::{Export, RuntimeKind};
 use rusqlite::Connection;
@@ -124,7 +125,7 @@ impl Walk<'_> {
         // previously unique binding into an ambiguity while both endpoints stay.
         self.contributors.insert(
             path.into(),
-            hash(self.sources.files.get(path).ok_or(INDEX)?),
+            hash(self.sources.verified.bytes(path).ok_or(INDEX)?),
         );
         if self.contributors.len() > 16 {
             return Err(LIMIT);

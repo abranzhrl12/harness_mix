@@ -27,7 +27,7 @@ impl Sources {
             return Ok(None);
         }
         if !self.vue.contains_key(path) {
-            let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+            let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
                 .map_err(|_| super::INDEX)?;
             let facts = crate::adapters::index_semantic::vue::analyze(source, path, context)?;
             self.vue_reserved = self.vue_reserved.checked_add(facts.reserved).ok_or(LIMIT)?;

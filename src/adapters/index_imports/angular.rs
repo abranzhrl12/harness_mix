@@ -37,7 +37,7 @@ impl Sources {
         {
             return Ok(None);
         }
-        let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+        let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
             .map_err(|_| super::INDEX)?;
         if !crate::adapters::index_extract::angular::router::proves_reference(
             path,
@@ -110,7 +110,7 @@ impl Sources {
             return Ok(None);
         }
         if !self.angular.contains_key(path) {
-            let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+            let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
                 .map_err(|_| super::INDEX)?;
             let facts =
                 crate::adapters::index_extract::angular::di::analyze(path, source, context)?;

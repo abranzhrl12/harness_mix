@@ -33,7 +33,7 @@ impl Sources {
         if !self.observe(db, project, context, path)? {
             return Ok(None);
         }
-        let source = std::str::from_utf8(self.files.get(path).ok_or(super::INDEX)?)
+        let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
             .map_err(|_| super::INDEX)?;
         if !self.vue_returns.contains_key(path) {
             let facts = vue_returns::analyze_calls(source, path, context)?;
@@ -72,8 +72,9 @@ impl Sources {
         if !self.observe(db, project, context, &target.path)? {
             return Ok(None);
         }
-        let target_source = std::str::from_utf8(self.files.get(&target.path).ok_or(super::INDEX)?)
-            .map_err(|_| super::INDEX)?;
+        let target_source =
+            std::str::from_utf8(self.verified.bytes(&target.path).ok_or(super::INDEX)?)
+                .map_err(|_| super::INDEX)?;
         let Some(implementation) = vue_returns::returned_method(
             target_source,
             &target.path,

@@ -1,3 +1,4 @@
+use super::super::hash;
 use super::*;
 
 #[test]
@@ -34,6 +35,54 @@ fn runtime_export_memo_is_publication_local_and_sources_are_rechecked() {
     ));
     assert!(Sources::default().runtime.is_empty());
 }
+#[test]
+fn verified_source_cache_enforces_file_count_budget() {
+    let root = tempfile::tempdir().unwrap();
+    let project = Project::new(root.path()).unwrap();
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE files(path TEXT PRIMARY KEY, content_hash TEXT, language TEXT);",
+    )
+    .unwrap();
+    let mut sources = Sources::default();
+    let context = OperationContext::default();
+
+    for index in 0..=64 {
+        let path = format!("source-{index}.ts");
+        std::fs::write(root.path().join(&path), b"").unwrap();
+        db.execute(
+            "INSERT INTO files VALUES(?1,?2,'typescript')",
+            [&path, &hash(b"")],
+        )
+        .unwrap();
+        let result = sources.observe(&db, &project, &context, &path);
+        if index < 64 {
+            assert!(result.unwrap());
+        } else {
+            assert_eq!(result, Err(super::super::LIMIT));
+        }
+    }
+    assert_eq!(sources.verified.len(), 64);
+    assert!(
+        sources
+            .observe(&db, &project, &context, "source-0.ts")
+            .unwrap()
+    );
+
+    let rust_path = "rust-target.rs";
+    let rust_source = "fn caller() { target(); }";
+    std::fs::write(root.path().join(rust_path), rust_source).unwrap();
+    db.execute(
+        "INSERT INTO files VALUES(?1,?2,'rust')",
+        [rust_path, &hash(rust_source.as_bytes())],
+    )
+    .unwrap();
+    assert!(matches!(
+        sources.rust_target(&db, &project, &context, rust_path, "target", 1, 17),
+        Ok(None)
+    ));
+}
+
 #[test]
 fn module_normalization_never_escapes_workspace() {
     assert_eq!(

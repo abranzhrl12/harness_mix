@@ -1,7 +1,14 @@
 //! Conservative JS/TS named-import scope. Uses indexed data, never probes paths.
-use super::{Failure, INDEX, LIMIT, OperationContext, Project, hash, read_source, sql};
-use rusqlite::{Connection, OptionalExtension};
+use super::{Failure, INDEX, LIMIT, OperationContext, Project, sql};
+use rusqlite::Connection;
 use std::collections::BTreeMap;
+
+#[path = "index_imports/verified_sources.rs"]
+mod verified_sources;
+use verified_sources::VerifiedSources;
+#[path = "index_imports/rust_resolution.rs"]
+mod rust_resolution;
+use rust_resolution::RustResolution;
 
 #[path = "index_imports/angular.rs"]
 pub(super) mod angular;
@@ -18,8 +25,7 @@ mod vue_returns;
 
 #[derive(Default)]
 pub(super) struct Sources {
-    files: BTreeMap<String, Vec<u8>>,
-    reserved: usize,
+    verified: VerifiedSources,
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
     vue: BTreeMap<String, crate::adapters::index_semantic::vue::Facts>,
@@ -35,8 +41,7 @@ pub(super) struct Sources {
         Option<ExportTarget>,
     >,
     runtime_reserved: usize,
-    rust: BTreeMap<String, super::rust::Facts>,
-    rust_reserved: usize,
+    rust: RustResolution,
     razor: BTreeMap<String, super::razor_receivers::Facts>,
     razor_reserved: usize,
     razor_targets: super::razor_receivers::Targets,
@@ -66,7 +71,7 @@ impl Sources {
         }
         if !self.razor.contains_key(path) {
             let source =
-                std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
+                std::str::from_utf8(self.verified.bytes(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
             let facts = super::razor_receivers::analyze(source, context)?;
             self.razor_reserved += facts.reserved();
             if self.razor_reserved > 16 * 1024 * 1024 {
@@ -83,74 +88,6 @@ impl Sources {
             context,
         )
     }
-    fn rust_rooted(
-        &mut self,
-        db: &Connection,
-        project: &Project,
-        context: &OperationContext,
-        path: &str,
-        depth: usize,
-    ) -> Result<bool, Failure> {
-        if depth > 8 {
-            return Ok(false);
-        }
-        let Some((dir, file)) = path.rsplit_once('/') else {
-            return Ok(false);
-        };
-        if matches!(file, "lib.rs" | "main.rs") {
-            return Ok(true);
-        }
-        if file != "mod.rs" {
-            return Ok(false);
-        }
-        let Some((parent_dir, module)) = dir.rsplit_once('/') else {
-            return Ok(false);
-        };
-        let mut parents = Vec::new();
-        for file in ["mod.rs", "lib.rs", "main.rs"] {
-            let parent = format!("{parent_dir}/{file}");
-            if self.rust_analyzed(db, project, context, &parent)?
-                && self.rust[&parent].modules.contains(module)
-            {
-                parents.push(parent);
-            }
-        }
-        if parents.len() != 1 {
-            return Ok(false);
-        }
-        self.rust_rooted(db, project, context, &parents[0], depth + 1)
-    }
-    fn rust_analyzed(
-        &mut self,
-        db: &Connection,
-        project: &Project,
-        context: &OperationContext,
-        path: &str,
-    ) -> Result<bool, Failure> {
-        if self.rust.contains_key(path) {
-            return Ok(true);
-        }
-        if !self.files.contains_key(path) && self.files.len() >= 64 {
-            return Ok(false);
-        }
-        if !self.observe(db, project, context, path)? {
-            return Ok(false);
-        }
-        let source = std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
-        let facts = match super::rust::analyze(source, context) {
-            Ok(facts) => facts,
-            Err(("PARSER_LIMIT" | "SYNTAX_ERROR", _)) => super::rust::Facts::default(),
-            Err(error) => return Err(error),
-        };
-        let reserved = facts.reserved();
-        if self.rust_reserved + reserved > 16 * 1024 * 1024 {
-            self.rust.insert(path.into(), super::rust::Facts::default());
-        } else {
-            self.rust_reserved += reserved;
-            self.rust.insert(path.into(), facts);
-        }
-        Ok(true)
-    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn rust_target(
         &mut self,
@@ -162,90 +99,16 @@ impl Sources {
         line: i64,
         col: i64,
     ) -> Result<Option<String>, Failure> {
-        if !self.rust_analyzed(db, project, context, path)? {
-            return Ok(None);
-        }
-        let Some(parts) = self.rust[path]
-            .call(name, line, col)
-            .map(<[String]>::to_vec)
-        else {
-            return Ok(None);
-        };
-        let (target, symbol) = if parts.len() == 1 {
-            (path.to_owned(), parts[0].clone())
-        } else if parts.len() == 3 && parts[0] == "super" {
-            // Only siblings declared by one indexed parent module. No disk
-            // probing, guessed global name or arbitrary suffix matching.
-            let Some((dir, file)) = path.rsplit_once('/') else {
-                return Ok(None);
-            };
-            let Some(stem) = file.strip_suffix(".rs") else {
-                return Ok(None);
-            };
-            if matches!(stem, "mod" | "lib" | "main") {
-                return Ok(None);
-            }
-            let mut parents = Vec::new();
-            for parent in [
-                format!("{dir}/mod.rs"),
-                format!("{dir}/lib.rs"),
-                format!("{dir}/main.rs"),
-            ] {
-                if self.rust_analyzed(db, project, context, &parent)?
-                    && self.rust[&parent].modules.contains(stem)
-                    && self.rust[&parent].modules.contains(&parts[1])
-                {
-                    parents.push(parent);
-                }
-            }
-            if parents.len() != 1 {
-                return Ok(None);
-            }
-            if !self.rust_rooted(db, project, context, &parents[0], 0)? {
-                return Ok(None);
-            }
-            let mut targets = Vec::new();
-            for target in [
-                format!("{dir}/{}.rs", parts[1]),
-                format!("{dir}/{}/mod.rs", parts[1]),
-            ] {
-                if sql(db.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
-                    [&target],
-                    |r| r.get::<_, bool>(0),
-                ))? {
-                    targets.push(target);
-                }
-            }
-            if targets.len() != 1 {
-                return Ok(None);
-            }
-            let target = targets.remove(0);
-            if !self.rust_analyzed(db, project, context, &target)? {
-                return Ok(None);
-            }
-            (target, parts[2].clone())
-        } else {
-            return Ok(None);
-        };
-        let Some(&(start, public)) = self.rust[&target].functions.get(&symbol) else {
-            return Ok(None);
-        };
-        if target != path && !public {
-            return Ok(None);
-        }
-        let mut statement = sql(db.prepare_cached("SELECT id FROM nodes WHERE file_path=?1 AND name=?2 AND start_line=?3 AND kind='function' AND language='rust' LIMIT 2"))?;
-        let ids = sql(sql(
-            statement.query_map(rusqlite::params![target, symbol, start], |r| {
-                r.get::<_, String>(0)
-            }),
-        )?
-        .collect::<Result<Vec<_>, _>>())?;
-        Ok(if ids.len() == 1 {
-            ids.into_iter().next()
-        } else {
-            None
-        })
+        self.rust.target(
+            &mut self.verified,
+            db,
+            project,
+            context,
+            path,
+            name,
+            line,
+            col,
+        )
     }
     pub fn configured(config: super::tsconfig::Snapshot) -> Self {
         Self {
@@ -260,27 +123,7 @@ impl Sources {
         context: &OperationContext,
         path: &str,
     ) -> Result<bool, Failure> {
-        if !self.files.contains_key(path) {
-            if self.files.len() >= 64 || self.reserved + 1024 * 1024 > 64 * 1024 * 1024 {
-                return Err(LIMIT);
-            }
-            let Some(bytes) = read_source(project, path, context)? else {
-                return Ok(false);
-            };
-            let digest: Option<String> = sql(db
-                .query_row(
-                    "SELECT content_hash FROM files WHERE path=?1",
-                    [path],
-                    |r| r.get(0),
-                )
-                .optional())?;
-            if digest.as_deref() != Some(hash(&bytes).as_str()) {
-                return Ok(false);
-            }
-            self.reserved += bytes.len();
-            self.files.insert(path.into(), bytes);
-        }
-        Ok(true)
+        self.verified.observe(db, project, context, path)
     }
     #[allow(clippy::too_many_arguments)] // Existing reference location + bounded source observer.
     pub(super) fn permits(
@@ -322,7 +165,7 @@ impl Sources {
         }
         if !self.semantic.contains_key(path) {
             let source =
-                std::str::from_utf8(self.files.get(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
+                std::str::from_utf8(self.verified.bytes(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
             let calls = super::super::index_semantic::analyze(source, path, context)?;
             self.semantic_reserved += calls.reserved;
             if self.semantic_reserved > 16 * 1024 * 1024 {
@@ -385,19 +228,7 @@ impl Sources {
         context: &OperationContext,
     ) -> Result<(), Failure> {
         self.config.recheck(project, context)?;
-        for (path, bytes) in &self.files {
-            if read_source(project, path, context)?
-                .as_ref()
-                .map(|b| hash(b))
-                != Some(hash(bytes))
-            {
-                return Err((
-                    "STALE",
-                    "Import resolution source changed; transaction rolled back",
-                ));
-            }
-        }
-        Ok(())
+        self.verified.recheck(project, context)
     }
 }
 
