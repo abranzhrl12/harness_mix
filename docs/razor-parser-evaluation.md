@@ -20,8 +20,9 @@ y expresiones Razor/C#. Todavía no se ha compilado ni medido ese candidato.
 - `Cargo.toml`: Oxc `0.90.0`, incluido parser y análisis semántico.
 - `src/adapters/index_extract.rs`: extracción Razor propia; valida la vista,
   recoge directivas, proyecta miembros y expresiones a C#, y recoge enlaces MVC.
-- `src/adapters/razor_render.rs`: proyección C# con conservación de ubicaciones.
-- `src/adapters/razor_mvc.rs`: extracción y resolución del subconjunto MVC
+- `src/adapters/parsers/razor/render.rs`: proyección C# con conservación de ubicaciones.
+- `src/adapters/parsers/razor/mvc.rs` y `src/adapters/index_razor_mvc.rs`:
+  extracción y resolución del subconjunto MVC
   documentado en [razor-resolution.md](razor-resolution.md).
 
 La función Razor revisada no incorpora una pasada de extracción de JavaScript

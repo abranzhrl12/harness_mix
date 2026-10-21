@@ -1,8 +1,16 @@
 //! Native implementations of application ports. No MCP handlers or schemas here.
+mod index_razor_mvc;
+mod parsers;
+mod vue_extract;
+use parsers::{
+    astro::syntax as astro_syntax, csharp::syntax as csharp_syntax,
+    ecmascript::symbols as ts_symbols, ecmascript::syntax as ts_syntax, razor::mvc as razor_mvc,
+    razor::render as razor_render, razor::syntax as razor_syntax, rust::symbols as rust_symbols,
+    rust::syntax as rust_syntax, vue::structure as vue_structure, vue::syntax as vue_syntax,
+};
 mod capabilities;
 mod config;
 mod create_file;
-mod csharp_syntax;
 mod csproj;
 mod disk_logs;
 pub(crate) mod doctor;
@@ -46,7 +54,6 @@ pub mod index_store {
         ))
     }
 }
-mod astro_syntax;
 pub mod data_query;
 pub mod database_setup;
 pub mod diagnostics;
@@ -57,12 +64,6 @@ pub mod process;
 pub mod process_status;
 mod process_tree;
 mod project;
-mod razor_syntax;
-mod razor_render;
-mod razor_mvc;
-mod rust_symbols;
-mod rust_syntax;
-mod symbol_graph;
 mod search;
 mod session_workflow;
 mod sessions;
@@ -72,14 +73,11 @@ mod sql_discovery;
 mod sql_policy;
 mod sql_schema_cache;
 pub mod svg;
+mod symbol_graph;
 mod symbols;
 pub mod tasks;
 mod tasks_store;
-mod ts_symbols;
-mod ts_syntax;
 mod verify;
-mod vue_structure;
-mod vue_syntax;
 pub mod xlsx;
 
 use harness_application::{
@@ -477,7 +475,7 @@ impl Workspace for NativeWorkspace {
         args: &harness_domain::contracts::VueExtractPreviewArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        vue_structure::extract_preview(&self.project, args, context)
+        vue_extract::extract_preview(&self.project, args, context)
     }
     fn patch_preview(
         &self,

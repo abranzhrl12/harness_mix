@@ -1,5 +1,90 @@
 use serde_json::Value;
-use std::process::Command;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+fn rust_files(root: &Path, output: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            rust_files(&path, output);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            output.push(path);
+        }
+    }
+}
+
+fn contains_inline_test(items: &[syn::Item]) -> bool {
+    items.iter().any(|item| match item {
+        syn::Item::Fn(function) => function.attrs.iter().any(|attribute| {
+            attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "test")
+        }),
+        syn::Item::Mod(module) => module
+            .content
+            .as_ref()
+            .is_some_and(|(_, items)| contains_inline_test(items)),
+        _ => false,
+    })
+}
+
+#[test]
+fn query_presenters_do_not_read_sources_or_databases() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters");
+    for relative in ["search/presentation.rs", "explore/presentation.rs"] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in [
+            "Project",
+            "OperationContext",
+            "rusqlite",
+            "std::fs",
+            "tokio::fs",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} depends on I/O `{forbidden}`; pass observed data to the presenter"
+            );
+        }
+    }
+}
+
+#[test]
+fn query_and_verification_tests_stay_in_external_modules() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters");
+    let mut files = vec![
+        root.join("verify.rs"),
+        root.join("search.rs"),
+        root.join("explore.rs"),
+    ];
+    for directory in ["verification", "search", "explore"] {
+        rust_files(&root.join(directory), &mut files);
+    }
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "tests.rs"
+            || name.ends_with("_tests.rs")
+            || path
+                .strip_prefix(&root)
+                .unwrap()
+                .components()
+                .any(|component| component.as_os_str() == "tests")
+        {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        let parsed = syn::parse_file(&source).unwrap();
+        assert!(
+            !contains_inline_test(&parsed.items),
+            "{} contains inline tests; keep test bodies in separate files",
+            path.strip_prefix(&root).unwrap().display()
+        );
+    }
+}
 
 #[test]
 fn portable_layers_cannot_gain_unreviewed_infrastructure_dependencies() {
@@ -44,5 +129,109 @@ fn portable_layers_cannot_gain_unreviewed_infrastructure_dependencies() {
                 "{name} depends on {dependency}; infrastructure belongs in native adapters, not portable layers"
             );
         }
+    }
+}
+
+#[test]
+fn language_parsers_stay_independent_of_projects_transport_and_filesystem() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/parsers");
+    let mut files = Vec::new();
+    rust_files(&root, &mut files);
+
+    assert!(!files.is_empty(), "parser source tree is missing");
+    let external_tests = files
+        .iter()
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("_tests.rs")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut production_sources = Vec::new();
+    for path in files.iter().filter(|path| {
+        !path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with("_tests.rs")
+    }) {
+        let source = fs::read_to_string(path).unwrap();
+        let relative = path.strip_prefix(&root).unwrap().display();
+        production_sources.push(source.clone());
+        for forbidden in [
+            "crate::adapters::project::Project",
+            "adapters::project",
+            "project::Project",
+            "Workspace",
+            "crate::transport",
+            "std::fs",
+            "tokio::fs",
+            "File::open",
+            "OpenOptions",
+            "read_to_string(",
+            "read_dir(",
+            "canonicalize(",
+            "rusqlite",
+            "Connection",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "parser source {relative} refers to forbidden infrastructure `{forbidden}`"
+            );
+        }
+
+        assert!(
+            !source.contains("#[test]") && !source.contains("mod tests {"),
+            "tests in parser source {relative} must live in a separate *_tests.rs module"
+        );
+    }
+
+    for path in external_tests {
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        let module_name = path.file_stem().unwrap().to_string_lossy();
+        let path_declaration = format!("= \"{file_name}\"");
+        let module_declaration = format!("mod {module_name};");
+        assert!(
+            production_sources.iter().any(|source| {
+                source.contains(&path_declaration) || source.contains(&module_declaration)
+            }),
+            "external parser tests {} must be declared by a production module",
+            path.strip_prefix(&root).unwrap().display()
+        );
+    }
+}
+
+#[test]
+fn source_analysis_domain_does_not_depend_on_parser_engines_or_io() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/domain/src/parsing");
+    let mut files = Vec::new();
+    rust_files(&root, &mut files);
+    assert!(!files.is_empty(), "source analysis domain is missing");
+    for path in files {
+        let source = fs::read_to_string(&path).unwrap();
+        for forbidden in [
+            "oxc_",
+            "tree_sitter",
+            "syn::",
+            "proc_macro2",
+            "rusqlite",
+            "std::fs",
+            "tokio::",
+            "crate::adapters",
+            "harness_application",
+            "rmcp",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "domain source {} depends on infrastructure `{forbidden}`",
+                path.strip_prefix(&root).unwrap().display()
+            );
+        }
+        assert!(
+            !source.contains("#[test]") && !source.contains("mod tests {"),
+            "domain parsing tests must live in crates/domain/tests"
+        );
     }
 }

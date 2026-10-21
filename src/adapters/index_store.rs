@@ -46,10 +46,10 @@ pub(crate) mod scope;
 
 #[path = "index_imports.rs"]
 mod imports;
-#[path = "index_razor_receivers.rs"]
-mod razor_receivers;
 #[path = "index_paths.rs"]
 mod paths;
+#[path = "index_razor_receivers.rs"]
+mod razor_receivers;
 #[path = "index_rust.rs"]
 mod rust;
 #[path = "index_tsconfig.rs"]
@@ -549,8 +549,7 @@ fn sync_file_config_reuse(
         // triggers require trusted_schema; it is enabled only after validation.
         sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
         context.check()?;
-        let configuration =
-            tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
+        let configuration = tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
         let (mut result, import_sources) = publish(
             &tx,
             &project,
@@ -770,10 +769,7 @@ fn identity_map(
 /// Pending JS/TS references whose imported export became available. The
 /// reference names the local alias, so the import binding of the referencing
 /// file carries the real name to match.
-fn pending_import_refs(
-    db: &Connection,
-    new_names: &BTreeSet<String>,
-) -> Result<Vec<i64>, Failure> {
+fn pending_import_refs(db: &Connection, new_names: &BTreeSet<String>) -> Result<Vec<i64>, Failure> {
     if new_names.is_empty() {
         return Ok(Vec::new());
     }
@@ -1073,7 +1069,10 @@ fn publish(
     // Provider nodes and their pending references survive the publication.
     sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component'))",[path]))?;
     sql(db.execute("DELETE FROM edges WHERE source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)",[path]))?;
-    sql(db.execute("DELETE FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')", [path]))?;
+    sql(db.execute(
+        "DELETE FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')",
+        [path],
+    ))?;
     let mut refs = BTreeSet::new();
     let mut node_count = 0;
     if let Some(extracted) = extracted {
@@ -1240,11 +1239,12 @@ fn publish(
     // import edges this file can affect are rechecked, so the work stays
     // proportional to the file instead of the whole project.
 
-    let import_rechecks = if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
-        imports::invalidate(db)?
-    } else {
-        Vec::new()
-    };
+    let import_rechecks =
+        if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
+            imports::invalidate(db)?
+        } else {
+            Vec::new()
+        };
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
     if language == "rust" {
@@ -1276,7 +1276,7 @@ fn publish(
     let mut candidate_snapshot = candidates::Snapshot::default();
     let mut resolved = 0;
     let mut import_sources = imports::Sources::configured(configuration);
-    let mut mvc_snapshot = super::razor_mvc::Snapshot::default();
+    let mut mvc_snapshot = super::index_razor_mvc::Snapshot::default();
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(
@@ -1321,7 +1321,7 @@ fn resolve_exact(
     context: &OperationContext,
     sources: &mut imports::Sources,
     candidate_snapshot: &mut candidates::Snapshot,
-    mvc_snapshot: &mut super::razor_mvc::Snapshot,
+    mvc_snapshot: &mut super::index_razor_mvc::Snapshot,
 ) -> Result<bool, Failure> {
     let reference:Option<ResolutionReference> = sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
@@ -1334,7 +1334,8 @@ fn resolve_exact(
         };
         let metadata = json!({"refName":name,"refKind":kind,
             "resolvedBy":"razor-mvc-literal-route-subset-v1",
-            "confidence":0.9}).to_string();
+            "confidence":0.9})
+        .to_string();
         sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
         sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
         return Ok(true);
@@ -1446,9 +1447,15 @@ fn resolve_exact(
     } else {
         None
     };
-    let razor_instance_target = if language == "razor" && kind == "calls" && razor_static_target.is_none() && name.contains('.') {
+    let razor_instance_target = if language == "razor"
+        && kind == "calls"
+        && razor_static_target.is_none()
+        && name.contains('.')
+    {
         sources.razor_instance_target(db, project, context, &path, &name, line, col)?
-    } else { None };
+    } else {
+        None
+    };
     let mut candidates = if let Some((target, _)) = &razor_instance_target {
         vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
     } else if let Some(target) = &rust_target {
@@ -1534,7 +1541,11 @@ fn resolve_exact(
     }
     if let Some((_, receiver_type)) = &razor_instance_target {
         metadata["resolvedBy"] = json!("razor-typed-instance-method-subset-v1");
-        metadata["receiverType"] = json!(receiver_type.strip_prefix("global::").unwrap_or(receiver_type));
+        metadata["receiverType"] = json!(
+            receiver_type
+                .strip_prefix("global::")
+                .unwrap_or(receiver_type)
+        );
     }
     if rust_target.is_some() {
         metadata["resolvedBy"] = json!(if candidates[0].2 == path {

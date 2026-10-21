@@ -7,6 +7,7 @@ pub mod freshness;
 pub mod handover;
 pub mod log_archive;
 pub mod navigation;
+pub mod parsing;
 pub mod process;
 pub mod process_output;
 pub mod results;

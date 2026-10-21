@@ -25,21 +25,6 @@ pub(super) fn syntax(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     match extension(path).as_str() {
-        "rs" => {
-            super::rust_syntax::with_ast(source, context, |_, _| Ok(()))?;
-            Ok(json!({"status":"valid","language":"rust","validation":"syntax_only"}))
-        }
-        "js" | "mjs" | "cjs" | "jsx" => {
-            super::ts_syntax::validate_syntax(path, source, context)?;
-            Ok(json!({"status":"valid","language":"javascript","validation":"syntax_only"}))
-        }
-        "ts" | "mts" | "cts" | "tsx" => {
-            super::ts_syntax::validate_syntax(path, source, context)?;
-            Ok(json!({"status":"valid","language":"typescript","validation":"syntax_only"}))
-        }
-        "vue" => super::vue_syntax::validate(path, source, context),
-        "astro" => super::astro_syntax::validate(path, source, context),
-        "cshtml" => super::razor_syntax::validate(path, source, context),
         "json" => {
             serde_json::from_str::<Value>(source.strip_prefix('\u{feff}').unwrap_or(source))
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;
@@ -48,10 +33,7 @@ pub(super) fn syntax(
         "md" | "txt" | "sql" | "xml" | "css" => {
             Ok(json!({"status":"not_applicable","language":"text","validation":"none"}))
         }
-        _ => Err((
-            "PARSER_UNAVAILABLE",
-            "Editing this format is not migrated; original untouched",
-        )),
+        _ => super::parsers::default_syntax_registry().validate(path, source, context),
     }
 }
 

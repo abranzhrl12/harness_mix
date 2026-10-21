@@ -52,7 +52,7 @@ la instalación global ni la configuración de Antigravity.
 | Publicación y protección de ancestros | [edit_commit.rs](../src/adapters/edit_commit.rs): `pin_directory`, `publish_with` |
 | Lecturas y contratos | [project.rs](../src/adapters/project.rs): `read_with_context`; [contracts.rs](../crates/domain/src/contracts.rs) |
 | Presupuesto de entrada | [input.rs](../src/transport/input.rs): `MAX_MESSAGE_BYTES` |
-| Límites del parser Rust | [rust_syntax.rs](../src/adapters/rust_syntax.rs): `with_ast` |
+| Límites del parser Rust | [syntax.rs](../src/adapters/parsers/rust/syntax.rs): `with_ast` |
 | Distribución | [package-npm.ps1](../scripts/package-npm.ps1), [verify-package.cjs](../npm-dist/scripts/verify-package.cjs), [package.json](../npm-dist/package.json) |
 
 ### Qué dicen y qué no dicen los tiempos

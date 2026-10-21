@@ -90,7 +90,7 @@ fn existing_native_reindex_has_proven_call_and_no_confirmed_false_pairs() {
     for (symbol, target, source) in [
         (
             "collect",
-            "src/adapters/rust_symbols.rs",
+            "src/adapters/parsers/rust/symbols.rs",
             "src/adapters/process.rs",
         ),
         (

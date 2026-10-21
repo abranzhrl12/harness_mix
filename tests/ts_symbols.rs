@@ -4,6 +4,58 @@ use agent_harness::adapters::{self, NativeApplication};
 use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, SymbolView, SymbolsArgs};
 use serde_json::Value;
 
+#[test]
+fn source_format_classification_preserves_ecmascript_dialects_and_protocol_language() {
+    let root = tempfile::tempdir().unwrap();
+    let cases = [
+        (
+            "module.JS",
+            "export function value() { return 1; }",
+            "javascript",
+        ),
+        (
+            "module.TS",
+            "export function value(): number { return 1; }",
+            "typescript",
+        ),
+        (
+            "view.JSX",
+            "export function value() { return <div />; }",
+            "javascript",
+        ),
+        (
+            "view.TSX",
+            "export function value(): JSX.Element { return <div />; }",
+            "typescript",
+        ),
+    ];
+    for (path, source, _) in cases {
+        std::fs::write(root.path().join(path), source).unwrap();
+    }
+    let app = adapters::application(root.path()).unwrap();
+    for (path, source, language) in cases {
+        let result = outline(&app, path, None);
+        assert_eq!(result["state"], "ok", "{result}");
+        assert_eq!(result["data"]["language"], language, "{path}");
+        let symbol = result["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == "value")
+            .unwrap();
+        let read = read_symbol(
+            &app,
+            path,
+            "value",
+            None,
+            symbol["symbolId"].as_str(),
+            false,
+        );
+        assert_eq!(read["state"], "ok", "{read}");
+        assert!(source.contains(read["data"]["text"].as_str().unwrap()));
+    }
+}
+
 fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {
     app.execute(
         SymbolsArgs::Outline(OutlineArgs {

@@ -1,5 +1,34 @@
 # Arquitectura del harness Rust
 
+La organización de parsers por lenguaje, el puerto `SyntaxParser` y las pruebas
+separadas se describen en [PARSERS.md](PARSERS.md).
+
+## Consultas y verificación
+
+`verify.rs` coordina la ejecución, la observación del workspace y la respuesta.
+Los planificadores por lenguaje y la validación nativa TypeScript viven en
+`verification/`; sus pruebas están separadas en `verification/tests/`.
+
+`search.rs` coordina preparación, escaneo, finalización y presentación. Los
+módulos `search/plan.rs`, `scan.rs`, `graph.rs` y `presentation.rs` separan
+validación de opciones, lectura de archivos, descubrimiento indexado y formato
+de resultados. El escaneo comparte el presupuesto y contexto de la operación;
+la presentación recibe datos observados y no realiza I/O.
+Las métricas de tiempo se capturan al finalizar el escaneo y la preparación de
+resultados, antes de construir el JSON de presentación.
+
+`explore.rs` coordina el acceso al índice, la selección de objetivos, el recorrido
+del grafo y la recuperación de fuentes. `explore/database.rs`, `selection.rs`,
+`graph.rs`, `sources.rs` y `presentation.rs` mantienen esas responsabilidades
+separadas. El recorrido recibe la conexión prestada y conserva el plazo de la
+consulta; los pines de rutas permanecen vivos durante el acceso al índice.
+`response.rs` conserva la comprobación final de frescura en su punto original
+y arma la respuesta; los helpers de presentación permanecen libres de I/O.
+
+Estas separaciones usan composición de funciones y resultados intermedios
+tipados. No requieren un trait por helper. Las interfaces públicas y la forma
+de las respuestas se conservan; las pruebas unitarias viven en archivos aparte.
+
 El adaptador `index_extract` usa `vendor/codegraph-native`: subconjunto fijado
 del kernel MIT de CodeGraph v1.6.2 (Rust/C#/TS/JS), con entry point Rust en lugar
 de N-API. Se mantiene como dependencia de infraestructura fuera de los crates

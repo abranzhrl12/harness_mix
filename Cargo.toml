@@ -35,7 +35,7 @@ test = true
 opt-level = 0
 
 [lib]
-test = false
+test = true
 doctest = false
 
 [workspace]

@@ -1,6 +1,7 @@
 use super::{
+    parsers::{css::symbols as css_symbols, model::Symbol},
     project::Project,
-    rust_symbols::{self, Symbol},
+    rust_symbols,
 };
 use harness_domain::{
     Failure,
@@ -8,13 +9,11 @@ use harness_domain::{
     execution::OperationContext,
     hash,
     navigation::anchors,
+    parsing::{SourceFormat, SourceLanguage},
     results::utf16_len,
 };
 use serde_json::{Value, json};
 use std::path::Path;
-
-#[path = "css_symbols.rs"]
-mod css_symbols;
 
 pub(super) fn snapshot(
     project: &Project,
@@ -22,54 +21,44 @@ pub(super) fn snapshot(
     context: &OperationContext,
     include_structure: bool,
 ) -> Result<(String, String, Vec<Symbol>, &'static str, Option<Value>), Failure> {
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-
-    let lang = match ext.as_str() {
-        "rs" => "rust",
-        "js" | "mjs" | "cjs" | "jsx" => "javascript",
-        "ts" | "mts" | "cts" | "tsx" => "typescript",
-        "vue" => "vue",
-        "astro" => "astro",
-        "cs" => "csharp",
-        "cshtml" => "razor",
-        "css" => "css",
-        "html" | "htm" => "html",
-        _ => {
-            return Err((
-                "PARSER_UNAVAILABLE",
-                "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS and HTML",
-            ));
-        }
-    };
+    let language = SourceFormat::from_path(Path::new(path))
+        .ok_or((
+            "PARSER_UNAVAILABLE",
+            "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS and HTML",
+        ))?
+        .language();
+    let lang = language.protocol_name();
 
     let bytes = project.bytes_with_context(path, context)?;
     let digest = hash(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not valid UTF-8"))?;
 
     let mut structure = None;
-    let symbols = match lang {
-        "rust" => rust_symbols::collect(&text, &digest, context)?,
-        "csharp" => super::csharp_syntax::collect(&text, &digest, context)?,
-        "razor" => {
+    let symbols = match language {
+        SourceLanguage::Rust => rust_symbols::collect(&text, &digest, context)?,
+        SourceLanguage::CSharp => super::csharp_syntax::collect(&text, &digest, context)?,
+        SourceLanguage::Razor => {
             let mut items = super::csharp_syntax::collect_cshtml(&text, &digest, context)?;
             items.extend(css_symbols::collect(&text, &digest, true, context)?);
             items.sort_by_key(|item| item.bytes.start);
             items
         }
-        "css" | "html" => css_symbols::collect(&text, &digest, lang == "html", context)?,
-        "vue" => {
+        SourceLanguage::Css | SourceLanguage::Html => {
+            css_symbols::collect(&text, &digest, language == SourceLanguage::Html, context)?
+        }
+        SourceLanguage::Vue => {
             let document = super::vue_structure::parse(&text, &digest, context)?;
             if include_structure {
                 structure = Some(document.structure(&text));
             }
             document.symbols
         }
-        "astro" => super::astro_syntax::collect_symbols(path, &text, &digest, context)?,
-        _ => super::ts_symbols::collect(path, &text, &digest, context)?,
+        SourceLanguage::Astro => {
+            super::astro_syntax::collect_symbols(path, &text, &digest, context)?
+        }
+        SourceLanguage::JavaScript | SourceLanguage::TypeScript => {
+            super::ts_symbols::collect(path, &text, &digest, context)?
+        }
     };
     Ok((text, digest, symbols, lang, structure))
 }

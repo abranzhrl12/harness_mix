@@ -5,6 +5,8 @@ use harness_domain::{
 };
 use serde_json::Value;
 
+pub mod parsing;
+
 /// Platform-dependent I/O. Implementations enforce filesystem safety and scan budgets.
 pub trait Workspace: Send + Sync {
     fn explore(
