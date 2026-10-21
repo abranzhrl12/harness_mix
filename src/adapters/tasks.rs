@@ -160,7 +160,17 @@ fn restore(snapshot: Value, state: &mut State) -> Result<(), Failure> {
 }
 impl Inner {
     fn snapshot(state: &State) -> Value {
-        json!({"tasks":state.tasks.iter().map(Task::value).collect::<Vec<_>>(),"events":state.journal,"cursor":state.sequence})
+        let mut snapshot = serde_json::Map::new();
+        snapshot.insert(
+            "tasks".to_string(),
+            Value::Array(state.tasks.iter().map(Task::value).collect()),
+        );
+        snapshot.insert(
+            "events".to_string(),
+            Value::Array(state.journal.iter().cloned().collect()),
+        );
+        snapshot.insert("cursor".to_string(), Value::from(state.sequence));
+        Value::Object(snapshot)
     }
     fn fail_persistence(state: &mut State, error: Failure) {
         state.persistence_error = Some(error);

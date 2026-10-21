@@ -10,6 +10,7 @@ use parsers::{
     rust::syntax as rust_syntax, vue::structure as vue_structure, vue::syntax as vue_syntax,
 };
 mod capabilities;
+mod composition;
 mod config;
 mod create_file;
 mod csproj;
@@ -103,14 +104,29 @@ pub struct NativeWorkspace {
 }
 pub type NativeApplication = Application<NativeWorkspace, sessions::Sessions>;
 
+/// Optional infrastructure supplied by the native composition root.
+/// Defaults preserve the lightweight constructors used by library callers.
+#[derive(Default)]
+pub(crate) struct NativeApplicationOptions {
+    pub(crate) persist_logs: bool,
+    pub(crate) tasks: Option<tasks::TaskManager>,
+    pub(crate) index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
+}
+
 pub fn application(root: &Path) -> std::io::Result<NativeApplication> {
-    application_with_logging(root, false)
+    application_with_options(root, NativeApplicationOptions::default())
 }
 pub fn application_with_logging(
     root: &Path,
     persist_logs: bool,
 ) -> std::io::Result<NativeApplication> {
-    application_with_logging_and_tasks(root, persist_logs, None)
+    application_with_options(
+        root,
+        NativeApplicationOptions {
+            persist_logs,
+            ..NativeApplicationOptions::default()
+        },
+    )
 }
 
 pub fn application_with_logging_and_tasks(
@@ -127,20 +143,21 @@ pub(crate) fn application_with_background(
     tasks: Option<tasks::TaskManager>,
     index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
 ) -> std::io::Result<NativeApplication> {
-    let project = Project::new(root)?;
-    let sessions = sessions::Sessions::new(project.clone());
-    let log_store = persist_logs.then(|| disk_logs::DiskLogs::new(project.clone()));
-    Ok(Application::new(
-        NativeWorkspace {
-            external_scopes: std::sync::Mutex::default(),
-            log_store,
-            project,
-            edit_lock: std::sync::Mutex::new(()),
+    application_with_options(
+        root,
+        NativeApplicationOptions {
+            persist_logs,
             tasks,
             index_watch,
         },
-        sessions,
-    ))
+    )
+}
+
+pub(crate) fn application_with_options(
+    root: &Path,
+    options: NativeApplicationOptions,
+) -> std::io::Result<NativeApplication> {
+    composition::application(root, options)
 }
 
 impl NativeWorkspace {

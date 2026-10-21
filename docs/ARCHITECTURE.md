@@ -24,6 +24,15 @@ operaciones SQL en módulos propios. `adapters/process.rs` coordina el runner;
 descubrimiento de ejecutables, entorno y captura/terminación de procesos viven
 en `process/`, con la misma política de comandos y presupuestos.
 
+La composición nativa vive en `adapters/composition.rs`: recibe opciones de logging,
+tareas y watcher, construye los adaptadores e inyecta los puertos en `Application`.
+Los constructores anteriores conservan sus firmas y valores predeterminados.
+En `sql/operations.rs`, `describe` conserva validación y plazos; funciones internas
+separan resolución de objetos, lectura del catálogo SQL Server y presentación.
+Los resultados intermedios tipados distinguen una definición no disponible de una
+definición omitida por el presupuesto de respuesta. Los drivers permanecen en el
+adaptador y PostgreSQL conserva su implementación propia.
+
 `verify.rs` coordina la ejecución, la observación del workspace y la respuesta.
 Los planificadores por lenguaje y la validación nativa TypeScript viven en
 `verification/`; sus pruebas están separadas en `verification/tests/`.
@@ -83,6 +92,17 @@ El diagnóstico de procesos mantiene validación, observación de PID y probes
 TCP/HTTP como responsabilidades internas del adaptador; conserva las restricciones
 loopback y no convierte una observación puntual en una garantía de salud.
 Los tres conservan sus puntos de entrada y pruebas en módulos externos.
+
+El snapshot de trabajos construye directamente los arrays JSON para evitar una
+segunda conversión de los resultados de las tareas dentro del bloqueo. El commit
+durable sigue precediendo a la publicación del evento; la optimización no libera
+el bloqueo durante el guardado ni permite observar estado provisional. Un benchmark
+opt-in compara ambas construcciones y mide por separado el guardado SQLite.
+La medición local en Windows con 64 tareas, 256 eventos y 40 iteraciones dio
+807 µs para el snapshot anterior, 538 µs para el nuevo y 4.230 µs para guardar
+en SQLite (snapshot de 129.335 bytes). Son observaciones del entorno de prueba,
+no umbrales de rendimiento. Se reproduce con
+`cargo test -p agent-harness --lib measure_task_snapshot_and_sqlite_save_at_retention_limits -- --ignored --nocapture`.
 
 `domain/sql.rs` mantiene los DTO y la fachada de contratos SQL; sus módulos internos
 separan compatibilidad de esquemas y preflight de solo lectura. Esta

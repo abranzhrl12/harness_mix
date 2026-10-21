@@ -36,42 +36,46 @@ fn csharp_extraction_accepts_eof_terminated_endregion() {
 
 #[test]
 fn libro_diario_response_fixture_extracts_all_classes() {
-    let source = include_str!("../../../test/LibroDiarioResponse.cs");
-    assert!(!source.ends_with('\n'));
-
-    let graph = extract(
-        "test/LibroDiarioResponse.cs",
-        source,
-        &OperationContext::default(),
-    )
-    .unwrap();
-    let nodes = graph["nodes"].as_array().unwrap();
-    for expected in [
-        "ReporteLibroDiarioResponse",
-        "DatosReporteLibroDiarioResponse",
-        "ReporteLibroDiarioPaginadoResponse",
-        "MetaDataLibroDiario52",
-        "ReporteLibroDiario52",
-        "TotalesCuenta",
-        "ReporteLibroDiario52SQL",
-        "SeccionColumna",
-        "FilaPivotada",
-        "ReporteLibroDiario52Paginado",
-        "LibroDiarioExportFila",
-        "LibroDiarioExportMetaData",
-        "LibroDiarioExportGenerales",
-        "LibroDiarioExportResponse",
-        "LibroDiario52ExportFila",
-        "LibroDiario52ExportTotal",
-        "LibroDiario52ExportGenerales",
-        "LibroDiario52ExportResponse",
-    ] {
-        assert!(
-            nodes.iter().any(|node| {
-                node["name"].as_str() == Some(expected) && node["kind"].as_str() == Some("class")
-            }),
-            "missing class {expected}"
-        );
+    let fixture = include_str!("../../../test/LibroDiarioResponse.cs");
+    // Exercise EOF normalization independently of how editors save the fixture.
+    let unterminated = fixture.trim_end_matches(['\r', '\n']);
+    let terminated = format!("{unterminated}\n");
+    for source in [unterminated, terminated.as_str()] {
+        let graph = extract(
+            "test/LibroDiarioResponse.cs",
+            source,
+            &OperationContext::default(),
+        )
+        .unwrap();
+        let nodes = graph["nodes"].as_array().unwrap();
+        for expected in [
+            "ReporteLibroDiarioResponse",
+            "DatosReporteLibroDiarioResponse",
+            "ReporteLibroDiarioPaginadoResponse",
+            "MetaDataLibroDiario52",
+            "ReporteLibroDiario52",
+            "TotalesCuenta",
+            "ReporteLibroDiario52SQL",
+            "SeccionColumna",
+            "FilaPivotada",
+            "ReporteLibroDiario52Paginado",
+            "LibroDiarioExportFila",
+            "LibroDiarioExportMetaData",
+            "LibroDiarioExportGenerales",
+            "LibroDiarioExportResponse",
+            "LibroDiario52ExportFila",
+            "LibroDiario52ExportTotal",
+            "LibroDiario52ExportGenerales",
+            "LibroDiario52ExportResponse",
+        ] {
+            assert!(
+                nodes.iter().any(|node| {
+                    node["name"].as_str() == Some(expected)
+                        && node["kind"].as_str() == Some("class")
+                }),
+                "missing class {expected}"
+            );
+        }
     }
 }
 

@@ -22,6 +22,10 @@ use harness_domain::{
 use serde_json::{Value, json};
 use std::time::Duration;
 
+#[cfg(test)]
+#[path = "operations/tests.rs"]
+mod tests;
+
 pub(super) fn status(
     project: &Project,
     args: &SqlStatusArgs,
@@ -355,6 +359,227 @@ pub(super) fn map(
     Ok(result)
 }
 
+type SqlServerClient = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
+
+struct RoutineCatalog {
+    definition: Value,
+    definition_available: bool,
+    parameters: Vec<Value>,
+    definition_truncated: bool,
+    parameters_truncated: bool,
+}
+
+async fn resolve_catalog_object(
+    client: &mut SqlServerClient,
+    parsed_name: &ParsedSqlObjectName,
+    kind: &SqlDescribeKind,
+) -> Result<ObjectResolution, Failure> {
+    let type_filter = match kind {
+        SqlDescribeKind::Routine => "'P','PC','FN','IF','TF','FS','FT'",
+        SqlDescribeKind::Relation => "'U','V'",
+    };
+    let (requested_schema_param, requested_name_param) = object_lookup_parameters(parsed_name);
+    let resolver_sql = format!(
+        r#"SELECT TOP (6) s.name AS [schema], o.name, o.object_id, o.type_desc
+           FROM sys.objects AS o
+           JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+           WHERE o.is_ms_shipped = 0 AND o.name = @P1
+             AND o.type IN ({type_filter})
+             AND (@P2 = '' OR s.name = @P2)
+           ORDER BY s.name, o.name"#
+    );
+    let matches = client
+        .query(
+            resolver_sql.as_str(),
+            &[&requested_name_param, &requested_schema_param],
+        )
+        .await
+        .map_err(sql_error)?
+        .into_first_result()
+        .await
+        .map_err(sql_error)?;
+    let mut candidates = Vec::new();
+    for row in matches {
+        let schema: Option<&str> = row.get(0);
+        let object_name: Option<&str> = row.get(1);
+        let object_id: Option<i32> = row.get(2);
+        let object_kind: Option<&str> = row.get(3);
+        if let (Some(schema), Some(object_name), Some(object_id)) = (schema, object_name, object_id)
+        {
+            candidates.push(ResolvedSqlObject {
+                schema: schema.to_owned(),
+                name: object_name.to_owned(),
+                object_id,
+                kind: object_kind.unwrap_or_default().to_owned(),
+            });
+        }
+    }
+    Ok(classify_object_candidates(candidates))
+}
+
+async fn read_routine_catalog(
+    client: &mut SqlServerClient,
+    resolved: &ResolvedSqlObject,
+    max_rows: usize,
+    max_chars: usize,
+    timed: &OperationContext,
+) -> Result<RoutineCatalog, Failure> {
+    let stream = client
+        .query(ROUTINE_DEFINITION_SQL, &[&resolved.object_id])
+        .await
+        .map_err(sql_error)?;
+    let row = stream.into_row().await.map_err(sql_error)?;
+    let definition: Option<String> = match row.as_ref() {
+        Some(row) => row
+            .try_get::<&str, _>(0)
+            .map_err(sql_error)?
+            .map(str::to_owned),
+        None => None,
+    };
+    let definition_available = definition.is_some();
+    let mut bounded_definition = Rows::new(1, max_chars);
+    bounded_definition.push(json!({"definition": definition}), timed)?;
+    let definition_bytes = serde_json::to_vec(&bounded_definition.values)
+        .map(|serialized| serialized.len())
+        .unwrap_or(0);
+    let parameter_budget = max_chars.saturating_sub(definition_bytes).saturating_sub(2);
+    let mut parameters = Rows::new(max_rows, parameter_budget);
+    let parameter_limit = routine_parameter_limit(max_rows);
+    let parameter_stream = client
+        .query(
+            ROUTINE_PARAMETERS_SQL,
+            &[&resolved.object_id, &parameter_limit],
+        )
+        .await
+        .map_err(sql_error)?;
+    let mut parameter_rows = parameter_stream.into_row_stream();
+    while let Some(row) = parameter_rows.try_next().await.map_err(sql_error)? {
+        let parameter_id: Option<i32> = row.try_get(0).map_err(sql_error)?;
+        let parameter_name: Option<&str> = row.try_get(1).map_err(sql_error)?;
+        let type_schema: Option<&str> = row.try_get(2).map_err(sql_error)?;
+        let type_name: Option<&str> = row.try_get(3).map_err(sql_error)?;
+        let system_type: Option<&str> = row.try_get(4).map_err(sql_error)?;
+        let max_length: Option<i16> = row.try_get(5).map_err(sql_error)?;
+        let precision: Option<u8> = row.try_get(6).map_err(sql_error)?;
+        let scale: Option<u8> = row.try_get(7).map_err(sql_error)?;
+        let is_output: Option<bool> = row.try_get(8).map_err(sql_error)?;
+        let has_default_value: Option<bool> = row.try_get(9).map_err(sql_error)?;
+        if !parameters.push(
+            json!({
+                "parameterId": parameter_id,
+                "name": parameter_name,
+                "typeSchema": type_schema,
+                "typeName": type_name,
+                "systemType": system_type,
+                "maxLength": max_length,
+                "precision": precision,
+                "scale": scale,
+                "isOutput": is_output,
+                "hasDefaultValue": has_default_value
+            }),
+            timed,
+        )? {
+            break;
+        }
+    }
+    Ok(RoutineCatalog {
+        definition: bounded_definition
+            .values
+            .first()
+            .map(|value| value["definition"].clone())
+            .unwrap_or(Value::Null),
+        definition_available,
+        parameters: parameters.values,
+        definition_truncated: bounded_definition.truncated,
+        parameters_truncated: parameters.truncated,
+    })
+}
+
+async fn read_relation_catalog(
+    client: &mut SqlServerClient,
+    resolved: &ResolvedSqlObject,
+    max_rows: usize,
+    max_chars: usize,
+    timed: &OperationContext,
+) -> Result<Rows, Failure> {
+    let sql = "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE \
+               FROM INFORMATION_SCHEMA.COLUMNS \
+               WHERE TABLE_NAME = @P1 AND TABLE_SCHEMA = @P2 \
+               ORDER BY ORDINAL_POSITION";
+    let stream = client
+        .query(sql, &[&resolved.name, &resolved.schema])
+        .await
+        .map_err(sql_error)?;
+    let mut rows = stream.into_row_stream();
+    let mut columns = Rows::new(max_rows, max_chars);
+    while let Some(row) = rows.try_next().await.map_err(sql_error)? {
+        let name: Option<&str> = row.get(0);
+        let data_type: Option<&str> = row.get(1);
+        let max_length: Option<i32> = row.get(2);
+        let nullable: Option<&str> = row.get(3);
+        if !columns.push(
+            json!({
+                "column": name.unwrap_or(""),
+                "type": data_type.unwrap_or(""),
+                "maxLength": max_length,
+                "nullable": nullable.unwrap_or("") == "YES"
+            }),
+            timed,
+        )? {
+            break;
+        }
+    }
+    Ok(columns)
+}
+
+fn routine_response(name: &str, resolved: &ResolvedSqlObject, catalog: RoutineCatalog) -> Value {
+    let diagnostics = if catalog.definition_available {
+        Vec::new()
+    } else {
+        routine_definition_diagnostic(None)
+    };
+    let mut response = json!({
+        "engine": "sqlserver",
+        "name": name,
+        "resolvedName": format!(
+            "{}.{}",
+            quote_sql_identifier(&resolved.schema),
+            quote_sql_identifier(&resolved.name)
+        ),
+        "schema": resolved.schema,
+        "objectId": resolved.object_id,
+        "objectType": resolved.kind,
+        "kind": "routine",
+        "definition": catalog.definition,
+        "parameters": catalog.parameters,
+        "parameterMetadataSource": "sys.parameters",
+        "parametersComplete": !catalog.parameters_truncated,
+        "truncated": catalog.definition_truncated || catalog.parameters_truncated
+    });
+    if !diagnostics.is_empty() {
+        response["diagnostics"] = json!(diagnostics);
+    }
+    response
+}
+
+fn relation_response(name: &str, resolved: &ResolvedSqlObject, columns: Rows) -> Value {
+    json!({
+        "engine": "sqlserver",
+        "name": name,
+        "resolvedName": format!(
+            "{}.{}",
+            quote_sql_identifier(&resolved.schema),
+            quote_sql_identifier(&resolved.name)
+        ),
+        "schema": resolved.schema,
+        "objectId": resolved.object_id,
+        "objectType": resolved.kind,
+        "kind": "relation",
+        "columns": columns.values,
+        "truncated": columns.truncated
+    })
+}
+
 pub(super) fn describe(
     project: &Project,
     args: &SqlDescribeArgs,
@@ -415,49 +640,7 @@ pub(super) fn describe(
     let result_data = match block_on_safe(checked(
         async {
             let mut client = connect(&project_clone, &config_clone).await?;
-            let type_filter = match kind {
-                SqlDescribeKind::Routine => "'P','PC','FN','IF','TF','FS','FT'",
-                SqlDescribeKind::Relation => "'U','V'",
-            };
-            let (requested_schema_param, requested_name_param) =
-                object_lookup_parameters(&parsed_name);
-            let resolver_sql = format!(
-                r#"SELECT TOP (6) s.name AS [schema], o.name, o.object_id, o.type_desc
-                   FROM sys.objects AS o
-                   JOIN sys.schemas AS s ON s.schema_id = o.schema_id
-                   WHERE o.is_ms_shipped = 0 AND o.name = @P1
-                     AND o.type IN ({type_filter})
-                     AND (@P2 = '' OR s.name = @P2)
-                   ORDER BY s.name, o.name"#
-            );
-            let matches = client
-                .query(
-                    resolver_sql.as_str(),
-                    &[&requested_name_param, &requested_schema_param],
-                )
-                .await
-                .map_err(sql_error)?
-                .into_first_result()
-                .await
-                .map_err(sql_error)?;
-            let mut candidates = Vec::new();
-            for row in matches {
-                let schema: Option<&str> = row.get(0);
-                let object_name: Option<&str> = row.get(1);
-                let object_id: Option<i32> = row.get(2);
-                let object_kind: Option<&str> = row.get(3);
-                if let (Some(schema), Some(object_name), Some(object_id)) =
-                    (schema, object_name, object_id)
-                {
-                    candidates.push(ResolvedSqlObject {
-                        schema: schema.to_owned(),
-                        name: object_name.to_owned(),
-                        object_id,
-                        kind: object_kind.unwrap_or_default().to_owned(),
-                    });
-                }
-            }
-            let resolved = match classify_object_candidates(candidates) {
+            let resolved = match resolve_catalog_object(&mut client, &parsed_name, kind).await? {
                 ObjectResolution::NotFound => {
                     return Ok::<Value, Failure>(object_resolution_failure(
                         "SQL_OBJECT_NOT_FOUND",
@@ -479,135 +662,28 @@ pub(super) fn describe(
                 }
                 ObjectResolution::Unique(resolved) => resolved,
             };
-            let resolved_name = format!(
-                "{}.{}",
-                quote_sql_identifier(&resolved.schema),
-                quote_sql_identifier(&resolved.name)
-            );
             match kind {
                 SqlDescribeKind::Routine => {
-                    let stream = client
-                        .query(ROUTINE_DEFINITION_SQL, &[&resolved.object_id])
-                        .await
-                        .map_err(sql_error)?;
-                    let row = stream.into_row().await.map_err(sql_error)?;
-                    let def: Option<String> = match row.as_ref() {
-                        Some(row) => row
-                            .try_get::<&str, _>(0)
-                            .map_err(sql_error)?
-                            .map(str::to_owned),
-                        None => None,
-                    };
-                    let mut bounded = Rows::new(1, config.max_chars);
-                    bounded.push(json!({"definition":def}), &timed)?;
-                    let definition_bytes = serde_json::to_vec(&bounded.values)
-                        .map(|serialized| serialized.len())
-                        .unwrap_or(0);
-                    let parameter_budget = config
-                        .max_chars
-                        .saturating_sub(definition_bytes)
-                        .saturating_sub(2);
-                    let mut parameters = Rows::new(config.max_rows, parameter_budget);
-                    {
-                        let parameter_limit = routine_parameter_limit(config.max_rows);
-                        let parameter_stream = client
-                            .query(
-                                ROUTINE_PARAMETERS_SQL,
-                                &[&resolved.object_id, &parameter_limit],
-                            )
-                            .await
-                            .map_err(sql_error)?;
-                        let mut parameter_rows = parameter_stream.into_row_stream();
-                        while let Some(row) = parameter_rows.try_next().await.map_err(sql_error)? {
-                            let parameter_id: Option<i32> = row.try_get(0).map_err(sql_error)?;
-                            let parameter_name: Option<&str> = row.try_get(1).map_err(sql_error)?;
-                            let type_schema: Option<&str> = row.try_get(2).map_err(sql_error)?;
-                            let type_name: Option<&str> = row.try_get(3).map_err(sql_error)?;
-                            let system_type: Option<&str> = row.try_get(4).map_err(sql_error)?;
-                            let max_length: Option<i16> = row.try_get(5).map_err(sql_error)?;
-                            let precision: Option<u8> = row.try_get(6).map_err(sql_error)?;
-                            let scale: Option<u8> = row.try_get(7).map_err(sql_error)?;
-                            let is_output: Option<bool> = row.try_get(8).map_err(sql_error)?;
-                            let has_default_value: Option<bool> =
-                                row.try_get(9).map_err(sql_error)?;
-                            if !parameters.push(
-                                json!({
-                                    "parameterId": parameter_id,
-                                    "name": parameter_name,
-                                    "typeSchema": type_schema,
-                                    "typeName": type_name,
-                                    "systemType": system_type,
-                                    "maxLength": max_length,
-                                    "precision": precision,
-                                    "scale": scale,
-                                    "isOutput": is_output,
-                                    "hasDefaultValue": has_default_value
-                                }),
-                                &timed,
-                            )? {
-                                break;
-                            }
-                        }
-                    }
-                    let diagnostics = routine_definition_diagnostic(def.as_deref());
-                    let mut response = json!({
-                        "engine": "sqlserver",
-                        "name": name_str,
-                        "resolvedName": resolved_name,
-                        "schema": resolved.schema,
-                        "objectId": resolved.object_id,
-                        "objectType": resolved.kind,
-                        "kind": "routine",
-                        "definition": bounded.values.first().map(|v| v["definition"].clone()).unwrap_or(Value::Null),
-                        "parameters": parameters.values,
-                        "parameterMetadataSource": "sys.parameters",
-                        "parametersComplete": !parameters.truncated,
-                        "truncated": bounded.truncated || parameters.truncated
-                    });
-                    if !diagnostics.is_empty() {
-                        response["diagnostics"] = json!(diagnostics);
-                    }
-                    Ok::<Value, Failure>(response)
+                    let catalog = read_routine_catalog(
+                        &mut client,
+                        &resolved,
+                        config.max_rows,
+                        config.max_chars,
+                        &timed,
+                    )
+                    .await?;
+                    Ok::<Value, Failure>(routine_response(&name_str, &resolved, catalog))
                 }
                 SqlDescribeKind::Relation => {
-                    let sql = "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE \
-                               FROM INFORMATION_SCHEMA.COLUMNS \
-                               WHERE TABLE_NAME = @P1 AND TABLE_SCHEMA = @P2 \
-                               ORDER BY ORDINAL_POSITION";
-                    let stream = client
-                        .query(sql, &[&resolved.name, &resolved.schema])
-                        .await
-                        .map_err(sql_error)?;
-                    let mut rows = stream.into_row_stream();
-                    let mut cols = Rows::new(config.max_rows, config.max_chars);
-                    while let Some(r) = rows.try_next().await.map_err(sql_error)? {
-                        let c_name: Option<&str> = r.get(0);
-                        let c_type: Option<&str> = r.get(1);
-                        let c_len: Option<i32> = r.get(2);
-                        let c_null: Option<&str> = r.get(3);
-                        if !cols.push(
-                            json!({
-                                "column": c_name.unwrap_or(""),
-                                "type": c_type.unwrap_or(""),
-                                "maxLength": c_len,
-                                "nullable": c_null.unwrap_or("") == "YES"
-                            }),
-                            &timed,
-                        )? {
-                            break;
-                        }
-                    }
-                    Ok::<Value, Failure>(json!({
-                        "engine": "sqlserver",
-                        "name": name_str,
-                        "resolvedName": resolved_name,
-                        "schema": resolved.schema,
-                        "objectId": resolved.object_id,
-                        "objectType": resolved.kind,
-                        "kind": "relation",
-                        "columns": cols.values,
-                        "truncated": cols.truncated
-                    }))
+                    let columns = read_relation_catalog(
+                        &mut client,
+                        &resolved,
+                        config.max_rows,
+                        config.max_chars,
+                        &timed,
+                    )
+                    .await?;
+                    Ok::<Value, Failure>(relation_response(&name_str, &resolved, columns))
                 }
             }
         },

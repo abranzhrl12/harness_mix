@@ -80,11 +80,13 @@ pub async fn serve_with_logging(
         None
     };
     let service = McpHarness {
-        application: adapters::application_with_background(
+        application: adapters::application_with_options(
             root,
-            persist_logs,
-            tasks.clone(),
-            watch_status,
+            adapters::NativeApplicationOptions {
+                persist_logs,
+                tasks: tasks.clone(),
+                index_watch: watch_status,
+            },
         )?
         .with_tool_profile(profile),
         tasks: tasks.clone(),

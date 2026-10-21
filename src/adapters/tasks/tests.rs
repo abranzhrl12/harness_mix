@@ -14,6 +14,117 @@ fn workspace() -> tempfile::TempDir {
     .unwrap();
     root
 }
+#[test]
+fn snapshot_preserves_task_and_event_payloads() {
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut state = State::default();
+    state.tasks.push_back(Task {
+        id: id.clone(),
+        lifecycle: JobLifecycle::queued(),
+        configuration: json!({"verify":{"language":"rust"},"timeoutSeconds":null,"maxAttempts":1}),
+        result: Some(json!({"passed":true,"details":{"summary":"preserved"}})),
+        context: OperationContext::without_deadline(),
+        wake: Arc::new(Notify::new()),
+    });
+    state.journal.push_back(json!({
+        "cursor":1,
+        "taskId":id,
+        "kind":"output",
+        "data":{"stream":"stderr","text":"payload","textLossy":false}
+    }));
+    state.sequence = 1;
+
+    let expected = json!({
+        "tasks":state.tasks.iter().map(Task::value).collect::<Vec<_>>(),
+        "events":state.journal,
+        "cursor":state.sequence
+    });
+    assert_eq!(Inner::snapshot(&state), expected);
+}
+
+#[test]
+#[ignore = "opt-in benchmark for the durable snapshot critical path"]
+fn measure_task_snapshot_and_sqlite_save_at_retention_limits() {
+    use std::time::Instant;
+
+    let root = workspace();
+    let ids: Vec<_> = (0..MAX_RETAINED)
+        .map(|_| uuid::Uuid::new_v4().to_string())
+        .collect();
+    let mut state = State {
+        tasks: ids
+            .iter()
+            .map(|id| Task {
+                id: id.clone(),
+                lifecycle: JobLifecycle::restore("succeeded", 1, 1).unwrap(),
+                configuration: json!({"verify":{"language":"rust"},"timeoutSeconds":null,"maxAttempts":1}),
+                result: Some(json!({"passed":true,"summary":"x".repeat(256)})),
+                context: OperationContext::without_deadline(),
+                wake: Arc::new(Notify::new()),
+            })
+            .collect(),
+        journal: (1..=MAX_EVENTS)
+            .map(|cursor| {
+                json!({
+                    "cursor":cursor,
+                    "taskId":ids[cursor % ids.len()],
+                    "kind":"output",
+                    "data":{"stream":"stdout","text":"x".repeat(256),"textLossy":false}
+                })
+            })
+            .collect(),
+        sequence: MAX_EVENTS as u64,
+        ..State::default()
+    };
+    state.store = Some(Store::create(root.path()).unwrap());
+
+    let legacy_snapshot = || {
+        json!({
+            "tasks":state.tasks.iter().map(Task::value).collect::<Vec<_>>(),
+            "events":state.journal,
+            "cursor":state.sequence
+        })
+    };
+    let snapshot = Inner::snapshot(&state);
+    assert_eq!(snapshot, legacy_snapshot());
+    assert_eq!(snapshot["tasks"].as_array().unwrap().len(), MAX_RETAINED);
+    assert_eq!(snapshot["events"].as_array().unwrap().len(), MAX_EVENTS);
+    assert_eq!(snapshot["cursor"], MAX_EVENTS as u64);
+
+    // Warm up SQLite and measure its persistence separately from snapshot creation.
+    state.store.as_ref().unwrap().save(&snapshot).unwrap();
+    let iterations = 40;
+    let mut legacy_elapsed = Duration::ZERO;
+    for _ in 0..iterations {
+        let started = Instant::now();
+        std::hint::black_box(legacy_snapshot());
+        legacy_elapsed += started.elapsed();
+    }
+    let mut snapshot_elapsed = Duration::ZERO;
+    for _ in 0..iterations {
+        let started = Instant::now();
+        std::hint::black_box(Inner::snapshot(&state));
+        snapshot_elapsed += started.elapsed();
+    }
+    let mut save_elapsed = Duration::ZERO;
+    for _ in 0..iterations {
+        let started = Instant::now();
+        state.store.as_ref().unwrap().save(&snapshot).unwrap();
+        save_elapsed += started.elapsed();
+    }
+
+    eprintln!(
+        "task-persistence benchmark: tasks={}, events={}, snapshot_bytes={}, iterations={}, legacy_snapshot_avg_us={}, optimized_snapshot_avg_us={}, sqlite_save_avg_us={}",
+        MAX_RETAINED,
+        MAX_EVENTS,
+        snapshot.to_string().len(),
+        iterations,
+        legacy_elapsed.as_micros() / iterations,
+        snapshot_elapsed.as_micros() / iterations,
+        save_elapsed.as_micros() / iterations,
+    );
+}
+
 #[tokio::test]
 async fn queued_task_cancels_without_acquiring_execution_slot() {
     let root = workspace();
