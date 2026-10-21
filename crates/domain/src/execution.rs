@@ -44,6 +44,16 @@ pub fn valid_request_id(value: &str) -> bool {
 pub struct OperationContext {
     cancelled: Arc<AtomicBool>,
     deadline: Option<Instant>,
+    progress: Option<Arc<dyn Fn(ProgressUpdate<'_>) + Send + Sync>>,
+}
+
+/// Operation-local telemetry. Counts describe this phase, not global index coverage.
+/// Borrowed paths avoid allocating when reporting each file; observers must not block.
+pub struct ProgressUpdate<'a> {
+    pub phase: &'static str,
+    pub completed: usize,
+    pub total: Option<usize>,
+    pub current: Option<&'a str>,
 }
 impl Default for OperationContext {
     fn default() -> Self {
@@ -55,6 +65,7 @@ impl OperationContext {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
             deadline: Some(Instant::now() + timeout),
+            progress: None,
         }
     }
     /// Background work lives independently of an individual MCP request.
@@ -63,6 +74,7 @@ impl OperationContext {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
             deadline: None,
+            progress: None,
         }
     }
     /// Apply an execution deadline while keeping cancellation shared with the owner.
@@ -70,6 +82,7 @@ impl OperationContext {
         let deadline = timeout.map(|value| Instant::now() + value);
         Self {
             cancelled: self.cancelled.clone(),
+            progress: self.progress.clone(),
             deadline: match (self.deadline, deadline) {
                 (Some(existing), Some(new)) => Some(existing.min(new)),
                 (existing, None) => existing,
@@ -79,6 +92,29 @@ impl OperationContext {
     }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
+    }
+    pub fn with_progress(
+        mut self,
+        observer: impl Fn(ProgressUpdate<'_>) + Send + Sync + 'static,
+    ) -> Self {
+        self.progress = Some(Arc::new(observer));
+        self
+    }
+    pub fn report_progress(
+        &self,
+        phase: &'static str,
+        completed: usize,
+        total: Option<usize>,
+        current: Option<&str>,
+    ) {
+        if let Some(observer) = &self.progress {
+            observer(ProgressUpdate {
+                phase,
+                completed,
+                total,
+                current,
+            });
+        }
     }
     pub fn check(&self) -> Result<(), Failure> {
         if self.cancelled.load(Ordering::Acquire) {

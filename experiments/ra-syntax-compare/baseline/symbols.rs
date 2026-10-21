@@ -109,6 +109,7 @@ impl Collector<'_> {
             start,
             end,
             signature,
+            attributes: Vec::new(),
             doc: prefix(&doc, 600).into(),
             id,
             bytes,

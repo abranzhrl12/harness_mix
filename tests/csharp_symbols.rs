@@ -1,7 +1,9 @@
 //! Integration tests for C# and Razor outline and read_symbol navigation.
 
 use agent_harness::adapters::{self, NativeApplication};
-use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, SymbolView, SymbolsArgs};
+use harness_domain::contracts::{
+    OutlineArgs, OutlineFilterKind, OutlineView, ReadSymbolArgs, SymbolView, SymbolsArgs,
+};
 use serde_json::Value;
 
 #[path = "support/codegraph.rs"]
@@ -53,6 +55,8 @@ fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {
             path: path.into(),
             query: query.map(Into::into),
             max_chars: Some(16000),
+            filter_kind: None,
+            view: None,
             session: None,
         })
         .into_request(),
@@ -152,6 +156,101 @@ namespace MyApp.Controllers
             .unwrap()
             .contains("var user = await _service.Find(id);")
     );
+}
+
+#[test]
+fn compact_method_outline_filters_constructors_and_reports_budget_separately() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut source = String::from(
+        r#"
+public class OrdersController
+{
+    public OrdersController() { }
+
+    [HttpPost]
+    [Route("api/orders/validate")]
+    public JsonResult Validate(string id) { var local = 1; return Json(local); }
+
+    [HttpGet] public JsonResult Validate(int id) { return Json(id); }
+
+    [Authorize(
+        Roles = "Inventory"
+    )]
+    public JsonResult Find(string id) { return Json(id); }
+
+    private void Hidden() { }
+"#,
+    );
+    for index in 0..12 {
+        source.push_str(&format!("    public void Extra{index}() {{ }}\n"));
+    }
+    source.push_str("}\n");
+    std::fs::write(temp.path().join("OrdersController.cs"), &source).unwrap();
+    let app = adapters::application(temp.path()).unwrap();
+    let result = app.execute(
+        SymbolsArgs::Outline(OutlineArgs {
+            external_scope: None,
+            path: "OrdersController.cs".into(),
+            query: None,
+            max_chars: Some(16000),
+            filter_kind: Some(OutlineFilterKind::Method),
+            view: Some(OutlineView::Compact),
+            session: None,
+        })
+        .into_request(),
+    );
+    assert_eq!(result["state"], "ok", "{result}");
+    let items = result["data"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 16, "{result}");
+    assert!(items.iter().all(|item| item["name"] != "OrdersController"));
+    assert!(items.iter().all(|item| item["name"] != "Json"));
+    assert!(items.iter().all(|item| item.get("doc").is_none()));
+    assert!(items.iter().all(|item| item.get("end").is_none()));
+    assert!(items.iter().all(|item| item.get("attributes").is_some()));
+    assert!(items.iter().all(|item| item.get("symbolId").is_some()));
+    assert!(
+        items.iter().any(|item| {
+            item["name"] == "Validate"
+                && item["attributes"]
+                    == serde_json::json!(["[HttpPost]", "[Route(\"api/orders/validate\")]"])
+        }),
+        "expected both declared attributes on Validate, got: {items:#?}"
+    );
+    assert!(items.iter().any(|item| {
+        item["name"] == "Validate" && item["attributes"] == serde_json::json!(["[HttpGet]"])
+    }));
+    assert!(items.iter().any(|item| {
+        item["name"] == "Find"
+            && item["attributes"]
+                == serde_json::json!(["[Authorize(\n        Roles = \"Inventory\"\n    )]"])
+    }));
+    assert!(
+        items
+            .iter()
+            .any(|item| item["signature"].as_str().unwrap().contains("string id"))
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item["signature"].as_str().unwrap().contains("int id"))
+    );
+    assert_eq!(result["data"]["inventory"]["filtered"], 2);
+
+    let bounded = app.execute(
+        SymbolsArgs::Outline(OutlineArgs {
+            external_scope: None,
+            path: "OrdersController.cs".into(),
+            query: None,
+            max_chars: Some(1000),
+            filter_kind: Some(OutlineFilterKind::Method),
+            view: Some(OutlineView::Compact),
+            session: None,
+        })
+        .into_request(),
+    );
+    assert_eq!(bounded["state"], "ok", "{bounded}");
+    assert!(bounded["data"]["inventory"]["omitted"].as_u64().unwrap() > 0);
+    assert_eq!(bounded["data"]["inventory"]["filtered"], 2);
 }
 
 #[test]

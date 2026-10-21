@@ -9,6 +9,10 @@ const INDEX: Failure = (
     "SYNC_INDEX",
     "CodeGraph index incompatible, busy or invalid; no raw database diagnostics returned",
 );
+const INDEX_BUSY: Failure = (
+    "SYNC_INDEX_BUSY",
+    "CodeGraph index is busy or locked; close competing index clients and retry",
+);
 const LIMIT: Failure = (
     "SYNC_LIMIT",
     "Native publication exceeded its bounded graph budget",
@@ -240,6 +244,7 @@ fn sync_workspace_with_limit(
     max_files: usize,
     rebuild: bool,
 ) -> Result<Value, Failure> {
+    let operation_started = std::time::Instant::now();
     context.check()?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
     let scope = scope::Snapshot::load(&project, context)?;
@@ -288,6 +293,8 @@ fn sync_workspace_with_limit(
         paths.insert(path.into());
     }
     let total = paths.len();
+    let started = std::time::Instant::now();
+    context.report_progress("indexing", 0, Some(total), None);
     let mut results = Vec::new();
     let mut processed = 0;
     let mut changed = 0;
@@ -297,6 +304,8 @@ fn sync_workspace_with_limit(
     #[cfg(windows)]
     let mut writer = None;
     for path in paths.iter().take(max_files) {
+        context.report_progress("indexing", processed, Some(total), Some(path));
+        let file_started = std::time::Instant::now();
         // Bound each file without extending the owner's deadline or losing cancellation.
         let file_context = context.with_execution_timeout(Some(std::time::Duration::from_secs(60)));
         let applied = scope.recheck(&project, &file_context).and_then(|()| {
@@ -310,12 +319,14 @@ fn sync_workspace_with_limit(
             }
         });
         match applied {
-            Ok(result) => {
+            Ok(mut result) => {
                 processed += 1;
                 changed += usize::from(result["changed"] == true);
                 if results.len() < 32 {
+                    result["durationMs"] = json!(file_started.elapsed().as_millis());
                     results.push(result);
                 }
+                context.report_progress("indexing", processed, Some(total), Some(path));
             }
             Err((code, message)) => {
                 let entry = json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
@@ -339,22 +350,25 @@ fn sync_workspace_with_limit(
                 if results.len() < 32 {
                     results.push(entry);
                 }
+                failed += 1;
                 if matches!(
                     code,
                     "SYNC_SCHEMA"
+                        | "SYNC_INDEX_BUSY"
                         | "SYNC_INTEGRITY"
                         | "SYNC_COMMIT_UNCERTAIN"
                         | "SYNC_LIMIT"
                         | "LIMIT"
                         | "PATH"
-                ) {
+                ) || context.check().is_err()
+                {
                     break;
                 }
-                failed += 1;
                 continue;
             }
         }
     }
+    context.report_progress("finalizing", processed, Some(total), None);
     if failure.is_none()
         && let Err((code, _)) = scope.recheck(&project, context)
     {
@@ -364,6 +378,8 @@ fn sync_workspace_with_limit(
     Ok(
         json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
+        "indexingDurationMs":started.elapsed().as_millis(),
+        "durationMs":operation_started.elapsed().as_millis(),
         "filesProcessed":processed,"fileReportsOmitted":processed.saturating_sub(results.len()),"fileReportLimit":32,
         "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
         "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,
@@ -376,8 +392,22 @@ fn sync_workspace_with_limit(
 }
 
 fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Failure> {
-    value.map_err(|_| INDEX)
+    value.map_err(|error| match error {
+        rusqlite::Error::SqliteFailure(code, _) => index_failure_for_sqlite_code(code.code),
+        _ => INDEX,
+    })
 }
+
+fn index_failure_for_sqlite_code(code: rusqlite::ErrorCode) -> Failure {
+    match code {
+        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => INDEX_BUSY,
+        _ => INDEX,
+    }
+}
+
+#[cfg(test)]
+#[path = "index_store/sql_error_mapping_tests.rs"]
+mod sql_error_mapping_tests;
 fn string(value: &Value, key: &str) -> Result<String, Failure> {
     value[key]
         .as_str()
@@ -503,7 +533,8 @@ fn sync_file_config_force(
     before_recheck: impl FnOnce(),
     force: bool,
 ) -> Result<Value, Failure> {
-    sync_file_config_reuse(
+    context.report_progress("indexing", 0, Some(1), None);
+    let result = sync_file_config_reuse(
         root,
         relative,
         requested_config,
@@ -511,7 +542,11 @@ fn sync_file_config_force(
         before_recheck,
         force,
         &mut None,
-    )
+    );
+    if result.is_ok() {
+        context.report_progress("finalizing", 1, Some(1), None);
+    }
+    result
 }
 
 #[cfg(windows)]

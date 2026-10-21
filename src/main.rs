@@ -3,6 +3,38 @@ use std::path::PathBuf;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod index_progress;
+
+fn run_index(
+    timeout_seconds: u64,
+    run: impl FnOnce(
+        &harness_domain::execution::OperationContext,
+    ) -> Result<serde_json::Value, harness_domain::Failure>,
+) -> Result<serde_json::Value, String> {
+    let reporter = index_progress::IndexProgressReporter::new();
+    let observer = reporter.clone();
+    let context = harness_domain::execution::OperationContext::with_timeout(
+        std::time::Duration::from_secs(timeout_seconds),
+    )
+    .with_progress(move |update| observer.report(update));
+    let started = std::time::Instant::now();
+    match run(&context) {
+        Ok(mut report) => {
+            report["durationMs"] = serde_json::json!(started.elapsed().as_millis());
+            reporter.finish(if report["selectedScopeApplied"] == false {
+                "partial"
+            } else {
+                "complete"
+            });
+            Ok(report)
+        }
+        Err((code, message)) => {
+            reporter.finish("failed");
+            Err(format!("{code}: {message}"))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
@@ -50,14 +82,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         && sync_flag == "--sync-file"
         && config_flag == "--tsconfig"
     {
-        let context = harness_domain::execution::OperationContext::default();
-        let result = agent_harness::adapters::index_store::sync_file_with_tsconfig(
-            &PathBuf::from(root),
-            relative.to_str().ok_or("source path must be UTF-8")?,
-            config.to_str().ok_or("config path must be UTF-8")?,
-            &context,
-        )
-        .map_err(|(code, message)| format!("{code}: {message}"))?;
+        let relative = relative.to_str().ok_or("source path must be UTF-8")?;
+        let config = config.to_str().ok_or("config path must be UTF-8")?;
+        let result = run_index(30, |context| {
+            agent_harness::adapters::index_store::sync_file_with_tsconfig(
+                &PathBuf::from(root),
+                relative,
+                config,
+                context,
+            )
+        })?;
         println!("{}", serde_json::to_string(&result)?);
         return Ok(());
     }
@@ -81,14 +115,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             // A bounded multi-file rebuild is not a single MCP request. Keep
             // cancellation/deadline checks, but allow the CLI batch five minutes.
-            let context = harness_domain::execution::OperationContext::with_timeout(
-                std::time::Duration::from_secs(300),
-            );
-            let result = agent_harness::adapters::index_store::rebuild_workspace(
-                &PathBuf::from(root),
-                &context,
-            )
-            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(300, |context| {
+                agent_harness::adapters::index_store::rebuild_workspace(
+                    &PathBuf::from(root),
+                    context,
+                )
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             if result["selectedScopeApplied"] != true {
                 return Err("Native rebuild incomplete; see JSON report".into());
@@ -101,10 +133,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     || (option == "--index"
                         && val.as_deref() == Some(std::ffi::OsStr::new("init")))) =>
         {
-            let context = harness_domain::execution::OperationContext::default();
-            let result =
-                agent_harness::adapters::index_store::initialize(&PathBuf::from(root), &context)
-                    .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(30, |context| {
+                agent_harness::adapters::index_store::initialize(&PathBuf::from(root), context)
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
@@ -115,14 +146,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         && val.as_deref() == Some(std::ffi::OsStr::new("sync")))) =>
         {
             // CLI batches need a workspace budget independent of MCP's 30s request deadline.
-            let context = harness_domain::execution::OperationContext::with_timeout(
-                std::time::Duration::from_secs(300),
-            );
-            let result = agent_harness::adapters::index_store::sync_workspace_all(
-                &PathBuf::from(root),
-                &context,
-            )
-            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(300, |context| {
+                agent_harness::adapters::index_store::sync_workspace_all(
+                    &PathBuf::from(root),
+                    context,
+                )
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             if result["selectedScopeApplied"] != true {
                 return Err("Native synchronization incomplete; see JSON report for committed files and remaining work".into());
@@ -132,28 +161,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(root), Some(option), Some(relative), None)
             if flag == "--root" && option == "--sync-file" =>
         {
-            let context = harness_domain::execution::OperationContext::default();
             let relative = relative.to_str().ok_or("source path must be UTF-8")?;
-            let result = agent_harness::adapters::index_store::sync_file(
-                &PathBuf::from(root),
-                relative,
-                &context,
-            )
-            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(30, |context| {
+                agent_harness::adapters::index_store::sync_file(
+                    &PathBuf::from(root),
+                    relative,
+                    context,
+                )
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
         (Some(flag), Some(root), Some(option), Some(relative), Some(force))
             if flag == "--root" && option == "--sync-file" && force == "--force" =>
         {
-            let context = harness_domain::execution::OperationContext::default();
             let relative = relative.to_str().ok_or("source path must be UTF-8")?;
-            let result = agent_harness::adapters::index_store::sync_file_forced(
-                &PathBuf::from(root),
-                relative,
-                &context,
-            )
-            .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(30, |context| {
+                agent_harness::adapters::index_store::sync_file_forced(
+                    &PathBuf::from(root),
+                    relative,
+                    context,
+                )
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
@@ -166,10 +195,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     || (option == "--index"
                         && val.as_deref() == Some(std::ffi::OsStr::new("plan")))) =>
         {
-            let context = harness_domain::execution::OperationContext::default();
-            let result =
-                agent_harness::adapters::index_sync::plan_workspace(&PathBuf::from(root), &context)
-                    .map_err(|(code, message)| format!("{code}: {message}"))?;
+            let result = run_index(30, |context| {
+                agent_harness::adapters::index_sync::plan_workspace(&PathBuf::from(root), context)
+            })?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }

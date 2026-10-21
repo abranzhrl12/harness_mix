@@ -28,6 +28,8 @@ fn outline(app: &NativeApplication, query: Option<&str>, max: usize) -> Value {
             path: "sample.rs".into(),
             query: query.map(Into::into),
             max_chars: Some(max),
+            filter_kind: None,
+            view: None,
             session: None,
         })
         .into_request(),
@@ -163,6 +165,8 @@ fn bounds_selectors_and_parser_work_and_rejects_other_languages() {
         path: "sample.rs".into(),
         query: None,
         max_chars: None,
+        filter_kind: None,
+        view: None,
         session: Some("missing".into()),
     }));
     assert_eq!(missing["diagnostics"][0]["code"], "SESSION");
@@ -171,6 +175,8 @@ fn bounds_selectors_and_parser_work_and_rejects_other_languages() {
         path: "sample.py".into(),
         query: None,
         max_chars: None,
+        filter_kind: None,
+        view: None,
         session: None,
     }));
     assert_eq!(unsupported["diagnostics"][0]["code"], "PARSER_UNAVAILABLE");

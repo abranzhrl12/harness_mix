@@ -64,6 +64,7 @@ pub(super) fn scan(
     context: &OperationContext,
 ) -> Result<Inventory, Failure> {
     let started = Instant::now();
+    context.report_progress("inventory", 0, None, None);
     let scope = super::index_store::scope::Snapshot::load(project, context)?;
     let mut inventory = Inventory {
         observations: BTreeMap::new(),
@@ -173,6 +174,7 @@ pub(super) fn scan(
         }
     }
     scope.recheck(project, context)?;
+    context.report_progress("inventory", inventory.observations.len(), None, None);
     Ok(inventory)
 }
 
@@ -185,6 +187,7 @@ impl Inventory {
         context: &OperationContext,
     ) -> Result<Observation, Failure> {
         context.check()?;
+        context.report_progress("inventory", self.observations.len(), None, Some(relative));
         if started.elapsed() >= Duration::from_secs(10) {
             self.discovery_complete = false;
             self.budget_exhausted = true;

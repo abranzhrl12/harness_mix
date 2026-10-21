@@ -10,6 +10,8 @@ fn outline(app: &agent_harness::adapters::NativeApplication, path: &str) -> Valu
         path: path.into(),
         query: None,
         max_chars: Some(16000),
+        filter_kind: None,
+        view: None,
         session: None,
         external_scope: None,
     }))

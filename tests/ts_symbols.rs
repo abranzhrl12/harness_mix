@@ -63,6 +63,8 @@ fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {
             path: path.into(),
             query: query.map(Into::into),
             max_chars: Some(16000),
+            filter_kind: None,
+            view: None,
             session: None,
         })
         .into_request(),

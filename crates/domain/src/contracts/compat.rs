@@ -44,9 +44,19 @@ pub(super) fn batch_job_alias_schema(schema: &mut schemars::Schema) {
 
 #[cfg(feature = "schema")]
 pub(super) fn search_alias_schema(schema: &mut schemars::Schema) {
-    add_schema_alias(schema, "scope", "path");
+    add_schema_property_alias(schema, "scope", "path");
     add_schema_alias(schema, "globs", "includes");
     add_schema_alias(schema, "contextLines", "context_lines");
+}
+
+#[cfg(feature = "schema")]
+fn add_schema_property_alias(schema: &mut schemars::Schema, canonical: &str, alias: &str) {
+    let object = schema.as_object_mut().expect("object schema");
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        if let Some(property) = properties.get(canonical).cloned() {
+            properties.insert(alias.to_string(), property);
+        }
+    }
 }
 
 #[cfg(feature = "schema")]

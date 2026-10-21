@@ -5,7 +5,7 @@ use super::{
 };
 use harness_domain::{
     Failure,
-    contracts::{OutlineArgs, ReadSymbolArgs, SymbolView},
+    contracts::{OutlineArgs, OutlineFilterKind, OutlineView, ReadSymbolArgs, SymbolView},
     execution::OperationContext,
     hash,
     navigation::anchors,
@@ -81,7 +81,15 @@ pub(super) fn outline(
         ));
     }
     let (_, digest, all, lang, structure) = snapshot(project, &args.path, context, true)?;
-    let mut ranked: Vec<_> = all.iter().enumerate().collect();
+    let eligible: Vec<_> = all
+        .iter()
+        .filter(|item| match args.filter_kind {
+            Some(OutlineFilterKind::Method) => item.kind == "method",
+            None => true,
+        })
+        .collect();
+    let filtered = all.len() - eligible.len();
+    let mut ranked: Vec<_> = eligible.iter().enumerate().collect();
     let query = args.query.as_deref().unwrap_or("").to_lowercase();
     if !query.is_empty() {
         ranked.sort_by_key(|(index, item)| {
@@ -103,15 +111,30 @@ pub(super) fn outline(
     let mut used = 0;
     for (_, item) in ranked {
         context.check()?;
-        let cost = utf16_len(
-            &serde_json::to_string(item).map_err(|_| ("INTERNAL", "Cannot serialize symbol"))?,
-        );
+        let value = match args.view {
+            Some(OutlineView::Compact) => compact_symbol(item),
+            None => {
+                serde_json::to_value(item).map_err(|_| ("INTERNAL", "Cannot serialize symbol"))?
+            }
+        };
+        let cost = utf16_len(&value.to_string());
         if used + cost <= max {
-            selected.push(item);
+            selected.push(value);
             used += cost;
         }
     }
-    let omitted = all.len() - selected.len();
+    let omitted = eligible.len() - selected.len();
+    let detail_items: Vec<_> = if omitted > 0 {
+        eligible
+            .iter()
+            .map(|item| match args.view {
+                Some(OutlineView::Compact) => compact_symbol(item),
+                None => serde_json::to_value(item).unwrap_or(Value::Null),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut by_kind = std::collections::BTreeMap::<&str, usize>::new();
     for item in &all {
         *by_kind.entry(item.kind).or_default() += 1;
@@ -135,12 +158,13 @@ pub(super) fn outline(
         }
         _ => "declarations, classes, interfaces, types, enums and members; no local block items",
     };
-    let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,
+    let returned = selected.len();
+    let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,"filtered":filtered,
         "selection":{"method":if query.is_empty() {"source-order"} else {"lexical-ranking"},"maxChars":max,"usedChars":used,"unit":"JSON UTF-16 units, not tokens"},
         "syntaxOnly":true,"language":lang,"coverage":coverage,
-        "inventory":{"total":all.len(),"returned":selected.len(),"omitted":omitted,"byKind":by_kind}});
+        "inventory":{"total":all.len(),"returned":returned,"omitted":omitted,"filtered":filtered,"byKind":by_kind}});
     if omitted > 0 {
-        result["_detail"] = json!({"path":args.path,"hash":digest,"items":all});
+        result["_detail"] = json!({"path":args.path,"hash":digest,"items":&detail_items});
     }
     if let Some(structure) = structure {
         // The full structural result is recoverable even when the inline budget is small.
@@ -149,12 +173,33 @@ pub(super) fn outline(
         } else {
             result["structure"] =
                 json!({"omitted":true,"reason":"maxChars","recoverable":"detail"});
-            result["_detail"] =
-                json!({"path":args.path,"hash":digest,"items":all,"structure":structure});
+            let structural_items: Vec<_> = if omitted > 0 {
+                detail_items
+            } else {
+                eligible
+                    .iter()
+                    .map(|item| match args.view {
+                        Some(OutlineView::Compact) => compact_symbol(item),
+                        None => serde_json::to_value(item).unwrap_or(Value::Null),
+                    })
+                    .collect()
+            };
+            result["_detail"] = json!({"path":args.path,"hash":digest,"items":structural_items,"structure":structure});
             result["_complete"] = json!(false);
         }
     }
     Ok(result)
+}
+
+fn compact_symbol(item: &Symbol) -> Value {
+    json!({
+        "name": item.name,
+        "signature": item.signature,
+        "attributes": item.attributes,
+        "container": item.container,
+        "line": item.start,
+        "symbolId": item.id,
+    })
 }
 
 pub(super) fn read_symbol(

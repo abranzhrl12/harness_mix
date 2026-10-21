@@ -251,6 +251,7 @@ fn razor_symbol(
         start: line_number(source, start),
         end: line_number(source, end.saturating_sub(1)),
         signature: source[start..header_end].trim().to_string(),
+        attributes: Vec::new(),
         doc: String::new(),
         id: prefix(
             &hash(format!("{digest}:{tag}:{name}:{start}").as_bytes()),

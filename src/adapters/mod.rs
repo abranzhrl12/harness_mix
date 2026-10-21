@@ -91,6 +91,8 @@ use project::Project;
 use serde_json::{Value, json};
 use std::path::Path;
 
+pub(super) const INDEX_BUSY_TIMEOUT_MS: u64 = 5_000;
+
 pub struct NativeWorkspace {
     external_scopes: std::sync::Mutex<external_scopes::Registry>,
     log_store: Option<Result<disk_logs::DiskLogs, Failure>>,

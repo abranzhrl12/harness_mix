@@ -32,6 +32,7 @@ fn plan_workspace_inner(
     use rusqlite::{OpenFlags, limits::Limit};
     use std::time::Duration;
     context.check()?;
+    context.report_progress("planning", 0, None, None);
     let project = super::project::Project::new(root)
         .map_err(|_| ("PATH", "Workspace is not an accessible directory"))?;
     let index_error = (
@@ -59,7 +60,7 @@ fn plan_workspace_inner(
             | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
     .map_err(|_| index_error)?;
-    db.busy_timeout(Duration::from_millis(100))
+    db.busy_timeout(Duration::from_millis(super::INDEX_BUSY_TIMEOUT_MS))
         .map_err(|_| index_error)?;
     db.set_limit(Limit::SQLITE_LIMIT_LENGTH, 131072)
         .map_err(|_| index_error)?;
@@ -86,6 +87,7 @@ fn plan_workspace_inner(
         // for the final plan. No absent discovery entries imply deletion.
         let tracked = plan(&db, &BTreeMap::new(), false, context)?.unchecked;
         let inventory = super::index_inventory::scan(&project, &tracked, context)?;
+        context.report_progress("planning", 0, None, None);
         let mut result = plan(&db, &inventory.observations, false, context)?;
         // Explicit config exclusions are deliberate removals from the graph,
         // unlike missing entries in an incomplete filesystem discovery.

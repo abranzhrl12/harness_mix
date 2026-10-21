@@ -162,6 +162,7 @@ fn scan(
                                 start: source[..from].bytes().filter(|b| *b == b'\n').count() + 1,
                                 end: source[..to].bytes().filter(|b| *b == b'\n').count() + 1,
                                 signature: format!("{selector} {{ … }}"),
+                                attributes: Vec::new(),
                                 doc: String::new(),
                                 id: hash(format!("{digest}:{from}:{to}:css").as_bytes())[..24]
                                     .into(),

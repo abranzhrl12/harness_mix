@@ -11,7 +11,24 @@ pub struct OutlineArgs {
     pub query: Option<String>,
     #[serde(rename = "maxChars")]
     pub max_chars: Option<usize>,
+    #[serde(rename = "filterKind")]
+    pub filter_kind: Option<OutlineFilterKind>,
+    pub view: Option<OutlineView>,
     pub session: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum OutlineFilterKind {
+    Method,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum OutlineView {
+    Compact,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

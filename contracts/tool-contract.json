@@ -368,7 +368,8 @@
         "harness_git",
         "harness_sql",
         "harness_xlsx",
-        "harness_svg"
+        "harness_svg",
+        "harness_explore"
       ],
       "exploreQuery": "exact-symbol",
       "searchSyntax": "rust-declaration-selector",

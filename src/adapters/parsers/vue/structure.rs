@@ -140,6 +140,7 @@ fn symbol(
         start: line(source, range.start),
         end: line(source, range.end.saturating_sub(1)),
         signature: prefix(&signature, 400).to_owned(),
+        attributes: Vec::new(),
         doc: String::new(),
         id,
         bytes: range,

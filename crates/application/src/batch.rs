@@ -20,14 +20,51 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         if !(2..=4).contains(&max_concurrent) {
             return Err(("ARGUMENT", "maxConcurrent must be between 2 and 4"));
         }
-        // Decode all children before any execution. Runtime path/bounds checks still apply per child.
-        let jobs = args
-            .jobs
-            .into_iter()
-            .map(|job| job.into_request(args.session.as_deref()))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Decode every child before execution so callers see all input errors at once.
+        let mut jobs = Vec::with_capacity(args.jobs.len());
+        let mut validation_errors = Vec::new();
+        for (index, job) in args.jobs.into_iter().enumerate() {
+            let tool = job.tool.name();
+            match job.into_request_detailed(args.session.as_deref()) {
+                Ok(request) if request.is_mutating() => {
+                    let field = (tool == "harness_explore").then_some("syncIndex");
+                    let reason = "batch child must be read-only";
+                    validation_errors.push(json!({
+                        "code": "ARGUMENT",
+                        "index": index,
+                        "tool": tool,
+                        "field": field,
+                        "reason": reason,
+                        "message": format!("Batch child {index} ({tool}) must be read-only"),
+                    }));
+                }
+                Ok(request) => jobs.push((index, tool, request)),
+                Err(error) => {
+                    let message = format!(
+                        "Batch child {index} ({tool}) has invalid arguments: {}",
+                        error.reason
+                    );
+                    validation_errors.push(json!({
+                        "code": "ARGUMENT",
+                        "index": index,
+                        "tool": tool,
+                        "field": error.field,
+                        "reason": error.reason,
+                        "message": message,
+                    }));
+                }
+            }
+        }
+        if !validation_errors.is_empty() {
+            return Ok(json!({
+                "ok": false,
+                "atomic": false,
+                "results": [],
+                "diagnostics": validation_errors,
+            }));
+        }
         let mut results = Vec::new();
-        let mut jobs = jobs.into_iter().enumerate();
+        let mut jobs = jobs.into_iter();
         loop {
             let pair: Vec<_> = jobs.by_ref().take(max_concurrent).collect();
             if pair.is_empty() {
@@ -36,8 +73,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             std::thread::scope(|scope| {
                 let workers: Vec<_> = pair
                     .into_iter()
-                    .map(|(index, request)| {
-                        let name = request.name();
+                    .map(|(index, tool, request)| {
+                        let name = tool;
                         let (request_id, handle) = match self.prepare(request, context.clone()) {
                             Err(output) => (None, Err(output)),
                             Ok(operation) => {

@@ -60,10 +60,30 @@ pub(super) fn syntax_allowing_unvalidated(
     }
 }
 
+fn syntax_error_position(path: &str, source: &str, message: &str) -> String {
+    if matches!(
+        extension(path).as_str(),
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts"
+    ) && let Some((line, column)) =
+        super::parsers::ecmascript::syntax::first_error_location(path, source)
+    {
+        return format!("{message} (line {line}, column {column})");
+    }
+    message.to_owned()
+}
+
 /// Read-only MATCH diagnostic: locate where oldText stops matching the current file.
 fn match_failure(path: &str, bytes: &[u8], args: &ReplaceArgs, message: &str) -> Value {
-    json!({"ok":false,"path":path,"changed":false,
+    json!({"ok":false,"path":path,"changed":false,"currentHash":hash(bytes),
         "diagnostics":[{"code":"MATCH","message":message,"hint":editing::match_hint(bytes,args)}]})
+}
+
+/// A stale hash is reported with the hash of the exact bytes inspected above.
+/// Publication still performs its own concurrency check after candidate preparation.
+fn hash_failure(path: &str, bytes: &[u8], args: &ReplaceArgs, message: &str) -> Value {
+    json!({"ok":false,"path":path,"changed":false,"currentHash":hash(bytes),
+        "diagnostics":[{"code":"STALE","message":message,
+            "hint":editing::match_hint(bytes,args)}]})
 }
 
 pub(super) fn replace(
@@ -80,10 +100,25 @@ pub(super) fn replace(
         Err(("MATCH", message)) => {
             return Ok(match_failure(&args.path, &bytes, args, message));
         }
+        Err(("STALE", message)) => {
+            return Ok(hash_failure(&args.path, &bytes, args, message));
+        }
         Err(failure) => return Err(failure),
     };
-    let syntax =
-        syntax_allowing_unvalidated(&args.path, &updated, args.allow_unvalidated_text, context)?;
+    let syntax = match syntax_allowing_unvalidated(
+        &args.path,
+        &updated,
+        args.allow_unvalidated_text,
+        context,
+    ) {
+        Ok(syntax) => syntax,
+        Err(("SYNTAX_ERROR", message)) => {
+            let message = syntax_error_position(&args.path, &updated, message);
+            return Ok(json!({"ok":false,"path":args.path,"changed":false,
+                "diagnostics":[{"code":"SYNTAX_ERROR","message":message}]}));
+        }
+        Err(failure) => return Err(failure),
+    };
     context.check()?;
     // Always recheck the source we actually prepared, including hashless requests.
     let mut bound = args.clone();
@@ -133,6 +168,9 @@ pub(super) fn preview(
         Err(("MATCH", message)) => {
             return Ok(match_failure(&args.path, &bytes, args, message));
         }
+        Err(("STALE", message)) => {
+            return Ok(hash_failure(&args.path, &bytes, args, message));
+        }
         Err(failure) => return Err(failure),
     };
     let original = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "File must be UTF-8"))?;
@@ -144,6 +182,11 @@ pub(super) fn preview(
     ) {
         Ok(value) => value,
         Err((code, message)) => {
+            let message = if code == "SYNTAX_ERROR" {
+                syntax_error_position(&args.path, &updated, message)
+            } else {
+                message.to_owned()
+            };
             json!({"status":"error","code":code,"message":message,"validation":"syntax_only"})
         }
     };

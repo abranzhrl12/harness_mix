@@ -251,6 +251,7 @@ pub(in crate::adapters) fn collect_symbols(
                 start: line(source, range.start),
                 end: line(source, range.end.saturating_sub(1)),
                 signature: prefix(&source[range.clone()], 400).to_owned(),
+                attributes: Vec::new(),
                 doc: String::new(),
                 id,
                 bytes: range,

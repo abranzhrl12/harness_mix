@@ -9,7 +9,7 @@ pub struct ReplaceArgs {
     pub path: String,
     /// Override UTF-8 BOM. Omitted preserves an existing BOM and enables it for Razor on Windows.
     pub bom: Option<bool>,
-    /// Current source SHA-256; baseHash is accepted as an alias. Supply only one.
+    /// Current source SHA-256, including matches[].hash from harness_search; baseHash is accepted as an alias. Supply only one.
     /// Optional on the wire; an omitted hash is bound to the source read during this edit.
     pub hash: String,
     /// Optional 1-based start line for oldText; disambiguates repeated text. Not valid with chunks.
@@ -171,6 +171,7 @@ impl Serialize for ReplaceArgs {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", schemars(transform = replace_chunk_alias_schema))]
 pub struct ReplaceChunk {
+    /// Exact source to replace; matches[].context.text from harness_search can be reused when it contains sufficient, untruncated context.
     #[serde(rename = "oldText", alias = "old_text")]
     pub old_text: String,
     #[serde(rename = "newText", alias = "new_text")]
@@ -185,12 +186,13 @@ struct ReplaceInput {
     #[serde(alias = "target_path")]
     path: String,
     bom: Option<bool>,
-    /// Current source SHA-256. baseHash is an accepted alias; supply only one name.
+    /// Optional full-file SHA-256; reuse matches[].hash from harness_search. baseHash is an accepted alias; supply only one name. Omission binds the edit to its internal source read; a supplied hash detects concurrent changes.
     #[serde(default, alias = "baseHash")]
     hash: String,
     /// Optional 1-based start line for oldText. Omit hash to bind to the internally read source.
     line: Option<usize>,
     chunks: Option<Vec<ReplaceChunk>>,
+    /// Exact source to replace; reuse matches[].context.text from harness_search when the context is sufficient and untruncated. Preserve its original line endings; do not use line-numbered display text.
     #[serde(rename = "oldText")]
     old_text: Option<String>,
     #[serde(rename = "newText")]

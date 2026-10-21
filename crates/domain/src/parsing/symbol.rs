@@ -9,6 +9,8 @@ pub struct Symbol {
     pub start: usize,
     pub end: usize,
     pub signature: String,
+    #[serde(skip)]
+    pub attributes: Vec<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub doc: String,
     #[serde(rename = "symbolId")]

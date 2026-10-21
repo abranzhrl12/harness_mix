@@ -49,6 +49,8 @@ pub(super) enum TokenKind {
     CloseParen,
     Semicolon,
     Colon,
+    OpenBracket,
+    CloseBracket,
     DocComment(String),
 }
 
@@ -251,6 +253,24 @@ pub(super) fn tokenize(source: &str, context: &OperationContext) -> Result<Vec<T
             b':' => {
                 tokens.push(Token {
                     kind: TokenKind::Colon,
+                    start: i,
+                    end: i + 1,
+                });
+                i += 1;
+                continue;
+            }
+            b'[' => {
+                tokens.push(Token {
+                    kind: TokenKind::OpenBracket,
+                    start: i,
+                    end: i + 1,
+                });
+                i += 1;
+                continue;
+            }
+            b']' => {
+                tokens.push(Token {
+                    kind: TokenKind::CloseBracket,
                     start: i,
                     end: i + 1,
                 });

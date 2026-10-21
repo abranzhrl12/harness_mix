@@ -179,6 +179,7 @@ fn walk(
             end: source[..bytes.end].bytes().filter(|b| *b == b'\n').count()
                 + usize::from(!source[..bytes.end].ends_with('\n')),
             signature,
+            attributes: Vec::new(),
             doc: prefix(&docs.join("\n"), 600).to_owned(),
             id: hash(format!("{digest}:{from}:{to}").as_bytes())[..24].to_owned(),
             bytes,

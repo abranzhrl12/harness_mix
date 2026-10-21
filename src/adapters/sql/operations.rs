@@ -377,7 +377,7 @@ pub(super) fn describe(
         ));
     }
 
-    if args.name.trim().is_empty() || args.name.len() > 256 {
+    if args.name.trim().is_empty() || args.name.len() > 2048 {
         return Err(("ARGUMENT", "Indicar nombre del objeto SQL"));
     }
 
@@ -403,6 +403,10 @@ pub(super) fn describe(
             "SQL Server relation describe supports columns only",
         ));
     }
+    let parsed_name = match parse_sql_object_name(&args.name) {
+        Ok(parsed) => parsed,
+        Err(message) => return Ok(operation_failed(("SQL_OBJECT_NAME_INVALID", message))),
+    };
     let name_str = args.name.clone();
     let project_clone = project.clone();
     let config_clone = config.clone();
@@ -411,35 +415,167 @@ pub(super) fn describe(
     let result_data = match block_on_safe(checked(
         async {
             let mut client = connect(&project_clone, &config_clone).await?;
+            let type_filter = match kind {
+                SqlDescribeKind::Routine => "'P','PC','FN','IF','TF','FS','FT'",
+                SqlDescribeKind::Relation => "'U','V'",
+            };
+            let (requested_schema_param, requested_name_param) =
+                object_lookup_parameters(&parsed_name);
+            let resolver_sql = format!(
+                r#"SELECT TOP (6) s.name AS [schema], o.name, o.object_id, o.type_desc
+                   FROM sys.objects AS o
+                   JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+                   WHERE o.is_ms_shipped = 0 AND o.name = @P1
+                     AND o.type IN ({type_filter})
+                     AND (@P2 = '' OR s.name = @P2)
+                   ORDER BY s.name, o.name"#
+            );
+            let matches = client
+                .query(
+                    resolver_sql.as_str(),
+                    &[&requested_name_param, &requested_schema_param],
+                )
+                .await
+                .map_err(sql_error)?
+                .into_first_result()
+                .await
+                .map_err(sql_error)?;
+            let mut candidates = Vec::new();
+            for row in matches {
+                let schema: Option<&str> = row.get(0);
+                let object_name: Option<&str> = row.get(1);
+                let object_id: Option<i32> = row.get(2);
+                let object_kind: Option<&str> = row.get(3);
+                if let (Some(schema), Some(object_name), Some(object_id)) =
+                    (schema, object_name, object_id)
+                {
+                    candidates.push(ResolvedSqlObject {
+                        schema: schema.to_owned(),
+                        name: object_name.to_owned(),
+                        object_id,
+                        kind: object_kind.unwrap_or_default().to_owned(),
+                    });
+                }
+            }
+            let resolved = match classify_object_candidates(candidates) {
+                ObjectResolution::NotFound => {
+                    return Ok::<Value, Failure>(object_resolution_failure(
+                        "SQL_OBJECT_NOT_FOUND",
+                        "Object not found or not visible with the current SQL login permissions",
+                        &[],
+                        false,
+                    ));
+                }
+                ObjectResolution::Ambiguous {
+                    candidates,
+                    truncated,
+                } => {
+                    return Ok::<Value, Failure>(object_resolution_failure(
+                        "SQL_OBJECT_AMBIGUOUS",
+                        "Object name matches multiple visible schemas; specify the schema",
+                        &candidates,
+                        truncated,
+                    ));
+                }
+                ObjectResolution::Unique(resolved) => resolved,
+            };
+            let resolved_name = format!(
+                "{}.{}",
+                quote_sql_identifier(&resolved.schema),
+                quote_sql_identifier(&resolved.name)
+            );
             match kind {
                 SqlDescribeKind::Routine => {
-                    let sql = "SELECT OBJECT_DEFINITION(OBJECT_ID(@P1)) AS def";
-                    let stream = client.query(sql, &[&name_str]).await.map_err(sql_error)?;
+                    let stream = client
+                        .query(ROUTINE_DEFINITION_SQL, &[&resolved.object_id])
+                        .await
+                        .map_err(sql_error)?;
                     let row = stream.into_row().await.map_err(sql_error)?;
-                    let def: Option<&str> = row.as_ref().and_then(|r| r.try_get(0).ok().flatten());
+                    let def: Option<String> = match row.as_ref() {
+                        Some(row) => row
+                            .try_get::<&str, _>(0)
+                            .map_err(sql_error)?
+                            .map(str::to_owned),
+                        None => None,
+                    };
                     let mut bounded = Rows::new(1, config.max_chars);
-                    bounded.push(
-                        json!({"definition":def.unwrap_or("No definition available")}),
-                        &timed,
-                    )?;
-                    Ok::<Value, Failure>(json!({
+                    bounded.push(json!({"definition":def}), &timed)?;
+                    let definition_bytes = serde_json::to_vec(&bounded.values)
+                        .map(|serialized| serialized.len())
+                        .unwrap_or(0);
+                    let parameter_budget = config
+                        .max_chars
+                        .saturating_sub(definition_bytes)
+                        .saturating_sub(2);
+                    let mut parameters = Rows::new(config.max_rows, parameter_budget);
+                    {
+                        let parameter_limit = routine_parameter_limit(config.max_rows);
+                        let parameter_stream = client
+                            .query(
+                                ROUTINE_PARAMETERS_SQL,
+                                &[&resolved.object_id, &parameter_limit],
+                            )
+                            .await
+                            .map_err(sql_error)?;
+                        let mut parameter_rows = parameter_stream.into_row_stream();
+                        while let Some(row) = parameter_rows.try_next().await.map_err(sql_error)? {
+                            let parameter_id: Option<i32> = row.try_get(0).map_err(sql_error)?;
+                            let parameter_name: Option<&str> = row.try_get(1).map_err(sql_error)?;
+                            let type_schema: Option<&str> = row.try_get(2).map_err(sql_error)?;
+                            let type_name: Option<&str> = row.try_get(3).map_err(sql_error)?;
+                            let system_type: Option<&str> = row.try_get(4).map_err(sql_error)?;
+                            let max_length: Option<i16> = row.try_get(5).map_err(sql_error)?;
+                            let precision: Option<u8> = row.try_get(6).map_err(sql_error)?;
+                            let scale: Option<u8> = row.try_get(7).map_err(sql_error)?;
+                            let is_output: Option<bool> = row.try_get(8).map_err(sql_error)?;
+                            let has_default_value: Option<bool> =
+                                row.try_get(9).map_err(sql_error)?;
+                            if !parameters.push(
+                                json!({
+                                    "parameterId": parameter_id,
+                                    "name": parameter_name,
+                                    "typeSchema": type_schema,
+                                    "typeName": type_name,
+                                    "systemType": system_type,
+                                    "maxLength": max_length,
+                                    "precision": precision,
+                                    "scale": scale,
+                                    "isOutput": is_output,
+                                    "hasDefaultValue": has_default_value
+                                }),
+                                &timed,
+                            )? {
+                                break;
+                            }
+                        }
+                    }
+                    let diagnostics = routine_definition_diagnostic(def.as_deref());
+                    let mut response = json!({
                         "engine": "sqlserver",
                         "name": name_str,
+                        "resolvedName": resolved_name,
+                        "schema": resolved.schema,
+                        "objectId": resolved.object_id,
+                        "objectType": resolved.kind,
                         "kind": "routine",
                         "definition": bounded.values.first().map(|v| v["definition"].clone()).unwrap_or(Value::Null),
-                        "truncated": bounded.truncated
-                    }))
+                        "parameters": parameters.values,
+                        "parameterMetadataSource": "sys.parameters",
+                        "parametersComplete": !parameters.truncated,
+                        "truncated": bounded.truncated || parameters.truncated
+                    });
+                    if !diagnostics.is_empty() {
+                        response["diagnostics"] = json!(diagnostics);
+                    }
+                    Ok::<Value, Failure>(response)
                 }
                 SqlDescribeKind::Relation => {
-                    let (schema_name, relation_name) = name_str
-                        .split_once('.')
-                        .unwrap_or((&config.default_schema, &name_str));
                     let sql = "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE \
                                FROM INFORMATION_SCHEMA.COLUMNS \
                                WHERE TABLE_NAME = @P1 AND TABLE_SCHEMA = @P2 \
                                ORDER BY ORDINAL_POSITION";
                     let stream = client
-                        .query(sql, &[&relation_name, &schema_name])
+                        .query(sql, &[&resolved.name, &resolved.schema])
                         .await
                         .map_err(sql_error)?;
                     let mut rows = stream.into_row_stream();
@@ -464,6 +600,10 @@ pub(super) fn describe(
                     Ok::<Value, Failure>(json!({
                         "engine": "sqlserver",
                         "name": name_str,
+                        "resolvedName": resolved_name,
+                        "schema": resolved.schema,
+                        "objectId": resolved.object_id,
+                        "objectType": resolved.kind,
                         "kind": "relation",
                         "columns": cols.values,
                         "truncated": cols.truncated
@@ -478,6 +618,197 @@ pub(super) fn describe(
     };
 
     Ok(result_data)
+}
+
+const ROUTINE_DEFINITION_SQL: &str = "SELECT OBJECT_DEFINITION(@P1) AS def";
+pub(super) const ROUTINE_PARAMETERS_SQL: &str = r#"
+    SELECT TOP (@P2)
+        p.parameter_id,
+        p.name,
+        declared_schema.name AS type_schema,
+        declared_type.name AS type_name,
+        base_type.name AS system_type,
+        p.max_length,
+        p.precision,
+        p.scale,
+        p.is_output,
+        p.has_default_value
+    FROM sys.parameters AS p
+    JOIN sys.types AS declared_type
+        ON declared_type.user_type_id = p.user_type_id
+    JOIN sys.schemas AS declared_schema
+        ON declared_schema.schema_id = declared_type.schema_id
+    LEFT JOIN sys.types AS base_type
+        ON base_type.user_type_id = p.system_type_id
+       AND base_type.system_type_id = base_type.user_type_id
+    WHERE p.object_id = @P1
+    ORDER BY p.parameter_id
+"#;
+
+pub(super) fn routine_parameter_limit(max_rows: usize) -> i32 {
+    max_rows.saturating_add(1).min(2101) as i32
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ResolvedSqlObject {
+    pub(super) schema: String,
+    pub(super) name: String,
+    pub(super) object_id: i32,
+    pub(super) kind: String,
+}
+
+pub(super) enum ParsedSqlObjectName {
+    Unqualified(String),
+    Qualified(String, String),
+}
+
+pub(super) fn object_lookup_parameters(name: &ParsedSqlObjectName) -> (String, String) {
+    match name {
+        ParsedSqlObjectName::Unqualified(name) => (String::new(), name.clone()),
+        ParsedSqlObjectName::Qualified(schema, name) => (schema.clone(), name.clone()),
+    }
+}
+
+pub(super) fn parse_sql_object_name(input: &str) -> Result<ParsedSqlObjectName, &'static str> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut parts = Vec::new();
+    let mut i = 0;
+    loop {
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i == chars.len() {
+            return Err("Object name contains an empty identifier");
+        }
+        let part = if chars[i] == '[' {
+            i += 1;
+            let mut part = String::new();
+            let mut closed = false;
+            while i < chars.len() {
+                if chars[i] == ']' {
+                    if i + 1 < chars.len() && chars[i + 1] == ']' {
+                        part.push(']');
+                        i += 2;
+                    } else {
+                        i += 1;
+                        closed = true;
+                        break;
+                    }
+                } else {
+                    part.push(chars[i]);
+                    i += 1;
+                }
+            }
+            if !closed {
+                return Err("Object name has an unterminated bracketed identifier");
+            }
+            part
+        } else {
+            let start = i;
+            while i < chars.len() && chars[i] != '.' {
+                if matches!(chars[i], '[' | ']' | '\'' | '"') {
+                    return Err("Object name has an unsupported identifier delimiter");
+                }
+                i += 1;
+            }
+            let part = chars[start..i].iter().collect::<String>().trim().to_owned();
+            if part.chars().any(char::is_whitespace) {
+                return Err("Unquoted SQL identifiers cannot contain whitespace");
+            }
+            part
+        };
+        if part.is_empty() {
+            return Err("Object name contains an empty identifier");
+        }
+        if part.encode_utf16().count() > 128 || part.chars().any(char::is_control) {
+            return Err(
+                "SQL identifier components must be at most 128 UTF-16 units and contain no control characters",
+            );
+        }
+        parts.push(part);
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i == chars.len() {
+            break;
+        }
+        if chars[i] != '.' {
+            return Err("Object name has trailing characters after an identifier");
+        }
+        i += 1;
+        if parts.len() >= 2 {
+            return Err("Only one- or two-part SQL object names are supported");
+        }
+    }
+    match parts.as_slice() {
+        [name] => Ok(ParsedSqlObjectName::Unqualified(name.clone())),
+        [schema, name] => Ok(ParsedSqlObjectName::Qualified(schema.clone(), name.clone())),
+        _ => Err("Only one- or two-part SQL object names are supported"),
+    }
+}
+
+pub(super) fn quote_sql_identifier(identifier: &str) -> String {
+    format!("[{}]", identifier.replace(']', "]]"))
+}
+
+pub(super) enum ObjectResolution {
+    NotFound,
+    Unique(ResolvedSqlObject),
+    Ambiguous {
+        candidates: Vec<String>,
+        truncated: bool,
+    },
+}
+
+pub(super) fn classify_object_candidates(candidates: Vec<ResolvedSqlObject>) -> ObjectResolution {
+    match candidates.len() {
+        0 => ObjectResolution::NotFound,
+        1 => match candidates.into_iter().next() {
+            Some(candidate) => ObjectResolution::Unique(candidate),
+            None => ObjectResolution::NotFound,
+        },
+        _ => {
+            let truncated = candidates.len() > 5;
+            let names = candidates
+                .iter()
+                .take(5)
+                .map(|candidate| {
+                    format!(
+                        "{}.{}",
+                        quote_sql_identifier(&candidate.schema),
+                        quote_sql_identifier(&candidate.name)
+                    )
+                })
+                .collect();
+            ObjectResolution::Ambiguous {
+                candidates: names,
+                truncated,
+            }
+        }
+    }
+}
+
+pub(super) fn object_resolution_failure(
+    code: &'static str,
+    message: &'static str,
+    candidates: &[String],
+    candidates_truncated: bool,
+) -> Value {
+    let mut response = operation_failed((code, message));
+    response["diagnostics"][0]["candidates"] = json!(candidates);
+    response["diagnostics"][0]["candidatesTruncated"] = json!(candidates_truncated);
+    response
+}
+
+pub(super) fn routine_definition_diagnostic(definition: Option<&str>) -> Vec<Value> {
+    if definition.is_some() {
+        return Vec::new();
+    }
+
+    vec![json!({
+        "code": "SQL_DEFINITION_UNAVAILABLE",
+        "message": "The routine is visible in the catalog, but its definition is unavailable. VIEW DEFINITION permission may be missing, the module may be encrypted, or SQL Server may have another metadata visibility restriction; this result does not identify the cause."
+    })]
 }
 
 /// Injects `TOP (limit)` into a top-level SELECT without one, so large tables
@@ -657,10 +988,16 @@ pub(super) fn query(
         Ok(value) => value,
         Err(error) => {
             let diagnostic = server_error.lock().ok();
-            return Ok(operation_failed_with_server_diagnostic(
-                error,
-                diagnostic.as_deref().and_then(Option::as_ref),
-            ));
+            let server_diagnostic = diagnostic.as_deref().and_then(Option::as_ref);
+            let mut output = operation_failed_with_server_diagnostic(error, server_diagnostic);
+            if output["diagnostics"][0]["code"] == "SQL_INVALID_OBJECT"
+                && server_diagnostic.is_some_and(|value| value["number"] == 208)
+            {
+                output["diagnostics"][0]["suggestion"] = json!(
+                    "Use harness_sql describe to resolve the visible schema, then qualify the FROM/JOIN object as [schema].[object]"
+                );
+            }
+            return Ok(output);
         }
     };
 

@@ -57,6 +57,35 @@ mod tests {
         assert!(!root.path().join(".codegraph/codegraph.db-wal").exists());
         assert!(!root.path().join(".codegraph/codegraph.db-shm").exists());
     }
+
+    #[test]
+    fn writer_waits_for_a_contending_sqlite_writer_to_release_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let context = OperationContext::default();
+        super::super::initialize(root.path(), &context).unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let writer = Writer::open(&project, &context).unwrap();
+        let blocker = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            blocker.execute_batch("ROLLBACK;").unwrap();
+        });
+
+        let started = std::time::Instant::now();
+        writer
+            .db
+            .execute(
+                "INSERT INTO project_metadata(key,value,updated_at) VALUES('busy-test','ok',0)",
+                [],
+            )
+            .unwrap();
+        let waited = started.elapsed();
+        release.join().unwrap();
+
+        assert!(waited >= Duration::from_millis(200), "waited {waited:?}");
+    }
 }
 
 impl Writer {
@@ -133,7 +162,7 @@ impl Writer {
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         ))?;
-        sql(db.busy_timeout(Duration::from_millis(100)))?;
+        sql(db.busy_timeout(Duration::from_millis(super::super::INDEX_BUSY_TIMEOUT_MS)))?;
         let journal: String = sql(db.query_row("PRAGMA journal_mode", [], |r| r.get(0)))?;
         if journal != "wal" {
             return Err((

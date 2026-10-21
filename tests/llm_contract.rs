@@ -298,4 +298,10 @@ fn llm_bootstrap_reports_actual_registry_and_sql_batch_support() {
             .unwrap()
             .contains(&json!("harness_sql"))
     );
+    assert!(
+        result["data"]["toolContract"]["features"]["batchTools"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("harness_explore"))
+    );
 }

@@ -47,6 +47,18 @@ agent-harness --reindex
 
 Después usa `agent-harness --sync` para actualizarlo. También puedes añadir `--root <proyecto>` antes de la opción. Estos comandos escriben en `.codegraph/`; `--init-index` exige que esa carpeta no exista. No hace falta un índice para leer archivos o buscar texto.
 
+Los comandos de índice muestran progreso en `stderr`: fase, archivo actual,
+archivos confirmados/total y porcentaje cuando el total ya se conoce, tiempo
+transcurrido y ETA aproximada de la fase tras suficientes muestras. En una
+terminal aparece una barra; al redirigir la salida se emiten líneas limitadas
+a una por segundo (además de cambios de fase). Durante el descubrimiento aún
+no se conoce el total y no se inventa un porcentaje. El JSON final sigue en
+`stdout`, incluye `durationMs` y conserva el estado parcial y los archivos
+pendientes. La sincronización añade `indexingDurationMs` y tiempos `durationMs`
+en los informes de archivos confirmados (máximo 32 informes). Estos contadores
+describen el alcance nativo seleccionado; no certifican cobertura global.
+El servidor MCP no emite esta barra ni notificaciones de progreso.
+
 ## Crear, editar y verificar
 
 `harness_write` crea un archivo con `path` y `content`, sin sobrescribir destinos.
@@ -70,9 +82,34 @@ La misma respuesta incluye hash, postcheck y resumen; no ejecuta compilaciones.
 En fallos posteriores a crear carpetas, informa cuáles quedaron sin borrarlas a ciegas.
 `harness_bootstrap` con `compact=true` reduce el catálogo inicial sin ocultar reglas
 del proyecto ni avisos de seguridad; el catálogo completo queda recuperable en detalle.
+`harness_bootstrap` no usa `action`; para consultar el entorno utiliza
+`harness_doctor` con `action="env"`. Los campos desconocidos siguen rechazándose
+para no ocultar errores tipográficos.
+
+En `harness_search`, omitir `kind` selecciona búsqueda de texto; `query` sigue
+siendo necesaria. `scope` y `path` pueden coexistir si identifican el mismo scope;
+si difieren se rechazan. `globs` también filtra archivos en búsquedas de texto,
+sin ampliar permisos ni desactivar las exclusiones de seguridad.
+`harness_batch` valida los hijos antes de iniciarlos y, ante argumentos inválidos,
+devuelve diagnósticos por hijo con índice, herramienta y campo. No inicia trabajos
+válidos parcialmente ni convierte un fallo de validación en éxito.
+
 `harness_replace` acepta un `hash` SHA-256 opcional: sin él exige coincidencias
 únicas de `oldText` y comprueba cambios concurrentes antes de publicar.
-Ambas herramientas admiten `bom: true` para UTF-8 con BOM y `bom: false`
+`preview=true` prepara y valida el candidato y devuelve un diff sin publicarlo.
+Los errores `STALE` y `MATCH` incluyen `currentHash` de los bytes inspeccionados
+y sugerencias acotadas con contexto y líneas; `truncated` indica límites del
+diagnóstico. El hash no reserva el archivo: revisa el contexto antes de reintentar.
+Estas sugerencias no aplican cambios ni amplían las reglas de coincidencia existentes.
+
+`harness_symbols` con `action="outline"` admite `filterKind="method"` y
+`view="compact"`, juntos o por separado. La vista compacta devuelve nombre,
+firma, atributos declarados, contenedor, línea e `symbolId`, sin cuerpos ni docs.
+Los atributos se extraen de C#; no se calculan rutas MVC efectivas. El filtro se
+aplica antes del presupuesto: `filtered` cuenta exclusiones y `omitted` cuenta
+elementos elegibles que no caben y se pueden recuperar en detalle.
+
+`harness_write` y `harness_replace` admiten `bom: true` para UTF-8 con BOM y `bom: false`
 para omitirlo. Por defecto conservan el BOM existente y los `.cshtml` en Windows
 se guardan con BOM. Los hashes y las comprobaciones posteriores incluyen sus bytes.
 La navegación local de Razor reconoce `@model`, `@section` y `@helper`.
@@ -98,6 +135,21 @@ subconjunto y sus límites están en [razor-legacy-mvc.md](docs/razor-legacy-mvc
 Las consultas SQL Server incluyen el número del error y, para errores habituales
 de columna, tabla o procedimiento, un mensaje con el identificador sanitizado.
 Los mensajes arbitrarios del motor, datos de conversión y credenciales no se exponen.
+En SQL Server, `describe` resuelve nombres sin esquema entre objetos visibles del
+tipo solicitado. Una coincidencia devuelve `resolvedName` delimitado, `schema`
+e `objectId`; varias devuelven `SQL_OBJECT_AMBIGUOUS` con hasta cinco candidatos.
+Un nombre con esquema nunca busca alternativas fuera de ese esquema. Admite
+identificadores entre corchetes y escapes `]]`, pero no nombres de tres o cuatro
+partes. Sin coincidencias informa objeto no encontrado o no visible, sin adivinar
+permisos. Las consultas con error 208 reciben una sugerencia de calificar el nombre;
+no se reescribe ni reintenta el SQL automáticamente.
+Para rutinas, `describe` obtiene `definition` mediante el `objectId` resuelto y
+expone parámetros visibles de `sys.parameters`, incluidos parámetros de salida
+y el retorno cuando existe una fila con `parameterId=0`. `parametersComplete`
+indica si el listado quedó acotado. Una definición nula no demuestra por sí sola
+falta de permisos; se informa la limitación sin ejecutar la rutina ni ampliar
+`VIEW DEFINITION`. Los metadatos no sustituyen el análisis de valores por defecto
+de procedimientos T-SQL ni garantizan un contrato de resultados.
 
 Para Rust, `harness_verify` con `{"language":"rust","package":"domain"}`
 ejecuta `cargo check -p domain`. `scope` permite elegir una carpeta de crate o

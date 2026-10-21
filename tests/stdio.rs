@@ -14,6 +14,41 @@ struct Server {
 }
 
 #[test]
+fn ergonomic_search_and_bootstrap_errors_work_over_mcp() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.rs"), "needle\n").unwrap();
+    std::fs::write(root.path().join("b.txt"), "needle\n").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let response = server.request(
+        2,
+        "tools/call",
+        json!({
+            "name":"harness_search", "arguments":{
+                "query":"needle", "scope":".", "path":".", "globs":["*.rs"]
+            }
+        }),
+    );
+    let envelope = &response["result"]["structuredContent"];
+    assert_eq!(envelope["state"], "ok", "{response}");
+    let matches = envelope["data"]["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 1, "{response}");
+    assert_eq!(matches[0]["file"], "a.rs", "{response}");
+    let response = server.request(
+        3,
+        "tools/call",
+        json!({
+            "name":"harness_bootstrap", "arguments":{"action":"env"}
+        }),
+    );
+    let message = response.to_string();
+    assert!(
+        message.contains("action") && message.contains("harness_doctor"),
+        "{message}"
+    );
+}
+
+#[test]
 fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.txt"), "before\n").unwrap();
@@ -27,10 +62,35 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
+    let search_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "harness_search")
+        .unwrap();
+    let search_description = search_tool["description"].as_str().unwrap();
+    for field in [
+        "matches[].file",
+        "matches[].context.text",
+        "matches[].hash",
+        "context:{start,end,text}",
+    ] {
+        assert!(
+            search_description.contains(field),
+            "Search fast-track missing {field}: {search_tool}"
+        );
+    }
     let replace = tools
         .iter()
         .find(|tool| tool["name"] == "harness_replace")
         .unwrap();
+    let replace_description = replace["description"].as_str().unwrap();
+    assert!(
+        replace_description.contains("matches[].context.text"),
+        "{replace}"
+    );
+    assert!(
+        replace_description.contains("hash es opcional"),
+        "{replace}"
+    );
     assert!(
         replace["inputSchema"]["properties"]
             .get("baseHash")
@@ -93,6 +153,109 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
         "{message}"
     );
     assert!(!message.contains("DO_NOT_ECHO"), "{message}");
+}
+
+#[test]
+fn replace_recovery_diagnostics_survive_mcp_without_publishing() {
+    let root = tempfile::tempdir().unwrap();
+    let original = "first\r\nsecond line\r\n";
+    std::fs::write(root.path().join("recover.txt"), original).unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    for (id, preview, hash, old_text) in [
+        (2, false, harness_domain::hash(b"old version"), "first"),
+        (3, true, harness_domain::hash(b"old version"), "first"),
+        (
+            4,
+            false,
+            harness_domain::hash(original.as_bytes()),
+            "second  line",
+        ),
+        (
+            5,
+            true,
+            harness_domain::hash(original.as_bytes()),
+            "second  line",
+        ),
+    ] {
+        let response = server.request(
+            id,
+            "tools/call",
+            json!({
+                "name":"harness_replace","arguments":{
+                    "path":"recover.txt","hash":hash,"oldText":old_text,
+                    "newText":"changed","preview":preview
+                }
+            }),
+        );
+        assert_eq!(response["result"]["isError"], true, "{response}");
+        let envelope = &response["result"]["structuredContent"];
+        assert_eq!(envelope["state"], "error", "{response}");
+        assert_eq!(envelope["data"]["changed"], false, "{response}");
+        assert_eq!(
+            envelope["data"]["currentHash"],
+            harness_domain::hash(original.as_bytes()),
+            "{response}"
+        );
+        assert!(
+            !envelope["diagnostics"].as_array().unwrap().is_empty(),
+            "{response}"
+        );
+        assert_eq!(
+            std::fs::read(root.path().join("recover.txt")).unwrap(),
+            original.as_bytes()
+        );
+    }
+}
+
+#[test]
+fn compact_method_outline_is_advertised_and_works_over_mcp() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("Controller.cs"),
+        "class Controller { public Controller() {} private int field; [HttpPost] public string Save(int id) { return \"ok\"; } public string Save(string id) { return id; } }").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let catalog = server.request(2, "tools/list", json!({}));
+    let symbols = catalog["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "harness_symbols")
+        .unwrap();
+    assert!(
+        symbols["inputSchema"].to_string().contains("filterKind"),
+        "{symbols}"
+    );
+    assert!(
+        symbols["inputSchema"].to_string().contains("compact"),
+        "{symbols}"
+    );
+    let response = server.request(
+        3,
+        "tools/call",
+        json!({
+            "name":"harness_symbols","arguments":{
+                "action":"outline","path":"Controller.cs","filterKind":"method","view":"compact"
+            }
+        }),
+    );
+    assert_eq!(response["result"]["isError"], false, "{response}");
+    let items = response["result"]["structuredContent"]["data"]["items"]
+        .as_array()
+        .unwrap();
+    assert_eq!(items.len(), 2, "{response}");
+    for item in items {
+        assert_eq!(item["name"], "Save", "{response}");
+        assert!(item["symbolId"].is_string(), "{response}");
+        assert!(item.get("doc").is_none(), "{response}");
+        assert!(item.get("text").is_none(), "{response}");
+    }
+    assert!(
+        items
+            .iter()
+            .any(|item| item.to_string().contains("HttpPost")),
+        "{response}"
+    );
 }
 
 #[test]
@@ -351,6 +514,7 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
             tools.iter().find(|t| t["name"] == "harness_batch").unwrap()["inputSchema"].to_string();
         assert!(!batch_schema.contains("harness_sql"));
         assert!(batch_schema.contains("harness_read"));
+        assert!(batch_schema.contains("harness_explore"));
         assert_eq!(
             tools.iter().any(|t| t["name"] == "harness_replace"),
             profile == "edit"
@@ -980,6 +1144,87 @@ fn mcp_replace_publishes_and_rejects_a_stale_retry_without_node() {
     assert_eq!(
         std::fs::read(root.path().join("edit.json")).unwrap(),
         b"{\"y\":3}\r\n"
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn mcp_replace_reports_js_error_location_without_publishing_and_accepts_completed_candidate() {
+    let root = tempfile::tempdir().unwrap();
+    let invalid_source = "const ok=1;\r\nconst emoji = '😀'; const value = 1;\r\n";
+    std::fs::write(root.path().join("invalid.js"), invalid_source).unwrap();
+    std::fs::write(
+        root.path().join("complete.js"),
+        "function f() { return TODO",
+    )
+    .unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+
+    let invalid_args = json!({"path":"invalid.js","oldText":"value = 1","newText":"value = "});
+    let preview = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_replace","arguments":{
+            "path":"invalid.js","oldText":"value = 1","newText":"value = ","preview":true
+        }}),
+    );
+    assert_eq!(preview["result"]["isError"], false, "{preview}");
+    assert_eq!(
+        preview["result"]["structuredContent"]["data"]["published"],
+        false
+    );
+    assert_eq!(
+        preview["result"]["structuredContent"]["data"]["syntax"]["code"],
+        "SYNTAX_ERROR"
+    );
+    assert!(
+        preview["result"]["structuredContent"]["data"]["syntax"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("line 2, column 35")
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("invalid.js")).unwrap(),
+        invalid_source.as_bytes()
+    );
+
+    let invalid = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_replace","arguments":invalid_args}),
+    );
+    assert_eq!(invalid["result"]["isError"], true, "{invalid}");
+    let envelope = &invalid["result"]["structuredContent"];
+    assert_eq!(envelope["state"], "error");
+    assert_eq!(envelope["data"]["changed"], false);
+    assert_eq!(envelope["diagnostics"][0]["code"], "SYNTAX_ERROR");
+    assert!(
+        envelope["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("line 2, column 35")
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("invalid.js")).unwrap(),
+        invalid_source.as_bytes()
+    );
+
+    let completed = server.request(
+        4,
+        "tools/call",
+        json!({"name":"harness_replace","arguments":{
+            "path":"complete.js","oldText":"TODO","newText":"1; }"
+        }}),
+    );
+    assert_eq!(completed["result"]["isError"], false, "{completed}");
+    assert_eq!(
+        completed["result"]["structuredContent"]["data"]["verified"],
+        true
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("complete.js")).unwrap(),
+        "function f() { return 1; }"
     );
 }
 

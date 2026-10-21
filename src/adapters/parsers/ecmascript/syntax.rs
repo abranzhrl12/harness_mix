@@ -33,3 +33,32 @@ pub(in crate::adapters) fn validate_syntax(
 
     Ok(())
 }
+
+/// Reparse only after a rejected candidate to report the first parser span.
+/// The normal validation path keeps its existing failure contract.
+pub(in crate::adapters) fn first_error_location(
+    path: &str,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let normalized_path = path.to_ascii_lowercase();
+    let source_type = SourceType::from_path(normalized_path.as_str()).unwrap_or_default();
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    let error = parsed.errors.first()?;
+    let offset = error
+        .labels
+        .as_ref()
+        .and_then(|labels| labels.first())
+        .map(|label| label.offset())?;
+    let prefix = source.get(..offset.min(source.len()))?;
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let last_line = prefix.rsplit('\n').next()?;
+    let last_line = last_line.strip_suffix('\r').unwrap_or(last_line);
+    // Report editor-style one-based columns in UTF-16 code units, matching JS tooling.
+    let column = last_line.encode_utf16().count() + 1;
+    Some((line, column))
+}
+
+#[cfg(test)]
+#[path = "syntax_tests.rs"]
+mod tests;

@@ -12,12 +12,19 @@ fn read_lines_is_a_count_and_canonical_output_uses_end() {
     for value in [
         json!({"path":"x","start":1,"lines":0}),
         json!({"path":"x","start":1,"lines":401}),
+        json!({"path":"x","start":0,"lines":1}),
+        json!({"path":"x","start":5,"end":4}),
+        json!({"path":"x","start":1,"end":401}),
         json!({"path":"x","start":1,"end":5,"lines":5}),
-        json!({"path":"x","start":1}),
         json!({"path":"x","start":usize::MAX,"lines":2}),
     ] {
         assert!(serde_json::from_value::<ReadArgs>(value).is_err());
     }
+
+    let defaulted: ReadArgs = serde_json::from_value(json!({"path":"only-path.txt"})).unwrap();
+    assert_eq!((defaulted.start, defaulted.end), (1, 120));
+    let offset: ReadArgs = serde_json::from_value(json!({"path":"offset.txt","start":20})).unwrap();
+    assert_eq!((offset.start, offset.end), (20, 139));
 }
 
 #[test]

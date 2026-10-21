@@ -89,7 +89,16 @@ fn cli_bootstraps_and_syncs_with_empty_path() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let _: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(report["durationMs"].is_number());
+        let progress = String::from_utf8_lossy(&output.stderr);
+        assert!(progress.contains("complete"), "{progress}");
+        if option == "--sync" {
+            assert!(progress.contains("[inventory]"), "{progress}");
+            assert!(progress.contains("[indexing]"), "{progress}");
+            assert!(progress.contains("1/1"), "{progress}");
+            assert!(report["files"][0]["durationMs"].is_number());
+        }
     }
 }
 
@@ -115,6 +124,55 @@ fn cancelled_initialize_does_not_create_a_namespace() {
         "CANCELLED"
     );
     assert!(!root.path().join(".codegraph").exists());
+}
+
+#[test]
+fn progress_counts_confirmed_files_and_cancellation_preserves_prior_commit() {
+    let root = tempfile::tempdir().unwrap();
+    let owner = OperationContext::default();
+    initialize(root.path(), &owner).unwrap();
+    for name in ["a.rs", "b.rs"] {
+        fs::write(root.path().join(name), "fn indexed() {}").unwrap();
+    }
+    let observed_root = root.path().to_owned();
+    let cancel = owner.clone();
+    let context = owner.with_progress(move |update| {
+        if update.phase == "indexing" && update.completed == 1 {
+            assert_eq!(update.total, Some(2));
+            // The count must only advance once another connection sees the commit.
+            let db = Connection::open(observed_root.join(".codegraph/codegraph.db")).unwrap();
+            let count: i64 = db
+                .query_row("SELECT count(*) FROM files", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 1);
+            cancel.cancel();
+        }
+    });
+    let report = sync_workspace_all(root.path(), &context).unwrap();
+    assert_eq!(report["selectedScopeApplied"], false, "{report}");
+    assert_eq!(report["filesProcessed"], 1);
+    assert_eq!(report["changedFilesCommitted"], 1);
+    assert_eq!(report["failure"]["code"], "CANCELLED");
+    assert_eq!(report["nativeFilesRemaining"], 1);
+}
+
+#[test]
+fn a_busy_index_stops_the_batch_after_one_bounded_wait() {
+    let root = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(root.path(), &context).unwrap();
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        fs::write(root.path().join(name), "fn waits() {}").unwrap();
+    }
+    let blocker = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let report = sync_workspace_all(root.path(), &context).unwrap();
+    blocker.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(report["failure"]["code"], "SYNC_INDEX_BUSY", "{report}");
+    assert_eq!(report["files"].as_array().unwrap().len(), 1);
+    assert_eq!(report["failedFiles"], 1);
+    assert_eq!(report["filesProcessed"], 0);
+    assert_eq!(report["nativeFilesRemaining"], 3);
 }
 
 #[test]

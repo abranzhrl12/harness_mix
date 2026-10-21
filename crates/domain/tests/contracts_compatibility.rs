@@ -14,6 +14,7 @@ mod symbols_contract_tests {
     fn preserves_selectors_views_scope_and_session_in_both_actions() {
         for value in [
             json!({"action":"outline","path":"src/lib.rs","query":"target","maxChars":2500,"externalScope":"scope","session":"s"}),
+            json!({"action":"outline","path":"src/lib.rs","filterKind":"method","view":"compact","session":"s"}),
             json!({"action":"read","path":"src/lib.rs","symbol":"target","container":"mod","symbolId":"0123456789abcdef01234567","view":"full","externalScope":"scope","session":"s"}),
             json!({"action":"read","path":"src/lib.rs","symbol":"target","view":"signature","session":"s"}),
             json!({"action":"extract_preview","path":"Parent.vue","expectedHash":"a".repeat(64),"symbolId":"b".repeat(24),"targetPath":"Child.vue","componentName":"ChildView","session":"s"}),
@@ -81,6 +82,12 @@ mod symbols_contract_tests {
                 branch["properties"]["action"]["const"] == "read"
             );
         }
+        let outline = branches
+            .iter()
+            .find(|branch| branch["properties"]["action"]["const"] == "outline")
+            .unwrap();
+        assert!(outline["properties"].get("filterKind").is_some());
+        assert!(outline["properties"].get("view").is_some());
     }
 }
 
@@ -175,10 +182,31 @@ mod compatibility_contract_tests {
     #[test]
     fn input_schemas_advertise_aliases_and_checkpoint_envelope() {
         let search = serde_json::to_value(schemars::schema_for!(SearchArgs)).unwrap();
+        assert!(
+            !search["required"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .contains(&json!("kind"))
+        );
+        assert_eq!(search["properties"]["kind"]["default"], "text");
         assert!(search["properties"].get("path").is_some());
         assert!(search["properties"].get("includes").is_some());
         assert!(search["properties"].get("contextLines").is_some());
         assert!(search["properties"].get("context_lines").is_some());
+        let context_description = search["properties"]["contextLines"]["description"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(context_description.contains("matches[].context.text"));
+        assert!(context_description.contains("matches[].hash"));
+        assert!(context_description.contains("context: {start, end, text}"));
+        assert!(context_description.contains("original line endings"));
+        assert!(
+            !search["allOf"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .any(|constraint| constraint["not"]["required"] == json!(["scope", "path"]))
+        );
         let replace = serde_json::to_value(schemars::schema_for!(ReplaceArgs)).unwrap();
         for key in [
             "oldText",
@@ -197,6 +225,12 @@ mod compatibility_contract_tests {
                 .unwrap()
                 .contains(&json!("hash"))
         );
+        assert!(
+            replace["properties"]["hash"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("matches[].hash")
+        );
         let read = serde_json::to_value(schemars::schema_for!(ReadArgs)).unwrap();
         assert!(read["properties"].get("file").is_some());
         assert!(
@@ -205,8 +239,53 @@ mod compatibility_contract_tests {
                 .unwrap()
                 .contains(&json!("path"))
         );
+        let required = read["required"].as_array().unwrap();
+        assert!(!required.contains(&json!("start")));
+        assert!(!required.contains(&json!("end")));
         let checkpoint = serde_json::to_value(schemars::schema_for!(CheckpointArgs)).unwrap();
         assert!(checkpoint["properties"].get("data").is_some());
+    }
+}
+
+#[cfg(test)]
+mod search_ergonomics_tests {
+    use harness_domain::contracts::{Kind, SearchArgs};
+    use serde_json::json;
+
+    #[test]
+    fn search_defaults_to_text_and_accepts_equivalent_scope_aliases() {
+        let args: SearchArgs = serde_json::from_value(json!({
+            "query": "needle",
+            "scope": "src\\adapters/",
+            "path": "src/adapters"
+        }))
+        .unwrap();
+        assert!(matches!(args.kind, Kind::Text));
+        assert_eq!(args.scope.as_deref(), Some("src\\adapters/"));
+    }
+
+    #[test]
+    fn search_rejects_conflicting_scope_aliases() {
+        let error = serde_json::from_value::<SearchArgs>(json!({
+            "kind": "text",
+            "query": "needle",
+            "scope": "src",
+            "path": "tests"
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("scope and path refer to different locations"));
+    }
+
+    #[test]
+    fn bootstrap_action_recommends_doctor() {
+        let error = serde_json::from_value::<harness_domain::contracts::BootstrapArgs>(json!({
+            "action": "env"
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("harness_doctor"));
+        assert!(error.contains("action"));
     }
 }
 

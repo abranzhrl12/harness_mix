@@ -1,5 +1,6 @@
 use crate::Failure;
 use std::borrow::Cow;
+use std::collections::VecDeque;
 
 pub(super) fn normalize(text: &str) -> Cow<'_, str> {
     if text.contains("\r\n") {
@@ -49,53 +50,54 @@ pub(super) fn locate_chunk(hay: &str, needle: &str) -> Result<(usize, usize), Fa
         return Ok((first, first + needle.len()));
     }
 
-    // 2. Whitespace & indentation tolerant matching fallback:
-    // Match line-by-line where each non-empty line has trimmed content matching.
+    // 2. Whitespace & indentation tolerant matching fallback. KMP over trimmed
+    // lines preserves the original exact semantics without comparing every
+    // possible file window against the entire oldText block.
     let needle_lines: Vec<&str> = needle.split('\n').collect();
     if needle_lines.is_empty() {
         return Err(("MATCH", "Original text must appear exactly once"));
     }
-
-    // Build line slices with their byte offsets in hay
-    let mut file_line_spans = Vec::new();
-    let mut line_start = 0;
-    for line in hay.split('\n') {
-        let line_len = line.len();
-        file_line_spans.push((line_start, line_start + line_len, line));
-        line_start += line_len + 1; // + 1 for '\n'
-    }
-
     let n = needle_lines.len();
-    if file_line_spans.len() < n {
-        return Err(("MATCH", "Original text must appear exactly once"));
+
+    let mut prefix = vec![0usize; n];
+    let mut matched = 0usize;
+    for index in 1..n {
+        while matched > 0 && needle_lines[index].trim() != needle_lines[matched].trim() {
+            matched = prefix[matched - 1];
+        }
+        if needle_lines[index].trim() == needle_lines[matched].trim() {
+            matched += 1;
+        }
+        prefix[index] = matched;
     }
 
-    let mut matches = Vec::new();
-    for i in 0..=(file_line_spans.len() - n) {
-        let mut all_match = true;
-        for j in 0..n {
-            let n_line = needle_lines[j].trim();
-            let f_line = file_line_spans[i + j].2.trim();
-            if n_line != f_line {
-                all_match = false;
-                break;
-            }
+    let mut starts = VecDeque::with_capacity(n);
+    let mut line_start = 0usize;
+    let mut matched = 0usize;
+    let mut found = None;
+    for line in hay.split('\n') {
+        starts.push_back(line_start);
+        if starts.len() > n {
+            starts.pop_front();
         }
-        if all_match {
-            let match_start = file_line_spans[i].0;
-            let match_end = file_line_spans[i + n - 1].1;
-            matches.push((match_start, match_end));
-            if matches.len() > 1 {
+        while matched > 0 && line.trim() != needle_lines[matched].trim() {
+            matched = prefix[matched - 1];
+        }
+        if line.trim() == needle_lines[matched].trim() {
+            matched += 1;
+        }
+        if matched == n {
+            let range = (starts[starts.len() - n], line_start + line.len());
+            if found.is_some() {
                 return Err(("MATCH", "Original text must appear exactly once"));
             }
+            found = Some(range);
+            matched = prefix[n - 1];
         }
+        line_start += line.len() + 1;
     }
 
-    if matches.len() == 1 {
-        Ok(matches[0])
-    } else {
-        Err(("MATCH", "Original text must appear exactly once"))
-    }
+    found.ok_or(("MATCH", "Original text must appear exactly once"))
 }
 
 pub(super) enum Located {
@@ -132,5 +134,33 @@ pub(super) fn locate(hay: &str, needle: &str) -> Located {
                 Located::Unique
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whitespace_fallback_returns_the_exact_unique_line_range() {
+        let hay = "start\n  café 🙂\n  end\nfinish";
+        let needle = "café 🙂\nend";
+        assert_eq!(
+            locate_chunk(hay, needle),
+            Ok((6, 24)),
+            "offsets remain UTF-8 byte offsets"
+        );
+    }
+
+    #[test]
+    fn whitespace_fallback_rejects_repeated_and_overlapping_blocks() {
+        assert!(locate_chunk("a\nx\na\nx", "a\nx").is_err());
+        assert!(locate_chunk("x\nx\nx", "x\nx").is_err());
+    }
+
+    #[test]
+    fn crlf_normalization_keeps_ranges_in_the_normalized_source() {
+        let hay = normalize("before\r\n  first\r\n  second\r\nafter");
+        assert_eq!(locate_chunk(&hay, "first\nsecond"), Ok((7, 23)));
     }
 }

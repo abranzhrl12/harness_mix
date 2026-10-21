@@ -1,6 +1,6 @@
 #[cfg(feature = "schema")]
 use super::compat::batch_job_alias_schema;
-use super::{GitArgs, Request, SymbolsArgs};
+use super::{ExploreArgs, GitArgs, Request, SymbolsArgs};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -25,6 +25,8 @@ pub enum BatchTool {
     Xlsx,
     #[serde(rename = "harness_svg")]
     Svg,
+    #[serde(rename = "harness_explore")]
+    Explore,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -46,8 +48,39 @@ pub struct BatchArgs {
     pub max_concurrent: Option<usize>,
     pub session: Option<String>,
 }
+#[derive(Debug)]
+pub struct BatchDecodeError {
+    pub field: Option<String>,
+    pub reason: String,
+}
+
+impl BatchTool {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Config => "harness_config",
+            Self::Read => "harness_read",
+            Self::Search => "harness_search",
+            Self::Symbols => "harness_symbols",
+            Self::Detail => "harness_detail",
+            Self::Git => "harness_git",
+            Self::Sql => "harness_sql",
+            Self::Xlsx => "harness_xlsx",
+            Self::Svg => "harness_svg",
+            Self::Explore => "harness_explore",
+        }
+    }
+}
+
 impl BatchJob {
-    pub fn into_request(mut self, session: Option<&str>) -> Result<Request, crate::Failure> {
+    pub fn into_request(self, session: Option<&str>) -> Result<Request, crate::Failure> {
+        self.into_request_detailed(session)
+            .map_err(|_| ("ARGUMENT", "Invalid batch child arguments; no jobs started"))
+    }
+
+    pub fn into_request_detailed(
+        mut self,
+        session: Option<&str>,
+    ) -> Result<Request, BatchDecodeError> {
         if let Some(session) = session {
             self.arguments
                 .insert("session".into(), Value::String(session.into()));
@@ -67,7 +100,37 @@ impl BatchJob {
             BatchTool::Xlsx => serde_json::from_value::<crate::xlsx::XlsxArgs>(value)
                 .map(crate::xlsx::XlsxArgs::into_request),
             BatchTool::Svg => serde_json::from_value(value).map(Request::Svg),
+            BatchTool::Explore => {
+                serde_json::from_value::<ExploreArgs>(value).map(Request::Explore)
+            }
         };
-        decoded.map_err(|_| ("ARGUMENT", "Invalid batch child arguments; no jobs started"))
+        decoded.map_err(|error| {
+            let message = error.to_string();
+            if let Some(field) = message.strip_prefix("missing field `") {
+                return BatchDecodeError {
+                    field: field.strip_suffix('`').map(str::to_owned),
+                    reason: "required field is missing".to_string(),
+                };
+            }
+            if let Some(field) = message.strip_prefix("unknown field `") {
+                let name = field
+                    .split_once('`')
+                    .map(|(name, _)| name)
+                    .unwrap_or(field)
+                    .chars()
+                    .take(80)
+                    .collect::<String>();
+                return BatchDecodeError {
+                    field: Some(name),
+                    reason: "unknown field; check its spelling".to_string(),
+                };
+            }
+            BatchDecodeError {
+                field: None,
+                // Serde errors can interpolate submitted values (even text resembling
+                // an "expected" suffix). Never copy their free-form contents here.
+                reason: "arguments do not match the selected tool schema".to_string(),
+            }
+        })
     }
 }

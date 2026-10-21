@@ -80,7 +80,9 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(Request::Config(args), context).await
     }
-    #[tool(description = "Ejecuta 1–4 lecturas independientes en paralelo.")]
+    #[tool(
+        description = "Ejecuta 1–4 lecturas independientes en paralelo; admite harness_explore con syncIndex=false."
+    )]
     async fn harness_batch(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::BatchArgs>,
@@ -146,7 +148,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): action=outline|read, view=signature|full."
+        description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): outline admite filterKind=method y view=compact; read admite view=signature|full."
     )]
     async fn harness_symbols(
         &self,
@@ -156,7 +158,7 @@ impl McpHarness {
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Reemplaza oldText único o por line; hash opcional ligado a lectura interna; preview=true no publica. Acepta snake_case."
+        description = "Reemplaza oldText único o por line; acepta hash=matches[].hash y oldText=matches[].context.text de harness_search cuando el contexto sea suficiente y siga vigente. hash es opcional: si se omite, se usa la lectura interna. La sustitución requiere oldText único salvo que line lo desambigüe; preview=true no publica. Acepta snake_case."
     )]
     async fn harness_replace(
         &self,
@@ -229,7 +231,7 @@ impl McpHarness {
     }
 
     #[tool(
-        description = "Busca text/files/file_size/syntax con scope y globs; contextLines=0..20 añade fuente exacta y hash en kind=text."
+        description = "Busca text/files/file_size/syntax con scope y globs. En kind=text, contextLines=0..20 devuelve matches[].hash (SHA-256 del archivo) y context:{start,end,text}: rango inclusivo base 1 y fuente exacta con saltos originales. Para harness_replace usa path=matches[].file, oldText=matches[].context.text y hash=matches[].hash, sin releer si el contexto es suficiente y no está recortado; el hash detecta cambios concurrentes."
     )]
     async fn harness_search(
         &self,

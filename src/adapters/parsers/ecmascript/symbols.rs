@@ -86,6 +86,7 @@ impl<'a> TsCollector<'a> {
             start: start_line,
             end: end_line,
             signature,
+            attributes: Vec::new(),
             doc: prefix(&doc, 600).into(),
             id,
             bytes: start_u..end_u,

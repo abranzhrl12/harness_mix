@@ -2,6 +2,9 @@ use agent_harness::adapters::{self, NativeApplication};
 use harness_domain::contracts::{BatchArgs, DoctorArgs, Request};
 use serde_json::{Value, json};
 
+#[path = "support/codegraph.rs"]
+mod graph_fixture;
+
 fn batch(app: &NativeApplication, jobs: Value) -> Value {
     let args: BatchArgs = serde_json::from_value(json!({"jobs":jobs})).unwrap();
     app.execute(Request::Batch(args))
@@ -58,7 +61,8 @@ fn validates_every_child_before_execution_and_refuses_mutations_or_recursion() {
     let app = adapters::application(root.path()).unwrap();
     let result = batch(
         &app,
-        json!([job("missing.txt"),{"tool":"harness_read","arguments":{"path":"x"}}]),
+        // A path-only read is valid; use an invalid range to test prevalidation.
+        json!([job("missing.txt"),{"tool":"harness_read","arguments":{"path":"x","start":0}}]),
     );
     assert_eq!(result["diagnostics"][0]["code"], "ARGUMENT");
     for tool in [
@@ -90,6 +94,54 @@ fn validates_every_child_before_execution_and_refuses_mutations_or_recursion() {
             json!([job("x"), job("x"), job("x"), job("x"), job("x")])
         )["diagnostics"][0]["code"],
         "ARGUMENT"
+    );
+}
+
+#[test]
+fn reports_all_child_validation_errors_without_starting_valid_children_or_echoing_values() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("exists.txt"), "must not be read").unwrap();
+    let app = adapters::application(root.path()).unwrap();
+
+    let result = batch(
+        &app,
+        json!([
+            job("exists.txt"),
+            {"tool":"harness_config","arguments":{"path":"SENSITIVE_VALUE_SENTINEL"}},
+            {"tool":"harness_svg","arguments":{}}
+        ]),
+    );
+
+    assert_eq!(result["state"], "error", "{result}");
+    assert_eq!(
+        result["diagnostics"].as_array().unwrap().len(),
+        2,
+        "{result}"
+    );
+    let first = &result["diagnostics"][0];
+    assert_eq!(first["code"], "ARGUMENT");
+    assert_eq!(first["index"], 1);
+    assert_eq!(first["tool"], "harness_config");
+    assert_eq!(first["field"], "section");
+    assert!(first["reason"].as_str().unwrap().contains("missing"));
+    let second = &result["diagnostics"][1];
+    assert_eq!(second["code"], "ARGUMENT");
+    assert_eq!(second["index"], 2);
+    assert_eq!(second["tool"], "harness_svg");
+    assert_eq!(second["field"], "path");
+    assert!(second["reason"].as_str().unwrap().contains("missing"));
+    assert!(!result.to_string().contains("SENSITIVE_VALUE_SENTINEL"));
+
+    let doctor = app.execute(Request::Doctor(DoctorArgs {
+        versions: Some(false),
+        connection: None,
+        session: None,
+    }));
+    assert!(
+        doctor["data"]["metrics"]["byTool"]
+            .get("harness_read")
+            .is_none(),
+        "the valid first child must not have started: {doctor}"
     );
 }
 
@@ -140,4 +192,55 @@ fn oversized_aggregate_is_saved_in_batch_detail() {
         true
     );
     assert!(result["detail"]["ref"].is_string());
+}
+
+#[test]
+fn explores_symbols_inside_batch_and_rejects_index_sync_before_any_child_runs() {
+    let root = tempfile::tempdir().unwrap();
+    drop(graph_fixture::fixture(root.path()));
+    let app = adapters::application(root.path()).unwrap();
+    let result = batch(
+        &app,
+        json!([
+            {"tool":"harness_explore","arguments":{"filePath":"lib.rs","symbol":"target","view":"summary"}},
+            job("lib.rs")
+        ]),
+    );
+    assert_eq!(result["state"], "ok", "{result}");
+    let children = result["data"]["results"].as_array().unwrap();
+    assert_eq!(children[0]["tool"], "harness_explore");
+    assert_eq!(children[0]["state"], "ok", "{result}");
+    assert_eq!(children[0]["data"]["focus"]["symbol"], "target");
+    assert_eq!(children[1]["tool"], "harness_read");
+    assert_eq!(children[1]["state"], "ok", "{result}");
+
+    let before_rejected = app.execute(Request::Doctor(DoctorArgs {
+        versions: Some(false),
+        connection: None,
+        session: None,
+    }));
+    let reads_before = before_rejected["data"]["metrics"]["byTool"]["harness_read"]["completed"]
+        .as_u64()
+        .unwrap();
+    let rejected = batch(
+        &app,
+        json!([
+            job("lib.rs"),
+            {"tool":"harness_explore","arguments":{"query":"target","syncIndex":true}}
+        ]),
+    );
+    assert_eq!(rejected["state"], "error", "{rejected}");
+    assert_eq!(rejected["diagnostics"][0]["index"], 1);
+    assert_eq!(rejected["diagnostics"][0]["tool"], "harness_explore");
+    assert_eq!(rejected["diagnostics"][0]["field"], "syncIndex");
+
+    let doctor = app.execute(Request::Doctor(DoctorArgs {
+        versions: Some(false),
+        connection: None,
+        session: None,
+    }));
+    assert_eq!(
+        doctor["data"]["metrics"]["byTool"]["harness_read"]["completed"],
+        reads_before
+    );
 }

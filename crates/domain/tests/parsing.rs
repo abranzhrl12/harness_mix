@@ -63,6 +63,7 @@ fn symbol_keeps_the_existing_serialized_shape() {
         start: 1,
         end: 2,
         signature: "fn item()".into(),
+        attributes: Vec::new(),
         doc: String::new(),
         id: "id-1".into(),
         bytes: 4..12,
