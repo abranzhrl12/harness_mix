@@ -53,6 +53,10 @@ del kernel MIT de CodeGraph v1.6.2 (Rust/C#/TS/JS), con entry point Rust en luga
 de N-API. Se mantiene como dependencia de infraestructura fuera de los crates
 portables; no introduce Node. Su preview aún no resuelve ni publica el grafo.
 
+El [piloto RustCodeGraph](RUSTCODEGRAPH-PILOT.md) vive en un workspace experimental
+aislado y se invoca solo desde pruebas opt-in. No es una dependencia del runtime
+ni un backend de publicación activado; sus gates de compatibilidad son explícitos.
+
 Los adaptadores de infraestructura conservan fachadas pequeñas y módulos internos
 por responsabilidad. PostgreSQL separa configuración, preparación de conexión/TLS,
 ejecución de catálogo y operaciones; sigue implementando el puerto SQL existente,

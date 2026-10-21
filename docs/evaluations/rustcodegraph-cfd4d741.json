@@ -1,0 +1,328 @@
+{
+  "date": "2026-10-21",
+  "source": {
+    "repository": "https://github.com/hunzhiwange/rustcodegraph",
+    "revision": "cfd4d74132219f498d5ae611d7e94990a27c2c0d",
+    "version": "1.2.10",
+    "license": "MIT"
+  },
+  "harnessBaseRevision": "ea406e6ef8db672ce5cc4c597941ed9d5772cdc2",
+  "activation": "experimental subprocess bridge only; not enabled in production",
+  "scope": "Eight deliberately selected Vue/Razor contract probes, not a general accuracy benchmark.",
+  "builds": {
+    "cli": "cargo build --locked against upstream Cargo.lock, dev profile",
+    "libraryProbe": "isolated experiments/rustcodegraph-probe workspace and its own locked dependencies, dev profile",
+    "probeCargoLockSha256": "af9227c36a8bd71a63590ae9b5a2945730a9a78c35c7210dc959d56a4adbc5f7",
+    "cliTreeSitter": "0.26.10",
+    "libraryProbeTreeSitter": "0.26.13",
+    "harnessTreeSitter": "0.25.10",
+    "cliRusqlite": "0.37.0",
+    "harnessRusqlite": "0.40.2"
+  },
+  "nativeLinkGates": [
+    {
+      "library": "tree-sitter",
+      "result": "Cargo dependency resolution rejected duplicate links",
+      "harness": "0.25.10",
+      "candidate": "0.26.10"
+    },
+    {
+      "library": "sqlite3",
+      "result": "Cargo dependency resolution rejected duplicate links",
+      "harnessLibsqlite3Sys": "0.38.2",
+      "candidateLibsqlite3Sys": "0.35.0"
+    }
+  ],
+  "cases": [
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "vue/basic.vue",
+      "expected": 1,
+      "harness": 1,
+      "candidateCli": 1,
+      "cliCompatible": true,
+      "candidateLibrary": 1,
+      "libraryCompatible": true,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "vue",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "basic.vue",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          },
+          {
+            "name": "basic",
+            "kind": "function",
+            "line": 2,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "vue/inline.vue",
+      "expected": {
+        "line": 1,
+        "column": 42
+      },
+      "harness": {
+        "line": 1,
+        "column": 42
+      },
+      "candidateCli": null,
+      "cliCompatible": false,
+      "candidateLibrary": {
+        "line": 1,
+        "column": 7
+      },
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "vue",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "inline.vue",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "vue/two-blocks.vue",
+      "expected": 2,
+      "harness": 2,
+      "candidateCli": 2,
+      "cliCompatible": true,
+      "candidateLibrary": 2,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 2,
+      "libraryErrors": [],
+      "libraryReferenceNames": [],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "vue",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "two-blocks.vue",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          },
+          {
+            "name": "repeated",
+            "kind": "function",
+            "line": 2,
+            "column": 0
+          },
+          {
+            "name": "repeated",
+            "kind": "function",
+            "line": 5,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "vue/external.vue",
+      "expected": 0,
+      "harness": 0,
+      "candidateCli": 0,
+      "cliCompatible": true,
+      "candidateLibrary": 1,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "vue",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "external.vue",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "vue/template.vue",
+      "expected": 1,
+      "harness": 1,
+      "candidateCli": 0,
+      "cliCompatible": false,
+      "candidateLibrary": 0,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "vue",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "template.vue",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "razor/members.cshtml",
+      "expected": 1,
+      "harness": 1,
+      "candidateCli": 0,
+      "cliCompatible": false,
+      "candidateLibrary": 0,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [
+        "MemberCount"
+      ],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "razor",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "members.cshtml",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "razor/qualified.cshtml",
+      "expected": 1,
+      "harness": 1,
+      "candidateCli": 0,
+      "cliCompatible": false,
+      "candidateLibrary": 0,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [
+        "Person"
+      ],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "razor",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "qualified.cshtml",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    },
+    {
+      "probe": "rustcodegraph-candidate-contract-v2",
+      "path": "razor/comment.cshtml",
+      "expected": 0,
+      "harness": 0,
+      "candidateCli": 0,
+      "cliCompatible": true,
+      "candidateLibrary": 2,
+      "libraryCompatible": false,
+      "libraryDuplicateNodeIds": 0,
+      "libraryErrors": [],
+      "libraryReferenceNames": [
+        "Dummy",
+        "CommentOnlyCall",
+        "CommentOnlyCall"
+      ],
+      "candidateDiagnostics": {
+        "files": [
+          {
+            "language": "razor",
+            "errorCount": null
+          }
+        ],
+        "symbols": [
+          {
+            "name": "comment.cshtml",
+            "kind": "file",
+            "line": 1,
+            "column": 0
+          }
+        ],
+        "pendingReferenceNames": []
+      }
+    }
+  ],
+  "summary": {
+    "probe": "rustcodegraph-candidate-summary-v2",
+    "expectedRevision": "cfd4d74132219f498d5ae611d7e94990a27c2c0d",
+    "binarySha256": "fb0bbe8478fb484b4a2274ebba593d3c086c54c7ce437fbadf4e59022705b00d",
+    "libraryProbeSha256": "bd428b3e88f91d0a5024e945f1c2bced0f7ac6c8e7a9ab8ff0e0127cb1e450da",
+    "candidateVersion": "1.2.10",
+    "cases": 8,
+    "cliGaps": 4,
+    "libraryGaps": 7,
+    "cliReplacementGatePassed": false,
+    "libraryAdoptionGatePassed": false,
+    "incrementalCliRenamePassed": true,
+    "productionIndexOpened": false,
+    "performanceCompared": false
+  }
+}

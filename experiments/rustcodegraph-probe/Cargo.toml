@@ -1,0 +1,15 @@
+[package]
+name = "harness-rustcodegraph-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Deliberately isolated: both projects link incompatible native library versions.
+[workspace]
+
+[dependencies]
+rustcodegraph = { git = "https://github.com/hunzhiwange/rustcodegraph", rev = "cfd4d74132219f498d5ae611d7e94990a27c2c0d" }
+serde_json = "=1.0.150"
+
+[profile.dev]
+debug = "line-tables-only"
