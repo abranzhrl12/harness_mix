@@ -71,6 +71,16 @@ TCP/HTTP como responsabilidades internas del adaptador; conserva las restriccion
 loopback y no convierte una observación puntual en una garantía de salud.
 Los tres conservan sus puntos de entrada y pruebas en módulos externos.
 
+`domain/sql.rs` mantiene los DTO y la fachada de contratos SQL; sus módulos internos
+separan compatibilidad de esquemas y preflight de solo lectura. Esta
+política no depende de motores SQL ni de I/O y no reemplaza los controles del
+servidor de base de datos. Las sesiones nativas separan estado, gestión en memoria,
+validación y persistencia sin cambiar leases, gates ni formato de recuperación.
+El grafo de símbolos separa clasificación y modelos de descubrimiento SQLite,
+caché y certificación contra fuentes. El índice sigue siendo una caché: esta
+organización no convierte una coincidencia de metadatos en una prueba adicional
+de frescura ni modifica las reglas existentes de fallback al parser en vivo.
+
 `index_store` publica explícitamente en índices existentes schema 11/WAL:
 extracción nativa, emparejado de identidades, recuperación de refs entrantes y
 resolver conservador de nombres exactos, bajo transacción por archivo. La CLI

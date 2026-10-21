@@ -97,6 +97,8 @@ fn service_tests_stay_in_external_modules() {
         root.join("ignore.rs"),
         root.join("tasks_store.rs"),
         root.join("process_status.rs"),
+        root.join("sessions.rs"),
+        root.join("symbol_graph.rs"),
     ];
     for directory in [
         "verification",
@@ -113,6 +115,8 @@ fn service_tests_stay_in_external_modules() {
         "ignore",
         "tasks_store",
         "process_status",
+        "sessions",
+        "symbol_graph",
     ] {
         rust_files(&root.join(directory), &mut files);
     }
@@ -135,6 +139,59 @@ fn service_tests_stay_in_external_modules() {
             "{} contains inline tests; keep test bodies in separate files",
             path.strip_prefix(&root).unwrap().display()
         );
+    }
+}
+
+#[test]
+fn symbol_graph_classification_and_model_stay_pure() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/symbol_graph");
+    for relative in ["classification.rs", "model.rs"] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in [
+            "Project",
+            "rusqlite",
+            "std::fs",
+            "tokio::",
+            "OperationContext",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} depends on infrastructure `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn domain_sql_tests_stay_external_and_policy_stays_portable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/domain/src");
+    let mut files = vec![root.join("sql.rs")];
+    rust_files(&root.join("sql"), &mut files);
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "tests.rs" || name.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        let parsed = syn::parse_file(&source).unwrap();
+        assert!(
+            !contains_inline_test(&parsed.items),
+            "{} contains inline tests",
+            path.display()
+        );
+        for forbidden in [
+            "rusqlite",
+            "tokio::",
+            "std::fs",
+            "crate::adapters",
+            "harness_application",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} depends on infrastructure `{forbidden}`",
+                path.display()
+            );
+        }
     }
 }
 
