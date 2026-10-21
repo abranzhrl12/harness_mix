@@ -83,6 +83,10 @@ separan compatibilidad de esquemas y preflight de solo lectura. Esta
 política no depende de motores SQL ni de I/O y no reemplaza los controles del
 servidor de base de datos. Las sesiones nativas separan estado, gestión en memoria,
 validación y persistencia sin cambiar leases, gates ni formato de recuperación.
+En aplicación, `session.rs` coordina el bootstrap mediante los puertos existentes:
+adquiere la sesión, consulta el workspace y actualiza los hashes. El módulo interno
+`session/bootstrap.rs` construye la respuesta y compacta el catálogo a partir de
+datos recibidos, sin acceso al workspace, repositorios, bloqueos ni drivers.
 El grafo de símbolos separa clasificación y modelos de descubrimiento SQLite,
 caché y certificación contra fuentes. El índice sigue siendo una caché: esta
 organización no convierte una coincidencia de metadatos en una prueba adicional

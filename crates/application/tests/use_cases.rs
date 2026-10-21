@@ -4,7 +4,7 @@ use harness_application::{
 };
 use harness_domain::{
     Failure,
-    contracts::{BootstrapArgs, Kind, ReadArgs, Request, SearchArgs},
+    contracts::{BootstrapArgs, DetailArgs, Kind, ReadArgs, Request, SearchArgs},
     execution::OperationContext,
 };
 use serde_json::{Value, json};
@@ -234,6 +234,71 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
         include_rules: Some(true),
     }));
     assert_eq!(forced["data"]["rules"], "reglas");
+}
+
+#[test]
+fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
+    let app = Application::new(
+        FakeWorkspace {
+            calls: Arc::default(),
+        },
+        MemorySessions::default(),
+    );
+    let compact = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: true,
+        session: None,
+        include_rules: None,
+    }));
+    assert_eq!(compact["data"]["catalogCompact"], true);
+    assert_eq!(compact["data"]["rules"], "reglas");
+    let session = compact["data"]["session"].as_str().unwrap().to_owned();
+    let rules_hash = compact["data"]["rulesHash"].clone();
+    let capabilities_hash = compact["data"]["capabilitiesHash"].clone();
+    assert_eq!(rules_hash, harness_domain::hash(b"reglas"));
+    assert!(compact["data"].get("supportedTools").is_none());
+    let detail_ref = compact["detail"]["ref"].as_str().unwrap().to_owned();
+    let mut catalog_text = String::new();
+    let mut offset = 0;
+    loop {
+        let page = app.execute(Request::Detail(DetailArgs {
+            reference: detail_ref.clone(),
+            offset: Some(offset),
+            max_chars: Some(16_000),
+            session: Some(session.clone()),
+        }));
+        catalog_text.push_str(page["data"]["text"].as_str().unwrap());
+        match page["data"]["nextOffset"].as_u64() {
+            Some(next_offset) => offset = usize::try_from(next_offset).unwrap(),
+            None => break,
+        }
+    }
+    let catalog: Value = serde_json::from_str(&catalog_text).unwrap();
+    assert!(catalog["catalog"]["supportedTools"].is_array());
+    assert!(catalog["catalog"]["routing"].is_array());
+    assert_eq!(
+        catalog["catalog"]["toolContract"]["contractHash"],
+        compact["data"]["toolContract"]["contractHash"]
+    );
+
+    let reused = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: true,
+        session: Some(session.clone()),
+        include_rules: None,
+    }));
+    assert_eq!(reused["data"]["catalogUnchanged"], true);
+    assert_eq!(reused["data"]["rulesUnchanged"], true);
+    assert_eq!(reused["data"]["capabilitiesUnchanged"], true);
+    assert_eq!(reused["data"]["rulesHash"], rules_hash);
+    assert_eq!(reused["data"]["capabilitiesHash"], capabilities_hash);
+    assert!(reused["data"].get("rules").is_none());
+    let forced = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: true,
+        session: Some(session),
+        include_rules: Some(true),
+    }));
+    assert_eq!(forced["data"]["catalogCompact"], true);
+    assert_eq!(forced["data"]["rules"], "reglas");
+    assert_eq!(forced["data"]["rulesHash"], rules_hash);
 }
 
 fn read_request() -> Request {
