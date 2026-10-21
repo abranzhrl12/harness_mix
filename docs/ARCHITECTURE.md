@@ -50,6 +50,17 @@ del kernel MIT de CodeGraph v1.6.2 (Rust/C#/TS/JS), con entry point Rust en luga
 de N-API. Se mantiene como dependencia de infraestructura fuera de los crates
 portables; no introduce Node. Su preview aún no resuelve ni publica el grafo.
 
+Los adaptadores de infraestructura conservan fachadas pequeñas y módulos internos
+por responsabilidad. PostgreSQL separa configuración, preparación de conexión/TLS,
+ejecución de catálogo y operaciones; sigue implementando el puerto SQL existente,
+sin introducir dependencias del driver en domain o application. La extracción del
+índice separa la lectura de fuentes del procesamiento Razor/C# y la decodificación
+del contrato binario del proveedor. Las políticas de exclusión separan validación
+pura, coordinación de operaciones y persistencia atómica específica de plataforma.
+Estas fronteras usan composición y visibilidad restringida, no un trait por función
+ni entidades DDD para detalles técnicos. Los tests viven en archivos separados y
+`tests/architecture.rs` comprueba esa separación también en estos adaptadores.
+
 `index_store` publica explícitamente en índices existentes schema 11/WAL:
 extracción nativa, emparejado de identidades, recuperación de refs entrantes y
 resolver conservador de nombres exactos, bajo transacción por archivo. La CLI

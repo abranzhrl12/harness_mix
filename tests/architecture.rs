@@ -92,6 +92,9 @@ fn service_tests_stay_in_external_modules() {
         root.join("sql.rs"),
         root.join("git.rs"),
         root.join("index_watch.rs"),
+        root.join("postgresql.rs"),
+        root.join("index_extract.rs"),
+        root.join("ignore.rs"),
     ];
     for directory in [
         "verification",
@@ -103,6 +106,9 @@ fn service_tests_stay_in_external_modules() {
         "sql",
         "git",
         "index_watch",
+        "postgresql",
+        "index_extract",
+        "ignore",
     ] {
         rust_files(&root.join(directory), &mut files);
     }
@@ -124,6 +130,46 @@ fn service_tests_stay_in_external_modules() {
             !contains_inline_test(&parsed.items),
             "{} contains inline tests; keep test bodies in separate files",
             path.strip_prefix(&root).unwrap().display()
+        );
+    }
+}
+
+#[test]
+fn extraction_decoder_stays_independent_of_workspace_io() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/index_extract");
+    for relative in ["decode.rs", "csharp.rs", "razor.rs"] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in [
+            "Project",
+            "std::fs",
+            "tokio::fs",
+            "rusqlite",
+            "crate::transport",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} depends on workspace infrastructure `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn ignore_policy_transformation_stays_pure() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/ignore/policy.rs"),
+    )
+    .unwrap();
+    for forbidden in [
+        "Project",
+        "std::fs",
+        "tokio::fs",
+        "OperationContext",
+        "tempfile",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "ignore policy depends on infrastructure `{forbidden}`"
         );
     }
 }
