@@ -1,0 +1,184 @@
+use super::*;
+
+fn parse_args(args: &[&str]) -> Result<Command, String> {
+    parse(args.iter().map(OsString::from).collect())
+}
+
+#[test]
+fn parses_server_defaults_and_flags() {
+    assert!(matches!(
+        parse_args(&[]),
+        Ok(Command::Serve {
+            persist_logs: false,
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "workspace"]),
+        Ok(Command::Serve {
+            persist_logs: false,
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "--persist-logs"]),
+        Ok(Command::Serve {
+            persist_logs: true,
+            ..
+        })
+    ));
+    match parse_args(&["--root", "workspace"]).unwrap() {
+        Command::Serve {
+            root: Root::Explicit(root),
+            ..
+        } => assert_eq!(root, PathBuf::from("workspace")),
+        _ => panic!("expected server command with explicit root"),
+    }
+}
+
+#[test]
+fn parses_index_aliases_and_unified_actions() {
+    for args in [
+        vec!["--root", "w", "--init-index"],
+        vec!["--root", "w", "--init-index", "legacy-ignored"],
+        vec!["--init-index"],
+        vec!["--root", "w", "--index", "init"],
+    ] {
+        assert!(matches!(parse_args(&args), Ok(Command::InitIndex { .. })));
+    }
+    for args in [
+        vec!["--root", "w", "--sync"],
+        vec!["--root", "w", "--sync", "legacy-ignored"],
+        vec!["--sync"],
+        vec!["--root", "w", "--index", "sync"],
+    ] {
+        assert!(matches!(
+            parse_args(&args),
+            Ok(Command::SyncWorkspace { .. })
+        ));
+    }
+    for args in [
+        vec!["--root", "w", "--reindex"],
+        vec!["--root", "w", "--reindex", "legacy-ignored"],
+        vec!["--reindex"],
+        vec!["--root", "w", "--index", "rebuild"],
+    ] {
+        assert!(matches!(parse_args(&args), Ok(Command::Rebuild { .. })));
+    }
+    assert!(matches!(
+        parse_args(&["--root", "w", "--sync-plan"]),
+        Ok(Command::Plan { .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "w", "--sync-plan", "legacy-ignored"]),
+        Ok(Command::Plan { .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "w", "--index", "plan"]),
+        Ok(Command::Plan { .. })
+    ));
+}
+
+#[test]
+fn parses_file_sync_options() {
+    assert!(matches!(
+        parse_args(&["--root", "w", "--sync-file", "a.rs"]),
+        Ok(Command::SyncFile {
+            force: false,
+            config: None,
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "w", "--sync-file", "a.rs", "--force"]),
+        Ok(Command::SyncFile { force: true, .. })
+    ));
+    assert!(matches!(
+        parse_args(&[
+            "--root",
+            "w",
+            "--sync-file",
+            "a.ts",
+            "--tsconfig",
+            "tsconfig.json"
+        ]),
+        Ok(Command::SyncFile {
+            config: Some(_),
+            ..
+        })
+    ));
+    match parse_args(&[
+        "--root",
+        "workspace",
+        "--sync-file",
+        "src/app.ts",
+        "--tsconfig",
+        "tsconfig.json",
+    ])
+    .unwrap()
+    {
+        Command::SyncFile {
+            root: Root::Explicit(root),
+            relative,
+            config: Some(config),
+            force,
+        } => {
+            assert_eq!(root, PathBuf::from("workspace"));
+            assert_eq!(relative, OsString::from("src/app.ts"));
+            assert_eq!(config, OsString::from("tsconfig.json"));
+            assert!(!force);
+        }
+        _ => panic!("expected configured file sync command"),
+    }
+    assert!(matches!(
+        parse_args(&["--sync-file", "a.rs"]),
+        Ok(Command::SyncFile {
+            root: Root::Detect,
+            ..
+        })
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn preserves_non_utf8_windows_paths_during_parsing() {
+    use std::os::windows::ffi::OsStringExt;
+
+    let root = OsString::from_wide(&[0xD800]);
+    let relative = OsString::from_wide(&[0xDC00]);
+    match parse(vec![
+        OsString::from("--root"),
+        root.clone(),
+        OsString::from("--sync-file"),
+        relative.clone(),
+    ])
+    .unwrap()
+    {
+        Command::SyncFile {
+            root: Root::Explicit(parsed_root),
+            relative: parsed_relative,
+            ..
+        } => {
+            assert_eq!(parsed_root.as_os_str(), root.as_os_str());
+            assert_eq!(parsed_relative, relative);
+        }
+        _ => panic!("expected file sync command"),
+    }
+}
+
+#[test]
+fn preserves_help_version_and_parse_errors() {
+    assert!(matches!(parse_args(&["--help"]), Ok(Command::Help)));
+    assert!(matches!(parse_args(&["-h"]), Ok(Command::Help)));
+    assert!(matches!(parse_args(&["--version"]), Ok(Command::Version)));
+    assert_eq!(
+        parse_args(&["--root", "w", "--bogus"]).err().unwrap(),
+        "usage: agent-harness [--root <workspace>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version"
+    );
+    assert_eq!(
+        parse_args(&["--root", "w", "a", "b", "c", "d"])
+            .err()
+            .unwrap(),
+        "too many command-line arguments"
+    );
+}
