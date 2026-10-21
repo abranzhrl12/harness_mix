@@ -99,6 +99,8 @@ fn service_tests_stay_in_external_modules() {
         root.join("process_status.rs"),
         root.join("sessions.rs"),
         root.join("symbol_graph.rs"),
+        root.join("index_imports.rs"),
+        root.join("index_semantic.rs"),
     ];
     for directory in [
         "verification",
@@ -117,6 +119,8 @@ fn service_tests_stay_in_external_modules() {
         "process_status",
         "sessions",
         "symbol_graph",
+        "index_imports",
+        "index_semantic",
     ] {
         rust_files(&root.join(directory), &mut files);
     }
@@ -284,6 +288,12 @@ fn extraction_decoder_stays_independent_of_workspace_io() {
         }
         let relative = path.strip_prefix(&root).unwrap().display();
         let source = fs::read_to_string(&path).unwrap();
+        // Documentation may use "project" as a verb; inspect production lines.
+        let production = source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
         for forbidden in [
             "Project",
             "std::fs",
@@ -292,7 +302,7 @@ fn extraction_decoder_stays_independent_of_workspace_io() {
             "crate::transport",
         ] {
             assert!(
-                !source.contains(forbidden),
+                !production.contains(forbidden),
                 "{relative} depends on workspace infrastructure `{forbidden}`"
             );
         }

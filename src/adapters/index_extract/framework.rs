@@ -80,7 +80,7 @@ pub(super) fn position(source: &str, at: usize) -> Result<(usize, usize), Failur
 
 /// Keep one source region and mask everything else, preserving UTF-16 coordinates.
 /// Bytes can differ for non-ASCII masked text; callers must use line/column spans.
-pub(super) fn project(source: &str, body: Range<usize>) -> Result<String, Failure> {
+pub(in crate::adapters) fn project(source: &str, body: Range<usize>) -> Result<String, Failure> {
     if body.start > body.end || source.get(body.clone()).is_none() {
         return Err(RANGE);
     }

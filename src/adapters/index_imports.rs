@@ -3,8 +3,12 @@ use super::{Failure, INDEX, LIMIT, OperationContext, Project, hash, read_source,
 use rusqlite::{Connection, OptionalExtension};
 use std::collections::BTreeMap;
 
+#[path = "index_imports/angular.rs"]
+pub(super) mod angular;
 #[path = "index_exports.rs"]
 mod exports;
+#[path = "index_imports/vue.rs"]
+mod vue;
 
 #[derive(Default)]
 pub(super) struct Sources {
@@ -12,6 +16,15 @@ pub(super) struct Sources {
     reserved: usize,
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
+    vue: BTreeMap<String, crate::adapters::index_semantic::vue::Facts>,
+    vue_reserved: usize,
+    angular: BTreeMap<String, crate::adapters::index_extract::angular::di::Facts>,
+    angular_reserved: usize,
+    runtime: BTreeMap<
+        (String, String, crate::adapters::index_semantic::RuntimeKind),
+        Option<ExportTarget>,
+    >,
+    runtime_reserved: usize,
     rust: BTreeMap<String, super::rust::Facts>,
     rust_reserved: usize,
     razor: BTreeMap<String, super::razor_receivers::Facts>,
@@ -20,6 +33,7 @@ pub(super) struct Sources {
     routes: Option<super::paths::Routes>,
     pub(super) config: super::tsconfig::Snapshot,
 }
+#[derive(Clone)]
 pub(super) struct ExportTarget {
     pub path: String,
     pub name: String,
@@ -318,6 +332,43 @@ impl Sources {
     ) -> Result<Option<ExportTarget>, Failure> {
         exports::resolve(self, db, project, context, path, name)
     }
+    pub(super) fn runtime_export_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        name: &str,
+        kind: crate::adapters::index_semantic::RuntimeKind,
+    ) -> Result<Option<ExportTarget>, Failure> {
+        context.check()?;
+        let key = (path.to_owned(), name.to_owned(), kind);
+        if let Some(cached) = self.runtime.get(&key) {
+            return Ok(cached.clone());
+        }
+        let target = exports::resolve_runtime(self, db, project, context, path, name, kind)?;
+        let reserved = path.len()
+            + name.len()
+            + 64
+            + target.as_ref().map_or(0, |target| {
+                target.path.len()
+                    + target.name.len()
+                    + target
+                        .contributors
+                        .iter()
+                        .map(|value| value.to_string().len())
+                        .sum::<usize>()
+            });
+        // Facts and node/configuration snapshots are immutable during resolution.
+        // Both successful and negative answers are safe only within this publication.
+        if self.runtime.len() < 128
+            && self.runtime_reserved.saturating_add(reserved) <= 2 * 1024 * 1024
+        {
+            self.runtime_reserved += reserved;
+            self.runtime.insert(key, target.clone());
+        }
+        Ok(target)
+    }
     pub(super) fn recheck(
         &self,
         project: &Project,
@@ -510,51 +561,5 @@ fn relative_module(from: &str, module: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn module_normalization_never_escapes_workspace() {
-        assert_eq!(
-            relative_module("src/a.ts", "../lib/b"),
-            Some("lib/b".into())
-        );
-        for module in [
-            "../../outside",
-            "pkg",
-            "./x\\y",
-            "./x?raw",
-            "./%2e%2e/x",
-            "./x:y",
-        ] {
-            assert_eq!(relative_module("src/a.ts", module), None);
-        }
-    }
-    #[test]
-    fn parses_named_aliases_but_defers_other_import_forms() {
-        let (module, names) =
-            codegraph_native::named_imports("import {run as execute, other} from './lib';")
-                .unwrap();
-        assert_eq!(module, "./lib");
-        assert_eq!(
-            names,
-            [
-                ("run".into(), "execute".into()),
-                ("other".into(), "other".into())
-            ]
-        );
-        for signature in [
-            "import x from './lib'",
-            "import * as x from './lib'",
-            "import type { X } from './lib'",
-            "import {type X} from './lib'",
-            "import {x} from './lib'; evil()",
-            "import {x} from './l\\u0069b'",
-            "import {x} from './lib' with {type:'json'}",
-        ] {
-            assert!(
-                codegraph_native::named_imports(signature).is_none(),
-                "{signature}"
-            );
-        }
-    }
-}
+#[path = "index_imports/tests.rs"]
+mod tests;

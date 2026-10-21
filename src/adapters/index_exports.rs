@@ -6,7 +6,7 @@
 use super::{
     ExportTarget, Failure, INDEX, LIMIT, OperationContext, Project, Sources, hash, module_path, sql,
 };
-use crate::adapters::index_semantic::Export;
+use crate::adapters::index_semantic::{Export, RuntimeKind};
 use rusqlite::Connection;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,6 +29,7 @@ struct Walk<'a> {
     active: BTreeSet<(String, String)>,
     contributors: BTreeMap<String, String>,
     steps: usize,
+    expected: Option<RuntimeKind>,
 }
 
 pub(super) fn resolve(
@@ -39,6 +40,30 @@ pub(super) fn resolve(
     path: &str,
     name: &str,
 ) -> Result<Option<ExportTarget>, Failure> {
+    resolve_with_kind(sources, db, project, context, path, name, None)
+}
+
+pub(super) fn resolve_runtime(
+    sources: &mut Sources,
+    db: &Connection,
+    project: &Project,
+    context: &OperationContext,
+    path: &str,
+    name: &str,
+    kind: RuntimeKind,
+) -> Result<Option<ExportTarget>, Failure> {
+    resolve_with_kind(sources, db, project, context, path, name, Some(kind))
+}
+
+fn resolve_with_kind(
+    sources: &mut Sources,
+    db: &Connection,
+    project: &Project,
+    context: &OperationContext,
+    path: &str,
+    name: &str,
+    expected: Option<RuntimeKind>,
+) -> Result<Option<ExportTarget>, Failure> {
     let mut walk = Walk {
         sources,
         db,
@@ -47,6 +72,7 @@ pub(super) fn resolve(
         active: BTreeSet::new(),
         contributors: BTreeMap::new(),
         steps: 0,
+        expected,
     };
     let Resolution::Bound(binding) = walk.visit(path, name)? else {
         return Ok(None);
@@ -104,12 +130,25 @@ impl Walk<'_> {
             return Err(LIMIT);
         }
         let record = self.sources.semantic.get(path).ok_or(INDEX)?;
-        if let Some(export) = record.exports.get(name).cloned() {
+        let exports = if self.expected.is_some() {
+            &record.runtime_exports
+        } else {
+            &record.exports
+        };
+        if let Some(export) = exports.get(name).cloned() {
             return match export {
-                Export::Local(local) => Ok(Resolution::Bound(Binding {
-                    path: path.into(),
-                    name: local,
-                })),
+                Export::Local(local) => {
+                    if self
+                        .expected
+                        .is_some_and(|kind| record.runtime_kinds.get(&local) != Some(&kind))
+                    {
+                        return Ok(Resolution::Unavailable);
+                    }
+                    Ok(Resolution::Bound(Binding {
+                        path: path.into(),
+                        name: local,
+                    }))
+                }
                 Export::Remote { module, name } => self.follow(path, &module, &name),
                 Export::Unsupported => Ok(Resolution::Unavailable),
             };

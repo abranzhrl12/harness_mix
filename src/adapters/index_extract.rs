@@ -1,8 +1,8 @@
 //! Compatible façade for source indexing extraction.
-mod angular;
+pub(in crate::adapters) mod angular;
 mod csharp;
 mod decode;
-mod framework;
+pub(in crate::adapters) mod framework;
 mod orchestration;
 mod preview;
 mod razor;

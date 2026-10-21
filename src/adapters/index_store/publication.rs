@@ -368,6 +368,18 @@ pub(super) fn publish(
         };
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
+    let framework_rechecks = if config_changed
+        || matches!(
+            language,
+            "typescript" | "tsx" | "javascript" | "jsx" | "vue"
+        ) {
+        let rechecks = imports::angular::invalidate(db)?;
+        let count = rechecks.len();
+        refs.extend(rechecks);
+        count
+    } else {
+        0
+    };
     if language == "rust" {
         refs.extend(imports::invalidate_rust(db)?);
     }
@@ -387,8 +399,12 @@ pub(super) fn publish(
     // tail index, the import invalidation). The project-wide import clause
     // only applies to a JS/TS publication: a C# or Razor source cannot change
     // the resolution of a JavaScript import.
-    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (?2 IN ('typescript','tsx','javascript','jsx') AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) OR (?2='html' AND reference_kind='framework_template' AND reference_name=?1)) LIMIT 20001"))?;
-    for row in sql(statement.query_map(params![path, language], |r| r.get::<_, i64>(0)))? {
+    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND reference_kind='angular_injects') OR ((?2 IN ('typescript','tsx','javascript','jsx','vue') OR ?3=1) AND language='vue' AND reference_kind='calls' AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) OR (?2='html' AND reference_kind='framework_template' AND reference_name=?1)) LIMIT 20001"))?;
+    for row in sql(
+        statement.query_map(params![path, language, config_changed], |r| {
+            r.get::<_, i64>(0)
+        }),
+    )? {
         refs.insert(sql(row)?);
         if refs.len() > MAX_ROWS {
             return Err(LIMIT);
@@ -431,7 +447,7 @@ pub(super) fn publish(
         [],
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
-    let mut report = json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false});
+    let mut report = json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"frameworkReferencesRechecked":framework_rechecks,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"exact-name-relative-import-and-framework-subsets","committed":false,"synchronized":false,"globalFreshnessCertified":false});
     if let Some(coverage) = extracted.and_then(|value| value.get("coverage")) {
         report["extractionCoverage"] = coverage.clone();
     }

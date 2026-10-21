@@ -17,7 +17,12 @@ structural observations, not proofs of runtime bindings or selector matches.
 External block sources and unsupported preprocessors are not read or executed.
 Coverage notices identify skipped content. Unproven cross-file Vue references
 remain pending instead of resolving to an unrelated global symbol with the same
-name. Vue compiler transforms, template type checking, CSS preprocessing and
+name. Native publication can resolve named-value-import calls from each inline
+script to indexed JS/TS function exports, including constant arrow/function
+expressions and named reexports. It proves lexical binding per script block,
+preserving aliases, Unicode and original UTF-16 coordinates. Default/namespace,
+external-script and template-expression bindings remain unsupported.
+Vue compiler transforms, template type checking, CSS preprocessing and
 runtime component resolution are not implemented.
 
 ## Angular and HTML
@@ -30,6 +35,15 @@ injection analysis, compilation or application execution.
 Imported `Directive`, `Injectable` (including no-argument decorators), `Pipe` and
 `NgModule` also contribute role markers linked to unambiguous native class nodes.
 Type-only imports do not prove runtime Angular decorators.
+
+An independent lexical DI pass records imported class-token dependencies in
+Angular constructor parameters, explicit `@Inject(Token)` overrides and supported
+direct `inject(Token)` sites. A class-token link proves the referenced declaration,
+not which provider/instance an injector will select. Dynamic/string/local tokens,
+type-only imports, ambiguous exports and unsupported injection contexts stay
+unresolved; an explicit unproved override never falls back to the parameter type.
+Providers, factories, scopes, optionality and injected-instance method dispatch
+are not evaluated at runtime.
 
 HTML extraction records bounded template structure without assuming Angular
 context. A literal `templateUrl` creates an explicit pending file reference; it
@@ -60,6 +74,16 @@ existing refusal of unsupported provider relationships is retained. Coverage is
 returned as `extractionCoverage` in previews and changed-file publication results;
 it must not be interpreted as whole-project or compiler-level verification.
 
+Semantic facts are memoized per source within one publication. A bounded runtime
+export memo (128 entries / 2 MiB) avoids repeating the same export walk, including
+negative answers. It is discarded with the transaction's source/configuration
+snapshot. All observed source hashes are rechecked before commit. Edits, deletions,
+new modules and configuration changes invalidate framework engine links and retry
+pending references under the current indexed snapshot. Global invalidation remains
+deliberately conservative; this is not a latency benchmark or a promise of
+whole-project semantic analysis. Returned composable objects, destructured member
+calls, Vue runtime reactivity and Angular provider selection remain outside scope.
+
 The inventory and watcher use the same extension dispatch. No project index is
 created or rebuilt merely by reading or extracting a source file.
 
@@ -69,6 +93,8 @@ created or rebuilt merely by reading or extracting a source file.
 - [Vue script setup](https://vuejs.org/api/sfc-script-setup.html)
 - [Angular component metadata](https://angular.dev/api/core/Component)
 - [Angular templates](https://angular.dev/guide/templates)
+- [Angular injection contexts](https://angular.dev/api/core/inject)
+- [Vue composables](https://vuejs.org/guide/reusability/composables)
 
 The native implementation deliberately covers a bounded subset of these formats,
 not the complete behavior of their official compilers.

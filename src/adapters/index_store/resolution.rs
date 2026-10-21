@@ -47,9 +47,96 @@ pub(super) fn resolve_exact(
         return Ok(true);
     }
     if matches!(language.as_str(), "vue" | "html") {
-        // Vue imports/calls and HTML text bindings are not proven by this
-        // resolver. Keep them pending instead of binding a global homonym.
+        if language == "vue" && kind == "calls" {
+            let Some(target) =
+                sources.vue_call_target(db, project, context, &path, &name, line, col)?
+            else {
+                // Vue references must carry a script-local import proof. Never
+                // continue into the generic same-name candidate lookup.
+                return Ok(false);
+            };
+            let mut statement = sql(db.prepare_cached(
+                "SELECT id FROM nodes WHERE file_path=?1 AND name=?2 COLLATE BINARY AND kind='function' AND language IN ('typescript','tsx','javascript','jsx') LIMIT 2",
+            ))?;
+            let ids = sql(
+                statement.query_map(params![target.path, target.name], |row| {
+                    row.get::<_, String>(0)
+                }),
+            )?
+            .collect::<Result<Vec<_>, _>>();
+            let ids = sql(ids)?;
+            if ids.len() != 1 {
+                return Ok(false);
+            }
+            let mut metadata = json!({
+                "refName": name,
+                "refKind": kind,
+                "resolvedBy": "vue-named-composable-subset-v1",
+                "confidence": 0.9,
+                "exportContributors": target.contributors,
+                "bindingEngine": "oxc-semantic-vue-sfc-subset-v1",
+                "moduleEngine": "oxc-resolver-11.0.0-index-snapshot",
+                "exportEngine": "oxc-module-record-runtime-resolve-v1"
+            });
+            if sources.config.path.is_some() {
+                metadata["tsconfig"] = json!(sources.config.stamp());
+            }
+            let metadata = metadata.to_string();
+            sql(db.execute(
+                "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')",
+                params![from, ids[0], line, col, metadata],
+            ))?;
+            sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+            return Ok(true);
+        }
+        // HTML bindings and unsupported Vue reference kinds remain pending.
         return Ok(false);
+    }
+    if kind == "angular_injects" {
+        let Some(proof) =
+            sources.angular_token_target(db, project, context, &path, &name, line, col)?
+        else {
+            // The persisted extraction candidates are not authority. Only a
+            // fresh AST/import binding proof can establish a token dependency.
+            return Ok(false);
+        };
+        let mut statement = sql(db.prepare_cached(
+            "SELECT id FROM nodes WHERE file_path=?1 AND name=?2 COLLATE BINARY AND kind='class' AND language IN ('typescript','tsx','javascript','jsx') LIMIT 2",
+        ))?;
+        let ids = sql(
+            statement.query_map(params![proof.target.path, proof.target.name], |row| {
+                row.get::<_, String>(0)
+            }),
+        )?
+        .collect::<Result<Vec<_>, _>>();
+        let ids = sql(ids)?;
+        if ids.len() != 1 {
+            return Ok(false);
+        }
+        let mut metadata = json!({
+            "refName": name,
+            "refKind": kind,
+            "resolvedBy": "angular-token-dependency-subset-v1",
+            "confidence": 0.9,
+            "framework": "angular",
+            "module": proof.module,
+            "imported": proof.imported,
+            "tokenForm": proof.token_form,
+            "exportContributors": proof.target.contributors,
+            "bindingEngine": "oxc-angular-di-proof-subset-v1",
+            "moduleEngine": "oxc-resolver-11.0.0-index-snapshot",
+            "exportEngine": "oxc-module-record-runtime-resolve-v1"
+        });
+        if sources.config.path.is_some() {
+            metadata["tsconfig"] = json!(sources.config.stamp());
+        }
+        let metadata = metadata.to_string();
+        sql(db.execute(
+            "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+            params![from, ids[0], line, col, metadata],
+        ))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
     }
     if language == "razor" && kind == "mvc_route" {
         let Some(target) = mvc_snapshot.resolve(db, &name, &path, context)? else {
