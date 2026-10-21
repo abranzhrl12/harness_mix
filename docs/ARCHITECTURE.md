@@ -61,6 +61,16 @@ Estas fronteras usan composición y visibilidad restringida, no un trait por fun
 ni entidades DDD para detalles técnicos. Los tests viven en archivos separados y
 `tests/architecture.rs` comprueba esa separación también en estos adaptadores.
 
+El almacén de trabajos separa la seguridad de rutas y handles, el acceso SQLite
+y la validación del snapshot. La propiedad de conexión, bloqueo de escritor y
+pines conserva el orden de liberación original; la división no crea conexiones
+ni transacciones adicionales. El logging de aplicación separa el registro y su
+estado de la sanitización pura, sin incorporar filesystem ni drivers al núcleo.
+El diagnóstico de procesos mantiene validación, observación de PID y probes
+TCP/HTTP como responsabilidades internas del adaptador; conserva las restricciones
+loopback y no convierte una observación puntual en una garantía de salud.
+Los tres conservan sus puntos de entrada y pruebas en módulos externos.
+
 `index_store` publica explícitamente en índices existentes schema 11/WAL:
 extracción nativa, emparejado de identidades, recuperación de refs entrantes y
 resolver conservador de nombres exactos, bajo transacción por archivo. La CLI

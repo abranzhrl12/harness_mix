@@ -95,6 +95,8 @@ fn service_tests_stay_in_external_modules() {
         root.join("postgresql.rs"),
         root.join("index_extract.rs"),
         root.join("ignore.rs"),
+        root.join("tasks_store.rs"),
+        root.join("process_status.rs"),
     ];
     for directory in [
         "verification",
@@ -109,6 +111,8 @@ fn service_tests_stay_in_external_modules() {
         "postgresql",
         "index_extract",
         "ignore",
+        "tasks_store",
+        "process_status",
     ] {
         rust_files(&root.join(directory), &mut files);
     }
@@ -132,6 +136,83 @@ fn service_tests_stay_in_external_modules() {
             path.strip_prefix(&root).unwrap().display()
         );
     }
+}
+
+#[test]
+fn application_logging_tests_stay_external() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/application/src");
+    let mut files = vec![root.join("logging.rs")];
+    rust_files(&root.join("logging"), &mut files);
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "tests.rs" || name.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        let parsed = syn::parse_file(&source).unwrap();
+        assert!(
+            !contains_inline_test(&parsed.items),
+            "{} contains inline tests",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn logging_sanitization_and_job_snapshot_validation_stay_pure() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for relative in [
+        "crates/application/src/logging/sanitize.rs",
+        "src/adapters/tasks_store/snapshot.rs",
+    ] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in [
+            "std::fs",
+            "tokio::",
+            "rusqlite",
+            "Project",
+            "OperationContext",
+            "std::net",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{relative} depends on infrastructure `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn job_store_retains_resource_ownership_and_drop_order() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/tasks_store.rs"),
+    )
+    .unwrap();
+    let parsed = syn::parse_file(&source).unwrap();
+    let store = parsed
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Struct(item) if item.ident == "Store" => Some(item),
+            _ => None,
+        })
+        .expect("job store resource owner");
+    let names = store
+        .fields
+        .iter()
+        .map(|field| {
+            assert!(
+                matches!(field.vis, syn::Visibility::Inherited),
+                "store handles must stay private"
+            );
+            field.ident.as_ref().unwrap().to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        ["db", "_files", "_writer", "_directories", "directory"],
+        "SQLite must close before its file pins and writer lock are released"
+    );
 }
 
 #[test]
