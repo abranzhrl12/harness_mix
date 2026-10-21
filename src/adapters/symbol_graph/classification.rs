@@ -5,6 +5,7 @@
 /// both sides are normalized to one canonical vocabulary before matching.
 pub(in crate::adapters) fn canonical_kind(kind: &str) -> Option<&'static str> {
     Some(match kind {
+        "component" => "component",
         "function_item"
         | "function"
         | "function_declaration"
@@ -33,6 +34,7 @@ pub(in crate::adapters) fn canonical_kind(kind: &str) -> Option<&'static str> {
 
 /// Every kind a selector may ask for: canonical names and their aliases.
 pub(in crate::adapters) const SELECTOR_KINDS: &[&str] = &[
+    "component",
     "razor_helper",
     "razor_section",
     "razor_model",
@@ -89,6 +91,7 @@ pub(in crate::adapters) const SELECTOR_KINDS: &[&str] = &[
 /// nodes, so the graph cannot answer that selector and the live path is used.
 pub(in crate::adapters) fn graph_kinds(canonical: &str) -> &'static [&'static str] {
     match canonical {
+        "component" => &["component"],
         "function_item" => &["function", "method", "constructor"],
         "function_signature_item" => &["function", "method"],
         "struct_item" => &["struct", "class", "record"],

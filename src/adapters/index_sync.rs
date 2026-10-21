@@ -114,7 +114,7 @@ fn plan_workspace_inner(
                 "trackedLanguages":"all_nonrestricted", "newFileLanguages":codegraph_native::LANGUAGES, "fullProviderScope":false,
                 "providerConfigApplied":inventory.scope["providerConfigApplied"], "trackedFilesCheckedOutsideDiscoveryIgnores":true,
                 "deletionsRequireExplicitAbsenceOrConfigExclusion":true,
-                "limitations":["Only bounded include/exclude config is supported; extension overrides and includeIgnored are refused", "Six-language new-file discovery uses local gitignore rules and conservative directory exclusions", "Not an atomic source snapshot; observations must be revalidated before publication", "Extraction preview does not resolve or publish the graph"]
+                "limitations":["Only bounded include/exclude config is supported; extension overrides and includeIgnored are refused", "Native-language new-file discovery, including Vue and HTML, uses local gitignore rules and conservative directory exclusions", "Not an atomic source snapshot; observations must be revalidated before publication", "Extraction preview does not resolve or publish the graph"]
             }
         }))
     };

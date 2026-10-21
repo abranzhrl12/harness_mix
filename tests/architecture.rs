@@ -275,8 +275,15 @@ fn job_store_retains_resource_ownership_and_drop_order() {
 #[test]
 fn extraction_decoder_stays_independent_of_workspace_io() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/index_extract");
-    for relative in ["decode.rs", "csharp.rs", "razor.rs"] {
-        let source = fs::read_to_string(root.join(relative)).unwrap();
+    let mut files = Vec::new();
+    rust_files(&root, &mut files);
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "preview.rs" || name == "tests.rs" || name.ends_with("_tests.rs") {
+            continue;
+        }
+        let relative = path.strip_prefix(&root).unwrap().display();
+        let source = fs::read_to_string(&path).unwrap();
         for forbidden in [
             "Project",
             "std::fs",

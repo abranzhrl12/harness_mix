@@ -157,6 +157,8 @@ pub(super) fn language_of(relative: &str) -> Option<String> {
             "js" | "mjs" | "cjs" => "javascript",
             "jsx" => "jsx",
             "cshtml" | "razor" => "razor",
+            "vue" => "vue",
+            "html" | "htm" => "html",
             _ => return None,
         }
         .to_owned(),

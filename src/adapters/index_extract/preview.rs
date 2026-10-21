@@ -47,12 +47,14 @@ pub(in crate::adapters) fn preview(
             let source =
                 std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
             let extracted = super::orchestration::extract(path, source, context)?;
-            Ok(
-                json!({"path":path,"sourceHash":digest,"status":"extracted_not_published",
+            let mut result = json!({"path":path,"sourceHash":digest,"status":"extracted_not_published",
                 "nodes":extracted["nodes"].as_array().ok_or(CONTRACT)?.len(),
                 "edges":extracted["edges"].as_array().ok_or(CONTRACT)?.len(),
-                "unresolvedReferences":extracted["unresolvedReferences"].as_array().ok_or(CONTRACT)?.len()}),
-            )
+                "unresolvedReferences":extracted["unresolvedReferences"].as_array().ok_or(CONTRACT)?.len()});
+            if let Some(coverage) = extracted.get("coverage") {
+                result["extractionCoverage"] = coverage.clone();
+            }
+            Ok(result)
         };
         match run() {
             Ok(value) => files.push(value),

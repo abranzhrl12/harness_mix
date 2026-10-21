@@ -4,6 +4,9 @@ use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "framework.rs"]
+pub(super) mod framework;
+
 #[derive(Clone)]
 pub(super) struct Identity {
     pub(super) id: String,
@@ -82,7 +85,7 @@ pub(super) struct ProviderEdge {
 /// produces them, so the publication keeps them instead of dropping them.
 pub(super) fn provider_node_ids(db: &Connection, path: &str) -> Result<BTreeSet<String>, Failure> {
     let mut statement = sql(db.prepare(
-        "SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component') LIMIT 20001",
+        "SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component') AND id NOT LIKE 'native:framework:%' LIMIT 20001",
     ))?;
     let rows = sql(statement.query_map([path], |r| r.get::<_, String>(0)))?;
     let mut result = BTreeSet::new();
@@ -100,7 +103,7 @@ pub(super) fn provider_node_ids(db: &Connection, path: &str) -> Result<BTreeSet<
 /// incoming edges it already retains.
 pub(super) fn provider_edges(db: &Connection, path: &str) -> Result<Vec<ProviderEdge>, Failure> {
     let mut statement = sql(db.prepare(
-        "SELECT e.source,e.target,e.kind,e.line,e.col,e.metadata,e.provenance,ifnull(s.file_path,''),ifnull(t.file_path,'') FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE e.source IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component')) OR e.target IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component')) LIMIT 20001",
+        "SELECT e.source,e.target,e.kind,e.line,e.col,e.metadata,e.provenance,ifnull(s.file_path,''),ifnull(t.file_path,'') FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE e.source IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component') AND id NOT LIKE 'native:framework:%') OR e.target IN(SELECT id FROM nodes WHERE file_path=?1 AND kind IN('route','component') AND id NOT LIKE 'native:framework:%') LIMIT 20001",
     ))?;
     let rows = sql(statement.query_map([path], |r| {
         Ok(ProviderEdge {

@@ -150,7 +150,7 @@ pub(super) fn scan(
                 continue;
             };
             let path = path.replace('\\', "/");
-            // Only languages supported by native extraction (including the Razor adapter).
+            // Only formats supported by native extraction, including Razor, Vue and HTML.
             // Never claim provider-wide inventory coverage.
             if super::index_extract::language(&path).is_none()
                 || restricted(&path)

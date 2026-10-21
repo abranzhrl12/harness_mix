@@ -1,5 +1,6 @@
 use super::repository::{
-    ProviderEdge, identities, identity_map, incoming, insert_ref, provider_edges, provider_node_ids,
+    ProviderEdge, framework, identities, identity_map, incoming, insert_ref, provider_edges,
+    provider_node_ids,
 };
 use super::resolution::resolve_exact;
 use super::{
@@ -75,7 +76,7 @@ pub(super) fn publish(
     // this file next to them. Only provider data that the native publisher
     // cannot reproduce at all still blocks the transaction.
     let provider_ids: BTreeSet<String> = provider_node_ids(db, path)?;
-    let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')) OR target IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component'))) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
+    let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%')) OR target IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%'))) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
     let third_file:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') END IS NOT NULL AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END >= ?1 AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END < ?2)",params![format!("{path}:"),format!("{path};")],|r|r.get(0)))?;
     let synthesis_table:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synthesis_inputs' AND upper(sql) LIKE 'CREATE TABLE%')",[],|r|r.get(0)))?;
     let _prior_synthesis_input = if synthesis_table {
@@ -121,6 +122,32 @@ pub(super) fn publish(
     let mut retained = Vec::new();
     for mut edge in incoming {
         context.check()?;
+        let framework_template = edge
+            .metadata
+            .as_deref()
+            .and_then(|metadata| serde_json::from_str::<Value>(metadata).ok())
+            .and_then(|metadata| opt_string(&metadata, "refKind").map(str::to_owned))
+            .is_some_and(|kind| framework::is_template_reference(&kind));
+        if framework_template {
+            // Revalidate even when the target's node identity is unchanged:
+            // the edge metadata records both contributing file snapshots.
+            let metadata: Value = edge
+                .metadata
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .ok_or((
+                    "SYNC_LEGACY_REFERENCE",
+                    "Cannot recover framework template reference; index unchanged",
+                ))?;
+            let name = string(&metadata, "refName").map_err(|_| {
+                (
+                    "SYNC_LEGACY_REFERENCE",
+                    "Framework template edge lacks original path; index unchanged",
+                )
+            })?;
+            resurrect.push((edge, name, "framework_template".to_owned()));
+            continue;
+        }
         if provider_ids.contains(&edge.target) {
             // The provider node survives the publication; the edge keeps it.
             retained.push(edge);
@@ -162,10 +189,10 @@ pub(super) fn publish(
     .unwrap_or(0);
     // Explicit deletion also supports indexes produced with foreign_keys off.
     // Provider nodes and their pending references survive the publication.
-    sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component'))",[path]))?;
+    sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%'))",[path]))?;
     sql(db.execute("DELETE FROM edges WHERE source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)",[path]))?;
     sql(db.execute(
-        "DELETE FROM nodes WHERE file_path=?1 AND kind NOT IN('route','component')",
+        "DELETE FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%')",
         [path],
     ))?;
     let mut refs = BTreeSet::new();
@@ -360,7 +387,7 @@ pub(super) fn publish(
     // tail index, the import invalidation). The project-wide import clause
     // only applies to a JS/TS publication: a C# or Razor source cannot change
     // the resolution of a JavaScript import.
-    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (?2 IN ('typescript','tsx','javascript','jsx') AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref'))) LIMIT 20001"))?;
+    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR (?2 IN ('typescript','tsx','javascript','jsx') AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) OR (?2='html' AND reference_kind='framework_template' AND reference_name=?1)) LIMIT 20001"))?;
     for row in sql(statement.query_map(params![path, language], |r| r.get::<_, i64>(0)))? {
         refs.insert(sql(row)?);
         if refs.len() > MAX_ROWS {
@@ -371,6 +398,7 @@ pub(super) fn publish(
     let mut resolved = 0;
     let mut import_sources = imports::Sources::configured(configuration);
     let mut mvc_snapshot = super::super::index_razor_mvc::Snapshot::default();
+    let mut framework_snapshot = framework::Snapshot::default();
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(
@@ -381,8 +409,10 @@ pub(super) fn publish(
             &mut import_sources,
             &mut candidate_snapshot,
             &mut mvc_snapshot,
+            &mut framework_snapshot,
         )?);
     }
+    framework_snapshot.recheck(project, context)?;
     if import_sources.config.digest.is_some()
         || import_sources
             .config
@@ -401,8 +431,9 @@ pub(super) fn publish(
         [],
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
-    Ok((
-        json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false}),
-        import_sources,
-    ))
+    let mut report = json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"native_exact_name_and_relative_named_import_subset","committed":false,"synchronized":false,"globalFreshnessCertified":false});
+    if let Some(coverage) = extracted.and_then(|value| value.get("coverage")) {
+        report["extractionCoverage"] = coverage.clone();
+    }
+    Ok((report, import_sources))
 }

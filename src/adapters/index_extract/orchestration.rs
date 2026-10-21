@@ -6,6 +6,8 @@ pub fn language(path: &str) -> Option<&'static str> {
         "rs" => Some("rust"),
         "cs" => Some("csharp"),
         "cshtml" => Some("razor"),
+        "vue" => Some("vue"),
+        "html" | "htm" => Some("html"),
         "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
         "js" | "mjs" | "cjs" => Some("javascript"),
@@ -29,6 +31,12 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     if lang == "razor" {
         return super::razor::extract_razor(path, source, context);
     }
+    if lang == "vue" {
+        return super::vue::extract(path, source, context);
+    }
+    if lang == "html" {
+        return super::angular::html(path, source, context);
+    }
     let prepared = if lang == "csharp" {
         super::csharp::blank_csharp(source)?
     } else {
@@ -41,5 +49,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
         )
     })?;
     context.check()?;
-    super::decode::decode(&raw, path, lang, context)
+    let mut graph = super::decode::decode(&raw, path, lang, context)?;
+    if matches!(lang, "typescript" | "tsx" | "javascript" | "jsx") {
+        super::angular::enrich(path, source, &mut graph, context)?;
+    }
+    Ok(graph)
 }

@@ -13,11 +13,44 @@ pub(super) fn resolve_exact(
     sources: &mut imports::Sources,
     candidate_snapshot: &mut candidates::Snapshot,
     mvc_snapshot: &mut super::super::index_razor_mvc::Snapshot,
+    framework_snapshot: &mut super::repository::framework::Snapshot,
 ) -> Result<bool, Failure> {
     let reference:Option<ResolutionReference> = sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
         return Ok(false);
     };
+    if super::repository::framework::is_template_reference(&kind) {
+        let Some(target) = super::repository::framework::indexed_template_target(
+            db, project, &from, &path, &language, &name, context,
+        )?
+        else {
+            // Missing, stale, ambiguous, or unsafe paths stay pending. Never
+            // fall through to the generic same-name resolver.
+            return Ok(false);
+        };
+        framework_snapshot.remember(&path, &target.source_hash)?;
+        framework_snapshot.remember(&target.target_path, &target.target_hash)?;
+        let metadata = json!({
+            "refName": name,
+            "refKind": kind,
+            "resolvedBy": "native-angular-template-url-indexed-html-v1",
+            "confidence": 1.0,
+            "sourceHash": target.source_hash,
+            "targetHash": target.target_hash
+        })
+        .to_string();
+        sql(db.execute(
+            "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+            params![from, target.node_id, line, col, metadata],
+        ))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
+    }
+    if matches!(language.as_str(), "vue" | "html") {
+        // Vue imports/calls and HTML text bindings are not proven by this
+        // resolver. Keep them pending instead of binding a global homonym.
+        return Ok(false);
+    }
     if language == "razor" && kind == "mvc_route" {
         let Some(target) = mvc_snapshot.resolve(db, &name, &path, context)? else {
             razor_invalidation::mark_failed(db, id, &name, &kind)?;

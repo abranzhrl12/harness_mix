@@ -2,6 +2,9 @@
 
 La organización de parsers por lenguaje, el puerto `SyntaxParser` y las pruebas
 separadas se describen en [PARSERS.md](PARSERS.md).
+La extracción nativa Vue/Angular y sus límites se describen en
+[FRAMEWORK-GRAPH.md](FRAMEWORK-GRAPH.md); el HTML genérico conserva su identidad y
+la asociación Angular de plantillas se comprueba en el adaptador de publicación.
 
 ## Consultas y verificación
 

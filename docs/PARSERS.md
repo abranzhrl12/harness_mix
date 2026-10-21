@@ -1,5 +1,9 @@
 # Parser architecture
 
+Vue/Angular graph extraction, publication and explicit limitations are described
+in [FRAMEWORK-GRAPH.md](FRAMEWORK-GRAPH.md). Structural graph coverage is not
+framework compilation or template type checking.
+
 Los parsers de lenguaje viven bajo `src/adapters/parsers/`. Reciben texto en
 memoria y producen validación sintáctica o símbolos; no son responsables de
 abrir proyectos, recorrer el workspace ni hablar con MCP.
