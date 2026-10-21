@@ -4,12 +4,17 @@ use super::super::{
     rust_symbols, symbol_graph,
 };
 use super::graph::{self, GraphOutcome};
-use super::plan::{SearchPlan, excluded};
+mod matches;
+mod results;
+mod walk;
+use super::plan::SearchPlan;
 use harness_domain::{
     contracts::{Kind, SearchArgs},
     execution::OperationContext,
-    results::{prefix, utf16_len},
+    results::prefix,
 };
+use matches::Evaluation;
+use results::MatchResults;
 use serde_json::{Value, json};
 use std::{
     cell::RefCell,
@@ -93,45 +98,8 @@ pub(super) fn execute<'a>(
     } = plan;
     let started = Instant::now();
     let folder_stats = RefCell::new(BTreeMap::new());
-    let mut builder = ignore::WalkBuilder::new(&root);
-    builder
-        .follow_links(false)
-        .hidden(true)
-        .parents(true)
-        .git_ignore(true)
-        .git_exclude(true)
-        .git_global(false)
-        .require_git(false)
-        .sort_by_file_path(|a, b| a.cmp(b))
-        .filter_entry(move |entry| {
-            !entry.file_name().to_str().is_none_or(|name| {
-                excluded(name)
-                    || (file_size
-                        && (["vendor", "dist", "build", "coverage"]
-                            .contains(&name.to_ascii_lowercase().as_str())
-                            || name.ends_with(".min.js")
-                            || name.ends_with(".map")))
-            })
-        });
-    // Defaults use override globs (higher precedence than ignore files) so a
-    // project policy cannot re-enable dependency or build directories.
-    let mut overrides = ignore::overrides::OverrideBuilder::new(&root);
-    overrides
-        .add("!node_modules/")
-        .map_err(|_| ("INTERNAL", "Invalid default exclusion"))?;
-    overrides
-        .add("!target/")
-        .map_err(|_| ("INTERNAL", "Invalid default exclusion"))?;
-    builder.overrides(
-        overrides
-            .build()
-            .map_err(|_| ("INTERNAL", "Invalid default exclusions"))?,
-    );
-    let custom_ignore = !explicit_scope;
-    if custom_ignore {
-        builder.add_custom_ignore_filename(ignore_policy::FILE);
-    }
-    let mut all = Vec::new();
+    let builder = walk::build(&root, file_size, explicit_scope)?;
+    let mut match_results = MatchResults::default();
     let mut visited = 0;
     let mut bytes = 0;
     let mut reserved_bytes = 0_u64;
@@ -140,7 +108,6 @@ pub(super) fn execute<'a>(
     let mut binary_skipped = 0;
     let mut parse_errors = 0;
     let mut stable_files = 0;
-    let mut metadata_bytes = 0;
     let mut bounded = false;
     let mut timed_out = false;
     let mut cancelled = false;
@@ -165,7 +132,7 @@ pub(super) fn execute<'a>(
                     name,
                     context,
                 ));
-                all = graph_outcome
+                match_results.rows = graph_outcome
                     .as_ref()
                     .map(|outcome| outcome.rows.clone())
                     .unwrap_or_default();
@@ -262,7 +229,7 @@ pub(super) fn execute<'a>(
         match args.kind {
             Kind::Files => {
                 if args.query.is_empty() || relative.contains(&args.query) {
-                    all.push(json!(relative));
+                    match_results.rows.push(json!(relative));
                 }
             }
             Kind::Text | Kind::FileSize | Kind::Syntax => {
@@ -366,112 +333,69 @@ pub(super) fn execute<'a>(
                     stable_files += 1;
                     live_languages
                         .insert(graph::language_of(relative).unwrap_or_else(|| "rust".into()));
-                    for symbol in symbols {
-                        if let Err((code, _)) = context.check() {
-                            cancelled = code == "CANCELLED";
-                            timed_out = code == "TIMEOUT";
-                            skipped_files.push(json!({"path":pending_path,"reason":if cancelled { "cancelled" } else { "time_budget" }}));
-                            break 'scan;
-                        }
-                        if started.elapsed() >= Duration::from_secs(5) {
-                            timed_out = true;
-                            skipped_files.push(json!({"path":pending_path,"reason":"time_budget"}));
-                            break 'scan;
-                        }
-                        if symbol_graph::canonical_kind(symbol.kind) == Some(kind)
-                            && name.is_none_or(|name| symbol.name == name)
-                        {
-                            let row = json!({"file":relative,"hash":digest,"name":symbol.name,
-                                "container":symbol.container,"kind":symbol.kind,"start":symbol.start,
-                                "end":symbol.end,"signature":symbol.signature,"symbolId":symbol.id});
-                            metadata_bytes += row.to_string().len();
-                            if metadata_bytes > 4 * 1024 * 1024 || all.len() >= 10000 {
-                                bounded = true;
-                                skipped_files
-                                    .push(json!({"path":pending_path,"reason":"result_budget"}));
-                                break 'scan;
-                            }
-                            all.push(row);
-                        }
+                    let mut state = matches::MatchState {
+                        relative,
+                        digest: &digest,
+                        pending_path: &pending_path,
+                        context,
+                        started,
+                        results: &mut match_results,
+                        skipped_files: &mut skipped_files,
+                        bounded: &mut bounded,
+                        timed_out: &mut timed_out,
+                        cancelled: &mut cancelled,
+                        truncated: &mut truncated,
+                        stable_files: &mut stable_files,
+                    };
+                    if matches::symbol_matches(symbols, kind, name, &mut state) == Evaluation::Stop
+                    {
+                        break 'scan;
                     }
                     continue;
                 }
                 if file_size {
-                    if started.elapsed() >= Duration::from_secs(5) {
-                        timed_out = true;
-                        skipped_files.push(json!({"path":pending_path,"reason":"time_budget"}));
+                    let mut state = matches::MatchState {
+                        relative,
+                        digest: "",
+                        pending_path: &pending_path,
+                        context,
+                        started,
+                        results: &mut match_results,
+                        skipped_files: &mut skipped_files,
+                        bounded: &mut bounded,
+                        timed_out: &mut timed_out,
+                        cancelled: &mut cancelled,
+                        truncated: &mut truncated,
+                        stable_files: &mut stable_files,
+                    };
+                    if matches::file_size_matches(&file, min_lines, &mut state) == Evaluation::Stop
+                    {
                         break 'scan;
-                    }
-                    stable_files += 1;
-                    let lines = file.iter().filter(|&&byte| byte == b'\n').count()
-                        + usize::from(!file.is_empty() && file.last() != Some(&b'\n'));
-                    if lines > min_lines {
-                        let row = json!({"path":relative,"lines":lines,"bytes":file.len()});
-                        metadata_bytes += row.to_string().len();
-                        if metadata_bytes > 4 * 1024 * 1024 {
-                            bounded = true;
-                            skipped_files
-                                .push(json!({"path":pending_path,"reason":"result_budget"}));
-                            break 'scan;
-                        }
-                        all.push(row);
                     }
                     continue;
                 }
-                // Offsets refer to the bytes already read, so the hash and context describe
-                // one source snapshot and preserve CRLF and trailing whitespace exactly.
-                let offsets: Vec<usize> = if args.context_lines.is_some() {
-                    std::iter::once(0)
-                        .chain(text.match_indices('\n').map(|(offset, _)| offset + 1))
-                        .filter(|offset| *offset < text.len())
-                        .collect()
-                } else {
-                    Vec::new()
+                let mut state = matches::MatchState {
+                    relative,
+                    digest: "",
+                    pending_path: &pending_path,
+                    context,
+                    started,
+                    results: &mut match_results,
+                    skipped_files: &mut skipped_files,
+                    bounded: &mut bounded,
+                    timed_out: &mut timed_out,
+                    cancelled: &mut cancelled,
+                    truncated: &mut truncated,
+                    stable_files: &mut stable_files,
                 };
-                let digest = args.context_lines.map(|_| harness_domain::hash(&file));
-                let source = text;
-                for (line, text) in source.split_inclusive('\n').enumerate() {
-                    if let Err((code, _)) = context.check() {
-                        cancelled = code == "CANCELLED";
-                        timed_out = code == "TIMEOUT";
-                        skipped_files.push(json!({"path":pending_path,"reason":if cancelled { "cancelled" } else { "time_budget" }}));
-                        break 'scan;
-                    }
-                    if started.elapsed() >= Duration::from_secs(5) {
-                        timed_out = true;
-                        skipped_files.push(json!({"path":pending_path,"reason":"time_budget"}));
-                        break 'scan;
-                    }
-                    if text.contains(&args.query) {
-                        truncated |= utf16_len(text) > 500;
-                        let mut row = json!({"file":relative,"line":line + 1,"text":text});
-                        if let Some(digest) = &digest {
-                            let start = line.saturating_sub(context_lines);
-                            let end = (line + context_lines + 1).min(offsets.len());
-                            let end_offset = offsets.get(end).copied().unwrap_or(source.len());
-                            row["hash"] = json!(digest);
-                            row["context"] = json!({"start":start + 1,"end":end,
-                                "text":&source[offsets[start]..end_offset]});
-                        }
-                        metadata_bytes += row.to_string().len();
-                        if metadata_bytes > 4 * 1024 * 1024 {
-                            bounded = true;
-                            skipped_files
-                                .push(json!({"path":pending_path,"reason":"result_budget"}));
-                            break 'scan;
-                        }
-                        all.push(row);
-                    }
-                    // Bound stored results and a single file containing millions of lines.
-                    if all.len() >= 10000 {
-                        bounded = true;
-                        skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
-                        break;
-                    }
+                let evaluation =
+                    matches::text_matches(text, &file, args, context_lines, &mut state);
+                if evaluation == Evaluation::Stop {
+                    break 'scan;
                 }
             }
         }
-        if all.len() >= 10000 {
+        if match_results.rows.len() >= 10000 {
             bounded = true;
             skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
             break;
@@ -487,7 +411,7 @@ pub(super) fn execute<'a>(
         scope,
         started,
         folder_stats,
-        all,
+        all: match_results.rows,
         compact: Vec::new(),
         visited,
         bytes,

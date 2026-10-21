@@ -33,6 +33,12 @@ módulos `search/plan.rs`, `scan.rs`, `graph.rs` y `presentation.rs` separan
 validación de opciones, lectura de archivos, descubrimiento indexado y formato
 de resultados. El escaneo comparte el presupuesto y contexto de la operación;
 la presentación recibe datos observados y no realiza I/O.
+Dentro del adaptador de escaneo, `search/scan/walk.rs` configura el recorrido y
+sus exclusiones; `matches.rs` evalúa coincidencias sobre el contenido leído, y
+`results.rs` acumula las filas y controla su presupuesto de metadatos. `scan.rs`
+conserva la coordinación de lecturas, cancelación y mediciones por carpeta.
+Estos módulos internos no introducen dependencias del filesystem en el dominio
+ni en la aplicación.
 Las métricas de tiempo se capturan al finalizar el escaneo y la preparación de
 resultados, antes de construir el JSON de presentación.
 

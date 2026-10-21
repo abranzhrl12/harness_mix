@@ -383,3 +383,66 @@ fn defaults_and_secrets_cannot_be_re_included() {
     assert_eq!(paths, vec!["src.txt"]);
     assert_eq!(result["complete"], true);
 }
+
+#[test]
+fn compact_text_truncation_keeps_unicode_boundary_detail_and_file_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let long_line = format!("needle{}\n", "😀".repeat(300));
+    // Create in reverse lexical order: the public result order stays stable.
+    fs::write(dir.path().join("z.txt"), "needle last\n").unwrap();
+    fs::write(dir.path().join("a.txt"), &long_line).unwrap();
+    let project = Project::new(dir.path()).unwrap();
+
+    let result = search(&project, &text_args(None)).unwrap();
+    let matches = result["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0]["file"], "a.txt");
+    assert_eq!(matches[1]["file"], "z.txt");
+    let compact_text = matches[0]["text"].as_str().unwrap();
+    assert_eq!(compact_text, format!("needle{}", "😀".repeat(247)));
+    assert_eq!(compact_text.encode_utf16().count(), 500);
+    assert_eq!(result["truncated"], true);
+    assert_eq!(result["_detail"]["matches"][0]["text"], long_line);
+    assert_eq!(result["complete"], true);
+}
+
+#[test]
+fn file_size_min_lines_excludes_files_equal_to_the_threshold() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("one-line.txt"), "one\n").unwrap();
+    fs::write(dir.path().join("two-lines.txt"), "one\ntwo").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({
+        "kind":"file_size", "query":"", "minLines":1
+    }))
+    .unwrap();
+
+    let result = search(&project, &args).unwrap();
+    let files = result["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "two-lines.txt");
+    assert_eq!(files[0]["lines"], 2);
+    assert_eq!(result["complete"], true);
+    assert_eq!(result["skipped"], 0);
+}
+
+#[test]
+fn match_metadata_budget_rejects_an_oversized_row_without_cutting_saved_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let quote_heavy_line = format!("needle{}\n", "\"".repeat(1_100_000));
+    assert!(quote_heavy_line.len() < 2 * 1024 * 1024);
+    fs::write(dir.path().join("a.txt"), &quote_heavy_line).unwrap();
+    fs::write(dir.path().join("b.txt"), &quote_heavy_line).unwrap();
+    let project = Project::new(dir.path()).unwrap();
+
+    let result = search(&project, &text_args(None)).unwrap();
+    assert_eq!(result["limited"], true);
+    assert_eq!(result["complete"], false);
+    assert_eq!(result["diagnostics"][0]["code"], "SEARCH_INCOMPLETE");
+    let detail_matches = result["_detail"]["matches"].as_array().unwrap();
+    assert_eq!(detail_matches.len(), 1);
+    assert_eq!(detail_matches[0]["file"], "a.txt");
+    assert_eq!(detail_matches[0]["text"], quote_heavy_line);
+    assert_eq!(result["skippedFiles"][0]["path"], "b.txt");
+    assert_eq!(result["skippedFiles"][0]["reason"], "result_budget");
+}
