@@ -35,6 +35,11 @@ su formato propio, mientras que `SourceFormat::language()` los agrupa en los
 idiomas de protocolo `javascript`/`typescript`. Clasificar un formato no
 significa que exista un parser de validación para él.
 
+En C#, `csharp/syntax.rs` conserva los puntos de entrada y delega en etapas
+separadas: `lexer.rs`, `declarations/symbols.rs`, `razor.rs` y `validation.rs`.
+Las pruebas de integración entre etapas están en `csharp/syntax_tests.rs` y
+comprueban rangos originales, comentarios, literales, cancelación y límites.
+
 ## Contexto de análisis de código
 
 La aplicación de DDD se limita aquí al contexto de análisis de código:

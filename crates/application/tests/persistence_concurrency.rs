@@ -1,6 +1,6 @@
 use harness_application::{
     Application,
-    ports::{SessionContext, SessionMutation, SessionRepository, Workspace},
+    ports::{SessionContext, SessionMutation, SessionRepository},
 };
 use harness_domain::{
     Failure,
@@ -45,12 +45,7 @@ struct Disk {
     started: mpsc::SyncSender<()>,
     release: Mutex<mpsc::Receiver<()>>,
 }
-impl Workspace for Disk {
-    fn observe_workspace(&self, _: &OperationContext) -> Result<Value, Failure> {
-        self.started.send(()).unwrap();
-        self.release.lock().unwrap().recv().unwrap();
-        Ok(json!({"status":"captured","hash":"fixture"}))
-    }
+impl harness_application::ports::workspace::WorkspaceMetadata for Disk {
     fn info(&self) -> Value {
         json!({})
     }
@@ -60,18 +55,35 @@ impl Workspace for Disk {
     fn capabilities(&self) -> Value {
         json!({})
     }
+}
+impl harness_application::ports::workspace::SourceQueries for Disk {
     fn read(&self, _: &ReadArgs, _: &OperationContext) -> Result<Value, Failure> {
         unreachable!()
     }
     fn search(&self, _: &SearchArgs, _: &OperationContext) -> Result<Value, Failure> {
         unreachable!()
     }
+}
+impl harness_application::ports::workspace::SourceEditing for Disk {}
+impl harness_application::ports::workspace::WorkspaceDiagnostics for Disk {
+    fn observe_workspace(&self, _: &OperationContext) -> Result<Value, Failure> {
+        self.started.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(json!({"status":"captured","hash":"fixture"}))
+    }
+}
+impl harness_application::ports::workspace::VersionControl for Disk {}
+impl harness_application::ports::workspace::SqlAccess for Disk {}
+impl harness_application::ports::workspace::ArtifactQueries for Disk {}
+impl harness_application::ports::workspace::SessionPersistence for Disk {
     fn persist_session(&self, _: &str, _: &Value, _: &OperationContext) -> Result<(), Failure> {
         self.started.send(()).unwrap();
         self.release.lock().unwrap().recv().unwrap();
         Ok(())
     }
 }
+impl harness_application::ports::workspace::LogPersistence for Disk {}
+impl harness_application::ports::workspace::Verification for Disk {}
 fn request(update: bool) -> Request {
     Request::Tasks(TasksArgs {
         session: "session".into(),

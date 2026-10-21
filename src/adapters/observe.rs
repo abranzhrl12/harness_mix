@@ -194,7 +194,7 @@ impl TaskManager {
                 events,
                 state.sequence,
                 oldest,
-                task.status,
+                task.lifecycle.status().as_str(),
                 task.result.as_ref().is_some_and(|r| r["limited"] == true),
                 persistence_error(&state),
             )

@@ -365,7 +365,9 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): action=outline|read, view=signature|full.")]
+    #[tool(
+        description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): action=outline|read, view=signature|full."
+    )]
     async fn harness_symbols(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::SymbolsArgs>,
@@ -373,7 +375,9 @@ impl McpHarness {
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(description = "Reemplaza oldText único o por line; hash opcional ligado a lectura interna; preview=true no publica. Acepta snake_case.")]
+    #[tool(
+        description = "Reemplaza oldText único o por line; hash opcional ligado a lectura interna; preview=true no publica. Acepta snake_case."
+    )]
     async fn harness_replace(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ReplaceArgs>,
@@ -442,7 +446,9 @@ impl McpHarness {
         self.call(Request::Detail(args), context).await
     }
 
-    #[tool(description = "Busca text/files/file_size/syntax con scope y globs; contextLines=0..20 añade fuente exacta y hash en kind=text.")]
+    #[tool(
+        description = "Busca text/files/file_size/syntax con scope y globs; contextLines=0..20 añade fuente exacta y hash en kind=text."
+    )]
     async fn harness_search(
         &self,
         Parameters(args): Parameters<SearchArgs>,
@@ -667,32 +673,7 @@ mod tests {
         started: Mutex<Option<oneshot::Sender<()>>>,
         finished: Mutex<Option<oneshot::Sender<()>>>,
     }
-    impl Workspace for WaitingWorkspace {
-        fn replace(
-            &self,
-            _: &harness_domain::contracts::ReplaceArgs,
-            context: &OperationContext,
-        ) -> Result<Value, Failure> {
-            self.started
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap()
-                .send(())
-                .unwrap();
-            // Simulate cancellation after the publication has begun.
-            while context.check().is_ok() {
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
-            self.finished
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap()
-                .send(())
-                .unwrap();
-            Ok(json!({"changed":true,"commitStatus":"committed"}))
-        }
+    impl harness_application::ports::workspace::WorkspaceMetadata for WaitingWorkspace {
         fn info(&self) -> Value {
             json!({})
         }
@@ -702,6 +683,8 @@ mod tests {
         fn capabilities(&self) -> Value {
             json!({})
         }
+    }
+    impl harness_application::ports::workspace::SourceQueries for WaitingWorkspace {
         fn read(&self, _: &ReadArgs, context: &OperationContext) -> Result<Value, Failure> {
             self.started
                 .lock()
@@ -727,6 +710,40 @@ mod tests {
             unreachable!()
         }
     }
+    impl harness_application::ports::workspace::SourceEditing for WaitingWorkspace {
+        fn replace(
+            &self,
+            _: &harness_domain::contracts::ReplaceArgs,
+            context: &OperationContext,
+        ) -> Result<Value, Failure> {
+            self.started
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            // Simulate cancellation after the publication has begun.
+            while context.check().is_ok() {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            self.finished
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(())
+                .unwrap();
+            Ok(json!({"changed":true,"commitStatus":"committed"}))
+        }
+    }
+    impl harness_application::ports::workspace::WorkspaceDiagnostics for WaitingWorkspace {}
+    impl harness_application::ports::workspace::VersionControl for WaitingWorkspace {}
+    impl harness_application::ports::workspace::SqlAccess for WaitingWorkspace {}
+    impl harness_application::ports::workspace::ArtifactQueries for WaitingWorkspace {}
+    impl harness_application::ports::workspace::SessionPersistence for WaitingWorkspace {}
+    impl harness_application::ports::workspace::LogPersistence for WaitingWorkspace {}
+    impl harness_application::ports::workspace::Verification for WaitingWorkspace {}
     struct TrackingSessions(Arc<AtomicUsize>, Arc<Mutex<()>>);
     impl SessionRepository for TrackingSessions {
         fn workflow_gate(&mut self, _: &str) -> Result<Arc<Mutex<()>>, Failure> {

@@ -1,6 +1,6 @@
 use harness_application::{
     Application,
-    ports::{SessionContext, SessionRepository, Workspace},
+    ports::{SessionContext, SessionRepository},
 };
 use harness_domain::{
     Failure,
@@ -17,7 +17,7 @@ use std::sync::{
 struct FakeWorkspace {
     calls: Arc<AtomicUsize>,
 }
-impl Workspace for FakeWorkspace {
+impl harness_application::ports::workspace::WorkspaceMetadata for FakeWorkspace {
     fn info(&self) -> Value {
         json!({"root":"memory","languages":[],"manifestScope":"raíz del proyecto","indexed":false})
     }
@@ -27,6 +27,8 @@ impl Workspace for FakeWorkspace {
     fn capabilities(&self) -> Value {
         json!({"node":false})
     }
+}
+impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
     fn read(&self, args: &ReadArgs, _: &OperationContext) -> Result<Value, Failure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"path":args.path,"text":"memory"}))
@@ -35,6 +37,15 @@ impl Workspace for FakeWorkspace {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"matches":[]}))
     }
+}
+impl harness_application::ports::workspace::SourceEditing for FakeWorkspace {}
+impl harness_application::ports::workspace::WorkspaceDiagnostics for FakeWorkspace {}
+impl harness_application::ports::workspace::VersionControl for FakeWorkspace {}
+impl harness_application::ports::workspace::SqlAccess for FakeWorkspace {}
+impl harness_application::ports::workspace::ArtifactQueries for FakeWorkspace {}
+impl harness_application::ports::workspace::SessionPersistence for FakeWorkspace {}
+impl harness_application::ports::workspace::LogPersistence for FakeWorkspace {}
+impl harness_application::ports::workspace::Verification for FakeWorkspace {
     fn verify(
         &self,
         _: &harness_domain::contracts::VerifyArgs,

@@ -76,6 +76,30 @@ flowchart TD
 
 ## Responsabilidades y límites
 
+Los puertos de workspace se agrupan por capacidad en
+`crates/application/src/ports/workspace/`: contexto y configuración, consultas de
+fuentes, edición, diagnósticos, Git, SQL, artefactos, sesiones, logs y verificación.
+`Workspace` es únicamente la composición de esas capacidades para el host que
+ofrece todas las herramientas; no declara métodos. Un caso de uso que solo lee
+fuentes puede recibir `SourceQueries` sin depender del resto. Los adaptadores
+nativos implementan cada capacidad en `src/adapters/workspace/`.
+
+Para implementar un host Rust completo, se implementan los puertos concretos y
+se obtiene `Workspace` mediante la implementación genérica. Los adaptadores de
+pruebas existentes ya usan esa composición; los contratos JSON permanecen iguales.
+
+El ciclo de vida de trabajos vive en `harness_domain::jobs`: `JobStatus` conserva
+los nombres persistidos y `JobLifecycle` encapsula estado e intento, validando las
+transiciones de ejecución. La recuperación de snapshots es una operación distinta
+que conserva los intentos aceptados por el formato anterior. Tokio, semáforos,
+persistencia y notificaciones permanecen en `adapters/tasks`; el ejecutor recibe
+las dependencias ya elegidas por el coordinador.
+
+`index_store.rs` conserva la coordinación de pines, presupuestos y transacciones.
+Sus módulos internos separan `validation`, `repository`, `publication` y
+`resolution`; todos trabajan sobre la conexión/transacción existente, sin abrir
+otra unidad de trabajo ni cambiar el orden de publicación y revalidación.
+
 | Ubicación | Responsabilidad | Dependencias permitidas |
 |---|---|---|
 | `crates/domain` | Solicitudes tipadas, errores, hash, envelope, detalles, paginación UTF-16 y presupuestos del almacén | Bibliotecas de datos/criptografía; schema JSON opcional |

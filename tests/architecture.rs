@@ -54,14 +54,16 @@ fn query_presenters_do_not_read_sources_or_databases() {
 }
 
 #[test]
-fn query_and_verification_tests_stay_in_external_modules() {
+fn service_tests_stay_in_external_modules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters");
     let mut files = vec![
         root.join("verify.rs"),
         root.join("search.rs"),
         root.join("explore.rs"),
+        root.join("tasks.rs"),
+        root.join("index_store.rs"),
     ];
-    for directory in ["verification", "search", "explore"] {
+    for directory in ["verification", "search", "explore", "tasks", "index_store"] {
         rust_files(&root.join(directory), &mut files);
     }
     for path in files {
@@ -84,6 +86,30 @@ fn query_and_verification_tests_stay_in_external_modules() {
             path.strip_prefix(&root).unwrap().display()
         );
     }
+}
+
+#[test]
+fn workspace_is_a_composition_bound_instead_of_a_monolithic_interface() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source =
+        fs::read_to_string(root.join("crates/application/src/ports/workspace/mod.rs")).unwrap();
+    let parsed = syn::parse_file(&source).unwrap();
+    let workspace = parsed
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Trait(item) if item.ident == "Workspace" => Some(item),
+            _ => None,
+        })
+        .expect("workspace composition contract");
+    assert!(
+        workspace.items.is_empty(),
+        "add methods to capability ports, not Workspace"
+    );
+    assert!(
+        workspace.supertraits.len() > 1,
+        "compose independent capabilities"
+    );
 }
 
 #[test]
