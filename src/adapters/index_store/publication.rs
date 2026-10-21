@@ -411,6 +411,20 @@ pub(super) fn publish(
         }
     }
     let mut candidate_snapshot = candidates::Snapshot::default();
+    // Registration refs do not necessarily share an exported class's local
+    // alias. Retry them on module/config changes, including previously missing
+    // targets and negative export branches. No global same-name fallback.
+    if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
+        let mut provider_refs = sql(db.prepare(
+            "SELECT id FROM unresolved_refs WHERE status='pending' AND reference_kind IN ('angular_provider_token','angular_provider_implementation') LIMIT 20001",
+        ))?;
+        for row in sql(provider_refs.query_map([], |row| row.get::<_, i64>(0)))? {
+            refs.insert(sql(row)?);
+            if refs.len() > MAX_ROWS {
+                return Err(LIMIT);
+            }
+        }
+    }
     let mut resolved = 0;
     let mut import_sources = imports::Sources::configured(configuration);
     let mut mvc_snapshot = super::super::index_razor_mvc::Snapshot::default();

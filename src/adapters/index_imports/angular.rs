@@ -101,6 +101,14 @@ pub(in crate::adapters::index_store) fn invalidate(db: &Connection) -> Result<Ve
         db,
         "angular-token-dependency-subset-v1",
     )?);
+    refs.extend(super::invalidate_engine(
+        db,
+        "angular-static-provider-registration-subset-v1",
+    )?);
+    refs.extend(super::invalidate_engine(
+        db,
+        "vue-composable-return-method-subset-v1",
+    )?);
     refs.sort_unstable();
     refs.dedup();
     Ok(refs)

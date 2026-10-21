@@ -5,10 +5,14 @@ use std::collections::BTreeMap;
 
 #[path = "index_imports/angular.rs"]
 pub(super) mod angular;
+#[path = "index_imports/angular_providers.rs"]
+mod angular_providers;
 #[path = "index_exports.rs"]
 mod exports;
 #[path = "index_imports/vue.rs"]
 mod vue;
+#[path = "index_imports/vue_returns.rs"]
+mod vue_returns;
 
 #[derive(Default)]
 pub(super) struct Sources {
@@ -18,8 +22,12 @@ pub(super) struct Sources {
     semantic_reserved: usize,
     vue: BTreeMap<String, crate::adapters::index_semantic::vue::Facts>,
     vue_reserved: usize,
+    vue_returns: BTreeMap<String, crate::adapters::index_semantic::vue_returns::Facts>,
+    vue_returns_reserved: usize,
     angular: BTreeMap<String, crate::adapters::index_extract::angular::di::Facts>,
     angular_reserved: usize,
+    angular_providers: BTreeMap<String, crate::adapters::index_extract::angular::providers::Facts>,
+    angular_providers_reserved: usize,
     runtime: BTreeMap<
         (String, String, crate::adapters::index_semantic::RuntimeKind),
         Option<ExportTarget>,

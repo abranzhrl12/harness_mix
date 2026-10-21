@@ -5,6 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
 type ResolutionReference = (String, String, String, i64, i64, String, String, String);
+#[path = "framework_resolution.rs"]
+mod framework;
 pub(super) fn resolve_exact(
     db: &Connection,
     id: i64,
@@ -19,6 +21,26 @@ pub(super) fn resolve_exact(
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
         return Ok(false);
     };
+    if matches!(
+        kind.as_str(),
+        "angular_provider_token" | "angular_provider_implementation"
+    ) {
+        return framework::angular_provider(
+            db,
+            id,
+            project,
+            context,
+            sources,
+            framework::Site {
+                from: &from,
+                name: &name,
+                kind: &kind,
+                line,
+                col,
+                path: &path,
+            },
+        );
+    }
     if super::repository::framework::is_template_reference(&kind) {
         let Some(target) = super::repository::framework::indexed_template_target(
             db, project, &from, &path, &language, &name, context,
@@ -51,9 +73,23 @@ pub(super) fn resolve_exact(
             let Some(target) =
                 sources.vue_call_target(db, project, context, &path, &name, line, col)?
             else {
-                // Vue references must carry a script-local import proof. Never
-                // continue into the generic same-name candidate lookup.
-                return Ok(false);
+                // Returned methods have an independent lexical/data-flow proof.
+                // Neither route may fall through to global same-name matching.
+                return framework::vue_method(
+                    db,
+                    id,
+                    project,
+                    context,
+                    sources,
+                    framework::Site {
+                        from: &from,
+                        name: &name,
+                        kind: &kind,
+                        line,
+                        col,
+                        path: &path,
+                    },
+                );
             };
             let mut statement = sql(db.prepare_cached(
                 "SELECT id FROM nodes WHERE file_path=?1 AND name=?2 COLLATE BINARY AND kind='function' AND language IN ('typescript','tsx','javascript','jsx') LIMIT 2",

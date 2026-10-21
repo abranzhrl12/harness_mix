@@ -1,0 +1,1978 @@
+{
+  "date": "2026-10-21",
+  "timezone": "America/Lima",
+  "profile": "release",
+  "hardware": {
+    "cpu": "AMD Ryzen 5 3400G",
+    "logicalProcessors": 8,
+    "totalPhysicalMemoryBytes": 12823883776,
+    "os": "Windows 10 Home 10.0.19045"
+  },
+  "measurementScope": "Integration test executables calling the library; not CLI/MCP latency. Test uses default allocator, CLI uses mimalloc.",
+  "roundsPerSuite": 2,
+  "iterationsPerRound": 3,
+  "assertionsPassed": true,
+  "sourceFingerprintSha256": "7b7dbead0c3d2c3ef4b36257c6ca214fc47f9a7da83c6fe037449af65001add9",
+  "processSamples": [
+    {
+      "probe": "framework-process-sample",
+      "revision": "5b82d5fcbe34a0c5ecec9c8e22380e1ba72bc0d9",
+      "worktreeDirty": true,
+      "sourceFingerprintSha256": "7b7dbead0c3d2c3ef4b36257c6ca214fc47f9a7da83c6fe037449af65001add9",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "profile": "release",
+      "round": 1,
+      "iterations": 3,
+      "filter": "framework_extract_and_incremental_publication_benchmark",
+      "elapsedMs": 37367.706,
+      "observedPeakWorkingSetBytes": 13344768,
+      "memorySamples": 2357,
+      "pollMilliseconds": 5,
+      "memoryScope": "whole-test-process-observed-high-water-lower-bound",
+      "productionIndexOpened": false
+    },
+    {
+      "probe": "framework-process-sample",
+      "revision": "5b82d5fcbe34a0c5ecec9c8e22380e1ba72bc0d9",
+      "worktreeDirty": true,
+      "sourceFingerprintSha256": "7b7dbead0c3d2c3ef4b36257c6ca214fc47f9a7da83c6fe037449af65001add9",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "profile": "release",
+      "round": 2,
+      "iterations": 3,
+      "filter": "framework_extract_and_incremental_publication_benchmark",
+      "elapsedMs": 37593.981,
+      "observedPeakWorkingSetBytes": 13254656,
+      "memorySamples": 2362,
+      "pollMilliseconds": 5,
+      "memoryScope": "whole-test-process-observed-high-water-lower-bound",
+      "productionIndexOpened": false
+    },
+    {
+      "probe": "framework-process-sample",
+      "revision": "5b82d5fcbe34a0c5ecec9c8e22380e1ba72bc0d9",
+      "worktreeDirty": true,
+      "sourceFingerprintSha256": "7b7dbead0c3d2c3ef4b36257c6ca214fc47f9a7da83c6fe037449af65001add9",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "profile": "release",
+      "round": 1,
+      "iterations": 3,
+      "filter": "framework_returned_methods_and_providers_benchmark",
+      "elapsedMs": 44124.957,
+      "observedPeakWorkingSetBytes": 27516928,
+      "memorySamples": 2769,
+      "pollMilliseconds": 5,
+      "memoryScope": "whole-test-process-observed-high-water-lower-bound",
+      "productionIndexOpened": false
+    },
+    {
+      "probe": "framework-process-sample",
+      "revision": "5b82d5fcbe34a0c5ecec9c8e22380e1ba72bc0d9",
+      "worktreeDirty": true,
+      "sourceFingerprintSha256": "7b7dbead0c3d2c3ef4b36257c6ca214fc47f9a7da83c6fe037449af65001add9",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "profile": "release",
+      "round": 2,
+      "iterations": 3,
+      "filter": "framework_returned_methods_and_providers_benchmark",
+      "elapsedMs": 40688.787,
+      "observedPeakWorkingSetBytes": 15106048,
+      "memorySamples": 2542,
+      "pollMilliseconds": 5,
+      "memoryScope": "whole-test-process-observed-high-water-lower-bound",
+      "productionIndexOpened": false
+    }
+  ],
+  "summaries": [
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 36
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        2.0545,
+        0.3384,
+        0.5067999999999999,
+        1.9062000000000001,
+        0.2841,
+        0.2784
+      ],
+      "minimumMs": 0.2784,
+      "medianMs": 0.4226,
+      "maximumMs": 2.0545
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 36
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        61.089600000000004,
+        35.0839,
+        35.9287,
+        35.1973,
+        32.0605,
+        32.969199999999994
+      ],
+      "minimumMs": 32.0605,
+      "medianMs": 35.1406,
+      "maximumMs": 61.089600000000004
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 36
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        35.5129,
+        35.1034,
+        34.2101,
+        33.9386,
+        45.4561,
+        45.8278
+      ],
+      "minimumMs": 33.9386,
+      "medianMs": 35.30815,
+      "maximumMs": 45.8278
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 36
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        35.6985,
+        33.718900000000005,
+        33.4475,
+        42.1943,
+        34.3318,
+        35.5827
+      ],
+      "minimumMs": 33.4475,
+      "medianMs": 34.95725,
+      "maximumMs": 42.1943
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 36
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        9.9997,
+        6.6896,
+        6.7233,
+        6.104,
+        5.5935999999999995,
+        8.6166
+      ],
+      "minimumMs": 5.5935999999999995,
+      "medianMs": 6.70645,
+      "maximumMs": 9.9997
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 65
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        44.0758,
+        34.0025,
+        34.8042,
+        34.5965,
+        40.438,
+        35.397999999999996
+      ],
+      "minimumMs": 34.0025,
+      "medianMs": 35.1011,
+      "maximumMs": 44.0758
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 65
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        30.8435,
+        39.281200000000005,
+        41.6297,
+        29.959400000000002,
+        33.2543,
+        34.2963
+      ],
+      "minimumMs": 29.959400000000002,
+      "medianMs": 33.7753,
+      "maximumMs": 41.6297
+    },
+    {
+      "scenario": "vue",
+      "size": "small",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 128,
+        "target": 65
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        35.071600000000004,
+        40.7157,
+        35.303000000000004,
+        36.428399999999996,
+        35.984500000000004,
+        35.8508
+      ],
+      "minimumMs": 35.071600000000004,
+      "medianMs": 35.91765,
+      "maximumMs": 40.7157
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 582
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        17.6029,
+        17.0676,
+        16.849200000000003,
+        17.102,
+        16.5354,
+        17.015800000000002
+      ],
+      "minimumMs": 16.5354,
+      "medianMs": 17.0417,
+      "maximumMs": 17.6029
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 582
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        70.2568,
+        79.2363,
+        79.9714,
+        75.2094,
+        68.79899999999999,
+        76.4813
+      ],
+      "minimumMs": 68.79899999999999,
+      "medianMs": 75.84535,
+      "maximumMs": 79.9714
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 582
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        50.8723,
+        38.733200000000004,
+        38.8149,
+        37.707499999999996,
+        36.1154,
+        45.204800000000006
+      ],
+      "minimumMs": 36.1154,
+      "medianMs": 38.77405,
+      "maximumMs": 50.8723
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 582
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        66.3194,
+        58.38,
+        63.672999999999995,
+        66.603,
+        61.707,
+        54.2125
+      ],
+      "minimumMs": 54.2125,
+      "medianMs": 62.69,
+      "maximumMs": 66.603
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 582
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        7.6724000000000006,
+        8.086400000000001,
+        7.8905,
+        7.1606,
+        6.727,
+        7.771199999999999
+      ],
+      "minimumMs": 6.727,
+      "medianMs": 7.7218,
+      "maximumMs": 8.086400000000001
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 611
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        56.202000000000005,
+        51.8121,
+        55.6156,
+        40.4399,
+        39.5427,
+        46.0539
+      ],
+      "minimumMs": 39.5427,
+      "medianMs": 48.933,
+      "maximumMs": 56.202000000000005
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 611
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        35.8386,
+        35.3074,
+        35.5488,
+        33.6642,
+        33.3437,
+        32.578700000000005
+      ],
+      "minimumMs": 32.578700000000005,
+      "medianMs": 34.4858,
+      "maximumMs": 35.8386
+    },
+    {
+      "scenario": "vue",
+      "size": "medium",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 20086,
+        "target": 611
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        38.317099999999996,
+        37.793800000000005,
+        48.1055,
+        36.7819,
+        35.797799999999995,
+        37.4636
+      ],
+      "minimumMs": 35.797799999999995,
+      "medianMs": 37.6287,
+      "maximumMs": 48.1055
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2358
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        994.9405999999999,
+        976.5401999999999,
+        983.9056,
+        987.8505,
+        961.7841999999999,
+        1057.0196
+      ],
+      "minimumMs": 961.7841999999999,
+      "medianMs": 985.87805,
+      "maximumMs": 1057.0196
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2358
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1066.2766,
+        1045.5042,
+        1057.6978,
+        1049.1449,
+        1053.1187,
+        1082.8497
+      ],
+      "minimumMs": 1045.5042,
+      "medianMs": 1055.40825,
+      "maximumMs": 1082.8497
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2358
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        50.4401,
+        51.4104,
+        50.157399999999996,
+        50.4487,
+        53.640100000000004,
+        85.94680000000001
+      ],
+      "minimumMs": 50.157399999999996,
+      "medianMs": 50.929550000000006,
+      "maximumMs": 85.94680000000001
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2358
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1058.2499,
+        1042.75,
+        1045.4053999999999,
+        1039.3167999999998,
+        1040.7491,
+        1044.9877999999999
+      ],
+      "minimumMs": 1039.3167999999998,
+      "medianMs": 1043.8689,
+      "maximumMs": 1058.2499
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2358
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        8.1098,
+        6.6083,
+        8.9871,
+        7.5941,
+        6.6832,
+        8.676100000000002
+      ],
+      "minimumMs": 6.6083,
+      "medianMs": 7.85195,
+      "maximumMs": 8.9871
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2387
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        57.6783,
+        76.0363,
+        64.08930000000001,
+        57.7961,
+        70.2397,
+        55.0184
+      ],
+      "minimumMs": 55.0184,
+      "medianMs": 60.9427,
+      "maximumMs": 76.0363
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2387
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        42.3775,
+        51.0541,
+        46.394999999999996,
+        48.9535,
+        52.692,
+        54.7869
+      ],
+      "minimumMs": 42.3775,
+      "medianMs": 50.0038,
+      "maximumMs": 54.7869
+    },
+    {
+      "scenario": "vue",
+      "size": "large",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 161390,
+        "target": 2387
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        49.7711,
+        51.17,
+        59.4846,
+        51.016400000000004,
+        52.425399999999996,
+        48.036500000000004
+      ],
+      "minimumMs": 48.036500000000004,
+      "medianMs": 51.0932,
+      "maximumMs": 59.4846
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 21
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        0.5428,
+        0.5351,
+        0.3478,
+        0.4692,
+        0.5293,
+        0.3637
+      ],
+      "minimumMs": 0.3478,
+      "medianMs": 0.49924999999999997,
+      "maximumMs": 0.5428
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 21
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        41.937799999999996,
+        37.3446,
+        36.2245,
+        36.477599999999995,
+        40.7126,
+        33.6368
+      ],
+      "minimumMs": 33.6368,
+      "medianMs": 36.9111,
+      "maximumMs": 41.937799999999996
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 21
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        52.4935,
+        35.907799999999995,
+        38.9352,
+        33.2729,
+        35.095099999999995,
+        42.9531
+      ],
+      "minimumMs": 33.2729,
+      "medianMs": 37.421499999999995,
+      "maximumMs": 52.4935
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 21
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        35.278400000000005,
+        40.783500000000004,
+        36.8654,
+        35.3074,
+        34.0957,
+        36.6787
+      ],
+      "minimumMs": 34.0957,
+      "medianMs": 35.99305,
+      "maximumMs": 40.783500000000004
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 21
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        5.5264,
+        5.5983,
+        6.254700000000001,
+        7.3003,
+        6.710500000000001,
+        6.6673
+      ],
+      "minimumMs": 5.5264,
+      "medianMs": 6.461,
+      "maximumMs": 7.3003
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 50
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        47.154799999999994,
+        35.5447,
+        40.0855,
+        34.2096,
+        39.7086,
+        35.1202
+      ],
+      "minimumMs": 34.2096,
+      "medianMs": 37.62665,
+      "maximumMs": 47.154799999999994
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 50
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        32.476699999999994,
+        35.5233,
+        31.810100000000002,
+        33.450100000000006,
+        32.1278,
+        29.1945
+      ],
+      "minimumMs": 29.1945,
+      "medianMs": 32.30225,
+      "maximumMs": 35.5233
+    },
+    {
+      "scenario": "angular",
+      "size": "small",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 188,
+        "target": 50
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        37.4095,
+        32.5843,
+        45.955799999999996,
+        34.58,
+        36.3609,
+        35.3029
+      ],
+      "minimumMs": 32.5843,
+      "medianMs": 35.831900000000005,
+      "maximumMs": 45.955799999999996
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 342
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        21.528499999999998,
+        21.020500000000002,
+        21.2158,
+        21.0713,
+        22.2239,
+        24.1592
+      ],
+      "minimumMs": 21.020500000000002,
+      "medianMs": 21.372149999999998,
+      "maximumMs": 24.1592
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 342
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        76.19430000000001,
+        98.4861,
+        75.1775,
+        79.0495,
+        77.3212,
+        92.697
+      ],
+      "minimumMs": 75.1775,
+      "medianMs": 78.18535,
+      "maximumMs": 98.4861
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 342
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        36.8349,
+        57.342,
+        45.5839,
+        43.3825,
+        38.8848,
+        39.9796
+      ],
+      "minimumMs": 36.8349,
+      "medianMs": 41.68105,
+      "maximumMs": 57.342
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 342
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        61.0147,
+        69.6302,
+        72.8131,
+        61.3187,
+        68.72019999999999,
+        77.6607
+      ],
+      "minimumMs": 61.0147,
+      "medianMs": 69.17519999999999,
+      "maximumMs": 77.6607
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 342
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        8.6943,
+        10.4908,
+        7.1961,
+        8.367899999999999,
+        6.0647,
+        7.5907
+      ],
+      "minimumMs": 6.0647,
+      "medianMs": 7.979299999999999,
+      "maximumMs": 10.4908
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 371
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        48.9213,
+        55.2278,
+        46.2561,
+        39.577,
+        37.4658,
+        44.5421
+      ],
+      "minimumMs": 37.4658,
+      "medianMs": 45.399100000000004,
+      "maximumMs": 55.2278
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 371
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        35.3435,
+        39.1701,
+        32.8771,
+        34.6373,
+        38.8695,
+        34.312000000000005
+      ],
+      "minimumMs": 32.8771,
+      "medianMs": 34.9904,
+      "maximumMs": 39.1701
+    },
+    {
+      "scenario": "angular",
+      "size": "medium",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 20167,
+        "target": 371
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        37.1198,
+        42.0425,
+        40.051700000000004,
+        38.066500000000005,
+        46.1006,
+        45.988099999999996
+      ],
+      "minimumMs": 37.1198,
+      "medianMs": 41.0471,
+      "maximumMs": 46.1006
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1398
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1282.4545999999998,
+        1278.3176,
+        1278.7841,
+        1306.2178,
+        1269.4683,
+        1282.1609
+      ],
+      "minimumMs": 1269.4683,
+      "medianMs": 1280.4725,
+      "maximumMs": 1306.2178
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1398
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1320.7829,
+        1425.6807000000001,
+        1339.6865,
+        1350.3955999999998,
+        1335.2140000000002,
+        1354.6032
+      ],
+      "minimumMs": 1320.7829,
+      "medianMs": 1345.0410499999998,
+      "maximumMs": 1425.6807000000001
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1398
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        60.5744,
+        50.113699999999994,
+        53.8082,
+        56.9717,
+        52.6697,
+        49.5008
+      ],
+      "minimumMs": 49.5008,
+      "medianMs": 53.23895,
+      "maximumMs": 60.5744
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1398
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1334.7941999999998,
+        1332.0663,
+        1344.5147,
+        1370.5282,
+        1398.3098,
+        1499.7167
+      ],
+      "minimumMs": 1332.0663,
+      "medianMs": 1357.52145,
+      "maximumMs": 1499.7167
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "unchanged_importer_noop",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1398
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        6.043,
+        7.8325,
+        6.8104000000000005,
+        7.2862,
+        10.0791,
+        6.1956
+      ],
+      "minimumMs": 6.043,
+      "medianMs": 7.0483,
+      "maximumMs": 10.0791
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1427
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        50.2912,
+        56.0278,
+        51.4972,
+        61.8186,
+        57.209999999999994,
+        52.7876
+      ],
+      "minimumMs": 50.2912,
+      "medianMs": 54.4077,
+      "maximumMs": 61.8186
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1427
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        38.661500000000004,
+        37.335100000000004,
+        47.1915,
+        37.9537,
+        44.7068,
+        39.455400000000004
+      ],
+      "minimumMs": 37.335100000000004,
+      "medianMs": 39.05845000000001,
+      "maximumMs": 47.1915
+    },
+    {
+      "scenario": "angular",
+      "size": "large",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 161567,
+        "target": 1427
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        59.488899999999994,
+        54.317699999999995,
+        55.894,
+        57.5897,
+        48.0866,
+        61.4537
+      ],
+      "minimumMs": 48.0866,
+      "medianMs": 56.74185,
+      "maximumMs": 61.4537
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 72
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        7.595700000000001,
+        0.8814,
+        2.0116,
+        2.87,
+        0.8197,
+        0.7239
+      ],
+      "minimumMs": 0.7239,
+      "medianMs": 1.4465,
+      "maximumMs": 7.595700000000001
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 72
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        72.1817,
+        33.3184,
+        37.436499999999995,
+        162.62779999999998,
+        33.2204,
+        41.1937
+      ],
+      "minimumMs": 33.2204,
+      "medianMs": 39.3151,
+      "maximumMs": 162.62779999999998
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 72
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        63.92399999999999,
+        42.4576,
+        34.215,
+        155.7658,
+        41.1663,
+        39.7169
+      ],
+      "minimumMs": 34.215,
+      "medianMs": 41.811949999999996,
+      "maximumMs": 155.7658
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 72
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        49.6546,
+        51.1046,
+        44.3087,
+        167.3014,
+        36.4362,
+        37.806
+      ],
+      "minimumMs": 36.4362,
+      "medianMs": 46.98165,
+      "maximumMs": 167.3014
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 109
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        40.8789,
+        34.489,
+        35.0616,
+        176.7249,
+        43.2246,
+        36.6584
+      ],
+      "minimumMs": 34.489,
+      "medianMs": 38.76865,
+      "maximumMs": 176.7249
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 109
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        34.284,
+        31.454299999999996,
+        30.463,
+        115.0844,
+        31.546499999999998,
+        38.187400000000004
+      ],
+      "minimumMs": 30.463,
+      "medianMs": 32.91525,
+      "maximumMs": 115.0844
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "small",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 150,
+        "target": 109
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        38.692499999999995,
+        40.9356,
+        35.3725,
+        181.0112,
+        33.6057,
+        38.361
+      ],
+      "minimumMs": 33.6057,
+      "medianMs": 38.52674999999999,
+      "maximumMs": 181.0112
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1170
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        25.571099999999998,
+        24.6004,
+        22.5166,
+        24.300800000000002,
+        23.6945,
+        25.0122
+      ],
+      "minimumMs": 22.5166,
+      "medianMs": 24.4506,
+      "maximumMs": 25.571099999999998
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1170
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        91.5044,
+        79.8461,
+        86.1474,
+        85.2373,
+        79.62819999999999,
+        84.4447
+      ],
+      "minimumMs": 79.62819999999999,
+      "medianMs": 84.84100000000001,
+      "maximumMs": 91.5044
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1170
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        74.37970000000001,
+        46.5226,
+        46.5376,
+        44.3875,
+        55.7578,
+        43.4239
+      ],
+      "minimumMs": 43.4239,
+      "medianMs": 46.5301,
+      "maximumMs": 74.37970000000001
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1170
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        73.3292,
+        78.7128,
+        66.54129999999999,
+        75.8147,
+        68.0752,
+        67.27940000000001
+      ],
+      "minimumMs": 66.54129999999999,
+      "medianMs": 70.7022,
+      "maximumMs": 78.7128
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1207
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        67.0775,
+        50.0417,
+        47.1653,
+        53.751,
+        54.5906,
+        51.8001
+      ],
+      "minimumMs": 47.1653,
+      "medianMs": 52.775549999999996,
+      "maximumMs": 67.0775
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1207
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        41.9346,
+        41.1173,
+        56.8269,
+        34.7615,
+        39.1151,
+        35.453199999999995
+      ],
+      "minimumMs": 34.7615,
+      "medianMs": 40.1162,
+      "maximumMs": 56.8269
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "medium",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 20456,
+        "target": 1207
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        56.315999999999995,
+        58.0582,
+        55.0699,
+        48.1168,
+        47.5948,
+        51.059
+      ],
+      "minimumMs": 47.5948,
+      "medianMs": 53.064449999999994,
+      "maximumMs": 58.0582
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4770
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1067.6267,
+        1133.164,
+        1008.2315,
+        1088.5142,
+        1102.2403000000002,
+        1018.5059000000001
+      ],
+      "minimumMs": 1008.2315,
+      "medianMs": 1078.0704500000002,
+      "maximumMs": 1133.164
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4770
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1311.3881000000001,
+        1141.9154,
+        1143.6436,
+        1171.1776,
+        1155.8204999999998,
+        1141.7931999999998
+      ],
+      "minimumMs": 1141.7931999999998,
+      "medianMs": 1149.73205,
+      "maximumMs": 1311.3881000000001
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4770
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        171.9871,
+        131.0314,
+        133.09879999999998,
+        130.8124,
+        130.9724,
+        132.3898
+      ],
+      "minimumMs": 130.8124,
+      "medianMs": 131.7106,
+      "maximumMs": 171.9871
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4770
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1172.5157,
+        1164.6948,
+        1161.1828,
+        1320.9675,
+        1140.5122000000001,
+        1138.5955999999999
+      ],
+      "minimumMs": 1138.5955999999999,
+      "medianMs": 1162.9388,
+      "maximumMs": 1320.9675
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4807
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        209.2685,
+        150.2646,
+        147.8805,
+        140.85580000000002,
+        153.3149,
+        136.62650000000002
+      ],
+      "minimumMs": 136.62650000000002,
+      "medianMs": 149.07255,
+      "maximumMs": 209.2685
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4807
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        105.57600000000001,
+        99.75349999999999,
+        101.8801,
+        201.29410000000001,
+        90.0335,
+        112.5713
+      ],
+      "minimumMs": 90.0335,
+      "medianMs": 103.72805,
+      "maximumMs": 201.29410000000001
+    },
+    {
+      "scenario": "vue_returned_methods",
+      "size": "large",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 162960,
+        "target": 4807
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        172.7831,
+        148.2938,
+        128.25549999999998,
+        189.5665,
+        126.6342,
+        132.46710000000002
+      ],
+      "minimumMs": 126.6342,
+      "medianMs": 140.38045,
+      "maximumMs": 189.5665
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 45
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        1.0421,
+        0.417,
+        0.4067,
+        0.46,
+        0.395,
+        0.794
+      ],
+      "minimumMs": 0.395,
+      "medianMs": 0.4385,
+      "maximumMs": 1.0421
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 45
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        52.4239,
+        44.0653,
+        34.7769,
+        33.746900000000004,
+        44.5487,
+        35.0824
+      ],
+      "minimumMs": 33.746900000000004,
+      "medianMs": 39.57385,
+      "maximumMs": 52.4239
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 45
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        44.0399,
+        48.2342,
+        34.4814,
+        34.5852,
+        37.617200000000004,
+        44.98159999999999
+      ],
+      "minimumMs": 34.4814,
+      "medianMs": 40.82855000000001,
+      "maximumMs": 48.2342
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 45
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        34.4982,
+        44.8982,
+        41.8148,
+        40.2936,
+        35.666700000000006,
+        50.9274
+      ],
+      "minimumMs": 34.4982,
+      "medianMs": 41.054199999999994,
+      "maximumMs": 50.9274
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 82
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        49.2226,
+        35.797799999999995,
+        37.6412,
+        38.199999999999996,
+        47.982,
+        38.7047
+      ],
+      "minimumMs": 35.797799999999995,
+      "medianMs": 38.452349999999996,
+      "maximumMs": 49.2226
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 82
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        30.1724,
+        33.249599999999994,
+        37.4133,
+        31.1007,
+        44.15,
+        36.0489
+      ],
+      "minimumMs": 30.1724,
+      "medianMs": 34.649249999999995,
+      "maximumMs": 44.15
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "small",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 190,
+        "target": 82
+      },
+      "expectedBindings": 1,
+      "samplesMs": [
+        36.6339,
+        32.6229,
+        36.6101,
+        39.1224,
+        51.1531,
+        35.1721
+      ],
+      "minimumMs": 32.6229,
+      "medianMs": 36.622,
+      "maximumMs": 51.1531
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 732
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        17.531499999999998,
+        18.208499999999997,
+        17.3461,
+        18.1307,
+        18.0096,
+        17.4608
+      ],
+      "minimumMs": 17.3461,
+      "medianMs": 17.77055,
+      "maximumMs": 18.208499999999997
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 732
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        69.90390000000001,
+        83.2814,
+        74.03179999999999,
+        75.7045,
+        73.17139999999999,
+        70.0833
+      ],
+      "minimumMs": 69.90390000000001,
+      "medianMs": 73.60159999999999,
+      "maximumMs": 83.2814
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 732
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        52.7982,
+        53.0876,
+        52.4289,
+        51.4591,
+        46.1827,
+        45.3136
+      ],
+      "minimumMs": 45.3136,
+      "medianMs": 51.944,
+      "maximumMs": 53.0876
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 732
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        70.9891,
+        103.3226,
+        89.87950000000001,
+        88.8758,
+        67.54400000000001,
+        71.0847
+      ],
+      "minimumMs": 67.54400000000001,
+      "medianMs": 79.98025,
+      "maximumMs": 103.3226
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 769
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        55.9869,
+        49.4818,
+        59.9273,
+        58.367000000000004,
+        54.7988,
+        47.5437
+      ],
+      "minimumMs": 47.5437,
+      "medianMs": 55.392849999999996,
+      "maximumMs": 59.9273
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 769
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        40.6413,
+        39.9974,
+        37.8191,
+        41.5423,
+        42.7599,
+        41.6862
+      ],
+      "minimumMs": 37.8191,
+      "medianMs": 41.0918,
+      "maximumMs": 42.7599
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "medium",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 20475,
+        "target": 769
+      },
+      "expectedBindings": 16,
+      "samplesMs": [
+        57.2982,
+        44.6064,
+        51.2838,
+        54.3497,
+        52.0761,
+        46.207100000000004
+      ],
+      "minimumMs": 44.6064,
+      "medianMs": 51.67995,
+      "maximumMs": 57.2982
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "extract_only",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 2988
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        973.1178,
+        967.7280999999999,
+        1024.0879,
+        992.2184,
+        967.581,
+        979.1608000000001
+      ],
+      "minimumMs": 967.581,
+      "medianMs": 976.1393,
+      "maximumMs": 1024.0879
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "new_importer_publication_target_missing",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 2988
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1237.0406,
+        1283.6927,
+        1245.9463,
+        1151.3977,
+        1253.6670000000001,
+        1136.6491
+      ],
+      "minimumMs": 1136.6491,
+      "medianMs": 1241.49345,
+      "maximumMs": 1283.6927
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "target_publication_incremental_retry",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 2988
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        245.5356,
+        256.59929999999997,
+        261.6966,
+        136.38819999999998,
+        147.1262,
+        137.1978
+      ],
+      "minimumMs": 136.38819999999998,
+      "medianMs": 196.33089999999999,
+      "maximumMs": 261.6966
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "forced_reextract_new_publication_caches",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 2988
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        1270.1431,
+        1318.7513,
+        1280.2942,
+        1121.5978,
+        1137.4398999999999,
+        1139.5096
+      ],
+      "minimumMs": 1121.5978,
+      "medianMs": 1204.82635,
+      "maximumMs": 1318.7513
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "target_edit_and_recheck",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 3025
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        282.418,
+        280.1749,
+        344.9643,
+        151.6966,
+        140.0635,
+        153.96470000000002
+      ],
+      "minimumMs": 140.0635,
+      "medianMs": 217.0698,
+      "maximumMs": 344.9643
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "target_deletion_invalidation",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 3025
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        214.27599999999998,
+        216.6788,
+        236.64569999999998,
+        113.6451,
+        111.6117,
+        108.8172
+      ],
+      "minimumMs": 108.8172,
+      "medianMs": 163.96054999999998,
+      "maximumMs": 236.64569999999998
+    },
+    {
+      "scenario": "angular_static_providers",
+      "size": "large",
+      "operation": "target_readd_and_recovery",
+      "sourceBytes": {
+        "importer": 162883,
+        "target": 3025
+      },
+      "expectedBindings": 64,
+      "samplesMs": [
+        229.0074,
+        311.05490000000003,
+        270.6091,
+        137.909,
+        135.3915,
+        149.6832
+      ],
+      "minimumMs": 135.3915,
+      "medianMs": 189.3453,
+      "maximumMs": 311.05490000000003
+    }
+  ]
+}

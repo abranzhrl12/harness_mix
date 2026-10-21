@@ -9,6 +9,7 @@ use oxc_syntax::module_record::{ExportExportName, ExportImportName, ImportImport
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(in crate::adapters) mod vue;
+pub(in crate::adapters) mod vue_returns;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::adapters) enum RuntimeKind {

@@ -7,14 +7,14 @@ const RANGE: Failure = ("EXTRACTION_CONTRACT", "Invalid framework source range")
 
 /// Sparse coordinate index: ASCII columns require no per-character storage.
 /// Non-ASCII boundaries record cumulative UTF-8/UTF-16 width differences.
-pub(super) struct Positions<'a> {
+pub(in crate::adapters) struct Positions<'a> {
     source: &'a str,
     lines: Vec<usize>,
     adjustments: Vec<(usize, usize)>,
 }
 
 impl<'a> Positions<'a> {
-    pub(super) fn new(source: &'a str) -> Self {
+    pub(in crate::adapters) fn new(source: &'a str) -> Self {
         let mut lines = vec![0];
         let mut adjustments = Vec::new();
         let mut difference = 0;
@@ -43,7 +43,7 @@ impl<'a> Positions<'a> {
             .map_or(0, |index| self.adjustments[index].1)
     }
 
-    pub(super) fn position(&self, at: usize) -> Result<(usize, usize), Failure> {
+    pub(in crate::adapters) fn position(&self, at: usize) -> Result<(usize, usize), Failure> {
         if !self.source.is_char_boundary(at) {
             return Err(RANGE);
         }

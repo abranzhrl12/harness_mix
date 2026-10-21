@@ -22,6 +22,21 @@ script to indexed JS/TS function exports, including constant arrow/function
 expressions and named reexports. It proves lexical binding per script block,
 preserving aliases, Unicode and original UTF-16 coordinates. Default/namespace,
 external-script and template-expression bindings remain unsupported.
+An additional bounded proof follows a direct zero-argument named composable call
+into a constant object receiver or destructured method binding. It links supported
+method calls to the exact native function declaration (including its original
+coordinates), not to a same-named function elsewhere. The composable must return
+one unconditional literal object mapping the requested property to a directly
+declared local function or constant arrow/function expression. Dynamic returns,
+spreads, accessors, asynchronous composables, escaping/mutated receivers and
+unsupported alias flows remain unresolved. This is not general data-flow or Vue
+reactivity analysis.
+Initialized constant state declarations can coexist with those local helpers;
+their values are not inferred. Returned helpers may be async even though the
+composable itself must be synchronous. Control-flow/side-effect statements before
+the final return, mutable state declarations, exported object receivers and direct
+`eval` remain outside this proof. Calls with arguments, deep property chains and
+methods created by factories are also unsupported by the returned-method subset.
 Vue compiler transforms, template type checking, CSS preprocessing and
 runtime component resolution are not implemented.
 
@@ -44,6 +59,16 @@ type-only imports, ambiguous exports and unsupported injection contexts stay
 unresolved; an explicit unproved override never falls back to the parameter type.
 Providers, factories, scopes, optionality and injected-instance method dispatch
 are not evaluated at runtime.
+
+Direct static `providers` arrays in imported Angular `Component`, `Directive`,
+and `NgModule` decorators can also contribute registration observations for
+`useClass` and `useExisting`. A separate native registration node references its
+imported class token and implementation, with explicit relationship metadata.
+These are declarations of a registration, not a proof that a particular consumer
+receives that implementation. Unsupported/dynamic entries, ambiguous arrays,
+factory/value/multi providers, local or string tokens and injector precedence
+remain outside this subset. The regular import/export resolver and source-hash
+checks validate both class declarations; no project code is executed.
 
 HTML extraction records bounded template structure without assuming Angular
 context. A literal `templateUrl` creates an explicit pending file reference; it
@@ -81,11 +106,19 @@ snapshot. All observed source hashes are rechecked before commit. Edits, deletio
 new modules and configuration changes invalidate framework engine links and retry
 pending references under the current indexed snapshot. Global invalidation remains
 deliberately conservative; this is not a latency benchmark or a promise of
-whole-project semantic analysis. Returned composable objects, destructured member
-calls, Vue runtime reactivity and Angular provider selection remain outside scope.
+whole-project semantic analysis. General returned-value propagation, Vue runtime
+reactivity and Angular runtime provider selection remain outside scope.
 
 The inventory and watcher use the same extension dispatch. No project index is
 created or rebuilt merely by reading or extracting a source file.
+
+## Performance measurements
+
+The opt-in [framework benchmark](BENCHMARK-FRAMEWORK.md) separates extraction,
+publication and incremental target changes on deterministic temporary fixtures.
+Its PowerShell wrapper reports observed process peak working set separately from
+operation timings. Synthetic source/reference sizes do not represent large
+workspaces, and passing correctness tests does not establish a latency guarantee.
 
 ## Language references
 
