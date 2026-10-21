@@ -7,7 +7,9 @@ use super::pool;
 use harness_domain::{
     Failure,
     execution::OperationContext,
-    sql::{SqlDescribeArgs, SqlDescribeKind, SqlMapArgs, SqlObjectType, SqlSearchArgs, SqlStatusArgs},
+    sql::{
+        SqlDescribeArgs, SqlDescribeKind, SqlMapArgs, SqlObjectType, SqlSearchArgs, SqlStatusArgs,
+    },
 };
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -24,10 +26,10 @@ pub(in crate::adapters) fn status(
     let mut result = json!({"engine":"postgresql","configured":true,"connected":false,"status":"configured_unverified",
         "defaultSchema":config.default_schema,"allowedSchemas":config.allowed_schemas,"maxRows":config.max_rows,
         "maxChars":config.max_chars,"timeoutSeconds":config.timeout_seconds,"tlsMode":config.tls.mode,
-        "supportedActions":["status","search","describe"],"querySupported":false,"schemaCacheEnabled":config.schema_cache_seconds.unwrap_or(0)>0,
+        "supportedActions":["status","search","map","describe"],"querySupported":false,"schemaCacheEnabled":config.schema_cache_seconds.unwrap_or(0)>0,
         "schemaCache":{"ttlSeconds":config.schema_cache_seconds.unwrap_or(0),"maxEntries":super::super::sql_schema_cache::CAPACITY,"scope":"process","refreshSupported":true,"permissionFreshness":"cached_snapshot_when_hit"},
         "schemaCacheSecondsRequested":config.schema_cache_seconds,"readOnly":true,
-        "workflow":{"discover":"search","inspect":"describe","parallelTool":"harness_batch","maxJobs":4,"maxConcurrent":2,"arbitraryQuerySupported":false},
+        "workflow":{"overview":"map","discover":"search","inspect":"describe","parallelTool":"harness_batch","maxJobs":4,"maxConcurrent":2,"arbitraryQuerySupported":false},
         "connectionPooling":{"enabled":true,"maxConnections":pool::CAPACITY,"idleSeconds":60,"maxLifetimeSeconds":300}});
     result["setup"] = super::super::sql_policy::configuration_guide("postgresql");
     result["transportEncrypted"] = if config.tls.mode == "verify-full" {
@@ -234,9 +236,13 @@ pub(in crate::adapters) fn map(
     let limit = args.limit.unwrap_or(50).clamp(1, 200);
     let row_budget = (limit * 8).min(1600);
     let count = row_budget as i64;
+    // The map is meant to be the single answer about a schema, so it gets a
+    // wider character budget than a single search or describe result.
+    let mut map_config = config.clone();
+    map_config.max_chars = map_config.max_chars.max(48_000);
     let result = pool::run(catalog(
         project,
-        &config,
+        &map_config,
         context,
         MAP,
         &[&selected_schemas, &count],
@@ -251,9 +257,9 @@ pub(in crate::adapters) fn map(
         .cloned()
         .unwrap_or_default()
         .iter()
-        .filter_map(|row| {
+        .map(|row| {
             let field = |name: &str| row[name].as_str().map(str::to_owned).unwrap_or_default();
-            Some(super::super::sql_map::MapRow {
+            super::super::sql_map::MapRow {
                 kind: field("kind"),
                 schema: field("schema"),
                 name: field("name"),
@@ -262,10 +268,11 @@ pub(in crate::adapters) fn map(
                 detail3: field("detail3"),
                 detail4: field("detail4"),
                 number: row["num1"].as_str().and_then(|value| value.parse().ok()),
-            })
+            }
         })
         .collect::<Vec<_>>();
     let mut map = super::super::sql_map::assemble("postgresql", rows, limit);
+
     map["schemas"] = json!(selected_schemas);
     map["readOnly"] = json!(true);
     map["visibility"] = json!("connected_role_and_allowed_schemas");

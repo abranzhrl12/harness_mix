@@ -8,7 +8,7 @@ pub(super) const CONFIG: Failure = (
     "Invalid postgresql configuration; check limits, schemas, TLS and environment connection source",
 );
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Config {
     #[serde(skip)]
@@ -31,7 +31,7 @@ pub(super) struct Config {
     #[serde(default)]
     pub(super) tls: Tls,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Connection {
     pub(super) source: String,
@@ -42,7 +42,7 @@ pub(super) struct Connection {
 fn default_env_file() -> Option<String> {
     Some(".env".into())
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Tls {
     pub(super) mode: String,

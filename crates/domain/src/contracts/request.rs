@@ -95,9 +95,11 @@ impl Request {
             Self::Tasks(_) => "harness_tasks",
             Self::Checkpoint(_) => "harness_checkpoint",
             Self::GitStatus(_) | Self::GitDiff(_) => "harness_git",
-            Self::SqlStatus(_) | Self::SqlSearch(_) | Self::SqlMap(_) | Self::SqlDescribe(_) | Self::SqlQuery(_) => {
-                "harness_sql"
-            }
+            Self::SqlStatus(_)
+            | Self::SqlSearch(_)
+            | Self::SqlMap(_)
+            | Self::SqlDescribe(_)
+            | Self::SqlQuery(_) => "harness_sql",
             Self::XlsxInspect(_) | Self::XlsxRead(_) => "harness_xlsx",
             Self::Svg(_) => "harness_svg",
             Self::Handover(_) => "harness_handover",

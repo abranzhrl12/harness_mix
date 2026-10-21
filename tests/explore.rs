@@ -17,13 +17,18 @@ fn explicit_symbol_does_not_require_a_duplicate_query() {
     for view in ["summary", "full", "impact"] {
         let args: ExploreArgs = serde_json::from_value(json!({
             "view": view, "filePath": "lib.rs", "symbol": "target"
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(args.query.is_empty());
         let result = app.execute(Request::Explore(args));
         assert_eq!(result["state"], "ok", "{view}: {result}");
         assert_eq!(result["data"]["focus"]["symbol"], "target", "{result}");
     }
-    for input in [json!({}), json!({"symbol":""}), json!({"symbol":"bad name"})] {
+    for input in [
+        json!({}),
+        json!({"symbol":""}),
+        json!({"symbol":"bad name"}),
+    ] {
         let args: ExploreArgs = serde_json::from_value(input).unwrap();
         let result = app.execute(Request::Explore(args));
         assert_eq!(result["state"], "error", "{result}");
@@ -31,7 +36,8 @@ fn explicit_symbol_does_not_require_a_duplicate_query() {
     }
     let args: ExploreArgs = serde_json::from_value(json!({
         "view":"impact", "filePath":"lib.rs", "symbolId":"t"
-    })).unwrap();
+    }))
+    .unwrap();
     let result = app.execute(Request::Explore(args));
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["symbol"], "target", "{result}");

@@ -209,7 +209,14 @@ para declaraciones Rust, más `harness_tasks`, `harness_checkpoint`,
 `harness_git` (`action=status|diff`), `harness_doctor`, `harness_batch`
 y `harness_logs`, `harness_config`, `harness_external_scope`, `harness_ignore`
 y `harness_explore`
-y la herramienta SQL Server nativa `harness_sql` con TDS/Tiberius directo y cuatro acciones (`status`, `search`, `describe`, `query`) seleccionadas con el campo `action`.
+y la herramienta SQL Server nativa `harness_sql` con TDS/Tiberius directo y cinco acciones (`status`, `search`, `map`, `describe`, `query`) seleccionadas con el campo `action`.
+
+`action=map` responde en una sola vuelta el mapa del esquema: relaciones con su
+tamaño aproximado, claves primarias, aristas de claves foráneas (tabla hija y
+tabla padre con sus columnas) y rutinas con sus parámetros. Es la vía corta para
+que un agente entienda la base de datos sin encadenar una búsqueda y una
+descripción por tabla. Acepta `schema` (o `*`) y `limit`, y solo lee vistas de
+catálogo.
 
 ## Exclusiones de búsqueda con `.harnessignore`
 

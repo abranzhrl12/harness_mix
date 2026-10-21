@@ -62,7 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let mut args = collected.into_iter();
-    let input = (args.next(), args.next(), args.next(), args.next(), args.next());
+    let input = (
+        args.next(),
+        args.next(),
+        args.next(),
+        args.next(),
+        args.next(),
+    );
     if args.next().is_some() {
         return Err("too many command-line arguments".into());
     }
@@ -70,7 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--reindex"
-                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("rebuild")))) =>
+                    || (option == "--index"
+                        && val.as_deref() == Some(std::ffi::OsStr::new("rebuild")))) =>
         {
             // A bounded multi-file rebuild is not a single MCP request. Keep
             // cancellation/deadline checks, but allow the CLI batch five minutes.
@@ -91,7 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--init-index"
-                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("init")))) =>
+                    || (option == "--index"
+                        && val.as_deref() == Some(std::ffi::OsStr::new("init")))) =>
         {
             let context = harness_domain::execution::OperationContext::default();
             let result =
@@ -103,7 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--sync"
-                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("sync")))) =>
+                    || (option == "--index"
+                        && val.as_deref() == Some(std::ffi::OsStr::new("sync")))) =>
         {
             // CLI batches need a workspace budget independent of MCP's 30s request deadline.
             let context = harness_domain::execution::OperationContext::with_timeout(
@@ -148,11 +157,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());
         }
-        (Some(flag), Some(root), None, None, None) if flag == "--root" => (PathBuf::from(root), false),
+        (Some(flag), Some(root), None, None, None) if flag == "--root" => {
+            (PathBuf::from(root), false)
+        }
         (Some(flag), Some(root), Some(option), val, None)
             if flag == "--root"
                 && (option == "--sync-plan"
-                    || (option == "--index" && val.as_deref() == Some(std::ffi::OsStr::new("plan")))) =>
+                    || (option == "--index"
+                        && val.as_deref() == Some(std::ffi::OsStr::new("plan")))) =>
         {
             let context = harness_domain::execution::OperationContext::default();
             let result =

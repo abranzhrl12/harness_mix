@@ -1070,7 +1070,10 @@ fn third_file_wiring_and_recorded_synthesis_inputs_are_preserved() {
     let published = sync_file(root.path(), "wiring.rs", &OperationContext::default()).unwrap();
     assert_eq!(published["committed"], true, "{published}");
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM nodes WHERE name='changed'"),
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='changed'"
+        ),
         1
     );
     assert_eq!(
@@ -1243,7 +1246,13 @@ fn windows_separators_are_normalized_before_path_validation() {
     let result = sync_file(root.path(), "src\\a.rs", &OperationContext::default()).unwrap();
     assert_eq!(result["committed"], true, "{result}");
     assert_eq!(result["path"], "src/a.rs");
-    assert_eq!(count(root.path(), "SELECT count(*) FROM files WHERE path='src/a.rs'"), 1);
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE path='src/a.rs'"
+        ),
+        1
+    );
 }
 
 #[test]
@@ -1264,11 +1273,23 @@ fn provider_framework_nodes_survive_a_native_publication() {
     assert_eq!(result["committed"], true, "{result}");
     assert_eq!(result["providerNodesPreserved"], 1);
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM nodes WHERE id='component:view'"),
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE id='component:view'"
+        ),
         1
     );
-    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='second'"), 1);
-    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='first'"), 0);
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='second'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM nodes WHERE name='first'"),
+        0
+    );
 }
 
 #[test]
@@ -1298,5 +1319,11 @@ fn provider_edges_around_framework_nodes_are_republished() {
         ),
         1
     );
-    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='second'"), 1);
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='second'"
+        ),
+        1
+    );
 }

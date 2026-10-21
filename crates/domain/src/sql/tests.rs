@@ -26,6 +26,32 @@ fn query_defaults_are_explicit_and_preserve_engine_selection() {
 }
 
 #[test]
+fn map_action_parses_optional_schema_and_limit() {
+    let SqlArgs::Map(args) = parse(json!({"action":"map"})).unwrap() else {
+        panic!("expected map")
+    };
+    assert_eq!(args.engine, None);
+    assert_eq!(args.schema, None);
+    assert_eq!(args.limit, None);
+
+    let SqlArgs::Map(args) =
+        parse(json!({"action":"map","engine":"postgresql","schema":"public","limit":25})).unwrap()
+    else {
+        panic!("expected map")
+    };
+    assert_eq!(args.engine, Some(SqlEngine::Postgresql));
+    assert_eq!(args.schema.as_deref(), Some("public"));
+    assert_eq!(args.limit, Some(25));
+
+    // Unknown fields never reach the engine.
+    assert!(parse(json!({"action":"map","sql":"SELECT 1"})).is_err());
+    assert!(matches!(
+        parse(json!({"action":"map"})).unwrap().into_request(),
+        Request::SqlMap(_)
+    ));
+}
+
+#[test]
 fn invalid_requests_show_complete_shape_without_echoing_input() {
     let error = parse(json!({"action":"query","sql":42,"engine":"password=secret"}))
         .unwrap_err()
@@ -127,6 +153,7 @@ fn each_action_maps_to_its_existing_request() {
             json!({"action":"search","query":"cliente","limit":5}),
             "search",
         ),
+        (json!({"action":"map","schema":"public","limit":10}), "map"),
         (
             json!({"action":"describe","name":"dbo.Cliente"}),
             "describe",
@@ -138,6 +165,7 @@ fn each_action_maps_to_its_existing_request() {
         let matches = match (&request, action) {
             (Request::SqlStatus(_), "status") => true,
             (Request::SqlSearch(_), "search") => true,
+            (Request::SqlMap(_), "map") => true,
             (Request::SqlDescribe(_), "describe") => true,
             (Request::SqlQuery(_), "query") => true,
             _ => false,
@@ -168,6 +196,7 @@ fn accepts_session_in_every_action() {
     for value in [
         json!({"action":"status","session":"s"}),
         json!({"action":"search","query":"x","session":"s"}),
+        json!({"action":"map","session":"s"}),
         json!({"action":"describe","name":"x","session":"s"}),
         json!({"action":"query","sql":"SELECT 1","session":"s"}),
     ] {
@@ -184,7 +213,7 @@ fn schema_is_an_object_with_one_branch_per_action() {
         "MCP requires a root object schema"
     );
     let text = schema.to_string();
-    for action in ["status", "search", "describe", "query"] {
+    for action in ["status", "search", "map", "describe", "query"] {
         assert!(
             text.contains(&format!("\"{action}\"")),
             "schema lacks {action}"

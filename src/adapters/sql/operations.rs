@@ -82,7 +82,8 @@ pub(super) fn status(
         "readOnly": true,
         "readOnlyEnforcement": "lexical_preflight_and_login_permissions",
         "querySupported": true,
-        "supportedActions": ["status", "search", "describe", "query"],
+        "supportedActions": ["status", "search", "map", "describe", "query"],
+        "workflow": {"overview": "map", "discover": "search", "inspect": "describe", "parallelTool": "harness_batch", "maxJobs": 4, "maxConcurrent": 2},
         "schemaCacheEnabled": false,
         "permissionBoundary": "SQL login permissions"
     });
@@ -193,23 +194,18 @@ pub(super) fn search(
 }
 
 /// One round trip that answers the whole schema map: relations with their
-/// approximate size, primary keys, foreign key edges and routine parameters.
-/// Every branch is a read-only catalog projection.
+/// Core schema map. It only reads catalog views that a least-privilege login
+/// with object visibility can read, so it never fails for missing statistics
+/// permissions. The row estimate is a separate, optional statement.
 const MAP: &str = r#"
 SELECT TOP (@P2) kind, [schema], name, detail1, detail2, detail3, detail4, num1
 FROM (
   SELECT 0 AS ord, CAST('relation' AS nvarchar(32)) AS kind, s.name AS [schema], o.name AS name,
          CAST(CASE o.type WHEN 'U' THEN 'table' ELSE 'view' END AS nvarchar(32)) AS detail1,
          CAST('' AS nvarchar(512)) AS detail2, CAST('' AS nvarchar(512)) AS detail3,
-         CAST('' AS nvarchar(512)) AS detail4, COALESCE(st.row_count, 0) AS num1
+         CAST('' AS nvarchar(512)) AS detail4, 0 AS num1
   FROM sys.objects AS o
   JOIN sys.schemas AS s ON s.schema_id = o.schema_id
-  LEFT JOIN (
-    SELECT object_id, SUM(row_count) AS row_count
-    FROM sys.dm_db_partition_stats
-    WHERE index_id IN (0, 1)
-    GROUP BY object_id
-  ) AS st ON st.object_id = o.object_id
   WHERE o.is_ms_shipped = 0 AND o.type IN ('U','V') AND (s.name = @P1 OR @P1 = '')
   UNION ALL
   SELECT 1, CAST('primaryKey' AS nvarchar(32)), s.name, t.name, c.name,
@@ -243,6 +239,17 @@ FROM (
 ORDER BY m.ord, m.[schema], m.name
 "#;
 
+/// Optional row estimates. Reading partition statistics can require elevated
+/// permissions, so a failure here degrades the map instead of breaking it.
+const MAP_SIZE: &str = r#"
+SELECT o.name AS name, COALESCE(SUM(st.row_count), 0) AS rows_approx
+FROM sys.objects AS o
+JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+LEFT JOIN sys.dm_db_partition_stats AS st ON st.object_id = o.object_id AND st.index_id IN (0, 1)
+WHERE o.is_ms_shipped = 0 AND o.type IN ('U','V') AND (s.name = @P1 OR @P1 = '')
+GROUP BY o.name
+"#;
+
 pub(super) fn map(
     project: &Project,
     args: &SqlMapArgs,
@@ -269,38 +276,55 @@ pub(super) fn map(
     let project_clone = project.clone();
     let config_clone = config.clone();
     let timed = context.with_execution_timeout(Some(Duration::from_secs(config.timeout_seconds)));
-    let rows_data = match block_on_safe(checked(
+    let (rows_data, row_estimates) = match block_on_safe(checked(
         async {
             let mut client = connect(&project_clone, &config_clone).await?;
-            let stream = client
-                .query(MAP, &[&schema_param, &top_param])
-                .await
-                .map_err(sql_error)?;
-            let mut rows = stream.into_row_stream();
             let mut collected: Vec<crate::adapters::sql_map::MapRow> = Vec::new();
-            while let Some(r) = rows.try_next().await.map_err(sql_error)? {
-                if collected.len() >= row_budget {
-                    break;
+            {
+                let stream = client
+                    .query(MAP, &[&schema_param, &top_param])
+                    .await
+                    .map_err(sql_error)?;
+                let mut rows = stream.into_row_stream();
+                while let Some(r) = rows.try_next().await.map_err(sql_error)? {
+                    if collected.len() >= row_budget {
+                        break;
+                    }
+                    let text = |index: usize| -> String {
+                        let value: Option<&str> = r.get(index);
+                        value.unwrap_or_default().to_owned()
+                    };
+                    let number: Option<i32> = r.get(7);
+                    collected.push(
+                        crate::adapters::sql_map::MapRow::new(
+                            &text(0),
+                            &text(1),
+                            &text(2),
+                            &text(3),
+                            &text(4),
+                            &text(5),
+                            &text(6),
+                        )
+                        .with_number(number.map(i64::from)),
+                    );
                 }
-                let text = |index: usize| -> String {
-                    let value: Option<&str> = r.get(index);
-                    value.unwrap_or_default().to_owned()
-                };
-                let number: Option<i32> = r.get(7);
-                collected.push(
-                    crate::adapters::sql_map::MapRow::new(
-                        &text(0),
-                        &text(1),
-                        &text(2),
-                        &text(3),
-                        &text(4),
-                        &text(5),
-                        &text(6),
-                    )
-                    .with_number(number.map(i64::from)),
-                );
             }
-            Ok::<Vec<crate::adapters::sql_map::MapRow>, Failure>(collected)
+            // Row estimates are optional: partition statistics may be denied
+            // to a least-privilege login, and that must not fail the map.
+            let mut estimates: Vec<(String, i64)> = Vec::new();
+            if let Ok(stream) = client.query(MAP_SIZE, &[&schema_param]).await {
+                let mut rows = stream.into_row_stream();
+                while let Some(r) = rows.try_next().await.unwrap_or(None) {
+                    let name: Option<&str> = r.get(0);
+                    let count: Option<i64> = r.get(1);
+                    if let Some(name) = name {
+                        estimates.push((name.to_owned(), count.unwrap_or(0)));
+                    }
+                }
+            }
+            Ok::<(Vec<crate::adapters::sql_map::MapRow>, Vec<(String, i64)>), Failure>((
+                collected, estimates,
+            ))
         },
         &timed,
     )) {
@@ -309,6 +333,18 @@ pub(super) fn map(
     };
 
     let mut result = crate::adapters::sql_map::assemble("sqlserver", rows_data, limit);
+    if !row_estimates.is_empty() {
+        if let Some(relations) = result["relations"].as_array_mut() {
+            for relation in relations.iter_mut() {
+                let name = relation["name"].as_str().unwrap_or_default().to_owned();
+                if let Some((_, count)) = row_estimates.iter().find(|(key, _)| *key == name) {
+                    relation["rowsApprox"] = json!(count);
+                }
+            }
+        }
+    } else {
+        result["sizeUnavailable"] = json!(true);
+    }
     result["schemas"] = json!(if schema.is_empty() {
         "*".to_string()
     } else {

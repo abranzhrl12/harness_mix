@@ -11,18 +11,39 @@ mod graph_fixture;
 fn explore_resolves_indexed_razor_section_from_current_source() {
     let temp = tempfile::tempdir().unwrap();
     let db = graph_fixture::fixture(temp.path());
-    let source = "@model VehicleModel\n@section Scripts {\n<script>const label = 'Vehicle';</script>\n}\n";
+    let source =
+        "@model VehicleModel\n@section Scripts {\n<script>const label = 'Vehicle';</script>\n}\n";
     std::fs::write(temp.path().join("Index.cshtml"), source).unwrap();
-    db.execute("INSERT INTO nodes VALUES('razor-section','Scripts','section','Index.cshtml',2)", []).unwrap();
-    db.execute("INSERT INTO files VALUES('Index.cshtml',?1,NULL)", [harness_domain::hash(source.as_bytes())]).unwrap();
+    db.execute(
+        "INSERT INTO nodes VALUES('razor-section','Scripts','section','Index.cshtml',2)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO files VALUES('Index.cshtml',?1,NULL)",
+        [harness_domain::hash(source.as_bytes())],
+    )
+    .unwrap();
     drop(db);
     let app = adapters::application(temp.path()).unwrap();
     let args = serde_json::from_value(serde_json::json!({"query":"Scripts","filePath":"Index.cshtml","requireMatchingFiles":true})).unwrap();
     let result = app.execute(harness_domain::contracts::Request::Explore(args));
     assert_eq!(result["state"], "ok", "{result}");
-    assert_eq!(result["data"]["definitions"][0]["symbol"]["name"], "Scripts", "{result}");
-    assert!(result["data"]["text"].as_str().unwrap().contains("const label = 'Vehicle'"));
-    assert!(!result.to_string().contains("Indexed candidate not resolved"));
+    assert_eq!(
+        result["data"]["definitions"][0]["symbol"]["name"], "Scripts",
+        "{result}"
+    );
+    assert!(
+        result["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("const label = 'Vehicle'")
+    );
+    assert!(
+        !result
+            .to_string()
+            .contains("Indexed candidate not resolved")
+    );
 }
 
 fn outline(app: &NativeApplication, path: &str, query: Option<&str>) -> Value {

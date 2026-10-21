@@ -403,7 +403,8 @@ fn sql_xml_and_css_are_editable_as_text_by_default() {
 fn csharp_edits_are_gated_by_the_native_csharp_syntax_check() {
     let root = tempfile::tempdir().unwrap();
     let app = adapters::application(root.path()).unwrap();
-    let before = "namespace Sample;\npublic class Thing\n{\n    public int Value { get; set; }\n}\n";
+    let before =
+        "namespace Sample;\npublic class Thing\n{\n    public int Value { get; set; }\n}\n";
     std::fs::write(root.path().join("Thing.cs"), before).unwrap();
 
     let result = app.execute(Request::Replace(ReplaceArgs {

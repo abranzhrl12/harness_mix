@@ -49,9 +49,21 @@ function formatTitle(t: string): string {
     assert_eq!(data["syntaxOnly"], true);
 
     let items = data["items"].as_array().unwrap();
-    assert!(items.iter().any(|s| s["name"] == "Props" && s["kind"] == "interface_declaration"));
-    assert!(items.iter().any(|s| s["name"] == "formatTitle" && s["kind"] == "function_declaration"));
-    assert!(items.iter().any(|s| s["kind"] == "astro_import" && s["name"] == "import ../components/Card.astro"));
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "Props" && s["kind"] == "interface_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["name"] == "formatTitle" && s["kind"] == "function_declaration")
+    );
+    assert!(
+        items
+            .iter()
+            .any(|s| s["kind"] == "astro_import" && s["name"] == "import ../components/Card.astro")
+    );
 
     // Now test reading a specific symbol: formatTitle
     let read_req = Request::ReadSymbol(
@@ -64,7 +76,12 @@ function formatTitle(t: string): string {
     );
     let read_res = app.execute(read_req);
     assert_eq!(read_res["state"], "ok", "{read_res}");
-    assert!(read_res["data"]["text"].as_str().unwrap().contains("function formatTitle"));
+    assert!(
+        read_res["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("function formatTitle")
+    );
 }
 
 #[test]

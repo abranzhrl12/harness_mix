@@ -49,6 +49,16 @@ impl MapRow {
     }
 }
 
+/// A foreign key edge: the constraint name, the child table and its columns,
+/// and the parent table and its columns.
+struct ForeignEdge {
+    name: String,
+    child: String,
+    child_columns: Vec<String>,
+    parent: String,
+    parent_columns: Vec<String>,
+}
+
 /// Builds the map payload from catalog rows.
 ///
 /// `limit` bounds the number of reported relations. Anything the catalog
@@ -60,7 +70,7 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
     let mut foreign_keys: Vec<Value> = Vec::new();
     let mut routines: Vec<Value> = Vec::new();
     let mut relation_names: Vec<(String, String)> = Vec::new();
-    let mut foreign_edges: Vec<(String, String, Vec<String>, String, Vec<String>)> = Vec::new();
+    let mut foreign_edges: Vec<ForeignEdge> = Vec::new();
     let mut routine_rows: Vec<(String, String, String, String, String, String)> = Vec::new();
     let mut catalog_rows = 0usize;
     let mut dropped_relations = false;
@@ -88,19 +98,19 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
             "foreignKey" => {
                 let edge = foreign_edges
                     .iter_mut()
-                    .find(|(name, child, _, _, _)| *name == row.name && *child == row.detail1);
+                    .find(|edge| edge.name == row.name && edge.child == row.detail1);
                 match edge {
-                    Some((_, _, child_columns, _, parent_columns)) => {
-                        child_columns.push(row.detail2.clone());
-                        parent_columns.push(row.detail4.clone());
+                    Some(edge) => {
+                        edge.child_columns.push(row.detail2.clone());
+                        edge.parent_columns.push(row.detail4.clone());
                     }
-                    None => foreign_edges.push((
-                        row.name.clone(),
-                        row.detail1.clone(),
-                        vec![row.detail2.clone()],
-                        row.detail3.clone(),
-                        vec![row.detail4.clone()],
-                    )),
+                    None => foreign_edges.push(ForeignEdge {
+                        name: row.name.clone(),
+                        child: row.detail1.clone(),
+                        child_columns: vec![row.detail2.clone()],
+                        parent: row.detail3.clone(),
+                        parent_columns: vec![row.detail4.clone()],
+                    }),
                 }
             }
             "routine" => {
@@ -118,9 +128,10 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
     }
 
     for (schema, table, column) in primary_keys {
-        if let Some(relation) = relations.iter_mut().find(|relation| {
-            relation["schema"] == schema && relation["name"] == table
-        }) {
+        if let Some(relation) = relations
+            .iter_mut()
+            .find(|relation| relation["schema"] == schema && relation["name"] == table)
+        {
             relation["primaryKey"]
                 .as_array_mut()
                 .expect("primary key array")
@@ -128,13 +139,13 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
         }
     }
 
-    for (name, child, child_columns, parent, parent_columns) in foreign_edges {
+    for edge in foreign_edges {
         foreign_keys.push(json!({
-            "name": name,
-            "child": child,
-            "childColumns": child_columns,
-            "parent": parent,
-            "parentColumns": parent_columns
+            "name": edge.name,
+            "child": edge.child,
+            "childColumns": edge.child_columns,
+            "parent": edge.parent,
+            "parentColumns": edge.parent_columns
         }));
     }
 
@@ -188,3 +199,7 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
         "absenceIsConclusive": false
     })
 }
+
+#[cfg(test)]
+#[path = "sql_map_tests.rs"]
+mod tests;

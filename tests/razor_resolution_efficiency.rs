@@ -177,19 +177,40 @@ fn typed_receivers_follow_late_types_and_reject_new_homonyms() {
 #[test]
 fn razor_file_selector_delivers_inline_mvc_controller_in_one_exploration() {
     let (root, _db) = project();
-    publish(root.path(), "Controllers/OrdersController.cs", "public class OrdersController { public void Index() {} }");
-    publish(root.path(), "Views/Orders/Index.cshtml", "<a href=\"@Url.Action(\"Index\", \"Orders\")\">Orders</a>");
+    publish(
+        root.path(),
+        "Controllers/OrdersController.cs",
+        "public class OrdersController { public void Index() {} }",
+    );
+    publish(
+        root.path(),
+        "Views/Orders/Index.cshtml",
+        "<a href=\"@Url.Action(\"Index\", \"Orders\")\">Orders</a>",
+    );
     let app = application(root.path()).unwrap();
     let args = serde_json::from_value(serde_json::json!({
         "filePath":"Views/Orders/Index.cshtml", "view":"full", "direction":"outbound"
-    })).unwrap();
+    }))
+    .unwrap();
     let result = app.execute(Request::Explore(args));
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["focus"]["status"], "resolved", "{result}");
-    assert_eq!(result["data"]["unresolved"], serde_json::json!([]), "{result}");
-    assert!(result["data"]["definitions"].as_array().unwrap().iter().any(|definition|
-        definition["path"] == "Controllers/OrdersController.cs" && definition["symbol"]["name"] == "Index"
-    ), "{result}");
+    assert_eq!(
+        result["data"]["unresolved"],
+        serde_json::json!([]),
+        "{result}"
+    );
+    assert!(
+        result["data"]["definitions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |definition| definition["path"] == "Controllers/OrdersController.cs"
+                    && definition["symbol"]["name"] == "Index"
+            ),
+        "{result}"
+    );
     for input in [
         serde_json::json!({"filePath":"Controllers/OrdersController.cs"}),
         serde_json::json!({"filePath":"Views/Orders/Index.cshtml", "view":"impact"}),

@@ -190,7 +190,9 @@ impl McpHarness {
         self.call(Request::Verify(args), context).await
     }
 
-    #[tool(description = "SQL de solo lectura: action=query|status|search|describe.")]
+    #[tool(
+        description = "SQL de solo lectura: action=map|query|status|search|describe. map=esquema completo con PK, FK y parámetros en una llamada."
+    )]
     async fn harness_sql(
         &self,
         Parameters(args): Parameters<harness_domain::sql::SqlArgs>,
