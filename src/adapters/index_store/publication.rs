@@ -328,11 +328,10 @@ pub(super) fn publish(
         sql(db.execute("INSERT INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![source,target,edge.kind,edge.line,edge.col,edge.metadata,edge.provenance]))?;
         provider_kept += 1;
     }
-    // A publication only invalidates the whole import graph when the
-    // configuration changed or the file content changed, that is when its
-    // exports or its import specifiers may have changed. Otherwise only the
-    // import edges this file can affect are rechecked, so the work stays
-    // proportional to the file instead of the whole project.
+    // A changed JS/TS source or configuration can make bindings elsewhere
+    // ambiguous. Preserve global import invalidation for that subset instead
+    // of limiting retries to the current file's incoming and outgoing edges.
+    // Other languages with unchanged configuration do not trigger this pass.
 
     let import_rechecks =
         if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {

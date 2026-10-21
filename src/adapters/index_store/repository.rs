@@ -66,44 +66,6 @@ pub(super) fn identity_map(
     Ok(result)
 }
 
-/// Pending JS/TS references whose imported export became available. The
-/// reference names the local alias, so the import binding of the referencing
-/// file carries the real name to match.
-pub(super) fn pending_import_refs(
-    db: &Connection,
-    new_names: &BTreeSet<String>,
-) -> Result<Vec<i64>, Failure> {
-    if new_names.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut statement = sql(db.prepare(
-        "SELECT r.id,r.reference_name,n.signature FROM unresolved_refs r JOIN nodes n ON n.file_path=r.file_path AND n.kind='import' WHERE r.status='pending' AND r.language IN ('typescript','tsx','javascript','jsx') LIMIT 20001",
-    ))?;
-    let rows = sql(statement.query_map([], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<String>>(2)?,
-        ))
-    }))?;
-    let mut result = Vec::new();
-    for row in rows {
-        let (id, reference, signature) = sql(row)?;
-        let Some(signature) = signature else {
-            continue;
-        };
-        let Some((_module, names)) = codegraph_native::named_imports(&signature) else {
-            continue;
-        };
-        for (original, local) in names {
-            if local == reference && new_names.contains(&original) {
-                result.push(id);
-                break;
-            }
-        }
-    }
-    Ok(result)
-}
 #[derive(Clone)]
 pub(super) struct ProviderEdge {
     pub(super) source: String,
