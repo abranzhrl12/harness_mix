@@ -1,0 +1,20 @@
+{
+  "importers": [
+    {"file": "src/app.ts", "module": "./lib", "target": "src/lib.ts", "unresolved": false},
+    {"file": "src/other.ts", "module": "./missing", "target": null, "unresolved": true},
+    {"file": "src/admin.ts", "module": "./barrel", "target": "src/barrel.ts", "unresolved": false},
+    {"file": "src/barrel.ts", "module": "./core", "target": "src/core.ts", "unresolved": false},
+    {"file": "src/alias-user.ts", "module": "@core", "target": "src/core.ts", "unresolved": false},
+    {"file": "src/isolated-1.ts", "module": "./isolated-1-target", "target": "src/isolated-1-target.ts", "unresolved": false},
+    {"file": "src/isolated-2.ts", "module": "./isolated-2-target", "target": "src/isolated-2-target.ts", "unresolved": false},
+    {"file": "src/isolated-3.ts", "module": "./isolated-3-target", "target": "src/isolated-3-target.ts", "unresolved": false}
+  ],
+  "events": [
+    {"name": "new target satisfies previously missing relative import", "changed": "src/missing.ts", "kind": "add", "expected": ["src/other.ts"]},
+    {"name": "new extension candidate can make existing resolution ambiguous", "changed": "src/lib.js", "kind": "add", "expected": ["src/app.ts"]},
+    {"name": "deleting a resolved target breaks its importer", "changed": "src/lib.ts", "kind": "delete", "expected": ["src/app.ts"]},
+    {"name": "export surface change preserves path but changes binding", "changed": "src/lib.ts", "kind": "exports", "expected": ["src/app.ts"]},
+    {"name": "nested barrel change propagates to outer importer", "changed": "src/core.ts", "kind": "exports", "expected": ["src/barrel.ts", "src/admin.ts"]},
+    {"name": "alias config change invalidates users of the alias", "changed": "tsconfig.json", "kind": "config", "expected": ["src/alias-user.ts"]}
+  ]
+}
