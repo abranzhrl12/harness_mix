@@ -102,7 +102,16 @@ proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 [profile.release]
 lto = "thin"
 strip = true
-codegen-units = 1
+codegen-units = 16
+
+# Perfil para pruebas: código como release (opt-level 3) pero paralelizado,
+# sin LTO ni strip, para compilar en minutos y depurar cuelgues.
+[profile.bench-fast]
+inherits = "release"
+lto = false
+strip = false
+codegen-units = 16
+debug = "line-tables-only"
 
 # Un binario de depuración sin optimizar es órdenes de magnitud más lento en
 # parseo (syn/oxc), SQLite y hashing. Optimizamos igualmente y reducimos los PDB.
