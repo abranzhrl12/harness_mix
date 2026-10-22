@@ -31,6 +31,7 @@ fn classifies_supported_extensions_without_losing_dialects() {
         ("a.cs", SourceFormat::CSharp, SourceLanguage::CSharp),
         ("a.cshtml", SourceFormat::Razor, SourceLanguage::Razor),
         ("a.CSS", SourceFormat::Css, SourceLanguage::Css),
+        ("a.SCSS", SourceFormat::Scss, SourceLanguage::Scss),
         ("a.html", SourceFormat::Html, SourceLanguage::Html),
         ("a.HTM", SourceFormat::Html, SourceLanguage::Html),
     ];

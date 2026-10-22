@@ -77,6 +77,14 @@ fn syntax_error_position(path: &str, source: &str, message: &str) -> String {
     {
         return format!("{message} (line {line}, column {column})");
     }
+    if extension(path) == "scss"
+        && let Some(diagnostic) = super::parsers::scss::syntax::first_error(source)
+    {
+        return format!(
+            "{message}: {} (line {}, column {})",
+            diagnostic.message, diagnostic.line, diagnostic.column
+        );
+    }
     message.to_owned()
 }
 
