@@ -178,6 +178,9 @@ el worker termina.
 Los puertos de workspace se agrupan por capacidad en
 `crates/application/src/ports/workspace/`: contexto y configuración, consultas de
 fuentes, edición, diagnósticos, Git, SQL, artefactos, sesiones, logs y verificación.
+Los puertos que necesita la aplicación viven en este crate; no hay un crate
+paralelo de contratos. El ejecutable compone sus implementaciones en
+`src/adapters/` y las inyecta a través de la aplicación.
 `Workspace` es únicamente la composición de esas capacidades para el host que
 ofrece todas las herramientas; no declara métodos. Un caso de uso que solo lee
 fuentes puede recibir `SourceQueries` sin depender del resto. Los adaptadores
@@ -194,10 +197,24 @@ que conserva los intentos aceptados por el formato anterior. Tokio, semáforos,
 persistencia y notificaciones permanecen en `adapters/tasks`; el ejecutor recibe
 las dependencias ya elegidas por el coordinador.
 
+`application::ports::JobService` permite despachar trabajos y suscribirse a sus
+eventos sin depender de Tokio ni del gestor nativo. `JobEventStream` distingue
+eventos, retraso del consumidor y cierre. El handler MCP recibe este puerto y
+una `Application<W, S>`; `transport/runtime.rs` construye los adaptadores nativos,
+inyecta el gestor de trabajos y conserva su propietario para el cierre.
+
 `index_store.rs` conserva la coordinación de pines, presupuestos y transacciones.
 Sus módulos internos separan `validation`, `repository`, `publication` y
 `resolution`; todos trabajan sobre la conexión/transacción existente, sin abrir
 otra unidad de trabajo ni cambiar el orden de publicación y revalidación.
+
+Dentro de `publication/`, `plan.rs` decide si se reutiliza el snapshot y cómo
+conservar o recuperar referencias entrantes sin I/O. `model.rs` proyecta la
+extracción en filas tipadas prestadas y presenta el resultado de publicación;
+`storage.rs` persiste esas filas usando la transacción recibida. La extracción
+permanece después de consultar el hash dentro de la transacción. El coordinador
+conserva el orden de invalidación y el caller confirma el commit solo después
+de revalidar las fuentes y la configuración.
 
 | Ubicación | Responsabilidad | Dependencias permitidas |
 |---|---|---|

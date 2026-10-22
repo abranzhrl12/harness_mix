@@ -1,11 +1,25 @@
 //! Native composition and lifecycle for the stdio server.
 use super::{McpHarness, input};
 use crate::adapters;
+use harness_application::ports::JobService;
 use rmcp::ServiceExt;
 use std::{
     path::Path,
     sync::{Arc, atomic::AtomicBool},
+    time::Duration,
 };
+
+async fn drain_tasks(tasks: Option<&crate::adapters::tasks::TaskManager>) -> Result<(), String> {
+    if let Some(tasks) = tasks {
+        if !tasks.shutdown_and_wait(Duration::from_secs(10)).await {
+            return Err(
+                "Background job workers did not drain within the 10-second shutdown deadline"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
 
 pub async fn serve(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     serve_with_logging(root, false).await
@@ -89,7 +103,9 @@ pub async fn serve_with_logging(
             },
         )?
         .with_tool_profile(profile),
-        tasks: tasks.clone(),
+        tasks: tasks
+            .clone()
+            .map(|manager| Arc::new(manager) as Arc<dyn JobService>),
         task_notifications: Arc::new(AtomicBool::new(true)),
         task_forwarding: Arc::new(AtomicBool::new(false)),
     }
@@ -97,11 +113,23 @@ pub async fn serve_with_logging(
         input::BoundedLines::new(tokio::io::stdin(), input::MAX_MESSAGE_BYTES),
         tokio::io::stdout(),
     ))
-    .await?;
+    .await;
+    let service = match service {
+        Ok(service) => service,
+        Err(error) => {
+            let drain = drain_tasks(tasks.as_ref()).await;
+            return match drain {
+                Ok(()) => Err(error.into()),
+                Err(drain_error) => {
+                    Err(std::io::Error::other(format!("{error}; {drain_error}")).into())
+                }
+            };
+        }
+    };
     let result = service.waiting().await;
-    if let Some(tasks) = tasks {
-        tasks.shutdown();
-    }
+    drain_tasks(tasks.as_ref())
+        .await
+        .map_err(std::io::Error::other)?;
     result?;
     Ok(())
 }

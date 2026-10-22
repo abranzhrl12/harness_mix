@@ -1,5 +1,21 @@
 use super::execute::retryable;
 use super::*;
+
+#[test]
+fn job_service_event_adapter_preserves_events_lag_and_close() {
+    assert!(matches!(
+        super::map_task_event(Ok(json!({"kind":"state","taskId":"t1"}))),
+        harness_application::ports::JobEvent::Event(value) if value["taskId"] == "t1"
+    ));
+    assert!(matches!(
+        super::map_task_event(Err(tokio::sync::broadcast::error::RecvError::Lagged(4))),
+        harness_application::ports::JobEvent::Lagged(4)
+    ));
+    assert!(matches!(
+        super::map_task_event(Err(tokio::sync::broadcast::error::RecvError::Closed)),
+        harness_application::ports::JobEvent::Closed
+    ));
+}
 use harness_domain::process::StopReason;
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn args(value: Value) -> TaskArgs {

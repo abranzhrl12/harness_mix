@@ -1,7 +1,11 @@
 //! MCP routing; native composition and execution lifecycle live in dedicated modules.
-use crate::adapters::NativeApplication;
+use harness_application::{
+    Application,
+    ports::{JobService, SessionRepository, Workspace},
+};
 mod execution;
 mod input;
+mod jobs;
 mod presentation;
 mod profile;
 mod runtime;
@@ -25,15 +29,25 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-#[derive(Clone)]
-struct McpHarness {
-    application: NativeApplication,
-    tasks: Option<crate::adapters::tasks::TaskManager>,
+struct McpHarness<W, S> {
+    application: Application<W, S>,
+    tasks: Option<Arc<dyn JobService>>,
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
 }
 
-impl McpHarness {
+impl<W, S> Clone for McpHarness<W, S> {
+    fn clone(&self) -> Self {
+        Self {
+            application: self.application.clone(),
+            tasks: self.tasks.clone(),
+            task_notifications: self.task_notifications.clone(),
+            task_forwarding: self.task_forwarding.clone(),
+        }
+    }
+}
+
+impl<W: Workspace + 'static, S: SessionRepository + 'static> McpHarness<W, S> {
     fn profile_router(&self) -> rmcp::handler::server::router::tool::ToolRouter<Self> {
         profile::router(Self::tool_router(), self.application.tool_profile())
     }
@@ -43,25 +57,17 @@ impl McpHarness {
 }
 
 #[tool_router]
-impl McpHarness {
+impl<W, S> McpHarness<W, S>
+where
+    W: Workspace + 'static,
+    S: SessionRepository + 'static,
+{
     #[tool(description = "Verificación en segundo plano: action=start|status|observe|cancel.")]
     async fn harness_jobs(
         &self,
         Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
     ) -> CallToolResult {
-        let arguments = serde_json::to_value(&args).expect("task arguments");
-        let result = match &self.tasks {
-            Some(tasks) => tasks.handle(args).await,
-            None => Err((
-                "TOOL_PROFILE",
-                "Background jobs are unavailable in this tool profile",
-            )),
-        };
-        response(harness_domain::results::Results::default().envelope(
-            "harness_jobs",
-            &arguments,
-            result,
-        ))
+        jobs::handle(self.tasks.as_deref(), args).await
     }
 
     #[tool(description = "Scope externo de solo lectura: action=grant|list|revoke.")]
@@ -281,7 +287,11 @@ impl McpHarness {
 }
 
 #[tool_handler(router = self.profile_router())]
-impl ServerHandler for McpHarness {
+impl<W, S> ServerHandler for McpHarness<W, S>
+where
+    W: Workspace + 'static,
+    S: SessionRepository + 'static,
+{
     #[allow(deprecated)]
     async fn set_level(
         &self,
@@ -310,12 +320,8 @@ impl ServerHandler for McpHarness {
         let enabled = self.task_notifications.clone();
         tokio::spawn(async move {
             loop {
-                let event = match events.recv().await {
-                    Ok(event) => event,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        serde_json::json!({"kind":"events_lagged","skipped":skipped,"recovery":"harness_jobs action=events"})
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                let Some(event) = jobs::event_value(events.recv().await) else {
+                    break;
                 };
                 if enabled.load(Ordering::Relaxed)
                     && context

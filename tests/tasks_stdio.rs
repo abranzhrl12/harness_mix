@@ -315,6 +315,42 @@ fn completed_job_result_and_event_cursor_survive_graceful_restart() {
 }
 
 #[test]
+fn graceful_shutdown_persists_active_job_cancellation_before_restart() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(
+        root.path(),
+        "#[test] fn blocked() { std::thread::sleep(std::time::Duration::from_secs(30)); }\n",
+    );
+    let mut server = Server::start(root.path());
+    let accepted = server.jobs(
+        2,
+        json!({"action":"start","verify":{"language":"rust","action":"test"}}),
+    );
+    let task_id = accepted["taskId"].as_str().unwrap();
+    server.task_event(task_id, &["running"]);
+    server.close();
+    drop(server);
+
+    let mut restored = Server::start(root.path());
+    let status = restored.jobs(2, json!({"action":"status","taskId":task_id}));
+    assert_eq!(status["status"], "cancelled", "{status}");
+    let events = restored.replay(Some(task_id), 0);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["data"]["status"] == "cancelled"),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .all(|event| event["data"]["status"] != "interrupted"),
+        "graceful shutdown must persist the terminal state before restart: {events:?}"
+    );
+    restored.close();
+}
+
+#[test]
 fn crash_recovers_active_job_as_interrupted_without_repeating_it() {
     let root = tempfile::tempdir().unwrap();
     fixture(

@@ -1,5 +1,6 @@
 //! Apply tool visibility and schema narrowing at the protocol boundary.
 use super::McpHarness;
+use harness_application::ports::{SessionRepository, Workspace};
 use harness_domain::tool_contract::ToolProfile;
 use rmcp::handler::server::router::tool::ToolRouter;
 
@@ -31,10 +32,14 @@ fn restrict_batch_schema(
     }
 }
 
-pub(super) fn router(
-    mut router: ToolRouter<McpHarness>,
+pub(super) fn router<W, S>(
+    mut router: ToolRouter<McpHarness<W, S>>,
     profile: ToolProfile,
-) -> ToolRouter<McpHarness> {
+) -> ToolRouter<McpHarness<W, S>>
+where
+    W: Workspace,
+    S: SessionRepository,
+{
     router.map.retain(|name, _| profile.allows(name));
     if profile != harness_domain::tool_contract::ToolProfile::Full {
         if let Some(route) = router.map.get_mut("harness_batch") {

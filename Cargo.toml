@@ -41,22 +41,12 @@ doctest = false
 [workspace]
 members = [
     "crates/domain",
-    "crates/ports",
     "crates/application",
-    "crates/infra-llm",
-    "crates/infra-storage",
-    "crates/adapter-tui",
-    "crates/cli",
 ]
 default-members = [
     ".",
     "crates/domain",
-    "crates/ports",
     "crates/application",
-    "crates/infra-llm",
-    "crates/infra-storage",
-    "crates/adapter-tui",
-    "crates/cli",
 ]
 resolver = "3"
 exclude = ["vendor/codegraph-native"]

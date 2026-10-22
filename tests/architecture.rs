@@ -502,3 +502,55 @@ fn source_analysis_domain_does_not_depend_on_parser_engines_or_io() {
         );
     }
 }
+
+#[test]
+fn publication_planning_and_models_stay_independent_of_io() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/index_store/publication");
+    for relative in ["model.rs", "plan.rs"] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in [
+            "rusqlite",
+            "std::fs",
+            "tokio::",
+            "Project",
+            "Transaction",
+            "index_extract::extract",
+            "SystemTime::now",
+            "storage::",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "publication {relative} depends on I/O `{forbidden}`; pass observed data to planning"
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_job_handlers_depend_on_application_ports_instead_of_native_scheduler() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = vec![root.join("src/transport.rs")];
+    rust_files(&root.join("src/transport"), &mut files);
+    for path in files {
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        // Native construction and shutdown belong to the composition boundary.
+        if file_name == "runtime.rs" || file_name == "tests.rs" || file_name.ends_with("_tests.rs")
+        {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        for forbidden in [
+            "NativeApplication",
+            "TaskManager",
+            "adapters::tasks",
+            "broadcast::",
+            "RecvError::",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} depends on native job infrastructure `{forbidden}`",
+                path.display()
+            );
+        }
+    }
+}

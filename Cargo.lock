@@ -878,31 +878,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-adapter-tui"
-version = "0.1.0"
-dependencies = [
- "harness-domain",
- "harness-ports",
-]
-
-[[package]]
 name = "harness-application"
 version = "0.1.0"
 dependencies = [
  "harness-domain",
  "serde_json",
-]
-
-[[package]]
-name = "harness-cli"
-version = "0.1.0"
-dependencies = [
- "harness-adapter-tui",
- "harness-application",
- "harness-domain",
- "harness-infra-llm",
- "harness-infra-storage",
- "harness-ports",
 ]
 
 [[package]]
@@ -914,31 +894,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "uuid",
-]
-
-[[package]]
-name = "harness-infra-llm"
-version = "0.1.0"
-dependencies = [
- "harness-domain",
- "harness-ports",
-]
-
-[[package]]
-name = "harness-infra-storage"
-version = "0.1.0"
-dependencies = [
- "harness-domain",
- "harness-ports",
-]
-
-[[package]]
-name = "harness-ports"
-version = "0.1.0"
-dependencies = [
- "harness-domain",
- "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -4,8 +4,8 @@ use super::repository::{
 };
 use super::resolution::resolve_exact;
 use super::{
-    INDEX, LIMIT, MAX_ROWS, array, batches, candidates, imports, index_extract, opt_string,
-    razor_invalidation, sql, string, tsconfig,
+    INDEX, LIMIT, MAX_ROWS, batches, candidates, imports, index_extract, razor_invalidation, sql,
+    tsconfig,
 };
 use crate::adapters::project::Project;
 use harness_domain::{Failure, execution::OperationContext, hash};
@@ -15,6 +15,13 @@ use std::{
     collections::BTreeSet,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[path = "publication/model.rs"]
+mod model;
+#[path = "publication/plan.rs"]
+mod plan;
+#[path = "publication/storage.rs"]
+mod storage;
 
 #[allow(clippy::too_many_arguments)] // Publication inputs plus the transaction's configuration snapshot.
 pub(super) fn publish(
@@ -35,23 +42,9 @@ pub(super) fn publish(
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional())?;
-    let clean = record.as_ref().is_some_and(|(_, errors)| {
-        errors.as_ref().is_none_or(|e| {
-            serde_json::from_str::<Value>(e).is_ok_and(|v| v.as_array().is_some_and(Vec::is_empty))
-        })
-    });
-    if !config_changed
-        && !force
-        && ((bytes.is_none() && record.is_none())
-            || (clean
-                && bytes.is_some_and(|bytes| {
-                    record
-                        .as_ref()
-                        .is_some_and(|(digest, _)| *digest == hash(bytes))
-                })))
-    {
+    if plan::is_unchanged(record.as_ref(), bytes, config_changed, force, hash) {
         return Ok((
-            json!({"mode":"sync_file","path":path,"changed":false,"extractionPerformed":false,"committed":false,"synchronized":false,"globalFreshnessCertified":false}),
+            model::PublicationReport::unchanged(path),
             imports::Sources::configured(configuration),
         ));
     }
@@ -120,61 +113,13 @@ pub(super) fn publish(
     // into foo. Legacy unpaired edges without stamps block the entire transaction.
     let mut resurrect = Vec::new();
     let mut retained = Vec::new();
-    for mut edge in incoming {
+    for edge in incoming {
         context.check()?;
-        let framework_template = edge
-            .metadata
-            .as_deref()
-            .and_then(|metadata| serde_json::from_str::<Value>(metadata).ok())
-            .and_then(|metadata| opt_string(&metadata, "refKind").map(str::to_owned))
-            .is_some_and(|kind| framework::is_template_reference(&kind));
-        if framework_template {
-            // Revalidate even when the target's node identity is unchanged:
-            // the edge metadata records both contributing file snapshots.
-            let metadata: Value = edge
-                .metadata
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .ok_or((
-                    "SYNC_LEGACY_REFERENCE",
-                    "Cannot recover framework template reference; index unchanged",
-                ))?;
-            let name = string(&metadata, "refName").map_err(|_| {
-                (
-                    "SYNC_LEGACY_REFERENCE",
-                    "Framework template edge lacks original path; index unchanged",
-                )
-            })?;
-            resurrect.push((edge, name, "framework_template".to_owned()));
-            continue;
-        }
-        if provider_ids.contains(&edge.target) {
-            // The provider node survives the publication; the edge keeps it.
-            retained.push(edge);
-            continue;
-        }
-        if let Some(target) = paired.get(&edge.target) {
-            edge.target = target.clone();
-            retained.push(edge);
-        } else {
-            let metadata: Value = edge
-                .metadata
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .ok_or((
-                    "SYNC_LEGACY_REFERENCE",
-                    "Cannot recover original reference for an incoming edge; index unchanged",
-                ))?;
-            let name = string(&metadata, "refName").map_err(|_| {
-                (
-                    "SYNC_LEGACY_REFERENCE",
-                    "Incoming edge lacks original reference metadata; index unchanged",
-                )
-            })?;
-            let kind = opt_string(&metadata, "refKind")
-                .unwrap_or(&edge.kind)
-                .to_owned();
-            resurrect.push((edge, name, kind));
+        match plan::incoming_disposition(edge, &provider_ids, &paired)? {
+            plan::IncomingDisposition::Retain(edge) => retained.push(edge),
+            plan::IncomingDisposition::Recover { edge, name, kind } => {
+                resurrect.push((edge, name, kind));
+            }
         }
     }
     let now = SystemTime::now()
@@ -195,90 +140,25 @@ pub(super) fn publish(
         "DELETE FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%')",
         [path],
     ))?;
-    let mut refs = BTreeSet::new();
-    let mut node_count = 0;
-    if let Some(extracted) = extracted {
-        let nodes = array(extracted, "nodes")?;
-        if nodes.len() > MAX_ROWS {
-            return Err(LIMIT);
-        }
-        batches::insert(
-            db,
-            "INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,visibility,is_exported,is_async,is_static,is_abstract,decorators,type_parameters,return_type,updated_at) VALUES ",
-            21,
-            nodes,
-            context,
-            |node| {
-                batches::values(params![
-                    string(node, "id")?,
-                    string(node, "kind")?,
-                    string(node, "name")?,
-                    string(node, "qualifiedName")?,
-                    path,
-                    language,
-                    node["startLine"].as_i64(),
-                    node["endLine"].as_i64(),
-                    node["startColumn"].as_i64(),
-                    node["endColumn"].as_i64(),
-                    opt_string(node, "docstring"),
-                    opt_string(node, "signature"),
-                    opt_string(node, "visibility"),
-                    node["isExported"].as_bool().unwrap_or(false),
-                    node["isAsync"].as_bool().unwrap_or(false),
-                    node["isStatic"].as_bool().unwrap_or(false),
-                    node["isAbstract"].as_bool().unwrap_or(false),
-                    node.get("decorators").map(Value::to_string),
-                    node.get("typeParameters").map(Value::to_string),
-                    opt_string(node, "returnType"),
-                    now
-                ])
-            },
-        )?;
-        node_count = nodes.len() + provider_ids.len();
-        batches::insert(
-            db,
-            "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES ",
-            7,
-            array(extracted, "edges")?,
-            context,
-            |edge| {
-                batches::values(params![
-                    string(edge, "source")?,
-                    string(edge, "target")?,
-                    string(edge, "kind")?,
-                    edge["line"].as_i64(),
-                    edge["column"].as_i64(),
-                    edge.get("metadata").map(Value::to_string),
-                    opt_string(edge, "provenance")
-                ])
-            },
-        )?;
-        refs.extend(batches::insert_ids(
-            db,
-            "INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,candidates,file_path,language) VALUES ",
-            8,
-            array(extracted, "unresolvedReferences")?,
-            context,
-            |reference| batches::values(params![
-                string(reference, "fromNodeId")?,
-                string(reference, "referenceName")?,
-                string(reference, "referenceKind")?,
-                reference["line"].as_i64().ok_or(INDEX)?,
-                reference["column"].as_i64().ok_or(INDEX)?,
-                reference.get("candidates").map(Value::to_string),
-                path, language,
-            ]),
-        )?);
-        if refs.len() > MAX_ROWS {
-            return Err(LIMIT);
-        }
-        let bytes = bytes.ok_or(INDEX)?;
-        // modified_at=0 disables CodeGraph's size/mtime fast-path on the next
-        // provider sync; don't invent a file timestamp from extraction time.
-        sql(db.execute("INSERT INTO files(path,content_hash,language,size,modified_at,indexed_at,node_count,errors,generated) VALUES(?1,?2,?3,?4,0,?5,?6,'[]',?7) ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash,language=excluded.language,size=excluded.size,modified_at=0,indexed_at=excluded.indexed_at,node_count=excluded.node_count,errors=excluded.errors,generated=excluded.generated",params![path,hash(bytes),language,bytes.len() as i64,now,node_count as i64,generated]))?;
-    } else {
-        sql(db.execute("DELETE FROM files WHERE path=?1", [path]))?;
-    }
+    let prepared_graph = extracted
+        .map(|value| model::ExtractedGraph::prepare(value, context))
+        .transpose()?;
+    let extraction_performed = extracted.is_some();
+    let graph_write = storage::replace_file_graph(
+        db,
+        storage::FilePublication {
+            graph: prepared_graph.as_ref(),
+            path,
+            language,
+            bytes,
+            generated,
+            now,
+            provider_nodes: provider_ids.len(),
+        },
+        context,
+    )?;
+    let node_count = graph_write.node_count;
+    let mut refs = graph_write.refs;
     let retained_count = retained.len();
     let resurrected_count = resurrect.len();
     batches::insert(
@@ -461,9 +341,27 @@ pub(super) fn publish(
         [],
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
-    let mut report = json!({"mode":"sync_file","path":path,"changed":true,"extractionPerformed":extracted.is_some(),"deleted":extracted.is_none(),"nodesWritten":node_count,"incomingEdgesRetained":retained_count,"incomingReferencesRecovered":resurrected_count,"providerNodesPreserved":provider_ids.len(),"providerEdgesRetained":provider_kept,"providerEdgesDropped":provider_dropped,"importReferencesRechecked":import_recheck_count,"frameworkReferencesRechecked":framework_rechecks,"razorReferencesRechecked":razor_recheck_count,"referencesAttempted":refs.len(),"referencesResolved":resolved,"referencesPending":refs.len()-resolved,"resolutionPolicy":"exact-name-relative-import-and-framework-subsets","committed":false,"synchronized":false,"globalFreshnessCertified":false});
-    if let Some(coverage) = extracted.and_then(|value| value.get("coverage")) {
-        report["extractionCoverage"] = coverage.clone();
+    let report = model::PublicationReport {
+        path: path.to_owned(),
+        changed: true,
+        extraction_performed,
+        deleted: extracted.is_none(),
+        nodes_written: node_count,
+        incoming_edges_retained: retained_count,
+        incoming_references_recovered: resurrected_count,
+        provider_nodes_preserved: provider_ids.len(),
+        provider_edges_retained: provider_kept,
+        provider_edges_dropped: provider_dropped,
+        import_references_rechecked: import_recheck_count,
+        framework_references_rechecked: framework_rechecks,
+        razor_references_rechecked: razor_recheck_count,
+        references_attempted: refs.len(),
+        references_resolved: resolved,
+        extraction_coverage: prepared_graph
+            .as_ref()
+            .and_then(|graph| graph.coverage)
+            .cloned(),
     }
+    .into_json();
     Ok((report, import_sources))
 }

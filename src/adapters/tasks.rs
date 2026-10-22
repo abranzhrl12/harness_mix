@@ -2,6 +2,7 @@
 #[path = "observe.rs"]
 mod observe;
 use super::{process::NativeProcessRunner, tasks_store::Store, verify};
+use harness_application::ports::{JobEvent, JobEventFuture, JobEventStream, JobFuture, JobService};
 use harness_domain::{
     Failure,
     contracts::VerifyArgs,
@@ -605,6 +606,32 @@ impl TaskManager {
             execute(inner, id, verify_args, timeout, context, wake, attempts).await;
         });
         Ok(response)
+    }
+}
+
+struct TaskEvents(broadcast::Receiver<Value>);
+
+fn map_task_event(result: Result<Value, broadcast::error::RecvError>) -> JobEvent {
+    match result {
+        Ok(event) => JobEvent::Event(event),
+        Err(broadcast::error::RecvError::Lagged(skipped)) => JobEvent::Lagged(skipped),
+        Err(broadcast::error::RecvError::Closed) => JobEvent::Closed,
+    }
+}
+
+impl JobEventStream for TaskEvents {
+    fn recv(&mut self) -> JobEventFuture<'_> {
+        Box::pin(async move { map_task_event(self.0.recv().await) })
+    }
+}
+
+impl JobService for TaskManager {
+    fn handle(&self, args: TaskArgs) -> JobFuture<'_> {
+        Box::pin(async move { TaskManager::handle(self, args).await })
+    }
+
+    fn subscribe(&self) -> Box<dyn JobEventStream> {
+        Box::new(TaskEvents(TaskManager::subscribe(self)))
     }
 }
 
