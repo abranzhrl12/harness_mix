@@ -87,7 +87,7 @@ impl Collector<'_> {
                         "scss-variable",
                         &name,
                         container,
-                        declaration.span,
+                        &declaration.span,
                         name.clone(),
                     );
                 }
@@ -97,7 +97,7 @@ impl Collector<'_> {
                         "scss-control",
                         &name,
                         container,
-                        rule.span,
+                        &rule.span,
                         name.clone(),
                     );
                     let nested = join(container, &name);
@@ -207,7 +207,7 @@ impl Collector<'_> {
         }
     }
 
-    fn text(&self, span: Span) -> &str {
+    fn text(&self, span: &Span) -> &str {
         self.source
             .get(span.start..span.end)
             .unwrap_or_default()
