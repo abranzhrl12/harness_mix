@@ -144,3 +144,29 @@ fn malformed_buffers_and_cancellation_fail_closed() {
         "CANCELLED"
     );
 }
+
+#[test]
+fn scss_extraction_projects_rules_variables_and_nesting() {
+    let source = "$brand: #1976d2;\n\n.card {\n  color: `$brand`;\n\n  &__title {\n    font-weight: 600;\n  }\n}\n";
+    let graph = extract("card.scss", source, &OperationContext::default()).unwrap();
+    let nodes = graph["nodes"].as_array().unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["name"].as_str() == Some("$brand")
+                && node["kind"].as_str() == Some("scss-variable")
+                && node["language"].as_str() == Some("scss"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["name"].as_str() == Some("&__title")
+                && node["kind"].as_str() == Some("scss-rule")
+                && node["startLine"].as_u64() == Some(6))
+    );
+    let edges = graph["edges"].as_array().unwrap();
+    assert!(edges.iter().any(|edge| {
+        edge["kind"].as_str() == Some("contains")
+            && edge["source"].as_str() != edge["target"].as_str()
+    }));
+}

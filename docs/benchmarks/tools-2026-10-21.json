@@ -1,0 +1,661 @@
+{
+  "recordedAt": "2026-10-22T01:44:47.999Z",
+  "version": "agent-harness 0.8.9",
+  "executableSha256": "e23dcda6a28b0886b7716a57a4598f566ebf13141a3d6ddf1b60dcc963191271",
+  "executableBuildTime": "2026-10-21T09:11:03.868Z",
+  "os": "win32 10.0.19045 x64",
+  "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+  "logicalProcessors": 8,
+  "memoryGiB": 12,
+  "fixture": "one TS function, XML, SVG and tests/sample.xlsx; CLI-created empty index directories; temporary uncommitted Git repository",
+  "method": "wall time; sequential requests; one MCP warm-up per case excluded; CLI includes process startup; setup/read hashes excluded; no OS cache flush; index watcher disabled; no external DB/network/model latency",
+  "samplesPerCase": 7,
+  "advertisedTools": [
+    "harness_batch",
+    "harness_bootstrap",
+    "harness_config",
+    "harness_data_query",
+    "harness_detail",
+    "harness_doctor",
+    "harness_explore",
+    "harness_external_scope",
+    "harness_git",
+    "harness_ignore",
+    "harness_jobs",
+    "harness_move",
+    "harness_read",
+    "harness_replace",
+    "harness_search",
+    "harness_session",
+    "harness_sql",
+    "harness_svg",
+    "harness_symbols",
+    "harness_verify",
+    "harness_write",
+    "harness_xlsx"
+  ],
+  "results": [
+    {
+      "kind": "cli",
+      "operation": "--version",
+      "samplesMs": [
+        87.758,
+        53.443,
+        71.357,
+        97.365,
+        24.072,
+        21.43,
+        32.618
+      ],
+      "medianMs": 53.443,
+      "minMs": 21.43,
+      "maxMs": 97.365
+    },
+    {
+      "kind": "cli",
+      "operation": "--help",
+      "samplesMs": [
+        31.444,
+        22.936,
+        29.024,
+        39.561,
+        31.179,
+        24.264,
+        49.09
+      ],
+      "medianMs": 31.179,
+      "minMs": 22.936,
+      "maxMs": 49.09
+    },
+    {
+      "kind": "cli",
+      "operation": "--init-config",
+      "samplesMs": [
+        67.989,
+        42.001,
+        55.714,
+        52.055,
+        56.553,
+        48.98,
+        40.755
+      ],
+      "medianMs": 52.055,
+      "minMs": 40.755,
+      "maxMs": 67.989
+    },
+    {
+      "kind": "cli",
+      "operation": "--index init",
+      "samplesMs": [
+        89.967,
+        87.148,
+        112.68,
+        93.151,
+        96.511,
+        103.183,
+        110.203
+      ],
+      "medianMs": 96.511,
+      "minMs": 87.148,
+      "maxMs": 112.68
+    },
+    {
+      "kind": "cli",
+      "operation": "--index plan",
+      "samplesMs": [
+        32.292,
+        32.555,
+        29.73,
+        32.813,
+        30.616,
+        31.457,
+        28.982
+      ],
+      "medianMs": 31.457,
+      "minMs": 28.982,
+      "maxMs": 32.813
+    },
+    {
+      "kind": "cli",
+      "operation": "--index sync (unchanged)",
+      "samplesMs": [
+        51.696,
+        46.953,
+        46.778,
+        41.43,
+        45.143,
+        44.879,
+        46.734
+      ],
+      "medianMs": 46.734,
+      "minMs": 41.43,
+      "maxMs": 51.696
+    },
+    {
+      "kind": "cli",
+      "operation": "--index rebuild",
+      "samplesMs": [
+        157.159,
+        158.241,
+        121.613,
+        107.257,
+        87.398,
+        100.055,
+        101.281
+      ],
+      "medianMs": 107.257,
+      "minMs": 87.398,
+      "maxMs": 158.241
+    },
+    {
+      "kind": "cli",
+      "operation": "--sync-file (unchanged)",
+      "samplesMs": [
+        95.665,
+        92.73,
+        126.891,
+        56.292,
+        52.216,
+        53.111,
+        36.446
+      ],
+      "medianMs": 56.292,
+      "minMs": 36.446,
+      "maxMs": 126.891
+    },
+    {
+      "kind": "cli",
+      "operation": "--sync-file --force",
+      "samplesMs": [
+        134.689,
+        116.862,
+        108.553,
+        107.549,
+        103.387,
+        105.904,
+        125.977
+      ],
+      "medianMs": 108.553,
+      "minMs": 103.387,
+      "maxMs": 134.689
+    },
+    {
+      "kind": "cli",
+      "operation": "--sync-file --tsconfig",
+      "samplesMs": [
+        122.094,
+        25.337,
+        25.52,
+        27.143,
+        26.338,
+        25.454,
+        24.824
+      ],
+      "medianMs": 25.52,
+      "minMs": 24.824,
+      "maxMs": 122.094
+    },
+    {
+      "kind": "startup",
+      "operation": "spawn + initialize (single observation)",
+      "samplesMs": [
+        18.993
+      ],
+      "medianMs": 18.993,
+      "minMs": 18.993,
+      "maxMs": 18.993
+    },
+    {
+      "kind": "startup",
+      "operation": "initial compact bootstrap (single observation)",
+      "samplesMs": [
+        65.372
+      ],
+      "medianMs": 65.372,
+      "minMs": 65.372,
+      "maxMs": 65.372
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_bootstrap",
+      "operation": "reuse existing session",
+      "samplesMs": [
+        1.593,
+        1.548,
+        1.568,
+        1.598,
+        2.034,
+        1.824,
+        1.882
+      ],
+      "medianMs": 1.598,
+      "minMs": 1.548,
+      "maxMs": 2.034
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_read",
+      "operation": "read one TypeScript line",
+      "samplesMs": [
+        0.987,
+        1.086,
+        0.985,
+        0.988,
+        0.963,
+        1.122,
+        1.081
+      ],
+      "medianMs": 0.988,
+      "minMs": 0.963,
+      "maxMs": 1.122
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_search",
+      "operation": "text search, small fixture",
+      "samplesMs": [
+        6.873,
+        7.859,
+        7.558,
+        8.426,
+        8.862,
+        9.257,
+        10.682
+      ],
+      "medianMs": 8.426,
+      "minMs": 6.873,
+      "maxMs": 10.682
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_search",
+      "operation": "file search, small fixture",
+      "samplesMs": [
+        7.7,
+        7.232,
+        6.484,
+        7.483,
+        6.442,
+        6.563,
+        7.01
+      ],
+      "medianMs": 7.01,
+      "minMs": 6.442,
+      "maxMs": 7.7
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_symbols",
+      "operation": "outline",
+      "samplesMs": [
+        1.775,
+        1.408,
+        1.55,
+        1.578,
+        1.705,
+        1.382,
+        1.374
+      ],
+      "medianMs": 1.55,
+      "minMs": 1.374,
+      "maxMs": 1.775
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_symbols",
+      "operation": "read full symbol",
+      "samplesMs": [
+        1.937,
+        1.236,
+        1.412,
+        1.444,
+        1.534,
+        1.287,
+        1.306
+      ],
+      "medianMs": 1.412,
+      "minMs": 1.236,
+      "maxMs": 1.937
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_explore",
+      "operation": "indexed symbol, existing index",
+      "samplesMs": [
+        7.967,
+        9.156,
+        8.007,
+        7.706,
+        12.664,
+        6.634,
+        6.63
+      ],
+      "medianMs": 7.967,
+      "minMs": 6.63,
+      "maxMs": 12.664
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_detail",
+      "operation": "read stored bootstrap catalog",
+      "samplesMs": [
+        0.602,
+        0.485,
+        0.545,
+        0.565,
+        0.553,
+        0.488,
+        0.489
+      ],
+      "medianMs": 0.545,
+      "minMs": 0.485,
+      "maxMs": 0.602
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_data_query",
+      "operation": "in-memory JMESPath",
+      "samplesMs": [
+        0.444,
+        0.355,
+        0.37,
+        0.513,
+        0.628,
+        0.512,
+        0.42
+      ],
+      "medianMs": 0.444,
+      "minMs": 0.355,
+      "maxMs": 0.628
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_git",
+      "operation": "status, uncommitted temporary repository",
+      "samplesMs": [
+        431.934,
+        430.683,
+        399.004,
+        738.097,
+        602.491,
+        531.05,
+        523.138
+      ],
+      "medianMs": 523.138,
+      "minMs": 399.004,
+      "maxMs": 738.097
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_config",
+      "operation": "read XML appSettings",
+      "samplesMs": [
+        1.269,
+        1.704,
+        1.303,
+        1.263,
+        1.029,
+        1.08,
+        1.077
+      ],
+      "medianMs": 1.263,
+      "minMs": 1.029,
+      "maxMs": 1.704
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_doctor",
+      "operation": "environment, versions disabled, no SQL connections",
+      "samplesMs": [
+        9.936,
+        10.723,
+        9.43,
+        8.125,
+        9.795,
+        13.832,
+        8.064
+      ],
+      "medianMs": 9.795,
+      "minMs": 8.064,
+      "maxMs": 13.832
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_doctor",
+      "operation": "TypeScript syntax only",
+      "samplesMs": [
+        1.569,
+        1.852,
+        1.582,
+        2.037,
+        1.49,
+        2.037,
+        1.564
+      ],
+      "medianMs": 1.582,
+      "minMs": 1.49,
+      "maxMs": 2.037
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_ignore",
+      "operation": "list ignore policy",
+      "samplesMs": [
+        1.435,
+        1.058,
+        1.013,
+        1.14,
+        1.247,
+        0.913,
+        0.736
+      ],
+      "medianMs": 1.058,
+      "minMs": 0.736,
+      "maxMs": 1.435
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_external_scope",
+      "operation": "list (no external path granted)",
+      "samplesMs": [
+        0.746,
+        0.523,
+        0.366,
+        0.368,
+        0.344,
+        0.375,
+        0.356
+      ],
+      "medianMs": 0.368,
+      "minMs": 0.344,
+      "maxMs": 0.746
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_session",
+      "operation": "read session status",
+      "samplesMs": [
+        0.986,
+        0.886,
+        0.851,
+        0.912,
+        1.339,
+        1.255,
+        1.277
+      ],
+      "medianMs": 0.986,
+      "minMs": 0.851,
+      "maxMs": 1.339
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_sql",
+      "operation": "PostgreSQL status, disabled, no connection",
+      "samplesMs": [
+        1.212,
+        1.483,
+        1.354,
+        1.329,
+        1.589,
+        1.455,
+        1.583
+      ],
+      "medianMs": 1.455,
+      "minMs": 1.212,
+      "maxMs": 1.589
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_xlsx",
+      "operation": "inspect bundled sample workbook",
+      "samplesMs": [
+        1.702,
+        1.887,
+        1.894,
+        1.865,
+        1.628,
+        1.485,
+        1.381
+      ],
+      "medianMs": 1.702,
+      "minMs": 1.381,
+      "maxMs": 1.894
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_svg",
+      "operation": "inspect 16x16 static SVG",
+      "samplesMs": [
+        1.087,
+        1.013,
+        0.982,
+        1.003,
+        1.124,
+        1.081,
+        1.188
+      ],
+      "medianMs": 1.081,
+      "minMs": 0.982,
+      "maxMs": 1.188
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_verify",
+      "operation": "native TypeScript syntax build, no code execution",
+      "samplesMs": [
+        115.514,
+        110.575,
+        105.999,
+        94.685,
+        129.537,
+        109.151,
+        133.902
+      ],
+      "medianMs": 110.575,
+      "minMs": 94.685,
+      "maxMs": 133.902
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_jobs",
+      "operation": "list empty background-job registry",
+      "samplesMs": [
+        0.524,
+        0.835,
+        0.902,
+        0.75,
+        0.49,
+        0.547,
+        0.53
+      ],
+      "medianMs": 0.547,
+      "minMs": 0.49,
+      "maxMs": 0.902
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_batch",
+      "operation": "two independent reads, maxConcurrent=2",
+      "samplesMs": [
+        2.49,
+        1.929,
+        2.179,
+        1.726,
+        1.546,
+        1.516,
+        1.623
+      ],
+      "medianMs": 1.726,
+      "minMs": 1.516,
+      "maxMs": 2.49
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_write",
+      "operation": "create new TypeScript file",
+      "samplesMs": [
+        77.509,
+        57.786,
+        85.977,
+        74.423,
+        74.399,
+        63.113,
+        69.228
+      ],
+      "medianMs": 74.399,
+      "minMs": 57.786,
+      "maxMs": 85.977
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_move",
+      "operation": "rename existing TypeScript file",
+      "samplesMs": [
+        182.458,
+        158.667,
+        152.972,
+        141.756,
+        158.98,
+        128.745,
+        159.433
+      ],
+      "medianMs": 158.667,
+      "minMs": 128.745,
+      "maxMs": 182.458
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_replace",
+      "operation": "preview one replacement",
+      "samplesMs": [
+        1.149,
+        1.571,
+        1.549,
+        1.252,
+        1.498,
+        1.321,
+        1.406
+      ],
+      "medianMs": 1.406,
+      "minMs": 1.149,
+      "maxMs": 1.571
+    },
+    {
+      "kind": "mcp",
+      "tool": "harness_replace",
+      "operation": "publish one replacement",
+      "samplesMs": [
+        47.012,
+        41.077,
+        46.623,
+        35.718,
+        46.83,
+        44.442,
+        63.191
+      ],
+      "medianMs": 46.623,
+      "minMs": 35.718,
+      "maxMs": 63.191
+    }
+  ]
+}

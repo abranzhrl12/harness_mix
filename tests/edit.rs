@@ -291,7 +291,7 @@ fn concurrent_clones_cannot_both_publish_the_same_hash() {
 }
 
 #[test]
-fn parserless_formats_require_explicit_opt_in() {
+fn scss_is_validated_and_parserless_formats_require_explicit_opt_in() {
     let root = tempfile::tempdir().unwrap();
     let app = adapters::application(root.path()).unwrap();
     let before = "$c: #fff;\n.box { color: $c; }\n";
@@ -300,26 +300,48 @@ fn parserless_formats_require_explicit_opt_in() {
         let args: ReplaceArgs = serde_json::from_value(json).unwrap();
         app.execute(Request::Replace(args))
     };
-    let denied = edit(serde_json::json!({
+    // SCSS has a real parser: a valid candidate is published without an opt-in.
+    let validated = edit(serde_json::json!({
         "path":"panel.scss","hash":hash(before.as_bytes()),
         "oldText":"$c: #fff;","newText":"$c: #000;"
     }));
-    assert_eq!(denied["state"], "error", "{denied}");
-    assert_eq!(denied["diagnostics"][0]["code"], "PARSER_UNAVAILABLE");
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
-        before
-    );
-    let allowed = edit(serde_json::json!({
-        "path":"panel.scss","hash":hash(before.as_bytes()),
-        "oldText":"$c: #fff;","newText":"$c: #000;","allowUnvalidatedText":true
-    }));
-    assert_eq!(allowed["state"], "ok", "{allowed}");
-    assert_eq!(allowed["data"]["syntax"]["status"], "not_checked");
+    assert_eq!(validated["state"], "ok", "{validated}");
+    assert_eq!(validated["data"]["syntax"]["language"], "scss", "{validated}");
+    assert_eq!(validated["data"]["syntax"]["status"], "valid");
     assert_eq!(
         std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
         "$c: #000;\n.box { color: $c; }\n"
     );
+    // A broken candidate is rejected and the file stays untouched.
+    let broken = edit(serde_json::json!({
+        "path":"panel.scss","hash":hash("$c: #000;\n.box { color: $c; }\n".as_bytes()),
+        "oldText":"$c: #000;","newText":"$c: #000"
+    }));
+    assert_eq!(broken["state"], "error", "{broken}");
+    assert_eq!(broken["diagnostics"][0]["code"], "SYNTAX_ERROR");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
+        "$c: #000;\n.box { color: $c; }\n"
+    );
+    // Formats without a parser keep requiring the explicit opt-in.
+    let plain = root.path().join("notes.yml");
+    std::fs::write(&plain, "alpha\n").unwrap();
+    let denied = edit(serde_json::json!({
+        "path":"notes.yml","hash":hash(b"alpha\n"),
+        "oldText":"alpha","newText":"beta"
+    }));
+    assert_eq!(denied["state"], "error", "{denied}");
+    assert_eq!(denied["diagnostics"][0]["code"], "PARSER_UNAVAILABLE");
+    assert_eq!(
+        std::fs::read_to_string(&plain).unwrap(),
+        "alpha\n"
+    );
+    let allowed = edit(serde_json::json!({
+        "path":"notes.yml","hash":hash(b"alpha\n"),
+        "oldText":"alpha","newText":"beta","allowUnvalidatedText":true
+    }));
+    assert_eq!(allowed["state"], "ok", "{allowed}");
+    assert_eq!(allowed["data"]["syntax"]["status"], "not_checked");
 }
 
 #[test]
