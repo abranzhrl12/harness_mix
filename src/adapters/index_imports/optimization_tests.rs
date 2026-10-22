@@ -4,6 +4,84 @@ use rusqlite::StatementStatus;
 const SYN: &str = "syn-module-subset-v1";
 const RA: &str = "ra-module-subset-v1";
 
+#[test]
+fn combined_import_and_framework_pass_preserves_rows_with_fewer_vm_steps() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    fn seeded() -> Connection {
+        let db = fixture();
+        for (index, engine) in [
+            "native-relative-named-import-subset",
+            "vue-named-composable-subset-v1",
+            "angular-route-component-subset-v1",
+            "angular-token-dependency-subset-v1",
+            "angular-static-provider-registration-subset-v1",
+            "vue-composable-return-method-subset-v1",
+        ]
+        .iter()
+        .enumerate()
+        {
+            db.execute(
+                "INSERT INTO edges VALUES('syn','target','calls',1,1,?1,NULL)",
+                [format!(
+                    r#"{{"resolvedBy":"{engine}","refName":"name{index}","refKind":"calls"}}"#
+                )],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO edges VALUES('absent','target','calls',1,1,?1,NULL)",
+                [format!(
+                    r#"{{"resolvedBy":"{engine}","refName":"orphan","refKind":"calls"}}"#
+                )],
+            )
+            .unwrap();
+        }
+        db
+    }
+    fn snapshot(db: &Connection) -> Vec<(String, String, String, String, i64, i64)> {
+        db.prepare("SELECT from_node_id,reference_name,reference_kind,file_path,line,col FROM unresolved_refs ORDER BY id").unwrap().query_map([], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).unwrap().collect::<Result<_,_>>().unwrap()
+    }
+    let baseline = seeded();
+    let optimized = seeded();
+    let baseline_steps = Arc::new(AtomicUsize::new(0));
+    let optimized_steps = Arc::new(AtomicUsize::new(0));
+    for (db, counter) in [(&baseline, &baseline_steps), (&optimized, &optimized_steps)] {
+        let counter = counter.clone();
+        db.progress_handler(
+            1,
+            Some(move || {
+                counter.fetch_add(1, Ordering::Relaxed);
+                false
+            }),
+        )
+        .unwrap();
+    }
+    let old_imports = invalidate(&baseline).unwrap();
+    let old_framework = angular::invalidate(&baseline).unwrap();
+    let (new_imports, new_framework) = invalidate_publication(&optimized, true, true).unwrap();
+    assert_eq!(old_imports, new_imports);
+    assert_eq!(old_framework, new_framework);
+    assert_eq!(snapshot(&baseline), snapshot(&optimized));
+    let baseline_vm = baseline_steps.load(Ordering::Relaxed);
+    let optimized_vm = optimized_steps.load(Ordering::Relaxed);
+    assert!(
+        optimized_vm * 2 < baseline_vm,
+        "{optimized_vm} vs {baseline_vm}"
+    );
+    for db in [&baseline, &optimized] {
+        let remaining: i64 = db
+            .query_row(
+                "SELECT count(*) FROM edges WHERE source='absent'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
+    }
+}
+
 fn fixture() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch(

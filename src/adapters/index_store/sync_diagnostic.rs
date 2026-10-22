@@ -1,6 +1,6 @@
 use rusqlite::{Error, ErrorCode};
 use serde_json::{Value, json};
-use std::{cell::RefCell, path::Path};
+use std::{cell::RefCell, collections::BTreeMap, path::Path, time::Instant};
 
 #[derive(Default)]
 struct State {
@@ -13,6 +13,8 @@ struct State {
     schema_validation: Option<Value>,
     schema_check: Option<String>,
     error: Option<Value>,
+    phase_started: Option<Instant>,
+    phase_micros: BTreeMap<&'static str, u128>,
 }
 
 thread_local! {
@@ -26,6 +28,9 @@ pub(super) fn begin(file: &str, database: &Path) {
             file: file.to_owned(),
             database: database.display().to_string(),
             stage: "open_database",
+            phase_started: std::env::var_os("HARNESS_INDEX_PROFILE")
+                .filter(|value| value == "1")
+                .map(|_| Instant::now()),
             ..State::default()
         });
     });
@@ -34,9 +39,24 @@ pub(super) fn begin(file: &str, database: &Path) {
 pub(super) fn stage(stage: &'static str) {
     CURRENT.with(|slot| {
         if let Some(state) = slot.borrow_mut().as_mut() {
+            if let Some(started) = state.phase_started.as_mut() {
+                *state.phase_micros.entry(state.stage).or_default() +=
+                    started.elapsed().as_micros();
+                *started = Instant::now();
+            }
             state.stage = stage;
         }
     });
+}
+
+pub(super) fn finish_profile() -> Option<Value> {
+    CURRENT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let state = slot.as_mut()?;
+        let started = state.phase_started.take()?;
+        *state.phase_micros.entry(state.stage).or_default() += started.elapsed().as_micros();
+        Some(json!(state.phase_micros))
+    })
 }
 
 pub(super) fn schema_issue(issue: Value) {
@@ -110,6 +130,7 @@ pub(super) fn capture(error: &Error) {
 }
 
 pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
+    let profile = finish_profile();
     CURRENT.with(|slot| {
         slot.borrow_mut().take().map(|state| {
             json!({
@@ -128,6 +149,7 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
                 "sqliteVersion": rusqlite::version(),
                 "sqlite": state.error,
                 "extraction": crate::adapters::index_extract::take_diagnostic(),
+                "phaseTimingsMicros": profile,
                 "schemaValidation": state.schema_validation.or_else(|| {
                     state.schema_check.map(|check| json!({
                         "check": check,
@@ -142,6 +164,19 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_tracks_distinct_phases_and_finishes_once() {
+        begin("sample.rs", Path::new(".codegraph/codegraph.db"));
+        CURRENT.with(|slot| slot.borrow_mut().as_mut().unwrap().phase_started = Some(Instant::now()));
+        stage("extract_source");
+        stage("write_nodes_and_edges");
+        let profile = finish_profile().unwrap();
+        assert!(profile["open_database"].is_number());
+        assert!(profile["extract_source"].is_number());
+        assert!(profile["write_nodes_and_edges"].is_number());
+        assert!(finish_profile().is_none());
+    }
 
     #[test]
     fn reports_context_for_schema_failures_without_sqlite_exception() {

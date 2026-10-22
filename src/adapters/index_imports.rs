@@ -18,6 +18,11 @@ mod angular_providers;
 mod exports;
 #[path = "index_imports/invalidation.rs"]
 mod invalidation;
+#[path = "index_imports/retry_bindings.rs"]
+mod retry_bindings;
+pub(super) fn retry_binding_catalog(db: &Connection) -> Result<Option<String>, Failure> {
+    retry_bindings::catalog(db)
+}
 #[path = "index_imports/vue.rs"]
 mod vue;
 #[path = "index_imports/vue_returns.rs"]
@@ -25,6 +30,9 @@ mod vue_returns;
 
 #[derive(Default)]
 pub(super) struct Sources {
+    // Nodes do not change during a publication's resolution pass. Keep the
+    // common classic-script/no-import verdict local to that immutable snapshot.
+    no_imports: std::collections::BTreeSet<String>,
     verified: VerifiedSources,
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
@@ -241,12 +249,44 @@ pub(super) enum Scope {
 
 /// Recreate original refs before retrying native import edges. A new module can
 /// make a formerly unique path ambiguous even if it has no incoming edges yet.
+#[cfg(test)]
 pub(super) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
     invalidate_engine(db, "native-relative-named-import-subset")
+}
+
+pub(super) fn invalidate_publication(
+    db: &Connection,
+    imports: bool,
+    framework: bool,
+) -> Result<(Vec<i64>, Vec<i64>), Failure> {
+    let mut engines = Vec::new();
+    if imports {
+        engines.push("native-relative-named-import-subset");
+    }
+    if framework {
+        engines.extend([
+            "vue-named-composable-subset-v1",
+            "angular-route-component-subset-v1",
+            "angular-token-dependency-subset-v1",
+            "angular-static-provider-registration-subset-v1",
+            "vue-composable-return-method-subset-v1",
+        ]);
+    }
+    let mut grouped = invalidation::engines(db, &engines)?.into_iter();
+    let imports = if imports {
+        grouped.next().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let mut framework: Vec<_> = grouped.flatten().collect();
+    framework.sort_unstable();
+    framework.dedup();
+    Ok((imports, framework))
 }
 pub(super) fn invalidate_rust(db: &Connection) -> Result<Vec<i64>, Failure> {
     invalidation::rust(db)
 }
+#[cfg(test)]
 fn invalidate_engine(db: &Connection, engine: &str) -> Result<Vec<i64>, Failure> {
     let mut statement = sql(db.prepare("SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END=?1 LIMIT 20001"))?;
     let rows = sql(statement.query_map([engine], |r| {
@@ -296,6 +336,10 @@ pub(super) fn scope(
     context: &OperationContext,
     sources: &mut Sources,
 ) -> Result<Scope, Failure> {
+    context.check()?;
+    if sources.no_imports.contains(path) {
+        return Ok(Scope::None);
+    }
     let mut statement = sql(db.prepare("SELECT signature FROM nodes WHERE file_path=?1 AND kind='import' ORDER BY start_line,id LIMIT 257"))?;
     let rows = sql(statement.query_map([path], |r| r.get::<_, Option<String>>(0)))?;
     let mut count = 0;
@@ -320,6 +364,9 @@ pub(super) fn scope(
         }
     }
     if count == 0 {
+        if sources.no_imports.len() < 256 && path.len() <= 1000 {
+            sources.no_imports.insert(path.to_owned());
+        }
         return Ok(Scope::None);
     }
     if bindings.is_empty() {

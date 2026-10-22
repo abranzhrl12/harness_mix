@@ -2,6 +2,59 @@ use super::super::hash;
 use super::*;
 
 #[test]
+fn empty_import_memo_expires_at_publication_boundary_and_checks_cancellation() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE nodes(file_path TEXT,kind TEXT,signature TEXT,start_line INTEGER,id TEXT);",
+    )
+    .unwrap();
+    let context = OperationContext::default();
+    let mut sources = Sources::default();
+    assert!(matches!(
+        scope(
+            &db,
+            "plain.js",
+            "call",
+            "javascript",
+            &context,
+            &mut sources
+        )
+        .unwrap(),
+        Scope::None
+    ));
+    assert!(sources.no_imports.contains("plain.js"));
+    db.execute(
+        "INSERT INTO nodes VALUES('plain.js','import',NULL,1,'import')",
+        [],
+    )
+    .unwrap();
+    assert!(matches!(
+        scope(
+            &db,
+            "plain.js",
+            "call",
+            "javascript",
+            &context,
+            &mut Sources::default()
+        )
+        .unwrap(),
+        Scope::Pending
+    ));
+    let expired = context.with_execution_timeout(Some(std::time::Duration::ZERO));
+    assert!(
+        scope(
+            &db,
+            "plain.js",
+            "call",
+            "javascript",
+            &expired,
+            &mut sources
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn runtime_export_memo_is_publication_local_and_sources_are_rechecked() {
     let root = tempfile::tempdir().unwrap();
     let source = "export class Service {}";

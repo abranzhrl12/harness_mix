@@ -2,6 +2,85 @@
 use super::{Failure, INDEX, LIMIT, sql};
 use rusqlite::Connection;
 
+type Original = (String, String, String, i64, i64, String, String);
+
+/// One snapshot scan/delete for the requested engines. Preserve each engine's
+/// independent bounds and insertion order; malformed metadata and orphan nodes
+/// have exactly the same treatment as the individual invalidations.
+pub(super) fn engines(db: &Connection, engines: &[&str]) -> Result<Vec<Vec<i64>>, Failure> {
+    if engines.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat_n("?", engines.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let predicate = format!(
+        "CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.resolvedBy') END IN ({placeholders})"
+    );
+    let query = format!(
+        "SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language,json_extract(e.metadata,'$.resolvedBy') FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END IN ({placeholders}) LIMIT {}",
+        engines.len() * (super::super::MAX_ROWS + 1)
+    );
+    let mut statement = sql(db.prepare(&query))?;
+    let rows = sql(
+        statement.query_map(rusqlite::params_from_iter(engines), |row| {
+            Ok((
+                (
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ),
+                row.get::<_, String>(7)?,
+            ))
+        }),
+    )?;
+    let mut grouped: Vec<Vec<Original>> = vec![Vec::new(); engines.len()];
+    let mut reserved = vec![0usize; engines.len()];
+    for row in rows {
+        let (original, engine) = sql(row)?;
+        let index = engines
+            .iter()
+            .position(|expected| *expected == engine)
+            .ok_or(INDEX)?;
+        reserved[index] += original.0.len()
+            + original.1.len()
+            + original.2.len()
+            + original.5.len()
+            + original.6.len();
+        if grouped[index].len() >= super::super::MAX_ROWS || reserved[index] > 16 * 1024 * 1024 {
+            return Err(LIMIT);
+        }
+        grouped[index].push(original);
+    }
+    drop(statement);
+    sql(db.execute(
+        &format!("DELETE FROM edges WHERE {predicate}"),
+        rusqlite::params_from_iter(engines),
+    ))?;
+    let mut result = Vec::with_capacity(engines.len());
+    for rows in grouped {
+        let mut ids = Vec::with_capacity(rows.len());
+        for (source, name, kind, line, col, path, language) in rows {
+            ids.push(super::super::insert_ref(
+                db,
+                &source,
+                &name,
+                &kind,
+                line,
+                col,
+                None,
+                (&path, &language),
+            )?);
+        }
+        result.push(ids);
+    }
+    Ok(result)
+}
+
 const SYN: &str = "syn-module-subset-v1";
 const RA: &str = "ra-module-subset-v1";
 pub(super) const RUST_SCAN_SQL: &str = "SELECT e.source,json_extract(e.metadata,'$.refName'),json_extract(e.metadata,'$.refKind'),e.line,e.col,s.file_path,s.language,CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END FROM edges e JOIN nodes s ON s.id=e.source WHERE CASE WHEN json_valid(e.metadata) THEN json_extract(e.metadata,'$.resolvedBy') END IN (?1,?2) LIMIT 40002";

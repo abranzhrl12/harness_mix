@@ -5,6 +5,86 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
 type ResolutionReference = (String, String, String, i64, i64, String, String, String);
+
+/// Operation-local retry coverage for an unchanged declaration snapshot.
+/// A name is retained only after its pending refs were considered. Changing
+/// declarations, a competing commit, or rollback invalidates the coverage.
+pub(super) struct RetryMemo {
+    names: std::collections::BTreeSet<String>,
+    bytes: usize,
+    data_version: Option<i64>,
+    enabled: bool,
+}
+
+impl Default for RetryMemo {
+    fn default() -> Self {
+        Self {
+            names: Default::default(),
+            bytes: 0,
+            data_version: None,
+            enabled: std::env::var("HARNESS_INDEX_RESOLUTION_MEMO").as_deref() != Ok("0"),
+        }
+    }
+}
+
+impl RetryMemo {
+    pub(super) fn clear(&mut self) {
+        self.names.clear();
+        self.bytes = 0;
+    }
+    pub(super) fn observe_version(&mut self, version: i64) {
+        if self.data_version != Some(version) {
+            self.clear();
+            self.data_version = Some(version);
+        }
+    }
+    pub(super) fn enabled(&self) -> bool {
+        self.enabled
+    }
+    pub(super) fn retained_names(&self) -> usize { self.names.len() }
+    pub(super) fn data_version(&self) -> Option<i64> { self.data_version }
+    pub(super) fn json(&self) -> String {
+        serde_json::to_string(&self.names).expect("string set is JSON serializable")
+    }
+    pub(super) fn remember(&mut self, names: impl IntoIterator<Item = String>) {
+        if !self.enabled {
+            return;
+        }
+        for name in names {
+            if self.names.contains(&name) {
+                continue;
+            }
+            if self.names.len() < 4096 && self.bytes + name.len() <= 65536 {
+                self.bytes += name.len();
+                self.names.insert(name);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod retry_memo_tests {
+    use super::*;
+
+    #[test]
+    fn retry_coverage_is_bounded_and_competing_commits_invalidate_it() {
+        let mut memo = RetryMemo {
+            enabled: true,
+            ..Default::default()
+        };
+        memo.observe_version(1);
+        memo.remember(["already_checked".to_owned()]);
+        memo.observe_version(1);
+        assert!(memo.json().contains("already_checked"));
+        memo.observe_version(2);
+        assert_eq!(memo.json(), "[]");
+        memo.remember((0..10_000).map(|index| format!("name_{index}")));
+        assert!(memo.names.len() <= 4096);
+        assert!(memo.bytes <= 65536);
+        memo.clear();
+        assert_eq!(memo.json(), "[]");
+    }
+}
 #[path = "framework_resolution.rs"]
 mod framework;
 pub(super) fn resolve_exact(

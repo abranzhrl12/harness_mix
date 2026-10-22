@@ -17,6 +17,7 @@ use windows::Win32::{
 pub(super) struct Writer {
     // On uncertain rollback, close SQLite before releasing protective handles.
     pub(super) db: Connection,
+    pub(super) retry_memo: super::resolution::RetryMemo,
     sidecars: Vec<File>,
     pin: File,
     _directories: Vec<File>,
@@ -182,6 +183,7 @@ impl Writer {
         sql(db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; PRAGMA wal_autocheckpoint=8000;"))?;
         Ok(Self {
             db,
+            retry_memo: Default::default(),
             sidecars: sidecar_pins,
             pin,
             _directories: _pins,

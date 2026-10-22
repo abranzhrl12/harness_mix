@@ -20,6 +20,8 @@ use std::{
 mod model;
 #[path = "publication/plan.rs"]
 mod plan;
+#[path = "publication/retry.rs"]
+mod retry;
 #[path = "publication/storage.rs"]
 mod storage;
 
@@ -34,8 +36,10 @@ pub(super) fn publish(
     configuration: (tsconfig::Snapshot, bool),
     force: bool,
     prepared: Option<super::parallel::Prepared>,
+    retry_memo: &mut super::resolution::RetryMemo,
 ) -> Result<(Value, imports::Sources), Failure> {
     let (configuration, config_changed) = configuration;
+    sync_diagnostic::stage("check_indexed_hash");
     let record: Option<(String, Option<String>)> = sql(db
         .query_row(
             "SELECT content_hash,errors FROM files WHERE path=?1",
@@ -64,6 +68,12 @@ pub(super) fn publish(
         })
         .transpose()?;
     let extracted = extracted_value.as_ref();
+    sync_diagnostic::stage("capture_existing_graph");
+    let before_declarations = if retry_memo.enabled() {
+        retry::declarations(db, path)?
+    } else {
+        None
+    };
     let razor_changes = if language == "csharp" {
         Some(razor_invalidation::Changes::capture(db, path, extracted)?)
     } else {
@@ -101,19 +111,6 @@ pub(super) fn publish(
     let provider_edges: Vec<ProviderEdge> = provider_edges(db, path)?;
     let prior = identities(db, path)?;
     let paired = identity_map(prior, extracted)?;
-    // A name that other files resolve against is a name this file publishes.
-    // A pending ref can only be unblocked by a name that appears now or that
-    // becomes published now.
-    let mut prior_published: BTreeSet<String> = BTreeSet::new();
-    {
-        let mut statement = sql(db.prepare(
-            "SELECT name FROM nodes WHERE file_path=?1 AND ifnull(is_exported,0)=1 LIMIT 20001",
-        ))?;
-        let rows = sql(statement.query_map([path], |r| r.get::<_, String>(0)))?;
-        for row in rows {
-            prior_published.insert(sql(row)?);
-        }
-    }
     let incoming = incoming(db, path)?;
     // Capture original refs BEFORE deleting nodes/edges; never turn receiver.foo
     // into foo. Legacy unpaired edges without stamps block the entire transaction.
@@ -140,6 +137,7 @@ pub(super) fn publish(
     .unwrap_or(0);
     // Explicit deletion also supports indexes produced with foreign_keys off.
     // Provider nodes and their pending references survive the publication.
+    sync_diagnostic::stage("delete_previous_graph");
     sql(db.execute("DELETE FROM unresolved_refs WHERE from_node_id IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%'))",[path]))?;
     sql(db.execute("DELETE FROM edges WHERE source IN(SELECT id FROM nodes WHERE file_path=?1) OR target IN(SELECT id FROM nodes WHERE file_path=?1)",[path]))?;
     sql(db.execute(
@@ -165,6 +163,7 @@ pub(super) fn publish(
         context,
     )?;
     let node_count = graph_write.node_count;
+    sync_diagnostic::stage("restore_incoming_edges");
     let mut refs = graph_write.refs;
     let retained_count = retained.len();
     let resurrected_count = resurrect.len();
@@ -248,26 +247,32 @@ pub(super) fn publish(
     // Other languages with unchanged configuration do not trigger this pass.
 
     sync_diagnostic::stage("invalidate_references");
-    let import_rechecks =
-        if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
-            imports::invalidate(db)?
-        } else {
-            Vec::new()
-        };
+    let after_declarations = if retry_memo.enabled() {
+        retry::declarations(db, path)?
+    } else {
+        None
+    };
+    let declaration_pool_changed = config_changed
+        || before_declarations
+            .as_ref()
+            .zip(after_declarations.as_ref())
+            .is_none_or(|(before, after)| before != after);
+    if declaration_pool_changed {
+        retry_memo.clear();
+    }
+    let (import_rechecks, framework_rechecks) = imports::invalidate_publication(
+        db,
+        config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx"),
+        config_changed
+            || matches!(
+                language,
+                "typescript" | "tsx" | "javascript" | "jsx" | "vue"
+            ),
+    )?;
     let import_recheck_count = import_rechecks.len();
     refs.extend(import_rechecks);
-    let framework_rechecks = if config_changed
-        || matches!(
-            language,
-            "typescript" | "tsx" | "javascript" | "jsx" | "vue"
-        ) {
-        let rechecks = imports::angular::invalidate(db)?;
-        let count = rechecks.len();
-        refs.extend(rechecks);
-        count
-    } else {
-        0
-    };
+    let framework_recheck_count = framework_rechecks.len();
+    refs.extend(framework_rechecks);
     if language == "rust" {
         refs.extend(imports::invalidate_rust(db)?);
     }
@@ -287,13 +292,21 @@ pub(super) fn publish(
     // tail index, the import invalidation). The project-wide import clause
     // only applies to a JS/TS publication: a C# or Razor source cannot change
     // the resolution of a JavaScript import.
-    let mut statement=sql(db.prepare("SELECT id FROM unresolved_refs WHERE status='pending' AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?1) OR reference_name IN(SELECT qualified_name FROM nodes WHERE file_path=?1) OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND reference_kind='angular_injects') OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND reference_kind IN ('angular_route_component','angular_route_layout')) OR ((?2 IN ('typescript','tsx','javascript','jsx','vue') OR ?3=1) AND language='vue' AND reference_kind='calls' AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref')) OR (?2='html' AND reference_kind='framework_template' AND reference_name=?1)) LIMIT 20001"))?;
-    for row in sql(
-        statement.query_map(params![path, language, config_changed], |r| {
-            r.get::<_, i64>(0)
-        }),
+    let import_bindings =
+        if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
+            imports::retry_binding_catalog(db)?
+        } else {
+            None
+        };
+    for id in retry::pending(
+        db,
+        path,
+        language,
+        config_changed,
+        &retry_memo.json(),
+        import_bindings.as_deref(),
     )? {
-        refs.insert(sql(row)?);
+        refs.insert(id);
         if refs.len() > MAX_ROWS {
             return Err(LIMIT);
         }
@@ -331,7 +344,14 @@ pub(super) fn publish(
             &mut framework_snapshot,
         )?);
     }
+    if matches!(language, "typescript" | "tsx" | "javascript" | "jsx")
+        && let Some(declarations) = &after_declarations
+    {
+        retry_memo.remember(retry::visible_names(declarations));
+    }
+    sync_diagnostic::stage("recheck_framework_sources");
     framework_snapshot.recheck(project, context)?;
+    sync_diagnostic::stage("write_metadata");
     if import_sources.config.digest.is_some()
         || import_sources
             .config
@@ -350,7 +370,7 @@ pub(super) fn publish(
         [],
     ))?;
     sql(db.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('native_sync_state',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![json!({"scope":"explicit_file","resolution":"exact_name_and_relative_named_import_subset","globalFreshnessCertified":false}).to_string(),now]))?;
-    let report = model::PublicationReport {
+    let mut report = model::PublicationReport {
         path: path.to_owned(),
         changed: true,
         extraction_performed,
@@ -362,7 +382,7 @@ pub(super) fn publish(
         provider_edges_retained: provider_kept,
         provider_edges_dropped: provider_dropped,
         import_references_rechecked: import_recheck_count,
-        framework_references_rechecked: framework_rechecks,
+        framework_references_rechecked: framework_recheck_count,
         razor_references_rechecked: razor_recheck_count,
         references_attempted: refs.len(),
         references_resolved: resolved,
@@ -372,5 +392,11 @@ pub(super) fn publish(
             .cloned(),
     }
     .into_json();
+    if std::env::var("HARNESS_INDEX_PROFILE").as_deref() == Ok("1") {
+        report["retryMemoNames"] = json!(retry_memo.retained_names());
+        report["retryMemoDataVersion"] = json!(retry_memo.data_version());
+        report["declarationPoolChanged"] = json!(declaration_pool_changed);
+        report["configurationChanged"] = json!(config_changed);
+    }
     Ok((report, import_sources))
 }

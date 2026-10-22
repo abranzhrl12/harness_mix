@@ -315,12 +315,19 @@ fn sync_workspace_with_limit(
     let worker_count = parallel::workers();
     let selected: Vec<_> = paths.iter().take(max_files).collect();
     let mut prepared = std::collections::VecDeque::new();
+    let mut preparation_micros = 0u128;
+    let mut phase_totals = std::collections::BTreeMap::<String, u64>::new();
+    let mut reference_attempts = 0u64;
+    let mut reference_resolved = 0u64;
+    let mut nodes_written = 0u64;
     #[cfg(windows)]
     let mut writer = None;
     for (position, path) in selected.iter().copied().enumerate() {
         if prepared.is_empty() && worker_count > 1 && context.check().is_ok() {
             let end = (position + worker_count).min(selected.len());
+            let preparation_started = std::time::Instant::now();
             prepared.extend(parallel::prepare(root, &selected[position..end], context));
+            preparation_micros += preparation_started.elapsed().as_micros();
         }
         let preparation = prepared.pop_front().flatten();
         context.report_progress("indexing", processed, Some(total), Some(path));
@@ -352,6 +359,15 @@ fn sync_workspace_with_limit(
         match applied {
             Ok(mut result) => {
                 processed += 1;
+                if let Some(phases) = result["phaseTimingsMicros"].as_object() {
+                    for (name, value) in phases {
+                        *phase_totals.entry(name.clone()).or_default() +=
+                            value.as_u64().unwrap_or(0);
+                    }
+                    reference_attempts += result["referencesAttempted"].as_u64().unwrap_or(0);
+                    reference_resolved += result["referencesResolved"].as_u64().unwrap_or(0);
+                    nodes_written += result["nodesWritten"].as_u64().unwrap_or(0);
+                }
                 changed += usize::from(result["changed"] == true);
                 if results.len() < 32 {
                     result["durationMs"] = json!(file_started.elapsed().as_millis());
@@ -415,8 +431,7 @@ fn sync_workspace_with_limit(
         failure = Some(entry);
     }
     let native_complete = failure.is_none() && processed == total;
-    Ok(
-        json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
+    let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
         "failures":failures,"extractionWorkers":worker_count,"databaseWriters":1,
         "skippedFileReports":skipped_reports,"inventoryDiagnostics":planned["inventory"]["fileDiagnostics"],"uncheckedFilePaths":planned["plan"]["unchecked"],
@@ -429,8 +444,15 @@ fn sync_workspace_with_limit(
         "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
         "synchronized":false,"globalFreshnessCertified":false,"fullProviderScope":false,
-        "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"}),
-    )
+        "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"});
+    if !phase_totals.is_empty() {
+        report["phaseTimingsMicros"] = json!(phase_totals);
+        report["preparationDurationMicros"] = json!(preparation_micros);
+        report["totalReferencesAttempted"] = json!(reference_attempts);
+        report["totalReferencesResolved"] = json!(reference_resolved);
+        report["totalNodesWritten"] = json!(nodes_written);
+    }
+    Ok(report)
 }
 
 /// Consume contextual SQLite/index diagnostics for CLI and workspace reports.
@@ -677,6 +699,7 @@ fn sync_file_config_prepared(
     sync_diagnostic::stage("recheck_database_handle");
     writer.recheck(context)?;
     let db = &mut writer.db;
+    let retry_memo = &mut writer.retry_memo;
     let cancel = context.clone();
     sync_diagnostic::stage("configure_connection");
     sql(db.progress_handler(1000, Some(move || cancel.check().is_err())))?;
@@ -684,12 +707,15 @@ fn sync_file_config_prepared(
     sync_diagnostic::stage("begin_transaction");
     let tx = sql(db.transaction_with_behavior(TransactionBehavior::Immediate))?;
     let run = || {
+        let data_version: i64 = sql(tx.query_row("PRAGMA data_version", [], |row| row.get(0)))?;
+        retry_memo.observe_version(data_version);
         sync_diagnostic::stage("validate_schema");
         validate_schema(&tx)?;
         // Only the three exact provider FTS triggers are accepted. SQLite FTS5
         // triggers require trusted_schema; it is enabled only after validation.
         sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
         context.check()?;
+        sync_diagnostic::stage("select_configuration");
         let configuration = tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
         let (mut result, import_sources) = publish(
             &tx,
@@ -701,8 +727,10 @@ fn sync_file_config_prepared(
             configuration,
             force,
             prepared,
+            retry_memo,
         )?;
         result["tsconfig"] = import_sources.config.stamp();
+        sync_diagnostic::stage("recheck_sources");
         before_recheck();
         scope.recheck(&project, context)?;
         import_sources.recheck(&project, context)?;
@@ -721,6 +749,7 @@ fn sync_file_config_prepared(
         // The publication only writes the edges of this file, so the integrity
         // check is scoped to them. A full database scan would make every
         // publication cost grow with the size of the project.
+        sync_diagnostic::stage("integrity_check");
         let violations: bool = result["changed"] == true
             && sql(tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE (e.source IN(SELECT id FROM nodes WHERE file_path=?1) OR e.target IN(SELECT id FROM nodes WHERE file_path=?1)) AND (s.id IS NULL OR t.id IS NULL))",
@@ -737,6 +766,7 @@ fn sync_file_config_prepared(
     let prepared = run();
     match prepared {
         Err(failure) => {
+            retry_memo.clear();
             // Cancellation must not prevent the rollback itself.
             tx.progress_handler(0, None::<fn() -> bool>)
                 .map_err(|_| UNCERTAIN)?;
@@ -749,10 +779,14 @@ fn sync_file_config_prepared(
                 .map_err(|_| UNCERTAIN)?;
             sync_diagnostic::stage("commit_transaction");
             tx.commit().map_err(|error| {
+                retry_memo.clear();
                 sync_diagnostic::capture(&error);
                 UNCERTAIN
             })?;
             result["committed"] = json!(true);
+            if let Some(profile) = sync_diagnostic::finish_profile() {
+                result["phaseTimingsMicros"] = profile;
+            }
             Ok(result)
         }
     }

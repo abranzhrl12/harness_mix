@@ -1,5 +1,108 @@
 #[cfg(windows)]
 #[test]
+fn local_only_importer_retries_after_global_candidate_ceiling_is_removed() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root,&context).unwrap();
+    let peer = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    for index in 0..70 {
+        peer.execute("INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,visibility,updated_at) VALUES(?1,'function','helper','helper',?2,'javascript',1,1,0,1,'public',0)",rusqlite::params![format!("noise-{index}"),format!("noise/{index}.js")]).unwrap();
+    }
+    std::fs::write(root.join("caller.js"),"import { unused } from './dep'; function helper() {} function caller() { helper(); }\n").unwrap();
+    sync_file(root,"caller.js",&context).unwrap();
+    let pending: i64 = peer.query_row("SELECT count(*) FROM unresolved_refs WHERE file_path='caller.js' AND reference_name='helper'",[],|row|row.get(0)).unwrap();
+    assert_eq!(pending,1);
+    peer.execute("DELETE FROM nodes WHERE file_path LIKE 'noise/%'",[]).unwrap();
+    std::fs::write(root.join("unrelated.js"),"export function unrelated() {}\n").unwrap();
+    sync_file(root,"unrelated.js",&context).unwrap();
+    let pending: i64 = peer.query_row("SELECT count(*) FROM unresolved_refs WHERE file_path='caller.js' AND reference_name='helper'",[],|row|row.get(0)).unwrap();
+    assert_eq!(pending,0);
+}
+
+#[cfg(windows)]
+#[test]
+fn retry_coverage_observes_peer_commits_and_is_discarded_on_rollback() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    std::fs::write(root.join("target.js"), "export function available() {}\n").unwrap();
+    std::fs::write(root.join("caller.js"), "function caller() { missing(); }\n").unwrap();
+    let mut writer = None;
+    sync_file_config_reuse(root, "target.js", None, &context, || {}, true, &mut writer).unwrap();
+    sync_file_config_reuse(root, "caller.js", None, &context, || {}, true, &mut writer).unwrap();
+    sync_file_config_reuse(root, "target.js", None, &context, || {}, true, &mut writer).unwrap();
+    assert!(
+        writer
+            .as_ref()
+            .unwrap()
+            .retry_memo
+            .json()
+            .contains("available")
+    );
+    // A peer adds a previously unattempted pending reference without changing
+    // declarations. data_version must invalidate our name-coverage shortcut.
+    let peer = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    peer.execute("INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,file_path,language) SELECT id,'available','calls',1,1,'caller.js','javascript' FROM nodes WHERE name='caller' AND kind='function'", []).unwrap();
+    let result =
+        sync_file_config_reuse(root, "target.js", None, &context, || {}, true, &mut writer)
+            .unwrap();
+    assert_eq!(result["referencesResolved"], 1);
+    let pending: i64 = peer
+        .query_row(
+            "SELECT count(*) FROM unresolved_refs WHERE reference_name='available'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending, 0);
+    let result = sync_file_config_reuse(
+        root,
+        "target.js",
+        None,
+        &context,
+        || {
+            std::fs::write(root.join("target.js"), "export function changed() {}\n").unwrap();
+        },
+        true,
+        &mut writer,
+    );
+    assert_eq!(result.unwrap_err().0, "STALE");
+    assert_eq!(writer.as_ref().unwrap().retry_memo.json(), "[]");
+}
+
+#[cfg(windows)]
+#[test]
+fn script_visibility_changes_and_target_deletion_retry_only_eligible_references() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    std::fs::write(root.join("caller.js"), "function caller() { target(); }\n").unwrap();
+    sync_file(root, "caller.js", &context).unwrap();
+    std::fs::write(root.join("target.js"), "function target() {}\n").unwrap();
+    let private = sync_file(root, "target.js", &context).unwrap();
+    assert_eq!(private["referencesAttempted"], 0);
+    std::fs::write(root.join("target.js"), "export function target() {}\n").unwrap();
+    sync_file(root, "target.js", &context).unwrap();
+    fn caller_edges(root: &Path) -> i64 {
+        Connection::open(root.join(".codegraph/codegraph.db")).unwrap().query_row("SELECT count(*) FROM edges e JOIN nodes n ON n.id=e.source WHERE n.file_path='caller.js' AND e.kind='calls'",[],|row|row.get(0)).unwrap()
+    }
+    assert_eq!(caller_edges(root), 1);
+    std::fs::remove_file(root.join("target.js")).unwrap();
+    sync_file(root, "target.js", &context).unwrap();
+    assert_eq!(caller_edges(root), 0);
+    std::fs::write(root.join("target.js"), "export function target() {}\n").unwrap();
+    sync_file(root, "target.js", &context).unwrap();
+    assert_eq!(caller_edges(root), 1);
+}
+
+#[cfg(windows)]
+#[test]
 fn standalone_plan_keeps_the_original_sqlite_error() {
     use super::*;
     let dir = tempfile::tempdir().unwrap();

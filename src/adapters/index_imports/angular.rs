@@ -169,6 +169,7 @@ impl Sources {
 /// Resolved framework refs are reconstituted from their original source data
 /// before every framework-sensitive publication. This catches missing/new
 /// modules, barrel changes, and newly ambiguous exported classes.
+#[cfg(test)]
 pub(in crate::adapters::index_store) fn invalidate(db: &Connection) -> Result<Vec<i64>, Failure> {
     let mut refs = super::invalidate_engine(db, "vue-named-composable-subset-v1")?;
     refs.extend(super::invalidate_engine(
