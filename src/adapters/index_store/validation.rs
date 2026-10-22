@@ -1,6 +1,7 @@
-use super::{INDEX, sql};
+use super::{sql, sync_diagnostic};
 use harness_domain::Failure;
 use rusqlite::{Connection, OptionalExtension};
+use serde_json::json;
 
 fn normalized(sql: &str) -> String {
     sql.to_ascii_lowercase()
@@ -9,21 +10,116 @@ fn normalized(sql: &str) -> String {
         .collect::<String>()
         .replace("ifnotexists", "")
 }
-pub(super) fn validate_schema(db: &Connection) -> Result<(), Failure> {
-    let ordinary: i64 = sql(db.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('schema_versions','nodes','edges','files','unresolved_refs','project_metadata') AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'", [], |r| r.get(0)))?;
-    if ordinary != 6 {
-        return Err(INDEX);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn reports_non_sqlite_version_conversion_error_with_check_name() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE schema_versions(version TEXT);
+             INSERT INTO schema_versions VALUES('not-an-integer');
+             CREATE TABLE nodes(id TEXT);
+             CREATE TABLE edges(id TEXT);
+             CREATE TABLE files(path TEXT);
+             CREATE TABLE unresolved_refs(id TEXT);
+             CREATE TABLE project_metadata(key TEXT);",
+        )
+        .unwrap();
+        sync_diagnostic::begin("src/test.js", Path::new(".codegraph/codegraph.db"));
+        sync_diagnostic::stage("validate_schema");
+
+        let failure = validate_schema(&db).unwrap_err();
+        assert_eq!(failure.0, "SYNC_INDEX");
+        let diagnostic = sync_diagnostic::take(failure.0, failure.1).unwrap();
+        assert_eq!(diagnostic["schemaCheck"], "provider_schema_version_query");
+        assert_eq!(diagnostic["sqlite"]["errorType"], "InvalidColumnType");
+        assert_eq!(
+            diagnostic["schemaValidation"]["check"],
+            "provider_schema_version_query"
+        );
     }
+}
+
+pub(super) fn validate_schema(db: &Connection) -> Result<(), Failure> {
+    sync_diagnostic::schema_check("required_tables_catalog_query");
+    const REQUIRED_TABLES: [&str; 6] = [
+        "schema_versions",
+        "nodes",
+        "edges",
+        "files",
+        "unresolved_refs",
+        "project_metadata",
+    ];
+    let mut statement = sql(db.prepare(
+        "SELECT name, type, sql FROM sqlite_schema WHERE name IN ('schema_versions','nodes','edges','files','unresolved_refs','project_metadata')",
+    ))?;
+    let rows = sql(statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }))?;
+    sync_diagnostic::schema_check("required_tables_catalog_rows");
+    let mut valid_tables = Vec::new();
+    let mut invalid_tables = Vec::new();
+    for row in rows {
+        let (name, kind, definition) = sql(row)?;
+        let is_plain_table = kind == "table"
+            && definition.as_deref().is_some_and(|sql| {
+                sql.trim_start()
+                    .to_ascii_uppercase()
+                    .starts_with("CREATE TABLE")
+            });
+        if is_plain_table {
+            valid_tables.push(name);
+        } else {
+            invalid_tables.push(name);
+        }
+    }
+    let missing_tables: Vec<&str> = REQUIRED_TABLES
+        .iter()
+        .copied()
+        .filter(|required| !valid_tables.iter().any(|found| found == required))
+        .collect();
+    if !missing_tables.is_empty() || !invalid_tables.is_empty() {
+        sync_diagnostic::schema_issue(json!({
+            "check": "required_tables",
+            "expected": REQUIRED_TABLES.len(),
+            "found": valid_tables.len(),
+            "missing": missing_tables,
+            "notOrdinaryTables": invalid_tables
+        }));
+        return Err((
+            "SYNC_SCHEMA",
+            "Required CodeGraph tables are missing or are not ordinary tables; see diagnostic.schemaValidation",
+        ));
+    }
+    sync_diagnostic::schema_check("provider_schema_version_query");
     let version: i64 =
         sql(db.query_row("SELECT max(version) FROM schema_versions", [], |r| r.get(0)))?;
     if version != 11 {
-        return Err(INDEX);
+        sync_diagnostic::schema_issue(json!({
+            "check": "provider_schema_version",
+            "expected": 11,
+            "actual": version
+        }));
+        return Err((
+            "SYNC_SCHEMA",
+            "CodeGraph provider schema version mismatch; see diagnostic.schemaValidation",
+        ));
     }
+    sync_diagnostic::schema_check("trigger_catalog_query");
     let mut statement =
         sql(db.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' LIMIT 4"))?;
     let rows = sql(statement.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }))?;
+    sync_diagnostic::schema_check("trigger_catalog_rows");
     let mut trigger_count = 0;
     for row in rows {
         let (name, body) = sql(row)?;
@@ -50,10 +146,14 @@ pub(super) fn validate_schema(db: &Connection) -> Result<(), Failure> {
         trigger_count += 1;
     }
     if trigger_count != 3 {
+        sync_diagnostic::schema_issue(
+            json!({"check":"trigger_count","expected":3,"actual":trigger_count}),
+        );
         return Err(("SYNC_SCHEMA", "Provider full-text triggers are missing"));
     }
     // Refuse virtual/view substitutions of writable tables via the ordinary-table
     // check above. If FTS exists, require the provider's exact external-content ABI.
+    sync_diagnostic::schema_check("fts_definition_query");
     let fts: Option<String> = sql(db
         .query_row(
             "SELECT sql FROM sqlite_schema WHERE name='nodes_fts'",
@@ -64,9 +164,15 @@ pub(super) fn validate_schema(db: &Connection) -> Result<(), Failure> {
     if let Some(fts) = fts {
         let expected = "CREATE VIRTUAL TABLE nodes_fts USING fts5(id,name,qualified_name,docstring,signature,content='nodes',content_rowid='rowid')";
         if normalized(&fts) != normalized(expected) {
+            sync_diagnostic::schema_issue(
+                json!({"check":"fts_definition","actual":fts,"expected":expected}),
+            );
             return Err(("SYNC_SCHEMA", "Unsupported full-text index definition"));
         }
     } else {
+        sync_diagnostic::schema_issue(
+            json!({"check":"fts_definition","actual":null,"expected":"provider FTS5 external-content table"}),
+        );
         return Err(("SYNC_SCHEMA", "Provider full-text index is missing"));
     }
     Ok(())

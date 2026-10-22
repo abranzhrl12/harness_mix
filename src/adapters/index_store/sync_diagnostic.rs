@@ -10,6 +10,8 @@ struct State {
     schema_version: Option<i64>,
     application_id: Option<i64>,
     provider_schema_version: Option<i64>,
+    schema_validation: Option<Value>,
+    schema_check: Option<String>,
     error: Option<Value>,
 }
 
@@ -36,11 +38,23 @@ pub(super) fn stage(stage: &'static str) {
     });
 }
 
-pub(super) fn schema(
-    user_version: i64,
-    application_id: i64,
-    provider_schema_version: Option<i64>,
-) {
+pub(super) fn schema_issue(issue: Value) {
+    CURRENT.with(|slot| {
+        if let Some(state) = slot.borrow_mut().as_mut() {
+            state.schema_validation = Some(issue);
+        }
+    });
+}
+
+pub(super) fn schema_check(check: &'static str) {
+    CURRENT.with(|slot| {
+        if let Some(state) = slot.borrow_mut().as_mut() {
+            state.schema_check = Some(check.to_owned());
+        }
+    });
+}
+
+pub(super) fn schema(user_version: i64, application_id: i64, provider_schema_version: Option<i64>) {
     CURRENT.with(|slot| {
         if let Some(state) = slot.borrow_mut().as_mut() {
             state.schema_version = Some(user_version);
@@ -51,20 +65,33 @@ pub(super) fn schema(
 }
 
 pub(super) fn capture(error: &Error) {
-    let Error::SqliteFailure(code, message) = error else {
-        return;
-    };
     CURRENT.with(|slot| {
         if let Some(state) = slot.borrow_mut().as_mut()
             && state.error.is_none()
         {
-            let busy = matches!(code.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked);
+            let (sqlite_code, primary_code, extended_code, message, busy) = match error {
+                Error::SqliteFailure(code, message) => (
+                    Some(code_name(code.code)),
+                    Some(code.code as i32),
+                    Some(code.extended_code),
+                    message.clone(),
+                    matches!(
+                        code.code,
+                        ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+                    ),
+                ),
+                _ => (None, None, None, None, false),
+            };
+            let original_message = message.unwrap_or_else(|| error.to_string());
             state.error = Some(json!({
-                "sqliteCode": code_name(code.code),
-                "sqlitePrimaryCode": code.code as i32,
-                "sqliteExtendedCode": code.extended_code,
-                "originalMessage": message.as_deref().unwrap_or("SQLite supplied no message"),
+                "errorType": format!("{error:?}").split(['(', '{']).next().unwrap_or("unknown"),
+                "originalMessage": original_message,
+                "debug": format!("{error:?}"),
+                "sqliteCode": sqlite_code,
+                "sqlitePrimaryCode": primary_code,
+                "sqliteExtendedCode": extended_code,
                 "stage": state.stage,
+                "schemaCheck": state.schema_check,
                 "databasePath": state.database,
                 "file": state.file,
                 "schema": {
@@ -88,6 +115,7 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
                 "failureCode": failure_code,
                 "failureMessage": failure_message,
                 "stage": state.stage,
+                "schemaCheck": state.schema_check,
                 "databasePath": state.database,
                 "file": state.file,
                 "schema": {
@@ -97,7 +125,13 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
                 },
                 "providerVersion": env!("CARGO_PKG_VERSION"),
                 "sqliteVersion": rusqlite::version(),
-                "sqlite": state.error
+                "sqlite": state.error,
+                "schemaValidation": state.schema_validation.or_else(|| {
+                    state.schema_check.map(|check| json!({
+                        "check": check,
+                        "outcome": "failed before validation result was produced"
+                    }))
+                })
             })
         })
     })
@@ -119,6 +153,32 @@ mod tests {
         assert_eq!(diagnostic["databasePath"], ".codegraph/codegraph.db");
         assert_eq!(diagnostic["schema"]["providerSchemaVersion"], 7);
         assert!(diagnostic["sqlite"].is_null());
+    }
+
+    #[test]
+    fn retains_non_sqlite_rusqlite_errors_and_validation_check() {
+        begin("src/app.js", Path::new(".codegraph/codegraph.db"));
+        stage("validate_schema");
+        schema_check("provider_schema_version_query");
+        capture(&Error::InvalidColumnType(
+            0,
+            "version".to_owned(),
+            rusqlite::types::Type::Null,
+        ));
+        let diagnostic = take("SYNC_INDEX", "schema validation failed").unwrap();
+        assert_eq!(diagnostic["schemaCheck"], "provider_schema_version_query");
+        assert_eq!(
+            diagnostic["schemaValidation"]["check"],
+            "provider_schema_version_query"
+        );
+        assert_eq!(diagnostic["sqlite"]["errorType"], "InvalidColumnType");
+        assert!(
+            diagnostic["sqlite"]["originalMessage"]
+                .as_str()
+                .unwrap()
+                .contains("version")
+        );
+        assert_eq!(diagnostic["sqlite"]["sqliteCode"], Value::Null);
     }
 }
 
