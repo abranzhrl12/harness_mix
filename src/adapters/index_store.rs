@@ -84,6 +84,20 @@ mod semantic_policy;
 #[path = "index_store/parallel.rs"]
 mod parallel;
 
+#[path = "index_store/workspace.rs"]
+mod workspace;
+
+#[path = "index_store/changed_paths.rs"]
+mod changed_paths;
+
+#[cfg(windows)]
+#[path = "index_store/transaction.rs"]
+mod transaction;
+
+#[cfg(windows)]
+#[path = "index_store/file.rs"]
+mod file;
+
 /// Apply a bounded native subset of the current plan. Transactions are per
 /// file, NOT per workspace. Once any file commits, subsequent errors/cancellation
 /// are returned in the JSON report alongside committed paths, never as a bare
@@ -111,74 +125,8 @@ pub fn sync_changed_paths(
     paths: &BTreeSet<String>,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if paths.len() > 1024 {
-        return Err(LIMIT);
-    }
-    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    let scope = scope::Snapshot::load(&project, context)?;
-    let mut writer = Some(writer::Writer::open(&project, context)?);
-    validate_schema(&writer.as_ref().ok_or(INDEX)?.db)?;
-    if project.root.join(".git").is_file() {
-        for path in paths {
-            let tracked: bool = sql(writer.as_ref().ok_or(INDEX)?.db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
-                [path],
-                |r| r.get(0),
-            ))?;
-            if !tracked && path.split('/').any(index_inventory::excluded) {
-                continue;
-            }
-            if !tracked {
-                drop(writer);
-                return sync_workspace_all(root, context);
-            }
-        }
-    }
-    let mut changed = 0;
-    let mut processed = 0;
-    let mut skipped = 0;
-    let mut failure = None;
-    for path in paths {
-        let applied = (|| {
-            context.check()?;
-            project.target_optional(path)?;
-            scope.recheck(&project, context)?;
-            if index_extract::language(path).is_none() || index_inventory::restricted(path) {
-                return Ok(None);
-            }
-            let tracked: bool = sql(writer.as_ref().ok_or(INDEX)?.db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM files WHERE path=?1)",
-                [path],
-                |r| r.get(0),
-            ))?;
-            if !tracked && path.split('/').any(index_inventory::excluded) {
-                return Ok(None);
-            }
-            if !tracked && !scope.included(path) && ignored_new_source(&project, path, context)? {
-                return Ok(None);
-            }
-            sync_file_config_reuse(root, path, None, context, || {}, false, &mut writer).map(Some)
-        })();
-        match applied {
-            Ok(Some(result)) => {
-                processed += 1;
-                changed += usize::from(result["changed"] == true);
-            }
-            Ok(None) => skipped += 1,
-            Err((code, message)) => {
-                failure = Some(
-                    json!({"path":path,"code":code,"message":message,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
-                );
-                break;
-            }
-        }
-    }
-    Ok(
-        json!({"mode":"sync_changed_paths","filesProcessed":processed,
-        "changedFilesCommitted":changed,"skippedFiles":skipped,"failure":failure,
-        "selectedScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
-        "globalFreshnessCertified":false,"workspaceTransactionAtomic":false}),
-    )
+    let mut port = changed_paths::NativeChangedPaths::new(root)?;
+    harness_application::indexing::changed_paths::sync_changed_paths(&mut port, paths, context)
 }
 
 fn ignored_new_source(
@@ -249,219 +197,8 @@ fn sync_workspace_with_limit(
     max_files: usize,
     rebuild: bool,
 ) -> Result<Value, Failure> {
-    let operation_started = std::time::Instant::now();
-    context.check()?;
-    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    let database = project.root.join(".codegraph/codegraph.db");
-    sync_diagnostic::begin("<workspace-plan>", &database);
-    sync_diagnostic::stage("load_workspace_scope");
-    let scope = scope::Snapshot::load(&project, context)?;
-    sync_diagnostic::stage("plan_workspace");
-    let planned = index_sync::plan_workspace_for_sync(root, context)?;
-    if planned["scope"] != scope.stamp() {
-        return Err(("STALE", "Scope changed during planning"));
-    }
-    let unchecked = planned["plan"]["unchecked"].as_array().ok_or(INDEX)?.len();
-    let mut paths = BTreeSet::new();
-    let mut unsupported = 0;
-    for key in ["added", "modified", "retryExtraction", "removed"] {
-        for path in planned["plan"][key].as_array().ok_or(INDEX)? {
-            let path = path.as_str().ok_or(INDEX)?;
-            if index_extract::language(path).is_some() {
-                paths.insert(path.to_owned());
-            } else {
-                unsupported += 1;
-            }
-        }
-    }
-    if rebuild {
-        for path in planned["plan"]["unchanged"].as_array().ok_or(INDEX)? {
-            let path = path.as_str().ok_or(INDEX)?;
-            if index_extract::language(path).is_some() {
-                paths.insert(path.into());
-            } else {
-                unsupported += 1;
-            }
-        }
-    }
-    // A selected config can change without a source edit. Revisit one unchanged
-    // JS/TS source so the transaction can invalidate/re-resolve import edges.
-    if paths.is_empty()
-        && let Some(path) = planned["plan"]["unchanged"]
-            .as_array()
-            .ok_or(INDEX)?
-            .iter()
-            .filter_map(Value::as_str)
-            .find(|p| {
-                matches!(
-                    index_extract::language(p),
-                    Some("typescript" | "tsx" | "javascript" | "jsx")
-                )
-            })
-    {
-        paths.insert(path.into());
-    }
-    let total = paths.len();
-    let started = std::time::Instant::now();
-    context.report_progress("indexing", 0, Some(total), None);
-    let mut results = Vec::new();
-    let mut processed = 0;
-    let mut changed = 0;
-    let mut provider_dependent = 0;
-    let mut failed = 0;
-    let mut failure = None;
-    let mut failures = Vec::new();
-    let mut skipped_reports = Vec::new();
-    let worker_count = parallel::workers();
-    let selected: Vec<_> = paths.iter().take(max_files).collect();
-    let mut prepared = std::collections::VecDeque::new();
-    let mut preparation_micros = 0u128;
-    let mut phase_totals = std::collections::BTreeMap::<String, u64>::new();
-    let mut reference_attempts = 0u64;
-    let mut reference_resolved = 0u64;
-    let mut nodes_written = 0u64;
-    #[cfg(windows)]
-    let mut writer = None;
-    let batch_invalidator = publication::BatchSqliteInvalidator;
-    let incremental_invalidator = publication::IncrementalSqliteInvalidator;
-    let workspace_invalidator: &publication::ReferenceInvalidator =
-        if std::env::var("HARNESS_INDEX_BATCH_INVALIDATION").as_deref() == Ok("1") {
-            &batch_invalidator
-        } else {
-            &incremental_invalidator
-        };
-    for (position, path) in selected.iter().copied().enumerate() {
-        if prepared.is_empty() && worker_count > 1 && context.check().is_ok() {
-            let end = (position + worker_count).min(selected.len());
-            let preparation_started = std::time::Instant::now();
-            prepared.extend(parallel::prepare(root, &selected[position..end], context));
-            preparation_micros += preparation_started.elapsed().as_micros();
-        }
-        let preparation = prepared.pop_front().flatten();
-        context.report_progress("indexing", processed, Some(total), Some(path));
-        let file_started = std::time::Instant::now();
-        // Bound each file without extending the owner's deadline or losing cancellation.
-        let file_context = context.with_execution_timeout(Some(std::time::Duration::from_secs(60)));
-        sync_diagnostic::begin(path, &database);
-        sync_diagnostic::stage("recheck_workspace_scope");
-        let applied = scope.recheck(&project, &file_context).and_then(|()| {
-            #[cfg(windows)]
-            {
-                sync_file_config_prepared(
-                    root,
-                    path,
-                    None,
-                    &file_context,
-                    || {},
-                    rebuild,
-                    &mut writer,
-                    preparation,
-                    workspace_invalidator,
-                )
-            }
-            #[cfg(not(windows))]
-            {
-                let _ = preparation;
-                sync_file(root, path, &file_context)
-            }
-        });
-        match applied {
-            Ok(mut result) => {
-                processed += 1;
-                if let Some(phases) = result["phaseTimingsMicros"].as_object() {
-                    for (name, value) in phases {
-                        *phase_totals.entry(name.clone()).or_default() +=
-                            value.as_u64().unwrap_or(0);
-                    }
-                    reference_attempts += result["referencesAttempted"].as_u64().unwrap_or(0);
-                    reference_resolved += result["referencesResolved"].as_u64().unwrap_or(0);
-                    nodes_written += result["nodesWritten"].as_u64().unwrap_or(0);
-                }
-                changed += usize::from(result["changed"] == true);
-                if results.len() < 32 {
-                    result["durationMs"] = json!(file_started.elapsed().as_millis());
-                    results.push(result);
-                }
-                context.report_progress("indexing", processed, Some(total), Some(path));
-            }
-            Err((code, message)) => {
-                let mut entry = json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
-                if let Some(diagnostic) = sync_diagnostic::take(code, message) {
-                    entry["diagnostic"] = diagnostic;
-                }
-                // Provider-dependent files (framework or synthesized graph data
-                // the native publisher cannot reproduce) are a documented
-                // limitation: they are reported and skipped.
-                if code == "SYNC_UNSUPPORTED_RELATION" || code == "SYNC_LEGACY_REFERENCE" {
-                    provider_dependent += 1;
-                    unsupported += 1;
-                    entry["skipped"] = json!(true);
-                    skipped_reports.push(entry.clone());
-                    if results.len() < 32 {
-                        entry["skipped"] = json!(true);
-                        results.push(entry);
-                    }
-                    continue;
-                }
-                // A per-file failure does not stop the rest of the workspace:
-                // the first failure is reported and the remaining files are
-                // still published. Systemic failures still stop the run.
-                if failure.is_none() {
-                    failure = Some(entry.clone());
-                }
-                failures.push(entry.clone());
-                if results.len() < 32 {
-                    results.push(entry);
-                }
-                failed += 1;
-                if matches!(
-                    code,
-                    "SYNC_SCHEMA"
-                        | "SYNC_INDEX_BUSY"
-                        | "SYNC_INTEGRITY"
-                        | "SYNC_COMMIT_UNCERTAIN"
-                        | "SYNC_LIMIT"
-                        | "LIMIT"
-                        | "PATH"
-                ) || context.check().is_err()
-                {
-                    break;
-                }
-                continue;
-            }
-        }
-    }
-    context.report_progress("finalizing", processed, Some(total), None);
-    if failure.is_none()
-        && let Err((code, message)) = scope.recheck(&project, context)
-    {
-        let entry = json!({"path":"codegraph.json","code":code,"message":message,"stage":"final_scope_recheck","commitState":"not_committed"});
-        failures.push(entry.clone());
-        failure = Some(entry);
-    }
-    let native_complete = failure.is_none() && processed == total;
-    let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
-        "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
-        "failures":failures,"extractionWorkers":worker_count,"databaseWriters":1,
-        "skippedFileReports":skipped_reports,"inventoryDiagnostics":planned["inventory"]["fileDiagnostics"],"uncheckedFilePaths":planned["plan"]["unchecked"],
-        "indexingDurationMs":started.elapsed().as_millis(),
-        "durationMs":operation_started.elapsed().as_millis(),
-        "filesProcessed":processed,"fileReportsOmitted":(processed+failed+provider_dependent).saturating_sub(results.len()),"fileReportLimit":32,
-        "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
-        "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,
-        "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
-        "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
-        "discoveryComplete":planned["inventory"]["discoveryComplete"],
-        "synchronized":false,"globalFreshnessCertified":false,"fullProviderScope":false,
-        "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"});
-    if !phase_totals.is_empty() {
-        report["phaseTimingsMicros"] = json!(phase_totals);
-        report["preparationDurationMicros"] = json!(preparation_micros);
-        report["totalReferencesAttempted"] = json!(reference_attempts);
-        report["totalReferencesResolved"] = json!(reference_resolved);
-        report["totalNodesWritten"] = json!(nodes_written);
-    }
-    Ok(report)
+    let mut port = workspace::NativeWorkspace::new(root)?;
+    harness_application::indexing::workspace::sync_workspace(&mut port, context, max_files, rebuild)
 }
 
 /// Consume contextual SQLite/index diagnostics for CLI and workspace reports.
@@ -672,136 +409,21 @@ fn sync_file_config_prepared(
     prepared: Option<parallel::Prepared>,
     invalidator: &publication::ReferenceInvalidator,
 ) -> Result<Value, Failure> {
-    context.check()?;
-    index_extract::take_diagnostic();
-    // Windows callers pass native separators; the graph stores POSIX-style paths.
-    let normalized = normalize_relative(relative);
-    let relative = normalized.as_str();
-    if relative.is_empty()
-        || relative.len() > 1000
-        || relative.contains('\\')
-        || relative.chars().any(char::is_control)
-        || relative.split('/').any(|s| matches!(s, "" | "." | ".."))
-        || index_inventory::restricted(relative)
-    {
-        return Err(("PATH", "Invalid or restricted synchronization source path"));
-    }
-    let language = index_extract::language(relative).ok_or((
-        "SYNC_LANGUAGE",
-        "No native extractor for this source language",
-    ))?;
-    let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    let database = project.root.join(".codegraph/codegraph.db");
-    sync_diagnostic::begin(relative, &database);
-    sync_diagnostic::stage("load_file_scope");
-    let scope = scope::Snapshot::load(&project, context)?;
-    sync_diagnostic::stage("read_source");
-    let source = if scope.excluded(relative) {
-        None
-    } else {
-        read_source(&project, relative, context)?
+    let mut job = file::NativeFile {
+        root,
+        relative: normalize_relative(relative),
+        requested_config,
+        before_recheck: Some(before_recheck),
+        force,
+        writer,
+        prepared,
+        invalidator,
+        project: None,
+        scope: None,
+        source: None,
+        language: None,
     };
-    let reused = writer.is_some();
-    if writer.is_none() {
-        sync_diagnostic::stage("open_database");
-        *writer = Some(writer::Writer::open(&project, context)?);
-    }
-    let writer = writer.as_mut().ok_or(INDEX)?;
-    sync_diagnostic::stage("recheck_database_handle");
-    writer.recheck(context)?;
-    let db = &mut writer.db;
-    let retry_memo = &mut writer.retry_memo;
-    let cancel = context.clone();
-    sync_diagnostic::stage("configure_connection");
-    sql(db.progress_handler(1000, Some(move || cancel.check().is_err())))?;
-    sql(db.execute_batch("PRAGMA trusted_schema=OFF;"))?;
-    sync_diagnostic::stage("begin_transaction");
-    let tx = sql(db.transaction_with_behavior(TransactionBehavior::Immediate))?;
-    let run = || {
-        let data_version: i64 = sql(tx.query_row("PRAGMA data_version", [], |row| row.get(0)))?;
-        retry_memo.observe_version(data_version);
-        sync_diagnostic::stage("validate_schema");
-        validate_schema(&tx)?;
-        // Only the three exact provider FTS triggers are accepted. SQLite FTS5
-        // triggers require trusted_schema; it is enabled only after validation.
-        sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
-        context.check()?;
-        sync_diagnostic::stage("select_configuration");
-        let configuration = tsconfig::Snapshot::select(&tx, &project, requested_config, context)?;
-        let (mut result, import_sources) = publish(
-            &tx,
-            &project,
-            relative,
-            language,
-            source.as_deref(),
-            context,
-            configuration,
-            force,
-            prepared,
-            retry_memo,
-            invalidator,
-        )?;
-        result["tsconfig"] = import_sources.config.stamp();
-        sync_diagnostic::stage("recheck_sources");
-        before_recheck();
-        scope.recheck(&project, context)?;
-        import_sources.recheck(&project, context)?;
-        let observed = if scope.excluded(relative) {
-            None
-        } else {
-            read_source(&project, relative, context)?
-        };
-        if observed.as_ref().map(|b| hash(b)) != source.as_ref().map(|b| hash(b)) {
-            return Err((
-                "STALE",
-                "Source changed before index publication; transaction rolled back",
-            ));
-        }
-        context.check()?;
-        // The publication only writes the edges of this file, so the integrity
-        // check is scoped to them. A full database scan would make every
-        // publication cost grow with the size of the project.
-        sync_diagnostic::stage("integrity_check");
-        let violations: bool = result["changed"] == true
-            && sql(tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM edges e LEFT JOIN nodes s ON s.id=e.source LEFT JOIN nodes t ON t.id=e.target WHERE (e.source IN(SELECT id FROM nodes WHERE file_path=?1) OR e.target IN(SELECT id FROM nodes WHERE file_path=?1)) AND (s.id IS NULL OR t.id IS NULL))",
-                [relative],
-                |row| row.get(0),
-            ))?;
-        if violations {
-            return Err(("SYNC_INTEGRITY", "Index foreign-key integrity check failed"));
-        }
-        result["sourceSnapshotAtomic"] = json!(false);
-        result["writerConnectionReused"] = json!(reused);
-        Ok(result)
-    };
-    let prepared = run();
-    match prepared {
-        Err(failure) => {
-            retry_memo.clear();
-            // Cancellation must not prevent the rollback itself.
-            tx.progress_handler(0, None::<fn() -> bool>)
-                .map_err(|_| UNCERTAIN)?;
-            tx.rollback().map_err(|_| UNCERTAIN)?;
-            Err(context.check().err().unwrap_or(failure))
-        }
-        Ok(mut result) => {
-            // Commit point: don't report a post-commit cancellation as no write.
-            tx.progress_handler(0, None::<fn() -> bool>)
-                .map_err(|_| UNCERTAIN)?;
-            sync_diagnostic::stage("commit_transaction");
-            tx.commit().map_err(|error| {
-                retry_memo.clear();
-                sync_diagnostic::capture(&error);
-                UNCERTAIN
-            })?;
-            result["committed"] = json!(true);
-            if let Some(profile) = sync_diagnostic::finish_profile() {
-                result["phaseTimingsMicros"] = profile;
-            }
-            Ok(result)
-        }
-    }
+    harness_application::indexing::file::sync_file(&mut job, context)
 }
 
 fn read_source(

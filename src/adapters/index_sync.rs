@@ -3,10 +3,11 @@
 //! The caller supplies an inventory from the SAME scope as the indexed files.
 //! `complete` must remain false after any exclusion, scan error or budget hit.
 //! This module neither extracts symbols nor publishes hashes or graph mutations.
-use harness_domain::{Failure, execution::OperationContext, hash};
+#[cfg(test)]
+use harness_domain::hash;
+use harness_domain::{Failure, execution::OperationContext};
 use rusqlite::Connection;
-use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 fn sql_failure(error: rusqlite::Error, failure: Failure) -> Failure {
     // Preserve the original SQLite cause even when the public failure is scoped
@@ -91,32 +92,15 @@ fn plan_workspace_inner(
         if !(1..=11).contains(&version) {
             return Err(index_error);
         }
-        // Obtain and validate tracked paths from the same read transaction used
-        // for the final plan. No absent discovery entries imply deletion.
-        let tracked = plan(&db, &BTreeMap::new(), false, context)?.unchecked;
-        let inventory = super::index_inventory::scan(&project, &tracked, context)?;
-        context.report_progress("planning", 0, None, None);
-        let mut result = plan(&db, &inventory.observations, false, context)?;
-        // Explicit config exclusions are deliberate removals from the graph,
-        // unlike missing entries in an incomplete filesystem discovery.
-        let excluded: BTreeSet<_> = inventory.scope_excluded.iter().collect();
-        result.unchecked.retain(|path| !excluded.contains(path));
-        result
-            .removed
-            .extend(inventory.scope_excluded.iter().cloned());
-        result.removed.sort();
-        result.removed.dedup();
-        // Restricted provider entries are counted, never read or echoed. They
-        // remain unresolved work, not additions/modifications/deletions.
-        result
-            .unchecked
-            .retain(|path| !super::index_inventory::restricted(path));
-        let extraction = if preview {
-            super::index_extract::preview(&project, &result, &inventory.observations, context)?
-        } else {
-            serde_json::Value::Null
-        };
-        context.check()?;
+        let (result, inventory, extraction) =
+            harness_application::indexing::planning::plan_workspace(
+                &mut NativePlanner {
+                    db: &db,
+                    project: &project,
+                },
+                preview,
+                context,
+            )?;
         Ok(serde_json::json!({
             "mode":"plan_only", "format":"codegraph-sqlite-readonly-v1", "schemaVersion":version,
             "plan":result, "scope":inventory.scope,"inventory":inventory, "extractionPreview":extraction, "writesPerformed":false, "synchronized":false,
@@ -134,57 +118,10 @@ fn plan_workspace_inner(
     result
 }
 
-pub const MAX_FILES: usize = 20_000;
-pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
-
-#[derive(Clone, Debug)]
-pub enum Observation {
-    /// Digest of a stable source read, not a size/mtime shortcut.
-    Content(String),
-    /// Explicit absence verified by the scanner (not permission denied).
-    Missing,
-    /// Unreadable, unstable, excluded or over budget. Never implies deletion.
-    Unchecked,
-}
-
-#[derive(Debug, Default, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Plan {
-    pub added: Vec<String>,
-    pub modified: Vec<String>,
-    pub retry_extraction: Vec<String>,
-    pub removed: Vec<String>,
-    pub unchanged: Vec<String>,
-    pub unchecked: Vec<String>,
-    pub inventory_complete: bool,
-    pub synchronized: bool,
-}
-
-/// CodeGraph hashes decoded UTF-8 text, not arbitrary raw bytes. Reject invalid
-/// UTF-8 rather than silently introducing a different replacement policy.
-/// Oversize markers must NOT be passed as Content: they don't prove freshness.
-pub fn source_hash(bytes: &[u8]) -> Result<String, Failure> {
-    if bytes.len() > MAX_SOURCE_BYTES {
-        return Err((
-            "SYNC_LIMIT",
-            "Source exceeds the CodeGraph extraction limit",
-        ));
-    }
-    std::str::from_utf8(bytes).map_err(|_| ("SYNC_UNCHECKED", "Source is not UTF-8"))?;
-    Ok(hash(bytes))
-}
-
-fn valid_path(path: &str) -> bool {
-    !path.is_empty()
-        && path.len() <= 1000
-        && !path.contains(['\\', ':'])
-        && !path.chars().any(char::is_control)
-        && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
-}
-
-fn valid_hash(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
+pub use harness_application::indexing::planning::{
+    MAX_FILES, MAX_SOURCE_BYTES, Observation, Plan, source_hash,
+};
+use harness_application::indexing::planning::{valid_hash, valid_path};
 
 /// Reads only provider `files(path, content_hash, errors)` rows. The caller owns
 /// the connection/snapshot and must open real provider files read-only. No schema
@@ -213,6 +150,15 @@ pub fn plan(
             return Err(("SYNC_CONTRACT", "Inventory contains an invalid source hash"));
         }
     }
+    let indexed = read_indexed(db, context)?;
+    harness_application::indexing::planning::classify(&indexed, observed, complete, context)
+}
+
+fn read_indexed(
+    db: &Connection,
+    context: &OperationContext,
+) -> Result<BTreeMap<String, (String, bool)>, Failure> {
+    context.check()?;
     let ordinary: i64 = db.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE name='files' AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'",
         [], |row| row.get(0),
@@ -263,37 +209,38 @@ pub fn plan(
             return Err(("SYNC_CONTRACT", "Duplicate indexed file path"));
         }
     }
-    let mut result = Plan {
-        inventory_complete: complete,
-        ..Plan::default()
-    };
-    for (path, (digest, clean)) in &indexed {
-        context.check()?;
-        match observed.get(path) {
-            Some(Observation::Content(current)) if !current.eq_ignore_ascii_case(digest) => {
-                result.modified.push(path.clone())
-            }
-            Some(Observation::Content(_)) if !clean => result.retry_extraction.push(path.clone()),
-            Some(Observation::Content(_)) => result.unchanged.push(path.clone()),
-            Some(Observation::Missing) => result.removed.push(path.clone()),
-            None if complete => result.removed.push(path.clone()),
-            _ => result.unchecked.push(path.clone()),
-        }
+    Ok(indexed)
+}
+
+struct NativePlanner<'a> {
+    db: &'a Connection,
+    project: &'a super::project::Project,
+}
+impl harness_application::ports::indexing::PlanningPort for NativePlanner<'_> {
+    fn indexed(
+        &mut self,
+        context: &OperationContext,
+    ) -> Result<BTreeMap<String, (String, bool)>, Failure> {
+        read_indexed(self.db, context)
     }
-    for (path, observation) in observed {
-        context.check()?;
-        if !indexed.contains_key(path) {
-            match observation {
-                Observation::Content(_) => result.added.push(path.clone()),
-                Observation::Unchecked => result.unchecked.push(path.clone()),
-                Observation::Missing => {}
-            }
-        }
+    fn inventory(
+        &mut self,
+        tracked: &[String],
+        context: &OperationContext,
+    ) -> Result<super::index_inventory::Inventory, Failure> {
+        super::index_inventory::scan(self.project, tracked, context)
     }
-    result.unchecked.sort();
-    // Even an empty plan cannot certify extraction, relationships or publication.
-    context.check()?;
-    Ok(result)
+    fn restricted(&self, path: &str) -> bool {
+        super::index_inventory::restricted(path)
+    }
+    fn preview(
+        &mut self,
+        plan: &Plan,
+        inventory: &super::index_inventory::Inventory,
+        context: &OperationContext,
+    ) -> Result<serde_json::Value, Failure> {
+        super::index_extract::preview(self.project, plan, &inventory.observations, context)
+    }
 }
 
 #[cfg(test)]

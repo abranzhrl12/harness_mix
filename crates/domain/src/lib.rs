@@ -6,6 +6,7 @@ pub mod editing;
 pub mod execution;
 pub mod freshness;
 pub mod handover;
+pub mod indexing;
 pub mod jobs;
 pub mod log_archive;
 pub mod navigation;

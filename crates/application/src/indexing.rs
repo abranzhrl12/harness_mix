@@ -1,4 +1,10 @@
-//! Pure invalidation policy, independent of persistence and extraction.
+//! Indexing use cases, independent of persistence and extraction.
+pub mod changed_paths;
+pub mod file;
+pub mod inventory;
+pub mod planning;
+pub mod transaction;
+pub mod workspace;
 use crate::ports::indexing::PublicationSession;
 use harness_domain::{Failure, execution::OperationContext};
 

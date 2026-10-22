@@ -56,11 +56,13 @@ fn query_presenters_do_not_read_sources_or_databases() {
 #[test]
 fn indexing_application_contract_and_policy_stay_portable() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for relative in [
-        "crates/application/src/ports/indexing.rs",
-        "crates/application/src/indexing.rs",
-    ] {
-        let source = fs::read_to_string(root.join(relative)).unwrap();
+    let mut files = vec![
+        root.join("crates/application/src/ports/indexing.rs"),
+        root.join("crates/application/src/indexing.rs"),
+    ];
+    rust_files(&root.join("crates/application/src/indexing"), &mut files);
+    for path in files {
+        let source = fs::read_to_string(&path).unwrap();
         for forbidden in [
             "rusqlite",
             "crate::adapters",
@@ -70,9 +72,40 @@ fn indexing_application_contract_and_policy_stay_portable() {
         ] {
             assert!(
                 !source.contains(forbidden),
-                "{relative} depends on infrastructure {forbidden}"
+                "{} depends on infrastructure {forbidden}",
+                path.display()
             );
         }
+    }
+}
+
+#[test]
+fn indexing_facade_delegates_lifecycles_instead_of_implementing_them() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/index_store.rs"),
+    )
+    .unwrap();
+    for forbidden in [
+        "for (position, path)",
+        "let mut processed",
+        "tx.commit()",
+        "tx.rollback()",
+        "parallel::prepare(",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "indexing facade still owns lifecycle {forbidden}"
+        );
+    }
+    for use_case in [
+        "indexing::workspace::sync_workspace",
+        "indexing::changed_paths::sync_changed_paths",
+        "indexing::file::sync_file",
+    ] {
+        assert!(
+            source.contains(use_case),
+            "missing application entry point {use_case}"
+        );
     }
 }
 

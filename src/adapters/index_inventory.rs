@@ -1,32 +1,9 @@
-//! Conservative inventory for the first native CodeGraph synchronization stage.
-use super::{
-    index_sync::{self, Observation},
-    project::{self, Project},
-};
+//! Filesystem inventory adapter. Bounded selection and budget policy live in application.
+use super::project::{self, Project};
+pub(super) use harness_application::indexing::inventory::Inventory;
+use harness_application::ports::indexing::{DiscoveredEntry, InventoryPort, SourceMetadata};
 use harness_domain::{Failure, execution::OperationContext};
-use serde::Serialize;
-use std::{collections::BTreeMap, path::Path};
-
-const MAX_VISITED: usize = 40_000;
-const MAX_BYTES: u64 = 64 * 1024 * 1024;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Inventory {
-    #[serde(skip)]
-    pub observations: BTreeMap<String, Observation>,
-    pub discovery_complete: bool,
-    pub visited_entries: usize,
-    pub reserved_source_bytes: u64,
-    pub skipped_entries: usize,
-    pub restricted_indexed_files: usize,
-    // One policy category per restricted entry; never expose its path or hash.
-    pub restricted_indexed_reasons: BTreeMap<&'static str, usize>,
-    pub budget_exhausted: bool,
-    pub scope_excluded: Vec<String>,
-    pub scope: serde_json::Value,
-    pub file_diagnostics: Vec<serde_json::Value>,
-}
+use std::path::Path;
 
 pub(super) fn excluded(name: &str) -> bool {
     matches!(
@@ -66,45 +43,41 @@ pub(super) fn scan(
     tracked: &[String],
     context: &OperationContext,
 ) -> Result<Inventory, Failure> {
-    context.report_progress("inventory", 0, None, None);
+    context.check()?;
     let scope = super::index_store::scope::Snapshot::load(project, context)?;
-    let mut inventory = Inventory {
-        observations: BTreeMap::new(),
-        discovery_complete: true,
-        visited_entries: 0,
-        reserved_source_bytes: 0,
-        skipped_entries: 0,
-        restricted_indexed_files: 0,
-        restricted_indexed_reasons: BTreeMap::new(),
-        budget_exhausted: false,
-        scope_excluded: Vec::new(),
-        scope: scope.stamp(),
-        file_diagnostics: Vec::new(),
-    };
-    // Check each tracked path directly. Discovery exclusions must never turn an
-    // old provider record into an inferred deletion. This is NOT full ScopeIgnore.
-    for path in tracked {
-        context.check()?;
-        if let Some(reason) = restricted_reason(path) {
-            inventory.restricted_indexed_files += 1;
-            *inventory
-                .restricted_indexed_reasons
-                .entry(reason)
-                .or_default() += 1;
-            continue;
-        }
-        if scope.excluded(path) {
-            inventory.scope_excluded.push(path.clone());
-            continue;
-        }
-        let observation = inventory.observe(project, path, context)?;
-        inventory.observations.insert(path.clone(), observation);
+    harness_application::indexing::inventory::scan(
+        &NativeInventory { project, scope },
+        tracked,
+        context,
+    )
+}
+
+struct NativeInventory<'a> {
+    project: &'a Project,
+    scope: super::index_store::scope::Snapshot,
+}
+impl InventoryPort for NativeInventory<'_> {
+    fn scope(&self) -> serde_json::Value {
+        self.scope.stamp()
     }
-    for include_pass in [false, true] {
-        if include_pass && !scope.has_includes {
-            break;
-        }
-        let mut builder = ignore::WalkBuilder::new(&project.root);
+    fn has_includes(&self) -> bool {
+        self.scope.has_includes
+    }
+    fn excluded(&self, path: &str) -> bool {
+        self.scope.excluded(path)
+    }
+    fn included(&self, path: &str) -> bool {
+        self.scope.included(path)
+    }
+    fn restricted_reason(&self, path: &str) -> Option<&'static str> {
+        restricted_reason(path)
+    }
+    fn supported(&self, path: &str) -> bool {
+        super::index_extract::language(path).is_some()
+    }
+    fn walk(&self, include_pass: bool) -> Box<dyn Iterator<Item = DiscoveredEntry>> {
+        let root = self.project.root.clone();
+        let mut builder = ignore::WalkBuilder::new(&root);
         builder
             .follow_links(false)
             .hidden(false)
@@ -118,219 +91,59 @@ pub(super) fn scan(
             .filter_entry(|entry| {
                 entry.depth() == 0 || !excluded(&entry.file_name().to_string_lossy())
             });
-        for entry in builder.build() {
-            context.check()?;
-            if inventory.visited_entries >= MAX_VISITED {
-                inventory.budget_exhausted = true;
-                inventory.discovery_complete = false;
-                break;
+        Box::new(builder.build().map(move |entry| {
+            match entry {
+                Err(_) => DiscoveredEntry {
+                    path: None,
+                    is_file: false,
+                    scan_error: true,
+                },
+                Ok(entry) => DiscoveredEntry {
+                    path: entry
+                        .path()
+                        .strip_prefix(&root)
+                        .ok()
+                        .and_then(Path::to_str)
+                        .map(|p| p.replace('\\', "/")),
+                    is_file: entry.file_type().is_some_and(|kind| kind.is_file()),
+                    scan_error: entry.error().is_some(),
+                },
             }
-            inventory.visited_entries += 1;
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => {
-                    inventory.discovery_complete = false;
-                    inventory.skipped_entries += 1;
-                    continue;
-                }
-            };
-            if entry.error().is_some() {
-                inventory.discovery_complete = false;
-                inventory.skipped_entries += 1;
-            }
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                continue;
-            }
-            let Some(path) = entry
-                .path()
-                .strip_prefix(&project.root)
-                .ok()
-                .and_then(Path::to_str)
-            else {
-                inventory.discovery_complete = false;
-                inventory.skipped_entries += 1;
-                continue;
-            };
-            let path = path.replace('\\', "/");
-            // Only formats supported by native extraction, including Razor, Vue and HTML.
-            // Never claim provider-wide inventory coverage.
-            if super::index_extract::language(&path).is_none()
-                || restricted(&path)
-                || scope.excluded(&path)
-                || (include_pass && !scope.included(&path))
-                || inventory.observations.contains_key(&path)
-            {
-                continue;
-            }
-            if inventory.observations.len() >= index_sync::MAX_FILES {
-                inventory.budget_exhausted = true;
-                inventory.discovery_complete = false;
-                break;
-            }
-            let observation = inventory.observe(project, &path, context)?;
-            inventory.observations.insert(path, observation);
-        }
-        if inventory.budget_exhausted {
-            break;
+        }))
+    }
+    fn metadata(&self, relative: &str) -> Result<SourceMetadata, (String, String)> {
+        let path = self
+            .project
+            .target_optional(relative)
+            .map_err(|(c, m)| (c.to_owned(), m.to_owned()))?;
+        match std::fs::symlink_metadata(path) {
+            Ok(m) if m.is_file() => Ok(SourceMetadata::Regular(m.len())),
+            Ok(_) => Ok(SourceMetadata::Other),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SourceMetadata::Missing),
+            Err(e) => Err(("IO_METADATA".into(), e.to_string())),
         }
     }
-    scope.recheck(project, context)?;
-    context.report_progress("inventory", inventory.observations.len(), None, None);
-    Ok(inventory)
-}
-
-impl Inventory {
-    fn unchecked(&mut self, path: &str, code: &str, message: &str) -> Observation {
-        self.skipped_entries += 1;
-        self.file_diagnostics.push(
-            serde_json::json!({"path":path,"stage":"inventory","code":code,"message":message}),
-        );
-        Observation::Unchecked
-    }
-
-    fn observe(
-        &mut self,
-        project: &Project,
+    fn read(
+        &self,
         relative: &str,
+        limit: u64,
         context: &OperationContext,
-    ) -> Result<Observation, Failure> {
-        context.check()?;
-        context.report_progress("inventory", self.observations.len(), None, Some(relative));
-        let path = match project.target_optional(relative) {
-            Ok(path) => path,
-            Err((code, message)) => {
-                return Ok(self.unchecked(relative, code, message));
-            }
-        };
-        let metadata = match std::fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Observation::Missing);
-            }
-            Err(error) => {
-                return Ok(self.unchecked(relative, "IO_METADATA", &error.to_string()));
-            }
-        };
-        if !metadata.is_file() || metadata.len() > index_sync::MAX_SOURCE_BYTES as u64 {
-            return Ok(self.unchecked(
-                relative,
-                "SOURCE_LIMIT",
-                "Source is not a regular file or exceeds the extraction size limit",
-            ));
-        }
-        if self.reserved_source_bytes + metadata.len() > MAX_BYTES {
-            self.budget_exhausted = true;
-            self.discovery_complete = false;
-            return Ok(self.unchecked(
-                relative,
-                "INVENTORY_LIMIT",
-                "Aggregate source byte budget exhausted",
-            ));
-        }
-        self.reserved_source_bytes += metadata.len();
+    ) -> Result<Vec<u8>, Failure> {
         #[cfg(windows)]
-        let _pins = match super::edit_commit::pin_directory(
-            project,
-            path.parent().ok_or(("PATH", "Missing source parent"))?,
-        ) {
-            Ok(pins) => pins,
-            Err((code, message)) => {
-                return Ok(self.unchecked(relative, code, message));
-            }
+        let _pins = {
+            let path = self.project.target_optional(relative)?;
+            super::edit_commit::pin_directory(
+                self.project,
+                path.parent().ok_or(("PATH", "Missing source parent"))?,
+            )?
         };
-        // Reserve the observed size and cap the actual read at that size. Growth
-        // during reading cannot bypass the aggregate reservation.
-        let bytes = match project.bytes_with_limit(relative, context, metadata.len()) {
-            Ok(bytes) => bytes,
-            Err(failure @ ("CANCELLED" | "TIMEOUT", _)) => return Err(failure),
-            Err((code, message)) => {
-                return Ok(self.unchecked(relative, code, message));
-            }
-        };
-        match index_sync::source_hash(&bytes) {
-            Ok(digest) => Ok(Observation::Content(digest)),
-            Err((code, message)) => Ok(self.unchecked(relative, code, message)),
-        }
+        self.project.bytes_with_limit(relative, context, limit)
+    }
+    fn recheck(&self, context: &OperationContext) -> Result<(), Failure> {
+        self.scope.recheck(self.project, context)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn unreadable_encoding_has_a_file_diagnostic_and_is_not_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe]).unwrap();
-        let project = Project::new(dir.path()).unwrap();
-        let inventory = scan(&project, &[], &OperationContext::default()).unwrap();
-        assert!(matches!(
-            inventory.observations["invalid.rs"],
-            Observation::Unchecked
-        ));
-        assert_eq!(inventory.file_diagnostics[0]["path"], "invalid.rs");
-        assert_eq!(inventory.file_diagnostics[0]["code"], "SYNC_UNCHECKED");
-    }
-    #[test]
-    fn restricted_policy_counts_do_not_read_or_disclose_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = Project::new(dir.path()).unwrap();
-        let tracked: Vec<String> = [
-            "NUXT.CONFIG.ts",
-            "vite.config.ts",
-            ".ENV/private.rs",
-            ".git/internal.rs",
-            "key.pem",
-            "appsettings.production.json",
-            ".npmrc",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-        let inventory = scan(&project, &tracked, &OperationContext::default()).unwrap();
-        assert_eq!(inventory.restricted_indexed_files, 7);
-        assert!(inventory.observations.is_empty());
-        let value = serde_json::to_value(inventory).unwrap();
-        assert_eq!(value["restrictedIndexedReasons"]["config_filename"], 2);
-        for reason in [
-            "sensitive_path_prefix",
-            "version_control_directory",
-            "private_key_extension",
-            "appsettings_filename",
-            "npmrc_filename",
-        ] {
-            assert_eq!(value["restrictedIndexedReasons"][reason], 1);
-        }
-        for path in tracked {
-            assert!(!value.to_string().contains(&path));
-        }
-        assert!(!restricted("src/profile.ts"));
-        assert!(!restricted("src/config.ts"));
-        assert!(restricted("SRC\\NUXT.CONFIG.TS"));
-    }
-    #[test]
-    fn aggregate_budget_never_turns_an_existing_source_into_a_deletion() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("source.rs"), "fn source() {}").unwrap();
-        let project = Project::new(dir.path()).unwrap();
-        let mut inventory = Inventory {
-            observations: BTreeMap::new(),
-            discovery_complete: true,
-            visited_entries: 0,
-            reserved_source_bytes: MAX_BYTES,
-            skipped_entries: 0,
-            restricted_indexed_files: 0,
-            restricted_indexed_reasons: BTreeMap::new(),
-            budget_exhausted: false,
-            scope_excluded: Vec::new(),
-            scope: serde_json::Value::Null,
-            file_diagnostics: Vec::new(),
-        };
-        let observed = inventory
-            .observe(&project, "source.rs", &OperationContext::default())
-            .unwrap();
-        assert!(matches!(observed, Observation::Unchecked));
-        assert!(inventory.budget_exhausted);
-        assert!(!inventory.discovery_complete);
-        assert_eq!(inventory.reserved_source_bytes, MAX_BYTES);
-    }
-}
+#[path = "index_inventory_tests.rs"]
+mod tests;
