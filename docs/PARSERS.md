@@ -20,7 +20,8 @@ src/adapters/
 │   ├── vue/                     # parser de sintaxis y estructura Vue
 │   ├── razor/                   # sintaxis, render y análisis de enlaces MVC
 │   ├── astro/                   # parser Astro
-│   └── css/                     # extracción de símbolos CSS
+│   ├── css/                     # extracción de símbolos CSS
+│   └── scss/                    # símbolos y validación SCSS con Raffia
 ├── vue_extract.rs               # preview de extracción; usa Project
 ├── index_razor_mvc.rs           # resolución MVC y snapshot SQLite
 └── index_razor_mvc_tests.rs
@@ -33,11 +34,20 @@ mantener sus imports existentes. El dominio también clasifica rutas con
 final, sin leer contenido ni seleccionar una implementación de parser.
 
 La clasificación distingue Rust, JavaScript (`js`, `mjs`, `cjs`, `jsx`),
-TypeScript (`ts`, `mts`, `cts`, `tsx`), Vue, Astro, C#, Razor, CSS y HTML
+TypeScript (`ts`, `mts`, `cts`, `tsx`), Vue, Astro, C#, Razor, CSS, SCSS y HTML
 (`html`, `htm`), sin distinguir mayúsculas en la extensión. JSX/TSX conservan
 su formato propio, mientras que `SourceFormat::language()` los agrupa en los
 idiomas de protocolo `javascript`/`typescript`. Clasificar un formato no
 significa que exista un parser de validación para él.
+
+SCSS usa el parser `raffia` (`=0.13.0`): `scss/symbols.rs` proyecta el árbol
+real (reglas anidadas, variables, mixins, funciones, `@include`, `@use`,
+`@forward`, `@extend`, `@each`/`@for`) conservando el rango exacto de origen, y
+`scss/syntax.rs` valida sintaxis con posición de línea y columna. La validación
+es únicamente sintáctica: no se resuelven módulos Sass ni se evalúan valores,
+así que un archivo válido nunca falla por un import no localizado. Los errores
+recuperables se reportan como avisos y nunca bloquean una edición; un
+`allowUnvalidatedText` explícito tampoco bloquea un candidato válido.
 
 En C#, `csharp/syntax.rs` conserva los puntos de entrada y delega en etapas
 separadas: `lexer.rs`, `declarations/symbols.rs`, `razor.rs` y `validation.rs`.

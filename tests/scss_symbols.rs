@@ -135,7 +135,12 @@ fn scss_nested_rules_keep_their_parent_container() {
     let items = out["data"]["items"].as_array().unwrap();
     let title = items
         .iter()
-        .find(|item| item["name"].as_str().unwrap_or_default().contains("&__title"))
+        .find(|item| {
+            item["name"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("&__title")
+        })
         .expect("nested rule");
     assert_eq!(title["container"], ".card", "{title}");
     let nested = items
@@ -209,4 +214,88 @@ fn scss_outline_reports_a_syntax_error_for_broken_sources() {
     let out = outline(&app, "bad.scss");
     assert_eq!(out["state"], "error", "{out}");
     assert_eq!(out["diagnostics"][0]["code"], "SYNTAX_ERROR", "{out}");
+}
+
+const ANGULAR: &str = r#"@use "sass:math";
+@use "sass:map";
+@use "../styles/variables" as vars;
+
+$primary: vars.$brand !default;
+$spacing: (
+  small: 4px,
+  medium: 8px,
+) !default;
+
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == phone {
+    @content;
+  } @else if $breakpoint == tablet {
+    @content;
+  }
+}
+
+%visually-hidden {
+  position: absolute;
+}
+
+:host {
+  display: block;
+  padding: map.get($spacing, medium);
+}
+
+.card {
+  @include respond-to(phone) {
+    flex-direction: column;
+  }
+
+  &__header {
+    font-size: math.div(1rem, 8);
+  }
+
+  &::ng-deep .inner {
+    color: $primary;
+  }
+}
+
+@each $name, $value in $spacing {
+  .m-#{$name} {
+    margin: $value;
+  }
+}
+
+@for $i from 1 through 3 {
+  .col-#{$i} {
+    width: math.percentage(math.div($i, 3));
+  }
+}
+"#;
+
+#[test]
+fn angular_style_sheet_is_parsed_without_false_syntax_errors() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("widget.component.scss"), ANGULAR).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let out = outline(&app, "widget.component.scss");
+    assert_eq!(out["state"], "ok", "{out}");
+    let items = out["data"]["items"].as_array().unwrap();
+    let names = items
+        .iter()
+        .map(|item| item["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"$primary"), "{names:?}");
+    assert!(names.contains(&"$spacing"), "{names:?}");
+    assert!(names.contains(&"respond-to"), "{names:?}");
+    assert!(names.contains(&":host"), "{names:?}");
+    assert!(names.contains(&".card"), "{names:?}");
+    assert!(names.contains(&"@each"), "{names:?}");
+    assert!(names.contains(&"@for"), "{names:?}");
+    // A valid Angular stylesheet is editable without any opt-in.
+    let edited = replace(
+        &app,
+        "widget.component.scss",
+        "$primary: vars.$brand !default;",
+        "$primary: vars.$brand-soft !default;",
+    );
+    assert_eq!(edited["state"], "ok", "{edited}");
+    assert_eq!(edited["data"]["syntax"]["status"], "valid", "{edited}");
 }

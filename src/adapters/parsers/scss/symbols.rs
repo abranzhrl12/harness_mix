@@ -33,12 +33,9 @@ pub(in crate::adapters) fn collect(
     }
     context.check()?;
     let mut parser = Parser::new(source, Syntax::Scss);
-    let stylesheet = parser.parse::<raffia::ast::Stylesheet>().map_err(|_| {
-        (
-            "SYNTAX_ERROR",
-            "SCSS source is not syntactically valid",
-        )
-    })?;
+    let stylesheet = parser
+        .parse::<raffia::ast::Stylesheet>()
+        .map_err(|_| ("SYNTAX_ERROR", "SCSS source is not syntactically valid"))?;
     let mut collector = Collector {
         source,
         digest,
@@ -77,7 +74,13 @@ impl Collector<'_> {
             match statement {
                 Statement::QualifiedRule(rule) => {
                     let name = collapse(self.text(&rule.selector.span));
-                    self.push("scss-rule", &name, container, &rule.span, signature_rule(&name));
+                    self.push(
+                        "scss-rule",
+                        &name,
+                        container,
+                        &rule.span,
+                        signature_rule(&name),
+                    );
                     let nested = join(container, &name);
                     self.walk(&rule.block.statements, &nested, depth + 1)?;
                 }
@@ -93,13 +96,7 @@ impl Collector<'_> {
                 }
                 Statement::SassIfAtRule(rule) => {
                     let name = "@if".to_owned();
-                    self.push(
-                        "scss-control",
-                        &name,
-                        container,
-                        &rule.span,
-                        name.clone(),
-                    );
+                    self.push("scss-control", &name, container, &rule.span, name.clone());
                     let nested = join(container, &name);
                     self.walk(&rule.if_clause.block.statements, &nested, depth + 1)?;
                     for clause in &rule.else_if_clauses {
@@ -125,9 +122,7 @@ impl Collector<'_> {
     ) -> Result<(), Failure> {
         let keyword = rule.name.name.clone();
         let (kind, name) = match rule.prelude.as_ref() {
-            Some(AtRulePrelude::SassMixin(mixin)) => {
-                ("scss-mixin", mixin.name.name.to_string())
-            }
+            Some(AtRulePrelude::SassMixin(mixin)) => ("scss-mixin", mixin.name.name.to_string()),
             Some(AtRulePrelude::SassFunction(function)) => {
                 ("scss-function", function.name.name.to_string())
             }
@@ -148,12 +143,14 @@ impl Collector<'_> {
             Some(AtRulePrelude::Media(media)) => {
                 ("scss-at-rule", grouping("@media", self.text(&media.span)))
             }
-            Some(AtRulePrelude::Supports(supports)) => {
-                ("scss-at-rule", grouping("@supports", self.text(&supports.span)))
-            }
-            Some(AtRulePrelude::Container(container)) => {
-                ("scss-at-rule", grouping("@container", self.text(&container.span)))
-            }
+            Some(AtRulePrelude::Supports(supports)) => (
+                "scss-at-rule",
+                grouping("@supports", self.text(&supports.span)),
+            ),
+            Some(AtRulePrelude::Container(container)) => (
+                "scss-at-rule",
+                grouping("@container", self.text(&container.span)),
+            ),
             Some(AtRulePrelude::Layer(layer)) => {
                 ("scss-at-rule", grouping("@layer", self.text(&layer.span)))
             }
@@ -208,9 +205,7 @@ impl Collector<'_> {
     }
 
     fn text(&self, span: &Span) -> &str {
-        self.source
-            .get(span.start..span.end)
-            .unwrap_or_default()
+        self.source.get(span.start..span.end).unwrap_or_default()
     }
 
     fn push(
@@ -268,8 +263,24 @@ fn signature_rule(name: &str) -> String {
 }
 
 /// Collapses whitespace runs so a selector stays a single readable line.
+///
+/// One pass, one allocation: stylesheets are parsed in bulk and every symbol
+/// pays for its own name.
 fn collapse(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut out = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// Builds the display name of a grouping at-rule.
@@ -283,7 +294,7 @@ fn grouping(keyword: &str, prelude: &str) -> String {
 }
 
 fn truncate(text: &str, limit: usize) -> String {
-    if text.chars().count() <= limit {
+    if text.len() <= limit {
         return text.to_owned();
     }
     let mut out = text.chars().take(limit).collect::<String>();

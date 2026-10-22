@@ -25,20 +25,21 @@ pub(in crate::adapters) fn validate(
     let mut parser = Parser::new(source, Syntax::Scss);
     match parser.parse::<Stylesheet>() {
         Ok(_) => {
-            let mut result =
-                json!({"status":"valid","language":"scss","validation":"syntax_only"});
+            let mut result = json!({"status":"valid","language":"scss","validation":"syntax_only"});
             let recovered = diagnostics(source, parser.recoverable_errors());
             if !recovered.is_empty() {
                 result["status"] = json!("valid_with_warnings");
-                result["warnings"] = json!(recovered
-                    .iter()
-                    .map(|diagnostic| json!({
-                        "code":"SCSS_RECOVERABLE",
-                        "message":diagnostic.message,
-                        "line":diagnostic.line,
-                        "column":diagnostic.column
-                    }))
-                    .collect::<Vec<_>>());
+                result["warnings"] = json!(
+                    recovered
+                        .iter()
+                        .map(|diagnostic| json!({
+                            "code":"SCSS_RECOVERABLE",
+                            "message":diagnostic.message,
+                            "line":diagnostic.line,
+                            "column":diagnostic.column
+                        }))
+                        .collect::<Vec<_>>()
+                );
             }
             Ok(result)
         }

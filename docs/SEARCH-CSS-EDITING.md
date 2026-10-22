@@ -22,10 +22,20 @@ C#. El selector completo es el nombre del símbolo:
 {"action":"read","path":"Views/Registro.cshtml","symbol":"#orden-servicio-tabs .fast-tabs__item","view":"full"}
 ```
 
+En `.scss` el outline usa el árbol SCSS real (Raffia): reglas anidadas con su
+contenedor, variables, mixins, funciones, `@include`, `@use`/`@forward` y
+`@extend`. La lectura devuelve el rango exacto de origen.
+
+```json
+{"action":"outline","path":"app/widget.component.scss"}
+```
+
 La lectura devuelve el cuerpo exacto y el hash del archivo. Los selectores
 repetidos requieren desambiguación con `container` o `symbolId` del outline.
-El extractor reconoce bloques y agrupaciones habituales; no es un compilador CSS
-ni amplía la cobertura del grafo CodeGraph.
+El extractor CSS reconoce bloques y agrupaciones habituales; no es un compilador
+CSS ni amplía la cobertura del grafo CodeGraph. SCSS sí tiene validación
+sintáctica con posición: un candidato inválido se rechaza y el archivo original
+queda intacto, sin necesidad de `allowUnvalidatedText`.
 
 `harness_replace` acepta parámetros camelCase, snake_case y variantes de
 mayúsculas, incluidos los campos de `chunks`. Por ejemplo, `new_text` y

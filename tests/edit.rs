@@ -306,7 +306,10 @@ fn scss_is_validated_and_parserless_formats_require_explicit_opt_in() {
         "oldText":"$c: #fff;","newText":"$c: #000;"
     }));
     assert_eq!(validated["state"], "ok", "{validated}");
-    assert_eq!(validated["data"]["syntax"]["language"], "scss", "{validated}");
+    assert_eq!(
+        validated["data"]["syntax"]["language"], "scss",
+        "{validated}"
+    );
     assert_eq!(validated["data"]["syntax"]["status"], "valid");
     assert_eq!(
         std::fs::read_to_string(root.path().join("panel.scss")).unwrap(),
@@ -332,10 +335,7 @@ fn scss_is_validated_and_parserless_formats_require_explicit_opt_in() {
     }));
     assert_eq!(denied["state"], "error", "{denied}");
     assert_eq!(denied["diagnostics"][0]["code"], "PARSER_UNAVAILABLE");
-    assert_eq!(
-        std::fs::read_to_string(&plain).unwrap(),
-        "alpha\n"
-    );
+    assert_eq!(std::fs::read_to_string(&plain).unwrap(), "alpha\n");
     let allowed = edit(serde_json::json!({
         "path":"notes.yml","hash":hash(b"alpha\n"),
         "oldText":"alpha","newText":"beta","allowUnvalidatedText":true
