@@ -4,6 +4,7 @@ mod batch;
 mod dispatch;
 mod logging;
 mod metrics;
+pub mod indexing;
 pub mod ports;
 mod session;
 

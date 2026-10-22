@@ -322,6 +322,14 @@ fn sync_workspace_with_limit(
     let mut nodes_written = 0u64;
     #[cfg(windows)]
     let mut writer = None;
+    let batch_invalidator = publication::BatchSqliteInvalidator;
+    let incremental_invalidator = publication::IncrementalSqliteInvalidator;
+    let workspace_invalidator: &publication::ReferenceInvalidator =
+        if std::env::var("HARNESS_INDEX_BATCH_INVALIDATION").as_deref() == Ok("1") {
+            &batch_invalidator
+        } else {
+            &incremental_invalidator
+        };
     for (position, path) in selected.iter().copied().enumerate() {
         if prepared.is_empty() && worker_count > 1 && context.check().is_ok() {
             let end = (position + worker_count).min(selected.len());
@@ -348,6 +356,7 @@ fn sync_workspace_with_limit(
                     rebuild,
                     &mut writer,
                     preparation,
+                    workspace_invalidator,
                 )
             }
             #[cfg(not(windows))]
@@ -646,6 +655,7 @@ fn sync_file_config_reuse(
         force,
         writer,
         None,
+        &publication::IncrementalSqliteInvalidator,
     )
 }
 
@@ -660,6 +670,7 @@ fn sync_file_config_prepared(
     force: bool,
     writer: &mut Option<writer::Writer>,
     prepared: Option<parallel::Prepared>,
+    invalidator: &publication::ReferenceInvalidator,
 ) -> Result<Value, Failure> {
     context.check()?;
     index_extract::take_diagnostic();
@@ -728,6 +739,7 @@ fn sync_file_config_prepared(
             force,
             prepared,
             retry_memo,
+            invalidator,
         )?;
         result["tsconfig"] = import_sources.config.stamp();
         sync_diagnostic::stage("recheck_sources");
