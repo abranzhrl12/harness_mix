@@ -14,6 +14,8 @@ mod engine;
 mod operations;
 #[path = "sql_parameters.rs"]
 mod parameters;
+#[path = "sql/presentation.rs"]
+mod presentation;
 
 pub use config::{SqlConfig, load_sql_config};
 pub(super) use connection::block_on_safe;
@@ -32,7 +34,12 @@ pub fn status(
     args: &SqlStatusArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    operations::status(project, args, context)
+    match engine::select_engine(project, args.engine)? {
+        harness_domain::sql::SqlEngine::SqlServer => operations::status(project, args, context),
+        harness_domain::sql::SqlEngine::Postgresql => {
+            crate::adapters::postgresql::status(project, args, context)
+        }
+    }
 }
 
 pub fn search(
@@ -40,7 +47,12 @@ pub fn search(
     args: &SqlSearchArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    operations::search(project, args, context)
+    match engine::select_engine(project, args.engine)? {
+        harness_domain::sql::SqlEngine::SqlServer => operations::search(project, args, context),
+        harness_domain::sql::SqlEngine::Postgresql => {
+            crate::adapters::postgresql::search(project, args, context)
+        }
+    }
 }
 
 pub fn map(
@@ -48,7 +60,12 @@ pub fn map(
     args: &SqlMapArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    operations::map(project, args, context)
+    match engine::select_engine(project, args.engine)? {
+        harness_domain::sql::SqlEngine::SqlServer => operations::map(project, args, context),
+        harness_domain::sql::SqlEngine::Postgresql => {
+            crate::adapters::postgresql::map(project, args, context)
+        }
+    }
 }
 
 pub fn describe(
@@ -56,7 +73,12 @@ pub fn describe(
     args: &SqlDescribeArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    operations::describe(project, args, context)
+    match engine::select_engine(project, args.engine)? {
+        harness_domain::sql::SqlEngine::SqlServer => operations::describe(project, args, context),
+        harness_domain::sql::SqlEngine::Postgresql => {
+            crate::adapters::postgresql::describe(project, args, context)
+        }
+    }
 }
 
 pub fn query(
@@ -64,7 +86,13 @@ pub fn query(
     args: &SqlQueryArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    operations::query(project, args, context)
+    match engine::select_engine(project, args.engine)? {
+        harness_domain::sql::SqlEngine::SqlServer => operations::query(project, args, context),
+        harness_domain::sql::SqlEngine::Postgresql => Err((
+            "PG_QUERY_UNAVAILABLE",
+            "PostgreSQL currently supports status/search/describe only; arbitrary queries are not enabled",
+        )),
+    }
 }
 
 #[cfg(test)]

@@ -25,6 +25,7 @@ pub enum SourceFormat {
     CSharp,
     Razor,
     Css,
+    Scss,
     Html,
 }
 
@@ -60,6 +61,8 @@ impl SourceFormat {
             Some(Self::Razor)
         } else if extension.eq_ignore_ascii_case("css") {
             Some(Self::Css)
+        } else if extension.eq_ignore_ascii_case("scss") {
+            Some(Self::Scss)
         } else if extension.eq_ignore_ascii_case("html") || extension.eq_ignore_ascii_case("htm") {
             Some(Self::Html)
         } else {
@@ -82,6 +85,7 @@ impl SourceFormat {
             Self::CSharp => SourceLanguage::CSharp,
             Self::Razor => SourceLanguage::Razor,
             Self::Css => SourceLanguage::Css,
+            Self::Scss => SourceLanguage::Scss,
             Self::Html => SourceLanguage::Html,
         }
     }
@@ -98,6 +102,7 @@ pub enum SourceLanguage {
     CSharp,
     Razor,
     Css,
+    Scss,
     Html,
 }
 
@@ -113,6 +118,7 @@ impl SourceLanguage {
             Self::CSharp => "csharp",
             Self::Razor => "razor",
             Self::Css => "css",
+            Self::Scss => "scss",
             Self::Html => "html",
         }
     }

@@ -85,6 +85,7 @@ rust_decimal = { version = "1.43.0", features = ["serde"] }
 calamine = "0.36.1"
 jmespath = { version = "0.3", features = ["sync"] }
 mimalloc = { version = "0.1.52", default-features = false }
+raffia = "=0.13.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

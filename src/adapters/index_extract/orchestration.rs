@@ -12,6 +12,7 @@ pub fn language(path: &str) -> Option<&'static str> {
         "tsx" => Some("tsx"),
         "js" | "mjs" | "cjs" => Some("javascript"),
         "jsx" => Some("jsx"),
+        "scss" => Some("scss"),
         _ => None,
     }
 }
@@ -36,6 +37,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     }
     if lang == "html" {
         return super::angular::html(path, source, context);
+    }
+    if lang == "scss" {
+        return super::scss::extract(path, source, context);
     }
     let prepared = if lang == "csharp" {
         super::csharp::blank_csharp(source)?

@@ -1,5 +1,5 @@
 use super::{
-    parsers::{css::symbols as css_symbols, model::Symbol},
+    parsers::{css::symbols as css_symbols, model::Symbol, scss::symbols as scss_symbols},
     project::Project,
     rust_symbols,
 };
@@ -24,7 +24,7 @@ pub(super) fn snapshot(
     let language = SourceFormat::from_path(Path::new(path))
         .ok_or((
             "PARSER_UNAVAILABLE",
-            "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS and HTML",
+            "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS, SCSS and HTML",
         ))?
         .language();
     let lang = language.protocol_name();
@@ -46,6 +46,7 @@ pub(super) fn snapshot(
         SourceLanguage::Css | SourceLanguage::Html => {
             css_symbols::collect(&text, &digest, language == SourceLanguage::Html, context)?
         }
+        SourceLanguage::Scss => scss_symbols::collect(&text, &digest, context)?,
         SourceLanguage::Vue => {
             let document = super::vue_structure::parse(&text, &digest, context)?;
             if include_structure {
@@ -142,6 +143,9 @@ pub(super) fn outline(
     let coverage = match lang {
         "css" => {
             "conservative CSS rule scanner; rules and grouping at-rule containers; no CSS validation or nested selector expansion"
+        }
+        "scss" => {
+            "SCSS parse tree: nested rules, variables, mixins, functions, includes, module use/forward and extends; selector resolution and value semantics are not evaluated"
         }
         "html" => "CSS rules in embedded style blocks; no HTML or CSS validation",
         "razor" => {

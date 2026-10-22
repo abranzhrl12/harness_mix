@@ -6,6 +6,7 @@ pub(in crate::adapters) mod model;
 pub(in crate::adapters) mod razor;
 mod registry;
 pub(in crate::adapters) mod rust;
+pub(in crate::adapters) mod scss;
 pub(in crate::adapters) mod vue;
 
 #[cfg(test)]

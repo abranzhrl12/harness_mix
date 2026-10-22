@@ -33,6 +33,7 @@ pub(super) fn syntax(
         "md" | "txt" | "sql" | "xml" | "css" => {
             Ok(json!({"status":"not_applicable","language":"text","validation":"none"}))
         }
+        "scss" => super::parsers::scss::syntax::validate(source, context),
         _ => super::parsers::default_syntax_registry().validate(path, source, context),
     }
 }
@@ -48,6 +49,13 @@ pub(super) fn syntax_allowing_unvalidated(
         // Razor checks are lexical heuristics; an explicit opt-in must never block
         // the edit on a suspected false positive. Other parsers stay authoritative.
         Err((code, _)) if allow_unvalidated_text && extension(path) == "cshtml" => Ok(json!({
+            "status":"not_checked","validation":"none",
+            "reason":"explicitly_allowed","skippedSyntaxError":code,
+            "explicitlyAllowed":true
+        })),
+        // SCSS validation is syntactic only, but a parser gap must never block a
+        // valid edit when the caller explicitly accepts an unvalidated candidate.
+        Err((code, _)) if allow_unvalidated_text && extension(path) == "scss" => Ok(json!({
             "status":"not_checked","validation":"none",
             "reason":"explicitly_allowed","skippedSyntaxError":code,
             "explicitlyAllowed":true

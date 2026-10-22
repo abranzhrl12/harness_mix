@@ -2,6 +2,7 @@
 mod manager;
 mod model;
 mod persistence;
+mod repository;
 mod validation;
 
 pub use manager::Sessions;

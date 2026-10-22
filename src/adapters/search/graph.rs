@@ -159,6 +159,7 @@ pub(super) fn language_of(relative: &str) -> Option<String> {
             "cshtml" | "razor" => "razor",
             "vue" => "vue",
             "html" | "htm" => "html",
+            "scss" => "scss",
             _ => return None,
         }
         .to_owned(),

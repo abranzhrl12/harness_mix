@@ -1,3 +1,8 @@
+#[cfg(test)]
+pub(super) use super::presentation::routine_definition_diagnostic;
+pub(super) use super::presentation::{
+    ResolvedSqlObject, RoutineCatalog, quote_sql_identifier, routine_response,
+};
 use super::{
     block_on_safe,
     config::load_sql_config,
@@ -5,7 +10,6 @@ use super::{
     diagnostics::{
         operation_failed, operation_failed_with_server_diagnostic, server_diagnostic, sql_error,
     },
-    engine::select_engine,
     parameters,
 };
 use crate::adapters::project::Project;
@@ -31,9 +35,6 @@ pub(super) fn status(
     args: &SqlStatusArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return crate::adapters::postgresql::status(project, args, context);
-    }
     context.check()?;
     let config = load_sql_config(project);
     if !config.enabled {
@@ -105,9 +106,6 @@ pub(super) fn search(
     args: &SqlSearchArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return crate::adapters::postgresql::search(project, args, context);
-    }
     let config = load_sql_config(project);
     if !config.enabled {
         return Err((
@@ -259,9 +257,6 @@ pub(super) fn map(
     args: &SqlMapArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return crate::adapters::postgresql::map(project, args, context);
-    }
     context.check()?;
     let config = load_sql_config(project);
     if !config.enabled {
@@ -360,14 +355,6 @@ pub(super) fn map(
 }
 
 type SqlServerClient = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
-
-struct RoutineCatalog {
-    definition: Value,
-    definition_available: bool,
-    parameters: Vec<Value>,
-    definition_truncated: bool,
-    parameters_truncated: bool,
-}
 
 async fn resolve_catalog_object(
     client: &mut SqlServerClient,
@@ -532,62 +519,11 @@ async fn read_relation_catalog(
     Ok(columns)
 }
 
-fn routine_response(name: &str, resolved: &ResolvedSqlObject, catalog: RoutineCatalog) -> Value {
-    let diagnostics = if catalog.definition_available {
-        Vec::new()
-    } else {
-        routine_definition_diagnostic(None)
-    };
-    let mut response = json!({
-        "engine": "sqlserver",
-        "name": name,
-        "resolvedName": format!(
-            "{}.{}",
-            quote_sql_identifier(&resolved.schema),
-            quote_sql_identifier(&resolved.name)
-        ),
-        "schema": resolved.schema,
-        "objectId": resolved.object_id,
-        "objectType": resolved.kind,
-        "kind": "routine",
-        "definition": catalog.definition,
-        "parameters": catalog.parameters,
-        "parameterMetadataSource": "sys.parameters",
-        "parametersComplete": !catalog.parameters_truncated,
-        "truncated": catalog.definition_truncated || catalog.parameters_truncated
-    });
-    if !diagnostics.is_empty() {
-        response["diagnostics"] = json!(diagnostics);
-    }
-    response
-}
-
-fn relation_response(name: &str, resolved: &ResolvedSqlObject, columns: Rows) -> Value {
-    json!({
-        "engine": "sqlserver",
-        "name": name,
-        "resolvedName": format!(
-            "{}.{}",
-            quote_sql_identifier(&resolved.schema),
-            quote_sql_identifier(&resolved.name)
-        ),
-        "schema": resolved.schema,
-        "objectId": resolved.object_id,
-        "objectType": resolved.kind,
-        "kind": "relation",
-        "columns": columns.values,
-        "truncated": columns.truncated
-    })
-}
-
 pub(super) fn describe(
     project: &Project,
     args: &SqlDescribeArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return crate::adapters::postgresql::describe(project, args, context);
-    }
     if args.refresh == Some(true) {
         return Err((
             "SQL_CACHE_UNAVAILABLE",
@@ -683,7 +619,12 @@ pub(super) fn describe(
                         &timed,
                     )
                     .await?;
-                    Ok::<Value, Failure>(relation_response(&name_str, &resolved, columns))
+                    Ok::<Value, Failure>(super::presentation::relation_response(
+                        &name_str,
+                        &resolved,
+                        columns.values,
+                        columns.truncated,
+                    ))
                 }
             }
         },
@@ -723,14 +664,6 @@ pub(super) const ROUTINE_PARAMETERS_SQL: &str = r#"
 
 pub(super) fn routine_parameter_limit(max_rows: usize) -> i32 {
     max_rows.saturating_add(1).min(2101) as i32
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ResolvedSqlObject {
-    pub(super) schema: String,
-    pub(super) name: String,
-    pub(super) object_id: i32,
-    pub(super) kind: String,
 }
 
 pub(super) enum ParsedSqlObjectName {
@@ -823,10 +756,6 @@ pub(super) fn parse_sql_object_name(input: &str) -> Result<ParsedSqlObjectName, 
     }
 }
 
-pub(super) fn quote_sql_identifier(identifier: &str) -> String {
-    format!("[{}]", identifier.replace(']', "]]"))
-}
-
 pub(super) enum ObjectResolution {
     NotFound,
     Unique(ResolvedSqlObject),
@@ -874,17 +803,6 @@ pub(super) fn object_resolution_failure(
     response["diagnostics"][0]["candidates"] = json!(candidates);
     response["diagnostics"][0]["candidatesTruncated"] = json!(candidates_truncated);
     response
-}
-
-pub(super) fn routine_definition_diagnostic(definition: Option<&str>) -> Vec<Value> {
-    if definition.is_some() {
-        return Vec::new();
-    }
-
-    vec![json!({
-        "code": "SQL_DEFINITION_UNAVAILABLE",
-        "message": "The routine is visible in the catalog, but its definition is unavailable. VIEW DEFINITION permission may be missing, the module may be encrypted, or SQL Server may have another metadata visibility restriction; this result does not identify the cause."
-    })]
 }
 
 /// Injects `TOP (limit)` into a top-level SELECT without one, so large tables
@@ -944,12 +862,6 @@ pub(super) fn query(
     args: &SqlQueryArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    if select_engine(project, args.engine)? == harness_domain::sql::SqlEngine::Postgresql {
-        return Err((
-            "PG_QUERY_UNAVAILABLE",
-            "PostgreSQL currently supports status/search/describe only; arbitrary queries are not enabled",
-        ));
-    }
     let config = load_sql_config(project);
     if !config.enabled {
         return Err((

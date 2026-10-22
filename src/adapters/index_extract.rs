@@ -6,6 +6,7 @@ pub(in crate::adapters) mod framework;
 mod orchestration;
 mod preview;
 mod razor;
+mod scss;
 mod vue;
 
 pub use orchestration::{extract, language};

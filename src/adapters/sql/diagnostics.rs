@@ -1,6 +1,8 @@
 use harness_domain::Failure;
 use serde_json::{Value, json};
 
+pub(super) use super::presentation::{operation_failed, operation_failed_with_server_diagnostic};
+
 /// Classify errors without returning raw driver text or connection details.
 pub(super) fn sql_error(error: tiberius::error::Error) -> Failure {
     match error.code() {
@@ -76,25 +78,4 @@ pub(super) fn server_diagnostic(error: &tiberius::error::Error) -> Option<Value>
     // Never expose authentication, conversion, duplicate-value or user-thrown text.
     let message = safe_schema_message(number, server.message());
     Some(json!({"number": number, "message": message, "messageSanitized": true}))
-}
-
-pub(super) fn operation_failed((code, message): Failure) -> Value {
-    json!({"ok":false,"engine":"sqlserver","timedOut":crate::adapters::sql_policy::timed_out(code),"cancelled":code=="CANCELLED",
-        "diagnostics":[{"code":code,"message":message}],"connectionReused":false,
-        "connectionDisposition":"closed_if_opened","cancellationRequestSent":false,"serverCancellationConfirmed":false})
-}
-
-/// Keep the public diagnostic consistent with the bounded server diagnostic.
-pub(super) fn operation_failed_with_server_diagnostic(
-    error: Failure,
-    diagnostic: Option<&Value>,
-) -> Value {
-    let mut output = operation_failed(error);
-    if let Some(diagnostic) = diagnostic {
-        if let Some(message) = diagnostic["message"].as_str() {
-            output["diagnostics"][0]["message"] = json!(message);
-        }
-        output["serverError"] = diagnostic.clone();
-    }
-    output
 }

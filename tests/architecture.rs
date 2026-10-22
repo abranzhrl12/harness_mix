@@ -554,3 +554,133 @@ fn mcp_job_handlers_depend_on_application_ports_instead_of_native_scheduler() {
         }
     }
 }
+
+#[test]
+fn sql_server_execution_does_not_choose_or_call_other_engines() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = fs::read_to_string(root.join("src/adapters/sql/operations.rs")).unwrap();
+    for forbidden in [
+        "select_engine",
+        "adapters::postgresql",
+        "SqlEngine::Postgresql",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "SQL Server execution depends on routing `{forbidden}`; select the backend in the SQL facade"
+        );
+    }
+}
+
+#[test]
+fn sql_presentation_receives_data_without_driver_or_workspace_access() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = fs::read_to_string(root.join("src/adapters/sql/presentation.rs")).unwrap();
+    for forbidden in [
+        "tiberius",
+        "tokio::",
+        "std::fs",
+        "Project",
+        "block_on_safe",
+        "connection::",
+        "operations::",
+        "load_sql_config",
+        "select_engine",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "SQL presentation depends on infrastructure `{forbidden}`; pass observed catalog data"
+        );
+    }
+    let parsed = syn::parse_file(&source).unwrap();
+    assert!(
+        !contains_inline_test(&parsed.items),
+        "keep SQL presentation tests in an external module"
+    );
+}
+
+#[test]
+fn native_workspace_capabilities_delegate_to_services() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/workspace");
+    for (relative, forbidden) in [
+        (
+            "source_editing.rs",
+            &["edit::", "move_file::", "try_lock("][..],
+        ),
+        (
+            "source_queries.rs",
+            &["explore::", "search::", "symbols::", "edit_lock"][..],
+        ),
+        (
+            "session_persistence.rs",
+            &["persist_snapshot(", "handle_handover("][..],
+        ),
+    ] {
+        let source = fs::read_to_string(root.join(relative)).unwrap();
+        for forbidden in forbidden {
+            assert!(
+                !source.contains(forbidden),
+                "workspace facade {relative} implements `{forbidden}` directly instead of delegating to its injected service"
+            );
+        }
+    }
+    let mut files = Vec::new();
+    rust_files(&root.join("services"), &mut files);
+    assert!(!files.is_empty(), "workspace services are missing");
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name == "tests.rs" || name.ends_with("_tests.rs") {
+            continue;
+        }
+        let parsed = syn::parse_file(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(
+            !contains_inline_test(&parsed.items),
+            "{} has inline tests; keep workspace service tests in external modules",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn application_dispatch_delegates_to_typed_capability_use_cases() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/application/src");
+    let dispatch = fs::read_to_string(root.join("dispatch.rs")).unwrap();
+    for forbidden in [
+        ".sessions",
+        "refresh_checkpoint(",
+        "result_ref.take()",
+        "git_session_changes(",
+    ] {
+        assert!(
+            !dispatch.contains(forbidden),
+            "dispatch implements `{forbidden}`; keep capability policy in its use-case module"
+        );
+    }
+    let mut files = Vec::new();
+    rust_files(&root.join("dispatch"), &mut files);
+    assert!(!files.is_empty(), "capability use cases are missing");
+    for path in files {
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        if file_name == "tests.rs" || file_name.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        for forbidden in [
+            "contracts::Request",
+            "unreachable!",
+            "std::fs",
+            "tokio::",
+            "rmcp",
+            "crate::adapters",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} depends on `{forbidden}`; use typed arguments and application ports",
+                path.display()
+            );
+        }
+        assert!(
+            !contains_inline_test(&syn::parse_file(&source).unwrap().items),
+            "keep capability use-case tests in external modules"
+        );
+    }
+}

@@ -236,6 +236,18 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
                 1,
             ),
         },
+        "scss" => match super::parsers::scss::syntax::validate(source, context) {
+            Ok(mut result) => {
+                result["errors"] = json!(0);
+                result["diagnostics"] = json!([]);
+                (result, 0)
+            }
+            Err((code, msg)) => (
+                json!({"status":"checked","language":"scss","errors":1,
+                    "diagnostics":[{"code":code,"message":msg}]}),
+                1,
+            ),
+        },
         "md" | "txt" | "toml" | "yaml" | "yml" => (
             json!({
                 "status": "skipped",

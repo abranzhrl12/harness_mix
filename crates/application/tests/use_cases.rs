@@ -4,7 +4,7 @@ use harness_application::{
 };
 use harness_domain::{
     Failure,
-    contracts::{BootstrapArgs, DetailArgs, Kind, ReadArgs, Request, SearchArgs},
+    contracts::{BootstrapArgs, DataQueryArgs, DetailArgs, Kind, ReadArgs, Request, SearchArgs},
     execution::OperationContext,
 };
 use serde_json::{Value, json};
@@ -38,7 +38,24 @@ impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
         Ok(json!({"matches":[]}))
     }
 }
-impl harness_application::ports::workspace::SourceEditing for FakeWorkspace {}
+impl harness_application::ports::workspace::SourceEditing for FakeWorkspace {
+    fn patch_preview(
+        &self,
+        _: &harness_domain::contracts::ReplaceArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"preview":true}))
+    }
+    fn replace(
+        &self,
+        _: &harness_domain::contracts::ReplaceArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"changed":true}))
+    }
+}
 impl harness_application::ports::workspace::WorkspaceDiagnostics for FakeWorkspace {}
 impl harness_application::ports::workspace::VersionControl for FakeWorkspace {}
 impl harness_application::ports::workspace::SqlAccess for FakeWorkspace {}
@@ -60,11 +77,16 @@ impl harness_application::ports::workspace::Verification for FakeWorkspace {
 struct MemorySessions {
     gate: Arc<std::sync::Mutex<()>>,
     active: Arc<AtomicUsize>,
+    recorded_writes: Arc<AtomicUsize>,
     exists: bool,
     rules: Option<String>,
     capabilities: Option<String>,
 }
 impl SessionRepository for MemorySessions {
+    fn record(&mut self, _: &str, _: &str, _: &Value, _: &Value) -> Result<Option<Value>, Failure> {
+        self.recorded_writes.fetch_add(1, Ordering::SeqCst);
+        Ok(None)
+    }
     fn tasks(
         &mut self,
         args: &harness_domain::contracts::TasksArgs,
@@ -430,4 +452,59 @@ fn cancellation_and_timeout_are_distinct_and_do_not_leak_session_leases() {
     });
     assert_eq!(app.execute(read)["state"], "ok");
     assert_eq!(active.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn data_query_rejects_mixed_result_ref_inputs_before_workspace_access() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Application::new(
+        FakeWorkspace {
+            calls: calls.clone(),
+        },
+        MemorySessions::default(),
+    );
+    let result = app.execute(Request::DataQuery(DataQueryArgs {
+        path: Some("data.json".into()),
+        data: None,
+        result_ref: Some("saved-result".into()),
+        query: "items".into(),
+        max_chars: None,
+        session: None,
+    }));
+    assert_eq!(result["state"], "error");
+    assert_eq!(result["diagnostics"][0]["code"], "ARGUMENT");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn replace_preview_does_not_record_a_mutation_but_published_replace_does() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let sessions = MemorySessions::default();
+    let recorded_writes = sessions.recorded_writes.clone();
+    let app = Application::new(
+        FakeWorkspace {
+            calls: calls.clone(),
+        },
+        sessions,
+    );
+    let bootstrap = app.execute(Request::Bootstrap(BootstrapArgs {
+        compact: false,
+        session: None,
+        include_rules: None,
+    }));
+    let session = bootstrap["data"]["session"].as_str().unwrap().to_owned();
+    let args = |preview| harness_domain::contracts::ReplaceArgs {
+        preview,
+        session: Some(session.clone()),
+        ..Default::default()
+    };
+
+    let preview = app.execute(Request::Replace(args(true)));
+    assert_eq!(preview["data"]["preview"], true);
+    assert_eq!(recorded_writes.load(Ordering::SeqCst), 0);
+
+    let published = app.execute(Request::Replace(args(false)));
+    assert_eq!(published["data"]["changed"], true);
+    assert_eq!(recorded_writes.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

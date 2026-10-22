@@ -27,8 +27,10 @@ en `process/`, con la misma política de comandos y presupuestos.
 La composición nativa vive en `adapters/composition.rs`: recibe opciones de logging,
 tareas y watcher, construye los adaptadores e inyecta los puertos en `Application`.
 Los constructores anteriores conservan sus firmas y valores predeterminados.
-En `sql/operations.rs`, `describe` conserva validación y plazos; funciones internas
-separan resolución de objetos, lectura del catálogo SQL Server y presentación.
+La fachada `sql.rs` selecciona el motor antes de entrar en el backend elegido;
+`sql/operations.rs` ejecuta únicamente SQL Server y no delega a PostgreSQL.
+En `describe` conserva validación y plazos; la presentación de los catálogos y
+diagnósticos recibe datos observados en `sql/presentation.rs`, sin I/O ni drivers.
 Los resultados intermedios tipados distinguen una definición no disponible de una
 definición omitida por el presupuesto de respuesta. Los drivers permanecen en el
 adaptador y PostgreSQL conserva su implementación propia.
@@ -161,8 +163,10 @@ flowchart TD
 ## Responsabilidades y límites
 
 El núcleo `application/lib.rs` conserva la construcción, admisión y propiedad de
-operaciones. `application/dispatch.rs` traduce las solicitudes tipadas hacia los
-puertos y `application/session.rs` reúne leases, persistencia y bootstrap. Los
+operaciones. `application/dispatch.rs` conserva el enrutamiento exhaustivo y la
+envoltura común de resultados; sus módulos por capacidad coordinan consultas,
+ediciones, sesiones, diagnósticos, SQL y artefactos mediante los puertos.
+`application/session.rs` reúne leases, persistencia y bootstrap. Los
 locks y el punto de liberación de los leases permanecen en el mismo flujo; estos
 módulos no dependen del SDK MCP ni de implementaciones nativas.
 
@@ -185,6 +189,16 @@ paralelo de contratos. El ejecutable compone sus implementaciones en
 ofrece todas las herramientas; no declara métodos. Un caso de uso que solo lee
 fuentes puede recibir `SourceQueries` sin depender del resto. Los adaptadores
 nativos implementan cada capacidad en `src/adapters/workspace/`.
+
+`NativeWorkspace` delega las capacidades de consultas, edición y persistencia de
+sesiones en `SourceQueryService`, `SourceEditingService` y `SessionService`.
+La composición construye estos servicios e inyecta el mismo bloqueo de mutación
+en consultas sincronizadas y ediciones, conservando la exclusión entre ambas.
+Las consultas externas comparten el registro de scopes con el host y retienen
+los pines de rutas durante la lectura; la separación no amplía sus permisos.
+`sessions/repository.rs` adapta el repositorio de sesiones al puerto de aplicación;
+`SessionService` se ocupa del handover y de persistir los snapshots. La exclusión
+por sesión y el orden de liberación de leases permanecen en la aplicación.
 
 Para implementar un host Rust completo, se implementan los puertos concretos y
 se obtiene `Workspace` mediante la implementación genérica. Los adaptadores de

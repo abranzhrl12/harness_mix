@@ -1,4 +1,4 @@
-use crate::adapters::{NativeWorkspace, handover, sessions};
+use crate::adapters::NativeWorkspace;
 use harness_application::ports::workspace::SessionPersistence;
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
@@ -10,7 +10,7 @@ impl SessionPersistence for NativeWorkspace {
         snapshot: &Value,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        handover::handle_handover(&self.project, args, snapshot, context)
+        self.session_service.handover(args, snapshot, context)
     }
     fn persist_session(
         &self,
@@ -18,6 +18,6 @@ impl SessionPersistence for NativeWorkspace {
         snapshot: &Value,
         context: &OperationContext,
     ) -> Result<(), Failure> {
-        sessions::persist_snapshot(&self.project, id, snapshot, context)
+        self.session_service.persist_session(id, snapshot, context)
     }
 }

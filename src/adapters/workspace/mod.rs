@@ -1,6 +1,7 @@
 //! Native implementations grouped by their application capability.
 mod artifact_queries;
 mod log_persistence;
+pub(super) mod services;
 mod session_persistence;
 mod source_editing;
 mod source_queries;

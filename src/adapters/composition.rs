@@ -1,7 +1,7 @@
 //! Constructs the native adapters and injects them into the application core.
 use super::{
     NativeApplication, NativeApplicationOptions, NativeWorkspace, disk_logs, project::Project,
-    sessions,
+    sessions, workspace::services,
 };
 use harness_application::Application;
 use std::path::Path;
@@ -23,11 +23,22 @@ fn dependencies(
     let log_store = options
         .persist_logs
         .then(|| disk_logs::DiskLogs::new(project.clone()));
+    let external_scopes = std::sync::Arc::new(std::sync::Mutex::default());
+    let edit_lock = std::sync::Arc::new(std::sync::Mutex::new(()));
     let workspace = NativeWorkspace {
-        external_scopes: std::sync::Mutex::default(),
+        external_scopes: std::sync::Arc::clone(&external_scopes),
         log_store,
+        source_queries: services::SourceQueryService::new(
+            project.clone(),
+            external_scopes,
+            std::sync::Arc::clone(&edit_lock),
+        ),
+        source_editing: services::SourceEditingService::new(
+            project.clone(),
+            std::sync::Arc::clone(&edit_lock),
+        ),
+        session_service: services::SessionService::new(project.clone()),
         project,
-        edit_lock: std::sync::Mutex::new(()),
         tasks: options.tasks,
         index_watch: options.index_watch,
     };
