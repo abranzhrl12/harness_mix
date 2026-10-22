@@ -32,17 +32,33 @@ fn graph_hash(root: &Path) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn graph_statistics(root: &Path) -> Result<Value, Box<dyn std::error::Error>> {
-    let db = Connection::open_with_flags(root.join(".codegraph/codegraph.db"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let db = Connection::open_with_flags(
+        root.join(".codegraph/codegraph.db"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
     let mut result = serde_json::Map::new();
     for (label, query) in [
         ("nodeKinds", "SELECT kind,count(*) FROM nodes GROUP BY kind"),
-        ("referenceKinds", "SELECT reference_kind,count(*) FROM unresolved_refs GROUP BY reference_kind"),
-        ("importers", "SELECT file_path,count(*) FROM nodes WHERE kind='import' GROUP BY file_path"),
-        ("referenceLanguages", "SELECT language,count(*) FROM unresolved_refs GROUP BY language")
+        (
+            "referenceKinds",
+            "SELECT reference_kind,count(*) FROM unresolved_refs GROUP BY reference_kind",
+        ),
+        (
+            "importers",
+            "SELECT file_path,count(*) FROM nodes WHERE kind='import' GROUP BY file_path",
+        ),
+        (
+            "referenceLanguages",
+            "SELECT language,count(*) FROM unresolved_refs GROUP BY language",
+        ),
     ] {
         let mut statement = db.prepare(query)?;
-        let rows = statement.query_map([], |row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
-        result.insert(label.into(),json!(rows));
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        result.insert(label.into(), json!(rows));
     }
     Ok(Value::Object(result))
 }
@@ -56,12 +72,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<usize>())
         .transpose()?
         .unwrap_or(40)
-        .clamp(1, 200);
+        .clamp(1, 2000);
     if std::env::var("HARNESS_INDEX_PROFILE").as_deref() != Ok("1") {
         return Err("Set HARNESS_INDEX_PROFILE=1 to enable phase counters".into());
     }
     let temporary = tempfile::tempdir()?;
     let batch = arguments.iter().any(|value| value == "--batch");
+    let fresh = arguments.iter().any(|value| value == "--fresh");
+    let cold_only = arguments.iter().any(|value| value == "--cold-only");
     let root = temporary.path();
     let mut files = Vec::new();
     let mut copied_bytes = 0u64;
@@ -108,6 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         files.push(relative);
     }
     files.sort();
+    eprintln!(
+        "probe: copied {} source files ({} bytes)",
+        files.len(),
+        copied_bytes
+    );
     // Preserve language/configuration selection without copying service credentials.
     for name in ["codegraph.json", "tsconfig.json"] {
         let candidate = source.join(name);
@@ -117,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let context = OperationContext::with_timeout(std::time::Duration::from_secs(600));
     let source_database = source.join(".codegraph/codegraph.db");
-    let copied_existing_graph = source_database.is_file();
+    let copied_existing_graph = !fresh && source_database.is_file();
     if copied_existing_graph {
         std::fs::create_dir(root.join(".codegraph"))?;
         let connection =
@@ -159,12 +182,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .extend_from_slice(harness_domain::hash(&std::fs::read(root.join(path))?).as_bytes());
     }
     let mut passes = Vec::new();
-    for pass in 0..2 {
+    for pass in 0..if cold_only { 1 } else { 2 } {
+        eprintln!(
+            "probe: starting pass {} over {} files",
+            pass + 1,
+            selected.len()
+        );
         let started = Instant::now();
         if batch {
             let report = index_store::rebuild_workspace(root, &context)
                 .map_err(|error| format!("{}: {}", error.0, error.1))?;
             let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            eprintln!(
+                "probe: pass {} finished in {:.3}s",
+                pass + 1,
+                elapsed / 1000.0
+            );
             passes.push(json!({"pass":pass+1,"elapsedMs":elapsed,"phaseTimingsMicros":report["phaseTimingsMicros"],"graphHash":graph_hash(root)?,"graphStatistics":graph_statistics(root)?,"workspaceReport":report}));
             continue;
         }
@@ -196,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{}",
         serde_json::to_string_pretty(
             &json!({"sourceRoot":source,"copiedSourceFiles":files.len(),"copiedSourceBytes":copied_bytes,
-        "sampleFiles":selected.len(),"sampleSourceHash":harness_domain::hash(&source_fingerprint),"batchMode":batch,"resolutionMemoEnabled":std::env::var("HARNESS_INDEX_RESOLUTION_MEMO").as_deref()!=Ok("0"),"copiedExistingGraph":copied_existing_graph,"graphBefore":graph_before,"passes":passes,
+        "sampleFiles":selected.len(),"sampleSourceHash":harness_domain::hash(&source_fingerprint),"batchMode":batch,"freshIndexRequested":fresh,"pendingQuery":if std::env::var("HARNESS_INDEX_PENDING_QUERY").as_deref()==Ok("legacy") {"legacy"} else {"indexed"},"resolutionMemoEnabled":std::env::var("HARNESS_INDEX_RESOLUTION_MEMO").as_deref()!=Ok("0"),"copiedExistingGraph":copied_existing_graph,"graphBefore":graph_before,"passes":passes,
         "limitations":["Batch mode uses the real workspace coordinator over only the selected source files; default mode publishes sequentially", "Isolated database and source copy; service credentials and .agents configuration are not copied", "The second pass sees changes made by the first pass in the isolated graph"]})
         )?
     );

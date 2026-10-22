@@ -92,6 +92,7 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         };
 
         let policy = InvalidationPolicy::for_publication(language, config_changed);
+        sync_diagnostic::stage("invalidate_engine_edges");
         let (import_rechecks, framework_rechecks) =
             imports::invalidate_publication(db, policy.imports, policy.frameworks)?;
         outcome.import_recheck_count = import_rechecks.len();
@@ -114,11 +115,13 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         }
 
         // Retry the pending refs whose exact name became available in this file.
+        sync_diagnostic::stage("retry_binding_catalog");
         let import_bindings = if policy.imports {
             imports::retry_binding_catalog(db)?
         } else {
             None
         };
+        sync_diagnostic::stage("select_pending_references");
         for id in retry::pending(
             db,
             path,
@@ -134,7 +137,10 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         }
 
         // Registration refs do not necessarily share an exported class's local alias.
-        if policy.providers {
+        // The indexed query collects these in its conservative pending scan.
+        // Keep the old separate scan only for the diagnostic baseline.
+        if policy.providers && retry::uses_legacy_pending() {
+            sync_diagnostic::stage("select_provider_references");
             let mut provider_refs = sql(db.prepare(
                 "SELECT id FROM unresolved_refs WHERE status='pending' AND reference_kind IN ('angular_provider_token','angular_provider_implementation') LIMIT 20001",
             ))?;

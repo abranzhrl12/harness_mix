@@ -88,3 +88,7 @@ reintentos globales sin una pasada final correcta para creación, borrado, ambig
 imports, frameworks y cancelación.
 
 Los cambios previos del usuario en el `Cargo.toml` raíz se preservan.
+
+La optimización posterior del selector de reintentos y su medición por fase se
+documentan en [index-pending-2026-10-22.md](benchmarks/index-pending-2026-10-22.md).
+Conserva los puertos y las garantías anteriores; no es invalidación batch diferida.
