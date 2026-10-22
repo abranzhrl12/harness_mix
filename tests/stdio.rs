@@ -1266,6 +1266,190 @@ fn mcp_move_roundtrip_and_non_overwrite_without_node() {
 }
 
 #[test]
+#[cfg(windows)]
+fn mcp_delete_roundtrip_schema_and_profiles() {
+    for profile in ["full", "edit", "investigate"] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("obsolete.txt"), "old\r\n").unwrap();
+        let mut server =
+            Server::start_with_profile(root.path(), false, false, false, profile, true);
+        server.initialize();
+        let catalog = server.request(2, "tools/list", json!({}));
+        let delete = catalog["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "harness_delete");
+        if profile == "investigate" {
+            assert!(delete.is_none(), "{catalog}");
+            let denied = server.request(
+                3,
+                "tools/call",
+                json!({"name":"harness_delete","arguments":{"path":"obsolete.txt"}}),
+            );
+            assert!(denied.get("error").is_some(), "{denied}");
+            assert!(root.path().join("obsolete.txt").exists());
+            continue;
+        }
+        let schema = &delete.unwrap()["inputSchema"];
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("path"))
+        );
+        assert!(schema["properties"].get("expectedHash").is_some());
+        assert_eq!(schema["additionalProperties"], false);
+        let stale = server.request(
+            3,
+            "tools/call",
+            json!({"name":"harness_delete","arguments":{
+                "path":"obsolete.txt","expectedHash":harness_domain::hash(b"different")
+            }}),
+        );
+        assert_eq!(
+            stale["result"]["structuredContent"]["diagnostics"][0]["code"],
+            "STALE"
+        );
+        assert!(root.path().join("obsolete.txt").exists());
+        let result = server.request(
+            4,
+            "tools/call",
+            json!({"name":"harness_delete","arguments":{
+                "path":"obsolete.txt","expectedHash":harness_domain::hash(b"old\r\n")
+            }}),
+        );
+        assert_eq!(result["result"]["isError"], false, "{result}");
+        assert_eq!(
+            result["result"]["structuredContent"]["data"]["verified"],
+            true
+        );
+        assert!(!root.path().join("obsolete.txt").exists());
+    }
+}
+
+#[test]
+#[cfg(windows)]
+fn mcp_proposal_prepare_is_additive_and_does_not_publish() {
+    for profile in ["full", "edit", "investigate"] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("file.txt"), "old").unwrap();
+        let mut server =
+            Server::start_with_profile(root.path(), false, false, false, profile, true);
+        server.initialize();
+        let list = server.request(2, "tools/list", json!({}));
+        let proposal = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "harness_proposal");
+        if profile == "investigate" {
+            assert!(proposal.is_none());
+            let denied = server.request(
+                3,
+                "tools/call",
+                json!({"name":"harness_proposal","arguments":{
+                    "action":"prepare","path":"file.txt","content":"new"
+                }}),
+            );
+            assert!(denied.get("error").is_some(), "{denied}");
+            assert!(!root.path().join(".agents/harness/proposals").exists());
+            continue;
+        }
+        let schema = &proposal.unwrap()["inputSchema"];
+        assert_eq!(schema["additionalProperties"], false);
+        assert!(schema["properties"].get("content").is_some());
+        let result = server.request(3, "tools/call", json!({"name":"harness_proposal","arguments":{
+            "action":"prepare","path":"file.txt","content":"new","expectedHash":harness_domain::hash(b"old")
+        }}));
+        assert_eq!(result["result"]["isError"], false, "{result}");
+        let data = &result["result"]["structuredContent"]["data"];
+        assert_eq!(data["stored"], true);
+        assert_eq!(data["published"], false);
+        assert_eq!(data["changed"], false);
+        assert!(
+            root.path()
+                .join(data["storagePath"].as_str().unwrap())
+                .exists()
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("file.txt")).unwrap(),
+            "old"
+        );
+        let unsupported = server.request(
+            4,
+            "tools/call",
+            json!({"name":"harness_proposal","arguments":{
+                "action":"accept","path":"file.txt","content":"new"
+            }}),
+        );
+        assert!(
+            unsupported["error"].is_object() || unsupported["result"]["isError"] == true,
+            "{unsupported}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("file.txt")).unwrap(),
+            "old"
+        );
+    }
+}
+
+#[test]
+fn mcp_html_parser_reads_elements_and_preserves_embedded_css_selectors() {
+    let root = tempfile::tempdir().unwrap();
+    let button = "<button id='save' [disabled]=\"busy()\">{{ label }}</button>";
+    let source = format!("<style>.action {{ color: red; }}</style>\r\n{button}");
+    std::fs::write(root.path().join("page.html"), &source).unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    let out = server.request(
+        2,
+        "tools/call",
+        json!({"name":"harness_symbols","arguments":{
+            "action":"outline","path":"page.html","maxChars":16000
+        }}),
+    );
+    assert_eq!(out["result"]["isError"], false, "{out}");
+    assert_eq!(
+        out["result"]["structuredContent"]["data"]["structure"]["parser"],
+        "tl"
+    );
+    let result = server.request(
+        3,
+        "tools/call",
+        json!({"name":"harness_symbols","arguments":{
+            "action":"read","path":"page.html","symbol":"html:#save","view":"full"
+        }}),
+    );
+    assert_eq!(result["result"]["isError"], false, "{result}");
+    let data = &result["result"]["structuredContent"]["data"];
+    assert_eq!(data["text"], button);
+    assert_eq!(data["hash"], harness_domain::hash(source.as_bytes()));
+    assert!(
+        data["symbol"]["attributes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a == "[disabled]=\"busy()\"")
+    );
+    let css = server.request(
+        4,
+        "tools/call",
+        json!({"name":"harness_symbols","arguments":{
+            "action":"read","path":"page.html","symbol":".action","view":"full"
+        }}),
+    );
+    assert_eq!(
+        css["result"]["structuredContent"]["data"]["text"],
+        ".action { color: red; }"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("page.html")).unwrap(),
+        source
+    );
+}
+
+#[test]
 fn unified_git_mcp_preserves_status_diff_and_batch() {
     let root = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {

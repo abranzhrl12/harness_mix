@@ -1,6 +1,6 @@
 # Shared harness contract
 
-Generated from `contracts/tool-contract.json`. Contract version: 3.1.0.
+Generated from `contracts/tool-contract.json`. Contract version: 3.3.0.
 
 | Tool | Backends |
 | --- | --- |
@@ -9,6 +9,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.1.0.
 | harness_browser | node |
 | harness_config | node, rust |
 | harness_data_query | rust |
+| harness_delete | rust |
 | harness_detail | node, rust |
 | harness_doctor | node, rust |
 | harness_explore | node, rust |
@@ -21,6 +22,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.1.0.
 | harness_move | rust |
 | harness_outline | node |
 | harness_process_status | node |
+| harness_proposal | rust |
 | harness_read | node, rust |
 | harness_read_symbol | node |
 | harness_regression | node |

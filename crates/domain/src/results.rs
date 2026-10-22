@@ -254,6 +254,8 @@ impl Results {
                     "MOVE_EXISTS" => (false, "choose_unused_destination"),
                     "MOVE_IO" | "MOVE_POSTCHECK" => (false, "inspect_both_paths_before_retry"),
                     "MOVE_INDEX" => (false, "move_completed_refresh_index_only"),
+                    "DELETE_IO" | "DELETE_POSTCHECK" => (false, "inspect_path_before_retry"),
+                    "DELETE_INDEX" => (false, "delete_completed_refresh_index_only"),
                     "TIMEOUT" | "BUSY" => (true, "check_status_then_reduce_scope"),
                     "STALE" | "HASH" | "HASH_MISMATCH" => (false, "reread_source_and_hash"),
                     "MATCH" => (false, "align_oldText_with_the_hint_then_retry"),

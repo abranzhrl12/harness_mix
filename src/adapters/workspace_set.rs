@@ -492,6 +492,26 @@ impl SourceEditing for MultiNativeWorkspace {
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
+    fn delete_file(
+        &self,
+        a: &harness_domain::contracts::DeleteArgs,
+        c: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let (i, a) = self.one(a, &["path"])?;
+        let mut v = self.projects[i].1.delete_file(&a, c)?;
+        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
+        Ok(v)
+    }
+    fn prepare_proposal(
+        &self,
+        a: &harness_domain::contracts::ProposalArgs,
+        c: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let (i, a) = self.one(a, &["path"])?;
+        let mut v = self.projects[i].1.prepare_proposal(&a, c)?;
+        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
+        Ok(v)
+    }
     fn write(
         &self,
         a: &harness_domain::contracts::WriteArgs,

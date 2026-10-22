@@ -4,6 +4,20 @@ use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
 impl SourceEditing for NativeWorkspace {
+    fn prepare_proposal(
+        &self,
+        args: &harness_domain::contracts::ProposalArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.source_editing.prepare_proposal(args, context)
+    }
+    fn delete_file(
+        &self,
+        args: &harness_domain::contracts::DeleteArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.source_editing.delete_file(args, context)
+    }
     fn vue_extract_preview(
         &self,
         args: &harness_domain::contracts::VueExtractPreviewArgs,

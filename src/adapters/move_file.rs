@@ -24,7 +24,7 @@ pub(super) fn move_file(
 }
 
 #[cfg(windows)]
-fn protected(relative: &str) -> bool {
+pub(super) fn protected(relative: &str) -> bool {
     relative.split('/').any(|part| {
         [".git", ".hg", ".svn", ".agents", ".codegraph", "agents.md"]
             .iter()
@@ -188,7 +188,7 @@ fn move_windows(
         })
         && fs::symlink_metadata(&source).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
     drop(file);
-    let index = update_index(project, &from, &to);
+    let index = update_index(project, &[&from, &to]);
     let index_failed = index["status"] == "needs_sync";
     let mut result = json!({"from":from,"to":to,"changed":true,"commitStatus":"committed",
         "verified":verified,"importsUpdated":false,"index":index});
@@ -271,7 +271,7 @@ mod tests {
 }
 
 #[cfg(windows)]
-fn update_index(project: &Project, from: &str, to: &str) -> Value {
+pub(super) fn update_index(project: &Project, changed: &[&str]) -> Value {
     use serde_json::json;
     let path = match project.target_optional(".codegraph/codegraph.db") {
         Ok(path) => path,
@@ -283,9 +283,9 @@ fn update_index(project: &Project, from: &str, to: &str) -> Value {
         Ok(true) => {}
     }
     // Reuse the indexer's deletion/addition and incoming-reference repair logic.
-    let paths = [from.to_owned(), to.to_owned()].into_iter().collect();
+    let paths = changed.iter().map(|path| (*path).to_owned()).collect();
     let context = OperationContext::default();
-    let scope_change = [from, to]
+    let scope_change = changed
         .iter()
         .any(|path| path.ends_with(".json") || path.ends_with(".gitignore"));
     let synced = if scope_change {

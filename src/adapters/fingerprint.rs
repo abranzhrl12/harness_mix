@@ -15,7 +15,7 @@ const LIMIT: Failure = (
 pub(super) fn coverage() -> serde_json::Value {
     serde_json::json!({
         "kind":"local_workspace_content_v2",
-        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs",".agents/harness/native-logs",".agents/harness/jobs"],
+        "excludedDirectories":["target","node_modules",".git",".hg",".svn",".agents/harness/.state",".agents/harness/logs",".agents/harness/native-logs",".agents/harness/jobs",".agents/harness/proposals"],
         "externalDependenciesTracked":false,"environmentTracked":false,"current":null
     })
 }
@@ -69,6 +69,7 @@ pub(super) fn capture(project: &Project, context: &OperationContext) -> Result<S
                         ".agents/harness/logs",
                         ".agents/harness/native-logs",
                         ".agents/harness/jobs",
+                        ".agents/harness/proposals",
                     ]
                     .contains(&normalized.as_str()))
             {

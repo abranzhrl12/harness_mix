@@ -154,7 +154,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales y selectores CSS (CSS/HTML/Razor): outline admite filterKind=method y view=compact; read admite view=signature|full."
+        description = "Símbolos locales: outline admite filterKind=method y view=compact; read admite view=signature|full. HTML usa el parser Rust tl: outline devuelve elementos/atributos/padres y read acepta symbol=html:#guardar, html:button.action o html:[data-testid=guardar]. Selectores CSS embebidos conservan su nombre sin html:. full devuelve texto original y hash para editar; no valida Angular."
     )]
     async fn harness_symbols(
         &self,
@@ -164,7 +164,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Reemplaza oldText único o por line; acepta hash=matches[].hash y oldText=matches[].context.text de harness_search cuando el contexto sea suficiente y siga vigente. hash es opcional: si se omite, se usa la lectura interna. La sustitución requiere oldText único salvo que line lo desambigüe; preview=true no publica. Acepta snake_case."
+        description = "Reemplaza oldText único o por line; acepta hash=matches[].hash y oldText=matches[].context.text de harness_search cuando el contexto sea suficiente y siga vigente. hash es opcional: si se omite, se usa la lectura interna. La sustitución requiere oldText único salvo que line lo desambigüe; preview=true no publica. Acepta snake_case. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica después con harness_verify language=angular."
     )]
     async fn harness_replace(
         &self,
@@ -173,13 +173,25 @@ where
     ) -> CallToolResult {
         self.call(Request::Replace(args), context).await
     }
-    #[tool(description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide.")]
+    #[tool(
+        description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica después con harness_verify language=angular."
+    )]
     async fn harness_write(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::WriteArgs>,
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Write(args), context).await
+    }
+    #[tool(
+        description = "Prepara una propuesta persistente: action=prepare, path y content completo. Guarda original y candidato, devuelve proposalId, hashes y diff sin modificar el archivo. expectedHash opcional; no acepta ni rechaza propuestas todavía. Escribe solo metadatos locales; requiere autorización para preparar."
+    )]
+    async fn harness_proposal(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::ProposalArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Proposal(args), context).await
     }
     #[tool(description = "Mueve o renombra un archivo dentro del workspace.")]
     async fn harness_move(
@@ -188,6 +200,16 @@ where
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Move(args), context).await
+    }
+    #[tool(
+        description = "Elimina permanentemente un archivo regular del workspace cuando el usuario lo autoriza. path relativo; expectedHash opcional impide borrar una versión distinta. No admite directorios ni enlaces. Comprueba changed, verified e index.status antes de reintentar."
+    )]
+    async fn harness_delete(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::DeleteArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Delete(args), context).await
     }
     #[tool(
         description = "Compila o prueba con herramientas locales, sin shell. language=angular invoca @angular/compiler-cli local sin emitir archivos; project/configuration seleccionan angular.json."
@@ -220,7 +242,7 @@ where
         self.call(Request::Bootstrap(args), context).await
     }
 
-    #[tool(description = "Lee hasta 400 líneas UTF-8 con hash y contexto.")]
+    #[tool(description = "Lee hasta 420 líneas UTF-8 con hash y contexto.")]
     async fn harness_read(
         &self,
         Parameters(args): Parameters<ReadArgs>,

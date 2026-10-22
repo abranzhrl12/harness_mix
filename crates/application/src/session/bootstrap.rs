@@ -55,7 +55,10 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
     if let Some(warning) = input.session.persistence_warning {
         result["persistenceWarning"] = warning;
     }
-    if input.args.session.is_none() || input.args.include_rules.unwrap_or(false) || !input.same_capabilities {
+    if input.args.session.is_none()
+        || input.args.include_rules.unwrap_or(false)
+        || !input.same_capabilities
+    {
         result["routing"] = json!(input.tool_profile.routing());
         result["workflow"] = input.tool_profile.workflows();
         result["usageRules"] =
@@ -120,14 +123,16 @@ fn quick_guide(available_tools: &[String]) -> Value {
     let quick_guide: Vec<Value> = [
         ("harness_bootstrap", "compact=true; reutiliza data.session"),
         ("harness_explore", "view=impact exige filePath+symbol; summary firmas; full cuerpos"),
-        ("harness_symbols", "outline=estructura; read=fuente exacta + hash; selectores CSS en CSS/HTML/Razor"),
+        ("harness_symbols", "outline=estructura; read=fuente exacta + hash; HTML: symbol=html:#id o html:button.clase; CSS embebido sin prefijo"),
         ("harness_read", "start/lines o end; path o file"),
         ("harness_search", "kind=text|files|file_size|syntax; scope omitido/null/./vacío=raíz; contextLines=0..20 añade fuente y hash; kind=syntax consulta el índice de símbolos cuando lo cubre y repara en vivo lo obsoleto (discovery en la respuesta)"),
         ("harness_ignore", "action=list|add|remove|init; scope opcional; .harnessignore con sintaxis gitignore"),
         ("harness_detail", "ref de salida truncada; offset/maxChars"),
         ("harness_replace", "oldText/newText o chunks; line opcional; hash omitido=lectura interna; preview=true no publica"),
-        ("harness_write", "expectedHash permite reemplazo atómico"),
+        ("harness_write", "expectedHash permite reemplazo atómico; crear/editar .html/.htm no requiere allowUnvalidatedText; Angular se verifica con language=angular"),
+        ("harness_proposal", "action=prepare; path/content/expectedHash opcional; guarda una propuesta y diff sin publicar"),
         ("harness_move", "from/to relativos; el padre debe existir"),
+        ("harness_delete", "path relativo; borrado permanente autorizado; expectedHash opcional; comprueba changed/verified/index"),
         ("harness_verify", "language; action=build|test; package/scope; dotnet engine=auto|dotnet|msbuild; warnings=all|changed-files|none"),
         ("harness_jobs", "start devuelve taskId; observe sigue stdout/stderr"),
         ("harness_git", "diff exige path; comparison=auto muestra staged/worktree/total; status incluye sessionChanges"),

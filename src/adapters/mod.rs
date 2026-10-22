@@ -15,6 +15,7 @@ mod composition;
 mod config;
 mod create_file;
 mod csproj;
+mod delete_file;
 mod disk_logs;
 mod doctor;
 mod edit;
@@ -35,6 +36,7 @@ pub mod index_store;
 #[cfg(windows)]
 pub(crate) mod index_watch;
 mod move_file;
+mod proposals;
 #[cfg(not(windows))]
 pub mod index_store {
     pub fn sync_workspace(

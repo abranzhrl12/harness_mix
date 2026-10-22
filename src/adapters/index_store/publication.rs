@@ -5,7 +5,7 @@ use super::repository::{
 use super::resolution::resolve_exact;
 use super::{
     INDEX, LIMIT, MAX_ROWS, batches, candidates, imports, index_extract, razor_invalidation, sql,
-    tsconfig,
+    sync_diagnostic, tsconfig,
 };
 use crate::adapters::project::Project;
 use harness_domain::{Failure, execution::OperationContext, hash};
@@ -144,6 +144,7 @@ pub(super) fn publish(
         .map(|value| model::ExtractedGraph::prepare(value, context))
         .transpose()?;
     let extraction_performed = extracted.is_some();
+    sync_diagnostic::stage("write_nodes_and_edges");
     let graph_write = storage::replace_file_graph(
         db,
         storage::FilePublication {
@@ -240,6 +241,7 @@ pub(super) fn publish(
     // of limiting retries to the current file's incoming and outgoing edges.
     // Other languages with unchanged configuration do not trigger this pass.
 
+    sync_diagnostic::stage("invalidate_references");
     let import_rechecks =
         if config_changed || matches!(language, "typescript" | "tsx" | "javascript" | "jsx") {
             imports::invalidate(db)?
@@ -309,6 +311,7 @@ pub(super) fn publish(
     let mut import_sources = imports::Sources::configured(configuration);
     let mut mvc_snapshot = super::super::index_razor_mvc::Snapshot::default();
     let mut framework_snapshot = framework::Snapshot::default();
+    sync_diagnostic::stage("resolve_references");
     for id in &refs {
         context.check()?;
         resolved += usize::from(resolve_exact(

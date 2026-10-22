@@ -108,6 +108,12 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Move(args) => {
                 editing::move_file(self, args, context, name, &request_arguments, &mut lease)
             }
+            Request::Delete(args) => {
+                editing::delete_file(self, args, context, name, &request_arguments, &mut lease)
+            }
+            Request::Proposal(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.prepare_proposal(&args, context)),
             Request::Read(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.read(&args, context)),

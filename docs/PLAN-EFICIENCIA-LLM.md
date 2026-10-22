@@ -71,7 +71,7 @@ Sus cifras corresponden a esos fixtures/versiones, no a una aceleración univers
 | Área | Estado observado | Trabajo realmente pendiente |
 | --- | --- | --- |
 | Bootstrap | Compacta una sesión reutilizada, no restaurada y con reglas/capacidades iguales | Reducir inicio inicial y evitar recuperar catálogo idéntico por rutina |
-| Lectura | Fuente local permite 400 líneas y conserva 16000 bytes de fragmento | Distribuir ese cambio; evaluar recuperación que no fuerce tantear rangos |
+| Lectura | Fuente local permite 420 líneas y conserva 16000 bytes de fragmento | Distribuir ese cambio; evaluar recuperación que no fuerce tantear rangos |
 | Símbolos | `harness_symbols` permite outline y read/full | Usar el cuerpo concreto directamente para implementar, no encadenar firmas y lecturas arbitrarias |
 | Reemplazo | Hash opcional, chunks y comprobación del original antes de publicar | Mejorar resumen de cambio y diagnósticos; no reinventar multi_replace |
 | Creación | Un archivo, Windows, padre existente, publicación no-clobber | Carpetas, reintentos seguros, formatos de texto y después lotes |
@@ -96,12 +96,12 @@ Antes de publicar o medir:
 - Comprobar ruta del proceso activo, versión de bootstrap y contrato anunciado.
 - Construir desde un estado identificado y conservar hash del artefacto/commit.
 - Validar el ejecutable que irá dentro del paquete, no otro encontrado en PATH.
-- Probar read de 400 líneas, aliases, chunks, creación y package de forma funcional.
+- Probar read de 420 líneas, aliases, chunks, creación y package de forma funcional.
 - Reiniciar la conexión del cliente después de actualizar y repetir el smoke test.
 
 El verificador local actual comprueba versión exacta y presencia de write,
 chunks/hash opcional y package. Todavía no prueba todos esos comportamientos ni
-el límite de 400 líneas. El hook usa el repositorio y toolchain para preparar el
+el límite de 420 líneas. El hook usa el repositorio y toolchain para preparar el
 paquete; `--ignore-scripts` puede saltárselo. Una instalación global antigua o
 un proceso no reiniciado no se corrigen solo publicando una versión nueva.
 
@@ -174,7 +174,7 @@ límites de trabajo propios. Son parámetros a medir, no capacidades actuales.
 
 ### 5.3 Lecturas sin tanteo repetido
 
-Conservar 400 líneas y el límite de 16000 bytes. No ampliar indiscriminadamente.
+Conservar 420 líneas y el límite de 16000 bytes. No ampliar indiscriminadamente.
 Para una implementación conocida, pedir `harness_symbols` read/full directamente.
 Para localizar, outline filtrado o búsqueda literal; usar batch solo con lecturas
 independientes que el contrato admita.

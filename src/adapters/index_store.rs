@@ -25,6 +25,8 @@ const MAX_ROWS: usize = 20_000;
 
 #[path = "index_store/validation.rs"]
 mod validation;
+#[path = "index_store/sync_diagnostic.rs"]
+mod sync_diagnostic;
 use self::validation::validate_schema;
 
 #[path = "index_store/repository.rs"]
@@ -247,7 +249,11 @@ fn sync_workspace_with_limit(
     let operation_started = std::time::Instant::now();
     context.check()?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    let database = project.root.join(".codegraph/codegraph.db");
+    sync_diagnostic::begin("<workspace-plan>", &database);
+    sync_diagnostic::stage("load_workspace_scope");
     let scope = scope::Snapshot::load(&project, context)?;
+    sync_diagnostic::stage("plan_workspace");
     let planned = index_sync::plan_workspace_for_sync(root, context)?;
     if planned["scope"] != scope.stamp() {
         return Err(("STALE", "Scope changed during planning"));
@@ -308,6 +314,8 @@ fn sync_workspace_with_limit(
         let file_started = std::time::Instant::now();
         // Bound each file without extending the owner's deadline or losing cancellation.
         let file_context = context.with_execution_timeout(Some(std::time::Duration::from_secs(60)));
+        sync_diagnostic::begin(path, &database);
+        sync_diagnostic::stage("recheck_workspace_scope");
         let applied = scope.recheck(&project, &file_context).and_then(|()| {
             #[cfg(windows)]
             {
@@ -329,7 +337,10 @@ fn sync_workspace_with_limit(
                 context.report_progress("indexing", processed, Some(total), Some(path));
             }
             Err((code, message)) => {
-                let entry = json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
+                let mut entry = json!({"path":path,"code":code,"message":message,"deadlineScope":"file_within_workspace","fileTimeoutSeconds":60,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
+                if let Some(diagnostic) = sync_diagnostic::take(code, message) {
+                    entry["diagnostic"] = diagnostic;
+                }
                 // Provider-dependent files (framework or synthesized graph data
                 // the native publisher cannot reproduce) are a documented
                 // limitation: they are reported and skipped.
@@ -337,7 +348,8 @@ fn sync_workspace_with_limit(
                     provider_dependent += 1;
                     unsupported += 1;
                     if results.len() < 32 {
-                        results.push(json!({"path":path,"skipped":true,"code":code,"message":message,"commitState":"not_committed"}));
+                        entry["skipped"] = json!(true);
+                        results.push(entry);
                     }
                     continue;
                 }
@@ -391,10 +403,18 @@ fn sync_workspace_with_limit(
     )
 }
 
+/// Consume contextual SQLite/index diagnostics for CLI and workspace reports.
+pub fn take_sync_diagnostic(code: &str, message: &str) -> Option<Value> {
+    sync_diagnostic::take(code, message)
+}
+
 fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Failure> {
-    value.map_err(|error| match error {
-        rusqlite::Error::SqliteFailure(code, _) => index_failure_for_sqlite_code(code.code),
-        _ => INDEX,
+    value.map_err(|error| {
+        sync_diagnostic::capture(&error);
+        match error {
+            rusqlite::Error::SqliteFailure(code, _) => index_failure_for_sqlite_code(code.code),
+            _ => INDEX,
+        }
     })
 }
 
@@ -578,7 +598,11 @@ fn sync_file_config_reuse(
         "No native extractor for this source language",
     ))?;
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    let database = project.root.join(".codegraph/codegraph.db");
+    sync_diagnostic::begin(relative, &database);
+    sync_diagnostic::stage("load_file_scope");
     let scope = scope::Snapshot::load(&project, context)?;
+    sync_diagnostic::stage("read_source");
     let source = if scope.excluded(relative) {
         None
     } else {
@@ -586,16 +610,21 @@ fn sync_file_config_reuse(
     };
     let reused = writer.is_some();
     if writer.is_none() {
+        sync_diagnostic::stage("open_database");
         *writer = Some(writer::Writer::open(&project, context)?);
     }
     let writer = writer.as_mut().ok_or(INDEX)?;
+    sync_diagnostic::stage("recheck_database_handle");
     writer.recheck(context)?;
     let db = &mut writer.db;
     let cancel = context.clone();
+    sync_diagnostic::stage("configure_connection");
     sql(db.progress_handler(1000, Some(move || cancel.check().is_err())))?;
     sql(db.execute_batch("PRAGMA trusted_schema=OFF;"))?;
+    sync_diagnostic::stage("begin_transaction");
     let tx = sql(db.transaction_with_behavior(TransactionBehavior::Immediate))?;
     let run = || {
+        sync_diagnostic::stage("validate_schema");
         validate_schema(&tx)?;
         // Only the three exact provider FTS triggers are accepted. SQLite FTS5
         // triggers require trusted_schema; it is enabled only after validation.
@@ -657,7 +686,11 @@ fn sync_file_config_reuse(
             // Commit point: don't report a post-commit cancellation as no write.
             tx.progress_handler(0, None::<fn() -> bool>)
                 .map_err(|_| UNCERTAIN)?;
-            tx.commit().map_err(|_| UNCERTAIN)?;
+            sync_diagnostic::stage("commit_transaction");
+            tx.commit().map_err(|error| {
+                sync_diagnostic::capture(&error);
+                UNCERTAIN
+            })?;
             result["committed"] = json!(true);
             Ok(result)
         }

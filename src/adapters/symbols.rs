@@ -21,6 +21,16 @@ pub(super) fn snapshot(
     context: &OperationContext,
     include_structure: bool,
 ) -> Result<(String, String, Vec<Symbol>, &'static str, Option<Value>), Failure> {
+    snapshot_selected(project, path, context, include_structure, None)
+}
+
+fn snapshot_selected(
+    project: &Project,
+    path: &str,
+    context: &OperationContext,
+    include_structure: bool,
+    html_selector: Option<&str>,
+) -> Result<(String, String, Vec<Symbol>, &'static str, Option<Value>), Failure> {
     let language = SourceFormat::from_path(Path::new(path))
         .ok_or((
             "PARSER_UNAVAILABLE",
@@ -43,8 +53,21 @@ pub(super) fn snapshot(
             items.sort_by_key(|item| item.bytes.start);
             items
         }
-        SourceLanguage::Css | SourceLanguage::Html => {
-            css_symbols::collect(&text, &digest, language == SourceLanguage::Html, context)?
+        SourceLanguage::Css => css_symbols::collect(&text, &digest, false, context)?,
+        SourceLanguage::Html => {
+            let (mut items, document) = super::parsers::html::collect(
+                &text,
+                &digest,
+                context,
+                html_selector,
+                include_structure,
+            )?;
+            structure = document;
+            if html_selector.is_none() {
+                items.extend(css_symbols::collect(&text, &digest, true, context)?);
+                items.sort_by_key(|item| item.bytes.start);
+            }
+            items
         }
         SourceLanguage::Scss => scss_symbols::collect(&text, &digest, context)?,
         SourceLanguage::Vue => {
@@ -114,9 +137,7 @@ pub(super) fn outline(
         context.check()?;
         let value = match args.view {
             Some(OutlineView::Compact) => compact_symbol(item),
-            None => {
-                serde_json::to_value(item).map_err(|_| ("INTERNAL", "Cannot serialize symbol"))?
-            }
+            None => display_symbol(item),
         };
         let cost = utf16_len(&value.to_string());
         if used + cost <= max {
@@ -130,7 +151,7 @@ pub(super) fn outline(
             .iter()
             .map(|item| match args.view {
                 Some(OutlineView::Compact) => compact_symbol(item),
-                None => serde_json::to_value(item).unwrap_or(Value::Null),
+                None => display_symbol(item),
             })
             .collect()
     } else {
@@ -147,7 +168,9 @@ pub(super) fn outline(
         "scss" => {
             "SCSS parse tree: nested rules, variables, mixins, functions, includes, module use/forward and extends; selector resolution and value semantics are not evaluated"
         }
-        "html" => "CSS rules in embedded style blocks; no HTML or CSS validation",
+        "html" => {
+            "Native tl HTML elements, attributes, parent relationships and exact source ranges, plus embedded CSS rules. HTML element selectors use html: prefix. Permissive structure only; not HTML validation or Angular compilation"
+        }
         "razor" => {
             "C# declarations and CSS rules in embedded style blocks; no Razor compilation or CSS validation"
         }
@@ -184,7 +207,7 @@ pub(super) fn outline(
                     .iter()
                     .map(|item| match args.view {
                         Some(OutlineView::Compact) => compact_symbol(item),
-                        None => serde_json::to_value(item).unwrap_or(Value::Null),
+                        None => display_symbol(item),
                     })
                     .collect()
             };
@@ -206,6 +229,14 @@ fn compact_symbol(item: &Symbol) -> Value {
     })
 }
 
+fn display_symbol(item: &Symbol) -> Value {
+    let mut value = serde_json::to_value(item).expect("symbol is serializable");
+    if item.kind == "html-element" {
+        value["attributes"] = json!(item.attributes);
+    }
+    value
+}
+
 pub(super) fn read_symbol(
     project: &Project,
     args: &ReadSymbolArgs,
@@ -221,11 +252,19 @@ pub(super) fn read_symbol(
     {
         return Err(("ARGUMENT", "Invalid symbol selector"));
     }
-    let (text, digest, all, _, _) = snapshot(project, &args.path, context, false)?;
+    let html_selector = if SourceFormat::from_path(Path::new(&args.path))
+        .is_some_and(|format| format.language() == SourceLanguage::Html)
+    {
+        args.symbol.strip_prefix("html:")
+    } else {
+        None
+    };
+    let (text, digest, all, _, _) =
+        snapshot_selected(project, &args.path, context, false, html_selector)?;
     let matches: Vec<_> = all
         .iter()
         .filter(|s| {
-            s.name == args.symbol
+            (html_selector.is_some() || s.name == args.symbol)
                 && args.container.as_ref().is_none_or(|c| &s.container == c)
                 && args.symbol_id.as_ref().is_none_or(|id| &s.id == id)
         })
@@ -248,9 +287,10 @@ pub(super) fn read_symbol(
         );
     }
     let item = matches[0];
+    let symbol = display_symbol(item);
     if matches!(args.view, Some(SymbolView::Signature)) {
         return Ok(
-            json!({"path":args.path,"hash":digest,"view":"signature","symbol":item,"syntaxOnly":true,"editReady":false,
+            json!({"path":args.path,"hash":digest,"view":"signature","symbol":symbol,"syntaxOnly":true,"editReady":false,
             "notice":"Folded signature is not oldText; request full with this symbolId for exact source"}),
         );
     }
@@ -259,10 +299,10 @@ pub(super) fn read_symbol(
     // function should not require an extra detail round-trip solely for line count.
     // harness_read keeps its separate 100-line fragment limit.
     let large = body.len() > 16000;
-    let mut result = json!({"path":args.path,"hash":digest,"symbol":item,"anchors":anchors(&text,item.start,item.end),
+    let mut result = json!({"path":args.path,"hash":digest,"symbol":symbol,"anchors":anchors(&text,item.start,item.end),
         "text":if large { None } else { Some(body) },"truncated":large,"syntaxOnly":true});
     if large {
-        result["_detail"] = json!({"path":args.path,"hash":digest,"symbol":item,"text":body});
+        result["_detail"] = json!({"path":args.path,"hash":digest,"symbol":symbol,"text":body});
     }
     Ok(result)
 }

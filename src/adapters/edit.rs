@@ -30,6 +30,11 @@ pub(super) fn syntax(
                 .map_err(|_| ("SYNTAX_ERROR", "Candidate JSON invalid; original untouched"))?;
             Ok(json!({"status":"valid","language":"json","validation":"syntax_only"}))
         }
+        "html" | "htm" => Ok(json!({
+            "status":"not_checked","language":"html","validation":"none",
+            "reason":"html_text_editing",
+            "notice":"HTML creation and editing are supported natively without allowUnvalidatedText. Syntax and template types were not checked. For Angular templates, run harness_verify with language=angular on the owning project."
+        })),
         "md" | "txt" | "sql" | "xml" | "css" => {
             Ok(json!({"status":"not_applicable","language":"text","validation":"none"}))
         }

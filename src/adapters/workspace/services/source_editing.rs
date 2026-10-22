@@ -5,6 +5,28 @@ use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
 impl SourceEditing for SourceEditingService {
+    fn prepare_proposal(
+        &self,
+        args: &harness_domain::contracts::ProposalArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let _lock = self
+            .edit_lock
+            .try_lock()
+            .map_err(|_| ("EDIT_BUSY", "Another file operation is active"))?;
+        crate::adapters::proposals::prepare(&self.project, args, context)
+    }
+    fn delete_file(
+        &self,
+        args: &harness_domain::contracts::DeleteArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let _lock = self
+            .edit_lock
+            .try_lock()
+            .map_err(|_| ("EDIT_BUSY", "Another file operation is active"))?;
+        crate::adapters::delete_file::delete_file(&self.project, args, context)
+    }
     fn vue_extract_preview(
         &self,
         args: &harness_domain::contracts::VueExtractPreviewArgs,

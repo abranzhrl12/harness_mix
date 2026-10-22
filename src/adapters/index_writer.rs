@@ -1,5 +1,5 @@
 //! A pinned writer connection reused within one explicit sync operation.
-use super::{Failure, INDEX, OperationContext, Project, sql};
+use super::{Failure, INDEX, OperationContext, Project, sql, sync_diagnostic};
 use rusqlite::{Connection, OpenFlags};
 use std::{
     fs::File,
@@ -163,6 +163,13 @@ impl Writer {
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         ))?;
         sql(db.busy_timeout(Duration::from_millis(super::super::INDEX_BUSY_TIMEOUT_MS)))?;
+        let user_version: i64 = sql(db.query_row("PRAGMA user_version", [], |r| r.get(0)))?;
+        let application_id: i64 = sql(db.query_row("PRAGMA application_id", [], |r| r.get(0)))?;
+        let provider_schema_version: Option<i64> = db
+            .query_row("SELECT max(version) FROM schema_versions", [], |r| r.get(0))
+            .ok()
+            .flatten();
+        sync_diagnostic::schema(user_version, application_id, provider_schema_version);
         let journal: String = sql(db.query_row("PRAGMA journal_mode", [], |r| r.get(0)))?;
         if journal != "wal" {
             return Err((

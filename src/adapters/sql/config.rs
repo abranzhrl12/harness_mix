@@ -28,7 +28,7 @@ impl Default for SqlConfig {
             env_file: Some(".env".into()),
             max_rows: 50,
             timeout_seconds: 15,
-            max_chars: 8000,
+            max_chars: 16000,
             schema_cache_seconds: 300,
         }
     }
@@ -74,7 +74,7 @@ pub fn load_sql_config(project: &Project) -> SqlConfig {
     let max_chars = sql_val
         .get("maxChars")
         .and_then(|v| v.as_u64())
-        .unwrap_or(8000)
+        .unwrap_or(16000)
         .clamp(1000, 32000) as usize;
     let schema_cache_seconds = sql_val
         .get("schemaCacheSeconds")

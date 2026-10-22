@@ -25,6 +25,25 @@ fn recorded_session_write<W: Workspace, S: SessionRepository>(
     })
 }
 
+pub(super) fn delete_file<W: Workspace, S: SessionRepository>(
+    app: &Application<W, S>,
+    args: harness_domain::contracts::DeleteArgs,
+    context: &OperationContext,
+    name: &str,
+    request_arguments: &Value,
+    lease: &mut Option<SessionLease<S>>,
+) -> Result<Value, Failure> {
+    recorded_session_write(
+        app,
+        args.session.as_deref(),
+        lease,
+        context,
+        name,
+        request_arguments,
+        || app.workspace.delete_file(&args, context),
+    )
+}
+
 pub(super) fn replace<W: Workspace, S: SessionRepository>(
     app: &Application<W, S>,
     args: ReplaceArgs,

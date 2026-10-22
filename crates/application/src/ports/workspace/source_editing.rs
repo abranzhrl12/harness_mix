@@ -3,6 +3,20 @@ use serde_json::Value;
 
 /// Source editing and previews; implementations retain publication and path safety.
 pub trait SourceEditing: Send + Sync {
+    fn prepare_proposal(
+        &self,
+        _args: &harness_domain::contracts::ProposalArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Proposal adapter unavailable"))
+    }
+    fn delete_file(
+        &self,
+        _args: &harness_domain::contracts::DeleteArgs,
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Delete adapter unavailable"))
+    }
     fn vue_extract_preview(
         &self,
         _args: &harness_domain::contracts::VueExtractPreviewArgs,

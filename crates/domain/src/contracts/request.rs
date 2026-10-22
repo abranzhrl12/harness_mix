@@ -1,9 +1,9 @@
 use super::{
-    BatchArgs, BootstrapArgs, CheckpointArgs, ConfigArgs, DataQueryArgs, DetailArgs,
+    BatchArgs, BootstrapArgs, CheckpointArgs, ConfigArgs, DataQueryArgs, DeleteArgs, DetailArgs,
     DiagnosticsArgs, DoctorArgs, ExploreArgs, ExternalScopeAction, ExternalScopeArgs, GitDiffArgs,
     GitStatusArgs, HandoverArgs, IgnoreAction, IgnoreArgs, LogsArgs, MoveArgs, OutlineArgs,
-    ProcessStatusArgs, ReadArgs, ReadSymbolArgs, ReplaceArgs, SearchArgs, TasksAction, TasksArgs,
-    VerifyArgs, VueExtractPreviewArgs, WriteArgs,
+    ProcessStatusArgs, ProposalArgs, ReadArgs, ReadSymbolArgs, ReplaceArgs, SearchArgs,
+    TasksAction, TasksArgs, VerifyArgs, VueExtractPreviewArgs, WriteArgs,
 };
 use serde_json::Value;
 
@@ -23,6 +23,8 @@ pub enum Request {
     Replace(ReplaceArgs),
     Write(WriteArgs),
     Move(MoveArgs),
+    Delete(DeleteArgs),
+    Proposal(ProposalArgs),
     Outline(OutlineArgs),
     ReadSymbol(ReadSymbolArgs),
     VueExtractPreview(VueExtractPreviewArgs),
@@ -59,6 +61,8 @@ impl Request {
             Self::Replace(_)
                 | Self::Write(_)
                 | Self::Move(_)
+                | Self::Delete(_)
+                | Self::Proposal(_)
                 | Self::ExternalScope(ExternalScopeArgs {
                     action: ExternalScopeAction::Grant | ExternalScopeAction::Revoke,
                     ..
@@ -89,6 +93,8 @@ impl Request {
             Self::Replace(_) => "harness_replace",
             Self::Write(_) => "harness_write",
             Self::Move(_) => "harness_move",
+            Self::Delete(_) => "harness_delete",
+            Self::Proposal(_) => "harness_proposal",
             Self::Outline(_) | Self::ReadSymbol(_) | Self::VueExtractPreview(_) => {
                 "harness_symbols"
             }
@@ -125,6 +131,8 @@ impl Request {
             Self::Replace(args) => serde_json::to_value(args),
             Self::Write(args) => serde_json::to_value(args),
             Self::Move(args) => serde_json::to_value(args),
+            Self::Delete(args) => serde_json::to_value(args),
+            Self::Proposal(args) => serde_json::to_value(args),
             Self::Outline(args) => serde_json::to_value(args).map(|mut value| {
                 value["action"] = Value::String("outline".into());
                 value

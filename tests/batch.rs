@@ -68,6 +68,8 @@ fn validates_every_child_before_execution_and_refuses_mutations_or_recursion() {
     for tool in [
         "harness_replace",
         "harness_move",
+        "harness_delete",
+        "harness_proposal",
         "harness_verify",
         "harness_batch",
         "harness_checkpoint",

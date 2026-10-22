@@ -1,5 +1,5 @@
 {
-  "contractVersion": "3.1.0",
+  "contractVersion": "3.3.0",
   "toolProfiles": {
     "investigate": [
       "harness_bootstrap",
@@ -20,6 +20,8 @@
       "harness_replace",
       "harness_write",
       "harness_move",
+      "harness_delete",
+      "harness_proposal",
       "harness_verify"
     ]
   },
@@ -453,6 +455,12 @@
       ]
     },
     {
+      "name": "harness_delete",
+      "backends": [
+        "rust"
+      ]
+    },
+    {
       "name": "harness_detail",
       "backends": [
         "node",
@@ -526,6 +534,12 @@
       "name": "harness_process_status",
       "backends": [
         "node"
+      ]
+    },
+    {
+      "name": "harness_proposal",
+      "backends": [
+        "rust"
       ]
     },
     {

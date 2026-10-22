@@ -131,7 +131,14 @@ fn run_index(
         }
         Err((code, message)) => {
             reporter.finish("failed");
-            Err(format!("{code}: {message}"))
+            let diagnostic = agent_harness::adapters::index_store::take_sync_diagnostic(code, message);
+            match diagnostic {
+                Some(diagnostic) => Err(format!(
+                    "{code}: {message}; sqliteDiagnostic={}",
+                    serde_json::to_string(&diagnostic).unwrap_or_else(|_| "{}".into())
+                )),
+                None => Err(format!("{code}: {message}")),
+            }
         }
     }
 }

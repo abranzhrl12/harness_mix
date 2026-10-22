@@ -189,6 +189,17 @@ impl Sessions {
                 &time,
                 json!({"source":"harness-observed","filePublished":false}),
             );
+        } else if tool == "harness_delete" && result["changed"] == true {
+            let path = bounded(&result["path"])?;
+            for check in &mut session.observed_checks {
+                harness_domain::freshness::invalidate(check, "harness_delete_applied", &time);
+            }
+            session.observed_edits.retain(|item| item["path"] != path);
+            session.tasks.event(
+                "file_deleted",
+                &time,
+                json!({"path":path,"permanent":true,"source":"harness-observed"}),
+            );
         } else if tool == "harness_move" && result["changed"] == true {
             let from = bounded(&result["from"])?;
             let to = bounded(&result["to"])?;

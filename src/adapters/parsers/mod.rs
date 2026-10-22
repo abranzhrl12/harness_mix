@@ -2,6 +2,7 @@ pub(in crate::adapters) mod astro;
 pub(in crate::adapters) mod csharp;
 pub(in crate::adapters) mod css;
 pub(in crate::adapters) mod ecmascript;
+pub(in crate::adapters) mod html;
 pub(in crate::adapters) mod model;
 pub(in crate::adapters) mod razor;
 mod registry;

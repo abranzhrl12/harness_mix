@@ -51,6 +51,12 @@ pub(super) fn restricted(path: &str) -> bool {
 }
 
 fn restricted_reason(path: &str) -> Option<&'static str> {
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    if normalized == ".agents/harness/proposals"
+        || normalized.starts_with(".agents/harness/proposals/")
+    {
+        return Some("proposal_storage");
+    }
     project::external_restricted_reason(path).or_else(|| project::external_sensitive_reason(path))
 }
 

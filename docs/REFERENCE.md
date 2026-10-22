@@ -58,11 +58,15 @@ Los ejemplos son argumentos JSON de una llamada a la herramienta de la primera c
 | `harness_write` | `{"path":"src/new.ts","content":"export const n = 1;\n"}` | Crear sin sobrescribir, con validación disponible |
 | `harness_replace` | `{"path":"src/main.ts","hash":"SHA256","oldText":"42","newText":"43","preview":true}` | Preview, o publicar omitiendo `preview` |
 | `harness_move` | `{"from":"src/old.ts","to":"src/new.ts"}` | Mover sin sobrescribir ni actualizar imports |
+| `harness_delete` | `{"path":"src/obsolete.ts"}` | Eliminar permanentemente un archivo autorizado; `expectedHash` opcional |
+| `harness_proposal` | `{"action":"prepare","path":"src/main.ts","content":"export const n = 2;\n"}` | Guardar original, candidato y diff sin modificar el archivo; [detalles](proposals.md) |
 
 Los nombres antiguos de outline/read_symbol, SQL por acción, Git por acción, logs, tareas y checkpoint no son herramientas separadas anunciadas por Rust. Por ejemplo, el preview es `harness_replace` con `preview:true`; observar trabajos es `harness_jobs` con `action:"observe"`.
 
 ## Símbolos y grafo
 
+- HTML: parser Rust `tl`, elementos/atributos/padres y lectura exacta mediante
+  `symbol:"html:#guardar"`; [selectores y límites](html-parser.md).
 - `harness_symbols action="read"`: `{"path":"src/main.ts","symbol":"answer","view":"full"}`. Usa `signature` si no necesitas el cuerpo.
 - `outline` admite `query`, `filterKind:"method"` y `view:"compact"`. La vista compacta omite cuerpos y documentación.
 - `action:"extract_preview"` prepara una extracción Vue; no publica archivos.
@@ -72,6 +76,16 @@ Los nombres antiguos de outline/read_symbol, SQL por acción, Git por acción, l
 - `detail.ref`, `nextCall`, frescura, ambigüedad y campos de omisión forman parte del resultado; recupera lo que falte antes de editar.
 
 ## Edición
+
+HTML (`.html` y `.htm`, sin distinción de mayúsculas) se puede crear y editar con
+`harness_write` y `harness_replace` sin `allowUnvalidatedText`. Las propuestas
+también admiten HTML directamente. Se procesa como texto UTF-8 en Rust, sin
+iniciar Node ni un parser externo por cada edición. Se conservan las protecciones
+de rutas, hashes y publicación atómica. La respuesta indica
+`syntax.status="not_checked"`, `language="html"` y `validation="none"`:
+esto no certifica HTML ni expresiones Angular. Para verificar un proyecto Angular,
+usa `harness_verify` con `language:"angular"` y el scope del proyecto; esa
+comprobación explícita utiliza sus dependencias locales.
 
 Lee la implementación completa y usa su texto exacto y hash. `chunks` permite reemplazos únicos no solapados sobre el mismo original. Ante `STALE`, relee; no fuerces una escritura para evitar el rechazo.
 

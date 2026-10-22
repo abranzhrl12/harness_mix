@@ -109,6 +109,43 @@ pub struct MoveArgs {
     pub session: Option<String>,
 }
 
+/// Permanently delete one regular file, only when authorized by the user.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DeleteArgs {
+    pub path: String,
+    /// Optional SHA-256 of the file. A mismatch prevents deletion.
+    #[serde(default, rename = "expectedHash")]
+    pub expected_hash: Option<String>,
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalAction {
+    Prepare,
+}
+
+/// Persist a candidate for an existing file without publishing it.
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ProposalArgs {
+    pub action: ProposalAction,
+    pub path: String,
+    /// Complete proposed UTF-8 content. No source file is written.
+    pub content: String,
+    #[serde(default, rename = "expectedHash")]
+    pub expected_hash: Option<String>,
+    /// Omitted preserves the existing UTF-8 BOM policy.
+    pub bom: Option<bool>,
+    #[serde(default, rename = "allowUnvalidatedText")]
+    pub allow_unvalidated_text: bool,
+    pub session: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
