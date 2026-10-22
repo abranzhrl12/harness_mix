@@ -22,6 +22,8 @@ fn classic_aspnet_detection_and_solution_engine() {
     .unwrap();
     let project = Project::new(root.path()).unwrap();
     let mut args = VerifyArgs {
+        project: None,
+        configuration: None,
         language: "dotnet".into(),
         scope: Some("Web.sln".into()),
         package: None,
@@ -58,6 +60,8 @@ fn dotnet_warning_totals_deduplicate_and_preserve_unknown_baseline() {
     let root = tempfile::tempdir().unwrap();
     let project = Project::new(root.path()).unwrap();
     let mut args = VerifyArgs {
+        project: None,
+        configuration: None,
         language: "dotnet".into(),
         scope: Some("fixture.csproj".into()),
         package: None,
@@ -110,6 +114,8 @@ fn dotnet_plan_requires_explicit_project_and_disables_restore_servers() {
             let spec = plan(
                 &project,
                 &VerifyArgs {
+                    project: None,
+                    configuration: None,
                     engine: None,
                     warnings: None,
                     language: "csharp".into(),
@@ -154,6 +160,8 @@ fn dotnet_rejects_implicit_directories_and_unapproved_project_types() {
         Some("C:/a.sln"),
     ] {
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "dotnet".into(),
@@ -240,6 +248,8 @@ fn real_dotnet_build_and_test_dispatch() {
     let app = super::super::application(root.path()).unwrap();
     let call = |scope: &str, action| {
         app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "dotnet".into(),

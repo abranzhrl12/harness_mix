@@ -3,6 +3,7 @@ mod index_razor_mvc;
 mod parsers;
 mod vue_extract;
 mod workspace;
+pub mod workspace_set;
 use parsers::{
     astro::syntax as astro_syntax, csharp::syntax as csharp_syntax,
     ecmascript::symbols as ts_symbols, ecmascript::syntax as ts_syntax, razor::mvc as razor_mvc,
@@ -101,7 +102,7 @@ pub struct NativeWorkspace {
     tasks: Option<tasks::TaskManager>,
     index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
 }
-pub type NativeApplication = Application<NativeWorkspace, sessions::Sessions>;
+pub type NativeApplication = Application<workspace_set::MultiNativeWorkspace, sessions::Sessions>;
 
 /// Optional infrastructure supplied by the native composition root.
 /// Defaults preserve the lightweight constructors used by library callers.
@@ -156,7 +157,48 @@ pub(crate) fn application_with_options(
     root: &Path,
     options: NativeApplicationOptions,
 ) -> std::io::Result<NativeApplication> {
-    composition::application(root, options)
+    let (workspace, sessions) = composition::dependencies(root, options)?;
+    let project = workspace_set::WorkspaceProject {
+        name: "default".to_owned(),
+        root: workspace.project.root.clone(),
+    };
+    Ok(Application::new(
+        workspace_set::MultiNativeWorkspace {
+            projects: vec![(project, workspace)],
+            workspace_mode: false,
+        },
+        sessions,
+    ))
+}
+
+pub(crate) fn application_with_projects(
+    projects: &[workspace_set::WorkspaceProject],
+    persist_logs: bool,
+    tasks: &[tasks::TaskManager],
+    index_watches: &[Option<std::sync::Arc<std::sync::Mutex<Value>>>],
+) -> std::io::Result<NativeApplication> {
+    let mut workspaces = Vec::with_capacity(projects.len());
+    let mut sessions = None;
+    for (index, project) in projects.iter().enumerate() {
+        let options = NativeApplicationOptions {
+            persist_logs,
+            tasks: tasks.get(index).cloned(),
+            index_watch: index_watches.get(index).cloned().flatten(),
+        };
+        let (workspace, project_sessions) = composition::dependencies(&project.root, options)?;
+        if sessions.is_none() {
+            sessions = Some(project_sessions);
+        }
+        workspaces.push((project.clone(), workspace));
+    }
+    let workspace = workspace_set::MultiNativeWorkspace {
+        projects: workspaces,
+        workspace_mode: true,
+    };
+    Ok(Application::new(
+        workspace,
+        sessions.expect("nonempty workspace set"),
+    ))
 }
 
 impl NativeWorkspace {

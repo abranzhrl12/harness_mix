@@ -11,6 +11,8 @@ fn go_plan_has_closed_arguments_and_accepts_module_with_spaces() {
     for action in [VerifyAction::Build, VerifyAction::Test] {
         let test = matches!(action, VerifyAction::Test);
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "GO".into(),
@@ -50,6 +52,8 @@ fn go_scope_rejects_files_traversal_and_nonmodules_before_execution() {
         ".\\..\\go.mod",
     ] {
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "go".into(),
@@ -82,6 +86,8 @@ fn real_go_build_test_and_failure() {
     let app = super::super::application(root.path()).unwrap();
     for action in [VerifyAction::Build, VerifyAction::Test] {
         let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "go".into(),
@@ -101,6 +107,8 @@ fn real_go_build_test_and_failure() {
     )
     .unwrap();
     let result = app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         engine: None,
         warnings: None,
         language: "go".into(),

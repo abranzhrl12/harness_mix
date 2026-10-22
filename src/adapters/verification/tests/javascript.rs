@@ -14,6 +14,8 @@ fn javascript_plan_uses_closed_commands_for_explicit_files() {
             let spec = plan(
                 &project,
                 &VerifyArgs {
+                    project: None,
+                    configuration: None,
                     engine: None,
                     warnings: None,
                     language: "JS".into(),
@@ -54,6 +56,8 @@ fn javascript_rejects_implicit_scope_and_path_injection() {
         Some("C:/a.js"),
     ] {
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "javascript".into(),
@@ -66,6 +70,8 @@ fn javascript_rejects_implicit_scope_and_path_injection() {
     }
     for language in ["javascript", "typescript", "ts"] {
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: language.into(),
@@ -98,6 +104,8 @@ fn typescript_and_tsx_builds_validate_syntax_without_execution_or_typechecking()
     ] {
         std::fs::write(root.path().join(scope), source).unwrap();
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "typescript".into(),
@@ -125,6 +133,8 @@ fn typescript_reloads_changed_source_and_rejects_invalid_syntax_and_tests() {
     let path = root.path().join("check.ts");
     std::fs::write(&path, "const value: number = 1;").unwrap();
     let mut args = VerifyArgs {
+        project: None,
+        configuration: None,
         engine: None,
         warnings: None,
         language: "ts".into(),
@@ -176,6 +186,8 @@ fn real_javascript_check_tests_and_failures() {
     let app = super::super::application(root.path()).unwrap();
     let call = |scope: &str, action| {
         app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "javascript".into(),

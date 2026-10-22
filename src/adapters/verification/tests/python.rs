@@ -5,6 +5,8 @@ fn python_plans_use_isolated_stdlib_commands_and_validated_scopes() {
     std::fs::create_dir(root.path().join("tests with spaces")).unwrap();
     let project = Project::new(root.path()).unwrap();
     let mut args = VerifyArgs {
+        project: None,
+        configuration: None,
         engine: None,
         warnings: None,
         language: "PYTHON".into(),
@@ -45,6 +47,8 @@ fn python_rejects_implicit_scope_wrong_types_and_traversal() {
         Some("C:/a.py"),
     ] {
         let args = VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "python".into(),
@@ -56,6 +60,8 @@ fn python_rejects_implicit_scope_wrong_types_and_traversal() {
         assert!(plan(&project, &args).is_err());
     }
     let args = VerifyArgs {
+        project: None,
+        configuration: None,
         engine: None,
         warnings: None,
         language: "python".into(),
@@ -93,6 +99,8 @@ fn real_python_compilation_unittest_and_failures() {
     let app = super::super::application(root.path()).unwrap();
     let call = |scope: &str, action| {
         app.execute(harness_domain::contracts::Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             engine: None,
             warnings: None,
             language: "python".into(),

@@ -14,6 +14,7 @@ pub(super) enum Command {
     Version,
     Serve {
         root: Root,
+        workspace_config: Option<PathBuf>,
         persist_logs: bool,
     },
     InitConfig {
@@ -42,6 +43,19 @@ pub(super) enum Command {
 pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(Command::Help);
+    }
+
+    if args.first().is_some_and(|arg| arg == "--workspace-config") {
+        if (args.len() == 2) || (args.len() == 3 && args[2] == "--persist-logs") {
+            return Ok(Command::Serve {
+                root: Root::DetectOrCurrent,
+                workspace_config: Some(PathBuf::from(args[1].clone())),
+                persist_logs: args.len() == 3,
+            });
+        }
+        return Err(
+            "usage: agent-harness --workspace-config <manifest.json> [--persist-logs]".into(),
+        );
     }
 
     let auto_root = needs_workspace_root(&args);
@@ -128,25 +142,28 @@ pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
         if args.len() == 3 && is(2, "--persist-logs") {
             return Ok(Command::Serve {
                 root: root(),
+                workspace_config: None,
                 persist_logs: true,
             });
         }
         if args.len() == 2 {
             return Ok(Command::Serve {
                 root: root(),
+                workspace_config: None,
                 persist_logs: false,
             });
         }
     } else if args.is_empty() {
         return Ok(Command::Serve {
             root: Root::DetectOrCurrent,
+            workspace_config: None,
             persist_logs: false,
         });
     } else if args.len() == 1 && eq(&args, 0, "--version") {
         return Ok(Command::Version);
     }
 
-    Err("usage: agent-harness [--root <workspace>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into())
+    Err("usage: agent-harness [--root <workspace>] [--workspace-config <manifest.json>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into())
 }
 
 pub(super) fn needs_workspace_root(args: &[OsString]) -> bool {

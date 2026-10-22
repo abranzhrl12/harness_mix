@@ -23,7 +23,7 @@ use rmcp::{
     service::RequestContext,
     tool, tool_handler, tool_router,
 };
-pub use runtime::{serve, serve_with_logging};
+pub use runtime::{serve, serve_with_logging, serve_with_workspace_config};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -189,7 +189,9 @@ where
     ) -> CallToolResult {
         self.call(Request::Move(args), context).await
     }
-    #[tool(description = "Compila o prueba con herramientas locales, sin shell.")]
+    #[tool(
+        description = "Compila o prueba con herramientas locales, sin shell. language=angular invoca @angular/compiler-cli local sin emitir archivos; project/configuration seleccionan angular.json."
+    )]
     async fn harness_verify(
         &self,
         Parameters(args): Parameters<VerifyArgs>,

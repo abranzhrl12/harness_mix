@@ -37,6 +37,28 @@ fn parses_server_defaults_and_flags() {
 }
 
 #[test]
+fn parses_workspace_manifest_server_option() {
+    match parse_args(&["--workspace-config", "projects.json"]).unwrap() {
+        Command::Serve {
+            workspace_config: Some(path),
+            persist_logs: false,
+            ..
+        } => {
+            assert_eq!(path, PathBuf::from("projects.json"));
+        }
+        _ => panic!("expected workspace-config server command"),
+    }
+    assert!(matches!(
+        parse_args(&["--workspace-config", "projects.json", "--persist-logs"]),
+        Ok(Command::Serve {
+            workspace_config: Some(_),
+            persist_logs: true,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn parses_index_aliases_and_unified_actions() {
     for args in [
         vec!["--root", "w", "--init-index"],
@@ -173,7 +195,7 @@ fn preserves_help_version_and_parse_errors() {
     assert!(matches!(parse_args(&["--version"]), Ok(Command::Version)));
     assert_eq!(
         parse_args(&["--root", "w", "--bogus"]).err().unwrap(),
-        "usage: agent-harness [--root <workspace>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version"
+        "usage: agent-harness [--root <workspace>] [--workspace-config <manifest.json>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version"
     );
     assert_eq!(
         parse_args(&["--root", "w", "a", "b", "c", "d"])

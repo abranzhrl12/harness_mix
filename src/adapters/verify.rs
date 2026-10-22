@@ -21,9 +21,20 @@ mod rust;
 #[path = "verification/typescript.rs"]
 mod typescript;
 
+#[path = "verification/angular.rs"]
+pub(in crate::adapters) mod angular;
+
 pub(super) use typescript::run_typescript_syntax;
 
 fn validate_verify_options(args: &VerifyArgs) -> Result<(), Failure> {
+    if (args.project.is_some() || args.configuration.is_some())
+        && !args.language.eq_ignore_ascii_case("angular")
+    {
+        return Err((
+            "VERIFY_OPTIONS",
+            "project and configuration are supported only for Angular",
+        ));
+    }
     if !matches!(
         args.engine.as_deref().unwrap_or("auto"),
         "auto" | "dotnet" | "msbuild"
@@ -67,6 +78,9 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
             ));
         }
     }
+    if args.language.eq_ignore_ascii_case("angular") {
+        return angular::angular_plan(project, args);
+    }
     if args.language.eq_ignore_ascii_case("dotnet") || args.language.eq_ignore_ascii_case("csharp")
     {
         return dotnet::dotnet_plan(project, args);
@@ -87,7 +101,7 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if !args.language.eq_ignore_ascii_case("rust") {
         return Err((
             "UNSUPPORTED",
-            "Only Rust, Go, Python, JavaScript and dotnet verification are migrated",
+            "Supported verifiers: Rust, Go, Python, JavaScript, TypeScript, Angular and dotnet",
         ));
     }
     rust::plan(project, args)
@@ -168,6 +182,7 @@ pub(super) fn verify(
         ));
     }
     let native_typescript = typescript::typescript_scope(project, args)?.is_some();
+    let angular = args.language.eq_ignore_ascii_case("angular");
     let spec = if native_typescript {
         None
     } else {
@@ -192,7 +207,13 @@ pub(super) fn verify(
         }
     };
     observation["coverage"] = super::fingerprint::coverage();
-    let stdout = String::from_utf8_lossy(&outcome.stdout);
+    let raw_stdout = String::from_utf8_lossy(&outcome.stdout);
+    let angular_report = angular.then(|| angular::report(&raw_stdout)).flatten();
+    let stdout = angular_report
+        .as_ref()
+        .map(angular::display)
+        .map(std::borrow::Cow::Owned)
+        .unwrap_or_else(|| raw_stdout.clone());
     let stderr = String::from_utf8_lossy(&outcome.stderr);
     let output = format!("{stdout}\n{stderr}");
     let limited = outcome.reason == StopReason::OutputLimit;
@@ -271,7 +292,7 @@ pub(super) fn verify(
         result["testCountVerified"] = json!(false);
         result["implicitRestoreEnabled"] = json!(false);
     }
-    if program == Some(Program::Node) {
+    if program == Some(Program::Node) && !angular {
         result["verificationMode"] = json!(if matches!(args.action, Some(VerifyAction::Test)) {
             "node_test_file"
         } else {
@@ -295,6 +316,11 @@ pub(super) fn verify(
         result["diagnostics"] = json!([{"code":"CANCELLED","message":"Verification cancelled; captured output may be partial"}]);
     } else if limited {
         result["diagnostics"] = json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded the bounded capture budget","limitBytes":spec.as_ref().map(ProcessSpec::output_limit)}]);
+    }
+    if angular {
+        angular::annotate(&mut result, angular_report.as_ref());
+        // Expose the invocation contract without echoing the embedded driver source.
+        result["command"] = json!({"program":"node","mode":"embedded_module","compiler":"@angular/compiler-cli","scope":args.scope.as_deref().unwrap_or("."),"project":args.project,"configuration":args.configuration,"noEmit":true});
     }
     if utf16_len(&output) > 12000 || limited {
         result["truncated"] = json!(true);

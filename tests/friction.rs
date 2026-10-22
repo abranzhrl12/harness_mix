@@ -110,6 +110,8 @@ fn package_check_skips_broken_siblings_and_logs_command_and_error_tails() {
     let app = adapters::application(root.path()).unwrap();
     let check = |package: &str| {
         app.execute(Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             language: "rust".into(),
             package: Some(package.into()),
             scope: None,

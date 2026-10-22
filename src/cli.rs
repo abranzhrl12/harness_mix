@@ -80,10 +80,19 @@ pub async fn run(
             })?;
             println!("{}", serde_json::to_string(&result)?);
         }
-        Command::Serve { root, persist_logs } => {
-            agent_harness::transport::serve_with_logging(&resolve_root(root)?, persist_logs)
-                .await?;
-        }
+        Command::Serve {
+            root,
+            workspace_config,
+            persist_logs,
+        } => match workspace_config {
+            Some(config) => {
+                agent_harness::transport::serve_with_workspace_config(&config, persist_logs).await?
+            }
+            None => {
+                agent_harness::transport::serve_with_logging(&resolve_root(root)?, persist_logs)
+                    .await?
+            }
+        },
     }
     Ok(())
 }
@@ -129,7 +138,7 @@ fn run_index(
 
 fn print_help() {
     println!(
-        "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
+        "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
     );
     println!(
         "\nConfiguración opcional: --init-config crea .agents/harness.config.json sin sobrescribir. SQL funciona sin JSON usando una cadena en .env o variables de entorno."

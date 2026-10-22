@@ -4,6 +4,8 @@ use serde_json::Value;
 
 fn verify(application: &adapters::NativeApplication, action: VerifyAction) -> Value {
     application.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "rust".into(),
         package: None,
         scope: Some("crate with spaces".into()),
@@ -85,6 +87,8 @@ fn test_extended_verify_plans() {
     )
     .unwrap();
     let go_res = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "go".into(),
         package: None,
         scope: Some("go.mod".into()),
@@ -102,6 +106,8 @@ fn test_extended_verify_plans() {
     std::fs::write(py_dir.join("pytest.ini"), "[pytest]\n").unwrap();
     std::fs::write(py_dir.join("test_sample.py"), "def test_ok(): pass\n").unwrap();
     let py_res = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "python".into(),
         package: None,
         scope: Some("py_tests".into()),
@@ -114,6 +120,8 @@ fn test_extended_verify_plans() {
 
     // 2b. Python single test file
     let py_file_res = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "python".into(),
         package: None,
         scope: Some("py_tests/test_sample.py".into()),
@@ -127,6 +135,8 @@ fn test_extended_verify_plans() {
     // 3. TypeScript scope acceptance
     std::fs::write(root.path().join("index.ts"), "const x: number = 42;\n").unwrap();
     let ts_res = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "typescript".into(),
         package: None,
         scope: Some("index.ts".into()),

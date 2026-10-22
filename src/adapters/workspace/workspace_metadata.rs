@@ -70,6 +70,7 @@ impl WorkspaceMetadata for NativeWorkspace {
             ("rust", "Cargo.toml"),
             ("go", "go.mod"),
             ("javascript", "package.json"),
+            ("angular", "angular.json"),
             ("python", "pyproject.toml"),
             ("java", "pom.xml"),
             ("dotnet", "global.json"),

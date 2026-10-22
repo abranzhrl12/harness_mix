@@ -9,6 +9,8 @@ fn manifest_scope_cannot_escape_or_become_an_option() {
     .unwrap();
     let project = Project::new(root.path()).unwrap();
     let mut args = VerifyArgs {
+        project: None,
+        configuration: None,
         engine: None,
         warnings: None,
         language: "rust".into(),

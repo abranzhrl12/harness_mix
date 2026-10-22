@@ -1,20 +1,11 @@
 //! Constructs the native adapters and injects them into the application core.
 use super::{
-    NativeApplication, NativeApplicationOptions, NativeWorkspace, disk_logs, project::Project,
-    sessions, workspace::services,
+    NativeApplicationOptions, NativeWorkspace, disk_logs, project::Project, sessions,
+    workspace::services,
 };
-use harness_application::Application;
 use std::path::Path;
 
-pub(super) fn application(
-    root: &Path,
-    options: NativeApplicationOptions,
-) -> std::io::Result<NativeApplication> {
-    let (workspace, sessions) = dependencies(root, options)?;
-    Ok(Application::new(workspace, sessions))
-}
-
-fn dependencies(
+pub(super) fn dependencies(
     root: &Path,
     options: NativeApplicationOptions,
 ) -> std::io::Result<(NativeWorkspace, sessions::Sessions)> {

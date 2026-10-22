@@ -42,6 +42,7 @@ En Windows, con perfil `full` e índice existente compatible, el mantenimiento a
 | --- | --- |
 | [Instalación](docs/INSTALLATION.md) | npm, ejecutable, Rust y conexión MCP |
 | [Comandos](docs/REFERENCE.md) | Opciones CLI, 22 herramientas, ejemplos y límites |
+| [Workspace de varios proyectos](docs/WORKSPACE.md) | Manifiesto y trabajo entre varios grafos |
 | [Rendimiento](docs/PERFORMANCE.md) | Tiempos por opción, muestras y reproducción |
 | [Bases de datos](docs/SQL-QUICKSTART.md) | Conexión, TLS, permisos y caché |
 | [Arquitectura y desarrollo](docs/ARCHITECTURE.md) | Módulos, parsers, pruebas y distribución |

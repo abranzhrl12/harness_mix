@@ -150,6 +150,8 @@ fn verification_admission_prevents_io_and_releases_session_lease() {
     );
     let request = |id: &str| {
         Request::Verify(harness_domain::contracts::VerifyArgs {
+            project: None,
+            configuration: None,
             language: "rust".into(),
             package: None,
             scope: Some("crate".into()),

@@ -142,6 +142,8 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
     let app = adapters::application(root.path()).unwrap();
     let id = bootstrap(&app);
     let result = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "rust".into(),
         package: None,
         scope: None,
@@ -243,6 +245,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     // Warm up Cargo.lock, then establish a stable before/after baseline.
     for _ in 0..2 {
         let result = app.execute(Request::Verify(VerifyArgs {
+            project: None,
+            configuration: None,
             language: "rust".into(),
             package: None,
             scope: None,
@@ -295,6 +299,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     assert_eq!(old_check["current"], false);
     assert_eq!(old_check["invalidation"]["requiresRerun"], true);
     let rerun = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "rust".into(),
         package: None,
         scope: None,
@@ -316,6 +322,8 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
     // A later verify also observes external changes without an explicit refresh.
     std::fs::write(root.path().join("README.md"), "new local input\n").unwrap();
     let next = app.execute(Request::Verify(VerifyArgs {
+        project: None,
+        configuration: None,
         language: "rust".into(),
         package: None,
         scope: None,

@@ -95,6 +95,21 @@ pub(super) async fn execute(
                     result["codeExecuted"] = json!(false);
                     result["testCountVerified"] = json!(false);
                 }
+                if verify_args.language.eq_ignore_ascii_case("angular") {
+                    let stdout = String::from_utf8_lossy(&outcome.stdout);
+                    let report = verify::angular::report(&stdout);
+                    verify::angular::annotate(&mut result, report.as_ref());
+                    if let Some(report) = &report {
+                        let display = verify::angular::display(report);
+                        result["output"] = json!(display.chars().take(12000).collect::<String>());
+                        result["outputTruncated"] = json!(display.chars().count() > 12000);
+                    }
+                }
+                let status = if status == JobStatus::Succeeded && result["passed"] != true {
+                    JobStatus::Failed
+                } else {
+                    status
+                };
                 inner.update(&id, status, attempt, Some(result));
                 return;
             }
