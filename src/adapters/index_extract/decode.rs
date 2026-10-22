@@ -176,6 +176,9 @@ pub(super) fn decode(
         None => json!([]),
     };
     if !errors.as_array().ok_or(CONTRACT)?.is_empty() {
+        super::set_diagnostic(
+            json!({"file":path,"language":lang,"stage":"decode_extraction","errors":errors}),
+        );
         return Err((
             "EXTRACTION_DEFERRED",
             "Native extraction reported errors; index unchanged",

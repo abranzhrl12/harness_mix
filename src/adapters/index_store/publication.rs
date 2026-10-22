@@ -33,6 +33,7 @@ pub(super) fn publish(
     context: &OperationContext,
     configuration: (tsconfig::Snapshot, bool),
     force: bool,
+    prepared: Option<super::parallel::Prepared>,
 ) -> Result<(Value, imports::Sources), Failure> {
     let (configuration, config_changed) = configuration;
     let record: Option<(String, Option<String>)> = sql(db
@@ -50,8 +51,13 @@ pub(super) fn publish(
     }
     // Parse only after the authoritative transaction sees a changed digest or
     // an extraction retry/configuration change. Duplicate watcher events are cheap.
+    sync_diagnostic::stage("extract_source");
+    let mut prepared = prepared;
     let extracted_value = bytes
         .map(|bytes| {
+            if let Some(result) = prepared.take().and_then(|value| value.consume(bytes)) {
+                return result;
+            }
             let text =
                 std::str::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
             index_extract::extract(path, text, context)

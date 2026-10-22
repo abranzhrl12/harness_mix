@@ -34,6 +34,17 @@ agent-harness --root "C:/proyectos/mi-app" --index rebuild
 
 Estas operaciones escriben en `.codegraph/`. `init` exige que esa carpeta no exista; `rebuild` utiliza un índice compatible y puede dejar commits por archivo si se interrumpe. No borra las fuentes ni certifica cobertura global.
 
+`sync` y `rebuild` preparan las fuentes en paralelo (hasta cuatro trabajadores según los procesadores disponibles) y publican en SQLite con un único escritor. Para comparar con la ejecución secuencial o limitar el consumo:
+
+~~~powershell
+$env:HARNESS_INDEX_WORKERS = "4" # De 1 a 4; 1 desactiva la preparación paralela
+agent-harness --root "C:/proyectos/mi-app" --index rebuild
+~~~
+
+El informe incluye `extractionWorkers`, `databaseWriters`, `indexingDurationMs` y `failures`. La lista `failures` conserva todos los fallos de publicación aunque `files` solo muestre 32 resultados. Cada fallo aporta archivo, código, mensaje y diagnóstico de etapa; los errores del extractor conservan la causa original y los de sintaxis Rust incluyen ubicaciones cuando están disponibles. Los errores SQLite de inicialización, planificación y publicación conservan su causa y códigos. Para medir la mejora, compara el mismo conjunto de fuentes e índice con 1 y 4 trabajadores, sin incluir compilación; el beneficio depende del peso de la extracción frente a las escrituras y la resolución del grafo.
+
+`inventoryDiagnostics` explica los archivos que no pudieron leerse o comprobarse; `uncheckedFilePaths` enumera el trabajo pendiente y `skippedFileReports` conserva las limitaciones del proveedor por archivo.
+
 En Windows, con perfil `full` e índice existente compatible, el mantenimiento automático está habilitado por defecto. `HARNESS_INDEX_WATCH=0` lo desactiva.
 
 ## Documentación

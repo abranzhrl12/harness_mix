@@ -20,6 +20,7 @@ thread_local! {
 }
 
 pub(super) fn begin(file: &str, database: &Path) {
+    crate::adapters::index_extract::take_diagnostic();
     CURRENT.with(|slot| {
         *slot.borrow_mut() = Some(State {
             file: file.to_owned(),
@@ -126,6 +127,7 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
                 "providerVersion": env!("CARGO_PKG_VERSION"),
                 "sqliteVersion": rusqlite::version(),
                 "sqlite": state.error,
+                "extraction": crate::adapters::index_extract::take_diagnostic(),
                 "schemaValidation": state.schema_validation.or_else(|| {
                     state.schema_check.map(|check| json!({
                         "check": check,

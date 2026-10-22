@@ -18,6 +18,7 @@ pub fn language(path: &str) -> Option<&'static str> {
 }
 
 pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<Value, Failure> {
+    super::take_diagnostic();
     context.check()?;
     if source.len() > super::super::index_sync::MAX_SOURCE_BYTES {
         return Err((
@@ -46,7 +47,20 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     } else {
         source.to_owned()
     };
-    let raw = codegraph_native::extract(path, &prepared, lang).map_err(|_| {
+    let raw = codegraph_native::extract(path, &prepared, lang).map_err(|error| {
+        let mut diagnostic = serde_json::json!({"file":path,"language":lang,"stage":"native_extract","message":error});
+        if lang == "rust" {
+            let parsed = ra_ap_syntax::SourceFile::parse(source, ra_ap_syntax::Edition::Edition2024);
+            let errors: Vec<_> = parsed.errors().iter().map(|error| {
+                let offset = usize::from(error.range().start());
+                let prefix = &source[..offset.min(source.len())];
+                let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+                serde_json::json!({"line":line,"column":column,"message":error.to_string()})
+            }).collect();
+            diagnostic["errors"] = serde_json::json!(errors);
+        }
+        super::set_diagnostic(diagnostic);
         (
             "EXTRACTION_DEFERRED",
             "Native extractor deferred this source; no Node fallback was executed",

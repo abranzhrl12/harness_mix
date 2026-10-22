@@ -23,10 +23,10 @@ const UNCERTAIN: Failure = (
 );
 const MAX_ROWS: usize = 20_000;
 
-#[path = "index_store/validation.rs"]
-mod validation;
 #[path = "index_store/sync_diagnostic.rs"]
 mod sync_diagnostic;
+#[path = "index_store/validation.rs"]
+mod validation;
 use self::validation::validate_schema;
 
 #[path = "index_store/repository.rs"]
@@ -80,6 +80,9 @@ pub(super) mod tsconfig;
 
 #[path = "index_semantic_policy.rs"]
 mod semantic_policy;
+
+#[path = "index_store/parallel.rs"]
+mod parallel;
 
 /// Apply a bounded native subset of the current plan. Transactions are per
 /// file, NOT per workspace. Once any file commits, subsequent errors/cancellation
@@ -307,9 +310,19 @@ fn sync_workspace_with_limit(
     let mut provider_dependent = 0;
     let mut failed = 0;
     let mut failure = None;
+    let mut failures = Vec::new();
+    let mut skipped_reports = Vec::new();
+    let worker_count = parallel::workers();
+    let selected: Vec<_> = paths.iter().take(max_files).collect();
+    let mut prepared = std::collections::VecDeque::new();
     #[cfg(windows)]
     let mut writer = None;
-    for path in paths.iter().take(max_files) {
+    for (position, path) in selected.iter().copied().enumerate() {
+        if prepared.is_empty() && worker_count > 1 && context.check().is_ok() {
+            let end = (position + worker_count).min(selected.len());
+            prepared.extend(parallel::prepare(root, &selected[position..end], context));
+        }
+        let preparation = prepared.pop_front().flatten();
         context.report_progress("indexing", processed, Some(total), Some(path));
         let file_started = std::time::Instant::now();
         // Bound each file without extending the owner's deadline or losing cancellation.
@@ -319,10 +332,20 @@ fn sync_workspace_with_limit(
         let applied = scope.recheck(&project, &file_context).and_then(|()| {
             #[cfg(windows)]
             {
-                sync_file_config_reuse(root, path, None, &file_context, || {}, rebuild, &mut writer)
+                sync_file_config_prepared(
+                    root,
+                    path,
+                    None,
+                    &file_context,
+                    || {},
+                    rebuild,
+                    &mut writer,
+                    preparation,
+                )
             }
             #[cfg(not(windows))]
             {
+                let _ = preparation;
                 sync_file(root, path, &file_context)
             }
         });
@@ -347,6 +370,8 @@ fn sync_workspace_with_limit(
                 if code == "SYNC_UNSUPPORTED_RELATION" || code == "SYNC_LEGACY_REFERENCE" {
                     provider_dependent += 1;
                     unsupported += 1;
+                    entry["skipped"] = json!(true);
+                    skipped_reports.push(entry.clone());
                     if results.len() < 32 {
                         entry["skipped"] = json!(true);
                         results.push(entry);
@@ -359,6 +384,7 @@ fn sync_workspace_with_limit(
                 if failure.is_none() {
                     failure = Some(entry.clone());
                 }
+                failures.push(entry.clone());
                 if results.len() < 32 {
                     results.push(entry);
                 }
@@ -382,17 +408,21 @@ fn sync_workspace_with_limit(
     }
     context.report_progress("finalizing", processed, Some(total), None);
     if failure.is_none()
-        && let Err((code, _)) = scope.recheck(&project, context)
+        && let Err((code, message)) = scope.recheck(&project, context)
     {
-        failure = Some(json!({"path":"codegraph.json","code":code,"commitState":"not_committed"}));
+        let entry = json!({"path":"codegraph.json","code":code,"message":message,"stage":"final_scope_recheck","commitState":"not_committed"});
+        failures.push(entry.clone());
+        failure = Some(entry);
     }
     let native_complete = failure.is_none() && processed == total;
     Ok(
         json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope.stamp(),
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
+        "failures":failures,"extractionWorkers":worker_count,"databaseWriters":1,
+        "skippedFileReports":skipped_reports,"inventoryDiagnostics":planned["inventory"]["fileDiagnostics"],"uncheckedFilePaths":planned["plan"]["unchecked"],
         "indexingDurationMs":started.elapsed().as_millis(),
         "durationMs":operation_started.elapsed().as_millis(),
-        "filesProcessed":processed,"fileReportsOmitted":processed.saturating_sub(results.len()),"fileReportLimit":32,
+        "filesProcessed":processed,"fileReportsOmitted":(processed+failed+provider_dependent).saturating_sub(results.len()),"fileReportLimit":32,
         "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
         "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
@@ -408,7 +438,12 @@ pub fn take_sync_diagnostic(code: &str, message: &str) -> Option<Value> {
     sync_diagnostic::take(code, message)
 }
 
-fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Failure> {
+pub(super) fn begin_plan_diagnostic(database: &Path) {
+    sync_diagnostic::begin("<workspace-plan>", database);
+    sync_diagnostic::stage("plan_workspace");
+}
+
+pub(super) fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Failure> {
     value.map_err(|error| {
         sync_diagnostic::capture(&error);
         match error {
@@ -580,7 +615,32 @@ fn sync_file_config_reuse(
     force: bool,
     writer: &mut Option<writer::Writer>,
 ) -> Result<Value, Failure> {
+    sync_file_config_prepared(
+        root,
+        relative,
+        requested_config,
+        context,
+        before_recheck,
+        force,
+        writer,
+        None,
+    )
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn sync_file_config_prepared(
+    root: &Path,
+    relative: &str,
+    requested_config: Option<&str>,
+    context: &OperationContext,
+    before_recheck: impl FnOnce(),
+    force: bool,
+    writer: &mut Option<writer::Writer>,
+    prepared: Option<parallel::Prepared>,
+) -> Result<Value, Failure> {
     context.check()?;
+    index_extract::take_diagnostic();
     // Windows callers pass native separators; the graph stores POSIX-style paths.
     let normalized = normalize_relative(relative);
     let relative = normalized.as_str();
@@ -640,6 +700,7 @@ fn sync_file_config_reuse(
             context,
             configuration,
             force,
+            prepared,
         )?;
         result["tsconfig"] = import_sources.config.stamp();
         before_recheck();

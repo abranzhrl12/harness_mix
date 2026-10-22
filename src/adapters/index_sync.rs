@@ -8,6 +8,13 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+fn sql_failure(error: rusqlite::Error, failure: Failure) -> Failure {
+    // Preserve the original SQLite cause even when the public failure is scoped
+    // to planning rather than publication.
+    let _ = super::index_store::sql::<()>(Err(error));
+    failure
+}
+
 /// Executable dry-run stage. It checks every provider-tracked file and discovers
 /// new Rust files, but deliberately cannot claim the full CodeGraph scan scope.
 pub fn plan_workspace(
@@ -35,6 +42,7 @@ fn plan_workspace_inner(
     context.report_progress("planning", 0, None, None);
     let project = super::project::Project::new(root)
         .map_err(|_| ("PATH", "Workspace is not an accessible directory"))?;
+    super::index_store::begin_plan_diagnostic(&project.root.join(".codegraph/codegraph.db"));
     let index_error = (
         "INDEX",
         "CodeGraph index unavailable, unsupported, busy or invalid",
@@ -59,19 +67,19 @@ fn plan_workspace_inner(
             | OpenFlags::SQLITE_OPEN_NO_MUTEX
             | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
-    .map_err(|_| index_error)?;
+    .map_err(|error| sql_failure(error, index_error))?;
     db.busy_timeout(Duration::from_millis(super::INDEX_BUSY_TIMEOUT_MS))
-        .map_err(|_| index_error)?;
+        .map_err(|error| sql_failure(error, index_error))?;
     db.set_limit(Limit::SQLITE_LIMIT_LENGTH, 131072)
-        .map_err(|_| index_error)?;
+        .map_err(|error| sql_failure(error, index_error))?;
     db.set_limit(Limit::SQLITE_LIMIT_SQL_LENGTH, 8192)
-        .map_err(|_| index_error)?;
+        .map_err(|error| sql_failure(error, index_error))?;
     let cancel = context.clone();
     db.progress_handler(1000, Some(move || cancel.check().is_err()))
-        .map_err(|_| index_error)?;
-    db.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; BEGIN;").map_err(|_| index_error)?;
+        .map_err(|error| sql_failure(error, index_error))?;
+    db.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; BEGIN;").map_err(|error| sql_failure(error, index_error))?;
     let run = || {
-        let ordinary: i64 = db.query_row("SELECT count(*) FROM sqlite_schema WHERE name='schema_versions' AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'", [], |row| row.get(0)).map_err(|_| index_error)?;
+        let ordinary: i64 = db.query_row("SELECT count(*) FROM sqlite_schema WHERE name='schema_versions' AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'", [], |row| row.get(0)).map_err(|error| sql_failure(error, index_error))?;
         if ordinary != 1 {
             return Err(index_error);
         }
@@ -79,7 +87,7 @@ fn plan_workspace_inner(
             .query_row("SELECT max(version) FROM schema_versions", [], |row| {
                 row.get(0)
             })
-            .map_err(|_| index_error)?;
+            .map_err(|error| sql_failure(error, index_error))?;
         if !(1..=11).contains(&version) {
             return Err(index_error);
         }
@@ -208,7 +216,7 @@ pub fn plan(
     let ordinary: i64 = db.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE name='files' AND type='table' AND upper(sql) LIKE 'CREATE TABLE%'",
         [], |row| row.get(0),
-    ).map_err(|_| ("SYNC_CONTRACT", "Cannot inspect indexed files metadata"))?;
+    ).map_err(|error| sql_failure(error, ("SYNC_CONTRACT", "Cannot inspect indexed files metadata")))?;
     if ordinary != 1 {
         return Err(("SYNC_CONTRACT", "Expected the CodeGraph files table"));
     }
@@ -217,7 +225,12 @@ pub fn plan(
         .prepare(
             "SELECT path, content_hash, errors FROM files ORDER BY path COLLATE BINARY LIMIT 20001",
         )
-        .map_err(|_| ("SYNC_CONTRACT", "Incompatible CodeGraph files columns"))?;
+        .map_err(|error| {
+            sql_failure(
+                error,
+                ("SYNC_CONTRACT", "Incompatible CodeGraph files columns"),
+            )
+        })?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -226,12 +239,13 @@ pub fn plan(
                 row.get::<_, Option<String>>(2)?,
             ))
         })
-        .map_err(|_| ("SYNC_CONTRACT", "Cannot read indexed files"))?;
+        .map_err(|error| sql_failure(error, ("SYNC_CONTRACT", "Cannot read indexed files")))?;
     let mut indexed = BTreeMap::new();
     for row in rows {
         context.check()?;
-        let (path, digest, errors) =
-            row.map_err(|_| ("SYNC_CONTRACT", "Invalid indexed file metadata"))?;
+        let (path, digest, errors) = row.map_err(|error| {
+            sql_failure(error, ("SYNC_CONTRACT", "Invalid indexed file metadata"))
+        })?;
         if indexed.len() == MAX_FILES {
             return Err(("SYNC_LIMIT", "Index exceeds the file budget"));
         }

@@ -25,6 +25,7 @@ pub(super) struct Inventory {
     pub budget_exhausted: bool,
     pub scope_excluded: Vec<String>,
     pub scope: serde_json::Value,
+    pub file_diagnostics: Vec<serde_json::Value>,
 }
 
 pub(super) fn excluded(name: &str) -> bool {
@@ -78,6 +79,7 @@ pub(super) fn scan(
         budget_exhausted: false,
         scope_excluded: Vec::new(),
         scope: scope.stamp(),
+        file_diagnostics: Vec::new(),
     };
     // Check each tracked path directly. Discovery exclusions must never turn an
     // old provider record into an inferred deletion. This is NOT full ScopeIgnore.
@@ -178,6 +180,14 @@ pub(super) fn scan(
 }
 
 impl Inventory {
+    fn unchecked(&mut self, path: &str, code: &str, message: &str) -> Observation {
+        self.skipped_entries += 1;
+        self.file_diagnostics.push(
+            serde_json::json!({"path":path,"stage":"inventory","code":code,"message":message}),
+        );
+        Observation::Unchecked
+    }
+
     fn observe(
         &mut self,
         project: &Project,
@@ -188,9 +198,8 @@ impl Inventory {
         context.report_progress("inventory", self.observations.len(), None, Some(relative));
         let path = match project.target_optional(relative) {
             Ok(path) => path,
-            Err(_) => {
-                self.skipped_entries += 1;
-                return Ok(Observation::Unchecked);
+            Err((code, message)) => {
+                return Ok(self.unchecked(relative, code, message));
             }
         };
         let metadata = match std::fs::symlink_metadata(&path) {
@@ -198,19 +207,25 @@ impl Inventory {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Observation::Missing);
             }
-            Err(_) => {
-                self.skipped_entries += 1;
-                return Ok(Observation::Unchecked);
+            Err(error) => {
+                return Ok(self.unchecked(relative, "IO_METADATA", &error.to_string()));
             }
         };
         if !metadata.is_file() || metadata.len() > index_sync::MAX_SOURCE_BYTES as u64 {
-            self.skipped_entries += 1;
-            return Ok(Observation::Unchecked);
+            return Ok(self.unchecked(
+                relative,
+                "SOURCE_LIMIT",
+                "Source is not a regular file or exceeds the extraction size limit",
+            ));
         }
         if self.reserved_source_bytes + metadata.len() > MAX_BYTES {
             self.budget_exhausted = true;
             self.discovery_complete = false;
-            return Ok(Observation::Unchecked);
+            return Ok(self.unchecked(
+                relative,
+                "INVENTORY_LIMIT",
+                "Aggregate source byte budget exhausted",
+            ));
         }
         self.reserved_source_bytes += metadata.len();
         #[cfg(windows)]
@@ -219,9 +234,8 @@ impl Inventory {
             path.parent().ok_or(("PATH", "Missing source parent"))?,
         ) {
             Ok(pins) => pins,
-            Err(_) => {
-                self.skipped_entries += 1;
-                return Ok(Observation::Unchecked);
+            Err((code, message)) => {
+                return Ok(self.unchecked(relative, code, message));
             }
         };
         // Reserve the observed size and cap the actual read at that size. Growth
@@ -229,17 +243,13 @@ impl Inventory {
         let bytes = match project.bytes_with_limit(relative, context, metadata.len()) {
             Ok(bytes) => bytes,
             Err(failure @ ("CANCELLED" | "TIMEOUT", _)) => return Err(failure),
-            Err(_) => {
-                self.skipped_entries += 1;
-                return Ok(Observation::Unchecked);
+            Err((code, message)) => {
+                return Ok(self.unchecked(relative, code, message));
             }
         };
         match index_sync::source_hash(&bytes) {
             Ok(digest) => Ok(Observation::Content(digest)),
-            Err(_) => {
-                self.skipped_entries += 1;
-                Ok(Observation::Unchecked)
-            }
+            Err((code, message)) => Ok(self.unchecked(relative, code, message)),
         }
     }
 }
@@ -247,6 +257,19 @@ impl Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unreadable_encoding_has_a_file_diagnostic_and_is_not_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe]).unwrap();
+        let project = Project::new(dir.path()).unwrap();
+        let inventory = scan(&project, &[], &OperationContext::default()).unwrap();
+        assert!(matches!(
+            inventory.observations["invalid.rs"],
+            Observation::Unchecked
+        ));
+        assert_eq!(inventory.file_diagnostics[0]["path"], "invalid.rs");
+        assert_eq!(inventory.file_diagnostics[0]["code"], "SYNC_UNCHECKED");
+    }
     #[test]
     fn restricted_policy_counts_do_not_read_or_disclose_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -300,6 +323,7 @@ mod tests {
             budget_exhausted: false,
             scope_excluded: Vec::new(),
             scope: serde_json::Value::Null,
+            file_diagnostics: Vec::new(),
         };
         let observed = inventory
             .observe(&project, "source.rs", &OperationContext::default())

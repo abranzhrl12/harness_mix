@@ -1,5 +1,64 @@
 #[cfg(windows)]
 #[test]
+fn standalone_plan_keeps_the_original_sqlite_error() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(dir.path(), &context).unwrap();
+    let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+    db.execute_batch("ALTER TABLE files RENAME COLUMN content_hash TO broken_hash")
+        .unwrap();
+    drop(db);
+    let failure = index_sync::plan_workspace(dir.path(), &context).unwrap_err();
+    let diagnostic = take_sync_diagnostic(failure.0, failure.1).unwrap();
+    assert_eq!(diagnostic["stage"], "plan_workspace");
+    assert!(
+        diagnostic["sqlite"]["originalMessage"]
+            .as_str()
+            .unwrap()
+            .contains("content_hash")
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn workspace_reports_errors_after_the_success_report_limit() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(dir.path(), &context).unwrap();
+    for index in 0..34 {
+        std::fs::write(
+            dir.path().join(format!("a{index:02}.rs")),
+            format!("pub fn f{index}() {{}}\n"),
+        )
+        .unwrap();
+    }
+    for name in ["z1.rs", "z2.rs"] {
+        std::fs::write(dir.path().join(name), "pub fn broken( {\n").unwrap();
+    }
+    let report = sync_workspace_all(dir.path(), &context).unwrap();
+    assert_eq!(report["files"].as_array().unwrap().len(), 32);
+    assert_eq!(report["changedFilesCommitted"], 34);
+    assert_eq!(report["failedFiles"], 2);
+    let failures = report["failures"].as_array().unwrap();
+    assert_eq!(failures.len(), 2);
+    assert_eq!(failures[1]["path"], "z2.rs");
+    assert!(
+        failures[1]["diagnostic"]["extraction"]["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty())
+    );
+    assert_eq!(report["selectedScopeApplied"], false);
+    let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+    let count: i64 = db
+        .query_row("SELECT count(*) FROM files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 34);
+}
+
+#[cfg(windows)]
+#[test]
 fn semantic_exclusion_keeps_symbols_and_prevents_deep_binding_failure() {
     use super::*;
     let dir = tempfile::tempdir().unwrap();

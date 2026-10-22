@@ -23,6 +23,11 @@ pub fn initialize(root: &Path, context: &OperationContext) -> Result<Value, Fail
 fn initialize_windows(root: &Path, context: &OperationContext) -> Result<Value, Failure> {
     use std::{fs::File, os::windows::fs::OpenOptionsExt};
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
+    sync_diagnostic::begin(
+        "<initialize>",
+        &project.root.join(".codegraph/codegraph.db"),
+    );
+    sync_diagnostic::stage("initialize_database");
     let _root_pins = super::super::edit_commit::pin_directory(&project, &project.root)?;
     let directory = project.target_optional(".codegraph")?;
     // create_dir (not create_dir_all) is our exclusive claim. Refuse even an
@@ -72,6 +77,7 @@ fn initialize_windows(root: &Path, context: &OperationContext) -> Result<Value, 
         let cancel = context.clone();
         sql(db.progress_handler(1000, Some(move || cancel.check().is_err())))?;
         let tx = sql(db.transaction())?;
+        sync_diagnostic::stage("initialize_schema");
         sql(tx.execute_batch(include_str!("../../vendor/codegraph-native/schema.sql")))?;
         sql(tx.execute("INSERT INTO project_metadata(key,value,updated_at) VALUES('harness.native.profile','empty-index-v1',0)", []))?;
         context.check()?;
@@ -93,6 +99,9 @@ fn initialize_windows(root: &Path, context: &OperationContext) -> Result<Value, 
             "nextStep":"Run --sync; initialization creates an empty index only"}),
         )
     };
-    initialize().map_err(|_| ("INIT_INCOMPLETE",
-        "Initialization did not complete; retained .codegraph for inspection; no existing index was overwritten"))
+    initialize().map_err(|failure| {
+        sync_diagnostic::schema_issue(json!({"causeCode":failure.0,"causeMessage":failure.1}));
+        ("INIT_INCOMPLETE",
+        "Initialization did not complete; retained .codegraph for inspection; no existing index was overwritten")
+    })
 }
