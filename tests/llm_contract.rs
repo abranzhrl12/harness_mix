@@ -51,19 +51,10 @@ fn investigation_profile_filters_bootstrap_and_blocks_operations_before_executio
     let boot = app.execute(Request::Bootstrap(
         serde_json::from_value(json!({})).unwrap(),
     ));
-    assert_eq!(boot["data"]["toolProfile"], "investigate");
-    assert_eq!(boot["data"]["supportedTools"].as_array().unwrap().len(), 12);
-    assert_eq!(
-        boot["data"]["supportedTools"],
-        boot["data"]["toolContract"]["tools"]
-    );
+    assert_eq!(boot["data"]["workflow"]["investigate"].is_array(), true);
     assert!(boot["data"]["workflow"].get("fix").is_none());
-    for name in boot["data"]["toolContract"]["features"]["batchTools"]
-        .as_array()
-        .unwrap()
-    {
-        assert!(ToolProfile::Investigate.allows(name.as_str().unwrap()));
-    }
+    assert!(boot["data"].get("supportedTools").is_none());
+    assert!(boot["data"].get("quickGuide").is_none());
     let edit = app.execute(Request::Replace(
         serde_json::from_value(json!({
             "path":"example.txt","hash":harness_domain::hash(b"old"),"oldText":"old","newText":"new"
@@ -101,8 +92,8 @@ fn investigation_profile_filters_bootstrap_and_blocks_operations_before_executio
 fn edit_profile_adds_validated_edits_without_enabling_sql() {
     use harness_domain::tool_contract::ToolProfile;
     assert!(ToolProfile::parse("typo").is_err());
-    assert_eq!(ToolProfile::Full.tools().len(), 22);
-    assert_eq!(ToolProfile::Edit.tools().len(), 16);
+    assert_eq!(ToolProfile::Full.tools().len(), 24);
+    assert_eq!(ToolProfile::Edit.tools().len(), 18);
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("example.txt"), "old").unwrap();
     let app = adapters::application(root.path())
@@ -276,32 +267,17 @@ fn llm_bootstrap_reports_actual_registry_and_sql_batch_support() {
         serde_json::from_value(json!({})).unwrap(),
     ));
     assert_eq!(result["state"], "ok", "{result}");
-    assert_eq!(result["data"]["backend"]["name"], "rust");
-    assert_eq!(
-        result["data"]["backend"]["version"],
-        env!("CARGO_PKG_VERSION")
-    );
-    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.1.0");
-    assert_eq!(
-        result["data"]["supportedTools"].as_array().unwrap().len(),
-        22
-    );
-    for name in result["data"]["toolContract"]["features"]["batchTools"]
-        .as_array()
-        .unwrap()
-    {
-        serde_json::from_value::<harness_domain::contracts::BatchTool>(name.clone()).unwrap();
-    }
-    assert!(
-        result["data"]["toolContract"]["features"]["batchTools"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("harness_sql"))
-    );
-    assert!(
-        result["data"]["toolContract"]["features"]["batchTools"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("harness_explore"))
-    );
+    assert_eq!(result["data"]["toolContract"]["backend"], "rust");
+    assert!(result["data"].get("backend").is_none());
+    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.3.0");
+    assert!(result["data"].get("supportedTools").is_none());
+    assert!(result["data"].get("logging").is_none());
+    assert!(result["data"].get("executionPolicy").is_none());
+    assert!(result["data"]
+        .get("toolContract")
+        .map(|c| c.get("features").is_none())
+        .is_some());
+    let tools = harness_domain::tool_contract::tool_names("rust");
+    assert!(tools.iter().any(|t| t == "harness_sql"));
+    assert!(tools.iter().any(|t| t == "harness_explore"));
 }

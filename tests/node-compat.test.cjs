@@ -51,7 +51,7 @@ test('Rust and Node share session v1, read hashes and UTF-16 detail pages', asyn
     });
     const resume = await client.callTool({name:'harness_bootstrap', arguments:{session:nodeSession}});
     assert.equal(resume.isError, false);
-    assert.equal(resume.structuredContent.data.sessionRestored, true);
+    assert.equal(resume.structuredContent.data.sessionId, nodeSession);
 
     const read = await client.callTool({name:'harness_read', arguments:{session:nodeSession, path:'example.txt', start:1, end:2}});
     assert.equal(read.isError, false);

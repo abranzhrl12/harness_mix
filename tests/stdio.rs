@@ -489,7 +489,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 12), ("edit", 16)] {
+    for (profile, count) in [("investigate", 12), ("edit", 18)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
@@ -525,17 +525,12 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
             json!({"name":"harness_bootstrap","arguments":{}}),
         );
         let data = &boot["result"]["structuredContent"]["data"];
-        assert_eq!(data["toolProfile"], profile);
-        let mut actual: Vec<_> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        let mut declared: Vec<_> = data["supportedTools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|n| n.as_str().unwrap())
-            .collect();
-        actual.sort();
-        declared.sort();
-        assert_eq!(actual, declared);
+        assert!(data.get("supportedTools").is_none());
+        assert!(data.get("quickGuide").is_none());
+        assert!(data.get("logging").is_none());
+        assert!(data.get("executionPolicy").is_none());
+        let session_value = data["session"].as_str().unwrap().to_owned();
+        assert_eq!(data["sessionId"], session_value);
         let blocked = server.request(
             4,
             "tools/call",
@@ -595,7 +590,7 @@ fn eager_tools_hint_can_be_disabled_without_changing_full_registry() {
     server.initialize();
     let catalog = server.request(2, "tools/list", json!({}));
     let tools = catalog["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 22);
+    assert_eq!(tools.len(), 24);
     assert!(
         tools
             .iter()
@@ -1070,10 +1065,6 @@ fn search_details_and_session_restore_work_without_node_or_ripgrep() {
         json!({"name":"harness_bootstrap","arguments":{"session":session}}),
     );
     assert_eq!(restored["result"]["isError"], false, "{restored}");
-    assert_eq!(
-        restored["result"]["structuredContent"]["data"]["sessionRestored"],
-        true
-    );
     assert_eq!(
         restored["result"]["structuredContent"]["data"]["sessionId"],
         session
@@ -1702,7 +1693,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 22);
+    assert_eq!(names.len(), 24);
     let mut actual = names.clone();
     actual.sort();
     let mut expected = harness_domain::tool_contract::tool_names("rust");

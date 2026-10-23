@@ -330,9 +330,6 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
     assert_eq!(compact["data"]["catalogCompact"], true);
     assert_eq!(compact["data"]["rules"], "reglas");
     let session = compact["data"]["session"].as_str().unwrap().to_owned();
-    let rules_hash = compact["data"]["rulesHash"].clone();
-    let capabilities_hash = compact["data"]["capabilitiesHash"].clone();
-    assert_eq!(rules_hash, harness_domain::hash(b"reglas"));
     assert!(compact["data"].get("supportedTools").is_none());
     let detail_ref = compact["detail"]["ref"].as_str().unwrap().to_owned();
     let mut catalog_text = String::new();
@@ -351,12 +348,8 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
         }
     }
     let catalog: Value = serde_json::from_str(&catalog_text).unwrap();
-    assert!(catalog["catalog"]["supportedTools"].is_array());
+    assert!(catalog["catalog"]["toolContract"]["contractVersion"].is_string());
     assert!(catalog["catalog"]["routing"].is_array());
-    assert_eq!(
-        catalog["catalog"]["toolContract"]["contractHash"],
-        compact["data"]["toolContract"]["contractHash"]
-    );
 
     let reused = app.execute(Request::Bootstrap(BootstrapArgs {
         compact: true,
@@ -366,9 +359,12 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
     assert_eq!(reused["data"]["catalogUnchanged"], true);
     assert_eq!(reused["data"]["rulesUnchanged"], true);
     assert_eq!(reused["data"]["capabilitiesUnchanged"], true);
-    assert_eq!(reused["data"]["rulesHash"], rules_hash);
-    assert_eq!(reused["data"]["capabilitiesHash"], capabilities_hash);
+    assert!(reused["data"].get("rulesHash").is_none());
+    assert!(reused["data"].get("capabilitiesHash").is_none());
     assert!(reused["data"].get("rules").is_none());
+    assert!(reused["data"].get("quickGuide").is_none());
+    assert!(reused["data"].get("logging").is_none());
+    assert!(reused["data"].get("executionPolicy").is_none());
     let forced = app.execute(Request::Bootstrap(BootstrapArgs {
         compact: true,
         session: Some(session),
@@ -376,7 +372,7 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
     }));
     assert_eq!(forced["data"]["catalogCompact"], true);
     assert_eq!(forced["data"]["rules"], "reglas");
-    assert_eq!(forced["data"]["rulesHash"], rules_hash);
+    assert!(forced["data"].get("rulesHash").is_none());
 }
 
 fn read_request() -> Request {

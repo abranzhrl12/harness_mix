@@ -130,8 +130,8 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
     ));
     let session = first["data"]["sessionId"].as_str().unwrap();
     assert_eq!(
-        first["data"]["toolContract"]["features"]["symbolNavigation"],
-        json!(["rust", "javascript", "typescript"])
+        first["data"]["toolContract"]["contractVersion"],
+        "3.3.0"
     );
     let warm = app.execute(Request::Bootstrap(
         serde_json::from_value(json!({"session":session})).unwrap(),
@@ -141,8 +141,8 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
     assert_eq!(warm["data"]["rulesUnchanged"], true);
     assert!(warm["data"].get("supportedTools").is_none());
     assert_eq!(
-        project(&app, &warm, "catalog.supportedTools"),
-        first["data"]["supportedTools"]
+        project(&app, &warm, "catalog.toolContract"),
+        first["data"]["toolContract"]
     );
     let refreshed = app.execute(Request::Bootstrap(
         serde_json::from_value(json!({"session":session,"includeRules":true})).unwrap(),

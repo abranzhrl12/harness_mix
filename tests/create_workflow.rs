@@ -182,9 +182,9 @@ fn compact_initial_bootstrap_keeps_project_rules_and_safety_context() {
             .contains("retain this rule")
     );
     assert_eq!(compact["data"]["limitations"], full["data"]["limitations"]);
-    assert_eq!(
-        compact["data"]["executionPolicy"],
-        full["data"]["executionPolicy"]
+    assert!(
+        compact["data"].get("executionPolicy").is_none()
+            && full["data"].get("executionPolicy").is_none()
     );
     assert_eq!(compact["data"]["usageRules"], full["data"]["usageRules"]);
     assert!(compact["detail"]["ref"].is_string());
@@ -268,12 +268,12 @@ fn compact_bootstrap_merges_long_rules_and_catalog_in_recoverable_detail() {
     ));
     assert_eq!(boot["state"], "ok", "{boot}");
     let query: DataQueryArgs = serde_json::from_value(json!({"resultRef":boot["detail"]["ref"],
-        "query":"{rules: rules, tools: catalog.supportedTools}","maxChars":32000}))
+        "query":"{rules: rules, exploreRoute: catalog.routing[?tool=='harness_explore']}","maxChars":32000}))
     .unwrap();
     let result = app.execute(Request::DataQuery(query));
     assert_eq!(result["state"], "ok", "{result}");
     let text = result.to_string();
-    assert!(text.contains("harness_write"));
+    assert!(text.contains("harness_explore"));
     assert!(text.contains("retain-rule"));
     assert_eq!(boot["omitted"]["truncated"], true);
 }
