@@ -8,7 +8,6 @@
 //!   1. discover: candidate symbols from `nodes` (bounded SQL, no file reads)
 //!   2. certify:  compare the indexed content hash with the file on disk
 //!   3. repair:   reparse stale files live so published rows stay true
-mod cache;
 mod classification;
 mod discovery;
 mod freshness;

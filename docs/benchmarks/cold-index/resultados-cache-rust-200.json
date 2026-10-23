@@ -1,0 +1,421 @@
+{
+  "evidence": {
+    "failures": [],
+    "filesProcessed": 200,
+    "graphHash": "74996aa068bb2442716c50b17fdd9fc68d3cf22a3e2e81e55c84f8443da84575",
+    "nodesWritten": 2462,
+    "referencesAttempted": 40928,
+    "referencesResolved": 309,
+    "remaining": 0,
+    "skipped": [],
+    "sourceHash": "d08b32b3329fe107565cf93c0a5a926189f987778bc250925f89589f59208bd8",
+    "unchecked": []
+  },
+  "limitations": [
+    "Identify code and profiling differences for each experiment before attributing runtime changes to a component.",
+    "Subphase medians are independent; nested subphase timers must not be added to their parent duration.",
+    "This corpus/sample does not establish semantic equivalence for every language or workload."
+  ],
+  "metadata": {
+    "binaries": {
+      "after": {
+        "modifiedAt": "2026-10-23T02:44:50.923Z",
+        "path": "E:\\harness_mix\\target\\release\\examples\\index_phase_probe.exe",
+        "sha256": "3aa33d4f2f41e344f2879de28bded0bfc5f2f247a4621da1d6f372376c6347e1"
+      },
+      "before": {
+        "modifiedAt": "2026-10-23T02:31:37.324Z",
+        "path": "E:\\harness_mix\\target\\cold-index-before-rust-cache.exe",
+        "sha256": "22b01317f9dc634debedd1edef5c53ca7c439177e5b92a9e4e84a8c1c19312d1"
+      }
+    },
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "definition": "Empty temporary index per invocation; fixed corpus; OS caches not flushed; profiler enabled on both binaries.",
+    "os": "win32 10.0.19045 x64",
+    "recordedAt": "2026-10-23T02:47:09.584Z",
+    "sample": 200,
+    "source": "E:\\harness_mix\\target\\cold-index-corpus-v1",
+    "trials": 3,
+    "workers": 4
+  },
+  "speedup": 1.2947714788575555,
+  "variants": [
+    {
+      "elapsedMs": [
+        11380.2858,
+        11221.4128,
+        13570.764
+      ],
+      "medianElapsedMs": 11380.2858,
+      "phaseMediansMicros": {
+        "begin_transaction": 5288,
+        "capture_existing_graph": 98742,
+        "check_indexed_hash": 4388,
+        "commit_transaction": 1789277,
+        "configure_connection": 3961,
+        "delete_previous_graph": 33025,
+        "extract_source": 1288,
+        "integrity_check": 49228,
+        "invalidate_engine_edges": 102843,
+        "invalidate_references": 7160,
+        "load_file_scope": 34448,
+        "open_database": 3234,
+        "read_source": 146289,
+        "recheck_database_handle": 9449,
+        "recheck_framework_sources": 4,
+        "recheck_sources": 1173721,
+        "resolve_references": 5199136,
+        "resolver_candidate_lookup": 39713,
+        "resolver_edge_write": 13186,
+        "resolver_policy": 561,
+        "resolver_reference_lookup": 185535,
+        "resolver_special": 4938636,
+        "restore_incoming_edges": 337,
+        "retry_binding_catalog": 332739,
+        "select_configuration": 61686,
+        "select_pending_references": 993273,
+        "validate_schema": 30873,
+        "write_metadata": 35757,
+        "write_nodes_and_edges": 457697
+      },
+      "variant": "before"
+    },
+    {
+      "elapsedMs": [
+        8789.4165,
+        9407.5151,
+        8741.257000000001
+      ],
+      "medianElapsedMs": 8789.4165,
+      "phaseMediansMicros": {
+        "begin_transaction": 5350,
+        "capture_existing_graph": 99516,
+        "check_indexed_hash": 4092,
+        "commit_transaction": 1631265,
+        "configure_connection": 4111,
+        "delete_previous_graph": 34448,
+        "extract_source": 1265,
+        "integrity_check": 49810,
+        "invalidate_engine_edges": 105663,
+        "invalidate_references": 7293,
+        "load_file_scope": 33449,
+        "open_database": 2911,
+        "read_source": 146349,
+        "recheck_database_handle": 9542,
+        "recheck_framework_sources": 4,
+        "recheck_sources": 1240184,
+        "resolve_references": 2708568,
+        "resolver_candidate_lookup": 39162,
+        "resolver_edge_write": 13665,
+        "resolver_policy": 506,
+        "resolver_reference_lookup": 179553,
+        "resolver_special": 2453000,
+        "restore_incoming_edges": 391,
+        "retry_binding_catalog": 300711,
+        "select_configuration": 59558,
+        "select_pending_references": 1050197,
+        "validate_schema": 31001,
+        "write_metadata": 36311,
+        "write_nodes_and_edges": 460631
+      },
+      "variant": "after"
+    }
+  ],
+  "operationEvidence": [
+    {
+      "variant": "before",
+      "trial": 1,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analyze_bytes": 11952969,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 1513,
+            "meanMicros": 1792.2836087243886,
+            "totalMicros": 2711725.1
+          },
+          "insert": null,
+          "lookup": null,
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 621.0028604786922,
+            "totalMicros": 1063777.9
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 371.18072925841113,
+            "totalMicros": 2107193
+          }
+        }
+      }
+    },
+    {
+      "variant": "before",
+      "trial": 2,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analyze_bytes": 11952969,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 1513,
+            "meanMicros": 1775.8674818241905,
+            "totalMicros": 2686887.5
+          },
+          "insert": null,
+          "lookup": null,
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 614.8804436660829,
+            "totalMicros": 1053290.2
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 367.4086841641712,
+            "totalMicros": 2085779.1
+          }
+        }
+      }
+    },
+    {
+      "variant": "before",
+      "trial": 3,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analyze_bytes": 11952969,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 1513,
+            "meanMicros": 2192.130403172505,
+            "totalMicros": 3316693.3
+          },
+          "insert": null,
+          "lookup": null,
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 788.6844716870986,
+            "totalMicros": 1351016.5
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 456.69871410956495,
+            "totalMicros": 2592678.6
+          }
+        }
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 1,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analysis_cache_hits": 1340,
+          "rust_analysis_cache_misses": 173,
+          "rust_analyze_bytes": 1032040,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 173,
+            "meanMicros": 1375.7225433526012,
+            "totalMicros": 238000
+          },
+          "insert": {
+            "calls": 173,
+            "meanMicros": 4.478034682080925,
+            "totalMicros": 774.7
+          },
+          "lookup": {
+            "calls": 1513,
+            "meanMicros": 8.13615333773959,
+            "totalMicros": 12310
+          },
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 660.1408639813194,
+            "totalMicros": 1130821.3
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 368.3388761669896,
+            "totalMicros": 2091059.8
+          }
+        }
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 2,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analysis_cache_hits": 1340,
+          "rust_analysis_cache_misses": 173,
+          "rust_analyze_bytes": 1032040,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 173,
+            "meanMicros": 1439.049710982659,
+            "totalMicros": 248955.6
+          },
+          "insert": {
+            "calls": 173,
+            "meanMicros": 4.517341040462428,
+            "totalMicros": 781.5
+          },
+          "lookup": {
+            "calls": 1513,
+            "meanMicros": 8.438466622604098,
+            "totalMicros": 12767.4
+          },
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 710.734617629889,
+            "totalMicros": 1217488.4
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 396.093059714638,
+            "totalMicros": 2248620.3
+          }
+        }
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 3,
+      "data": {
+        "counters": {
+          "commit_attempts": 200,
+          "io_bytes_read": 26127486,
+          "rust_analysis_cache_hits": 1340,
+          "rust_analysis_cache_misses": 173,
+          "rust_analyze_bytes": 1032040,
+          "rust_call_proof_miss": 11459,
+          "rust_facts_hits": 12637,
+          "rust_facts_misses": 6020,
+          "source_missing": 4164,
+          "verified_cache_misses": 5677,
+          "verified_hash_bytes": 11952969,
+          "verified_recheck_bytes": 11952969,
+          "verified_recheck_files": 1513
+        },
+        "operations": {
+          "analysis": {
+            "calls": 173,
+            "meanMicros": 1403.6664739884393,
+            "totalMicros": 242834.3
+          },
+          "insert": {
+            "calls": 173,
+            "meanMicros": 4.021387283236995,
+            "totalMicros": 695.7
+          },
+          "lookup": {
+            "calls": 1513,
+            "meanMicros": 7.6785194976867155,
+            "totalMicros": 11617.6
+          },
+          "recheck": {
+            "calls": 1713,
+            "meanMicros": 650.8393461762989,
+            "totalMicros": 1114887.8
+          },
+          "resolution": {
+            "calls": 5677,
+            "meanMicros": 344.24315659679405,
+            "totalMicros": 1954268.4
+          }
+        }
+      }
+    }
+  ],
+  "exploratorySeries": {
+    "speedup": 1.0992065202914232,
+    "variants": [
+      {
+        "elapsedMs": [
+          11880.9878,
+          13588.0494,
+          11613.728
+        ],
+        "medianElapsedMs": 11880.9878,
+        "variant": "before"
+      },
+      {
+        "elapsedMs": [
+          10808.6948,
+          11603.2091,
+          9102.2257
+        ],
+        "medianElapsedMs": 10808.6948,
+        "variant": "after"
+      }
+    ]
+  },
+  "counterInvariantsVerified": [
+    "commit_attempts",
+    "io_bytes_read",
+    "rust_call_proof_miss",
+    "rust_facts_hits",
+    "rust_facts_misses",
+    "source_missing",
+    "verified_cache_misses",
+    "verified_hash_bytes",
+    "verified_recheck_bytes",
+    "verified_recheck_files"
+  ],
+  "reductionPercent": 22.76629379553895
+}

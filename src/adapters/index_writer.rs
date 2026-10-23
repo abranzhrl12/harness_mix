@@ -18,6 +18,7 @@ pub(super) struct Writer {
     // On uncertain rollback, close SQLite before releasing protective handles.
     pub(super) db: Connection,
     pub(super) retry_memo: super::resolution::RetryMemo,
+    pub(super) rust_analysis_cache: super::imports::RustFactsCache,
     sidecars: Vec<File>,
     pin: File,
     _directories: Vec<File>,
@@ -184,6 +185,7 @@ impl Writer {
         Ok(Self {
             db,
             retry_memo: Default::default(),
+            rust_analysis_cache: Default::default(),
             sidecars: sidecar_pins,
             pin,
             _directories: _pins,

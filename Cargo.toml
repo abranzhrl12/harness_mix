@@ -2,7 +2,7 @@
 name = "agent-harness"
 version = "0.8.9"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.99"
 publish = false
 autobins = false
 autotests = true
@@ -68,13 +68,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 roxmltree = "=0.21.1"
 rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
 codegraph-native = { path = "vendor/codegraph-native" }
-oxc_allocator = "=0.90.0"
-oxc_ast = "=0.90.0"
-oxc_parser = "=0.90.0"
-oxc_semantic = "=0.90.0"
-oxc_span = "=0.90.0"
-oxc_syntax = "=0.90.0"
-oxc_resolver = "=11.0.0"
+oxc_allocator = "=0.155.0"
+oxc_ast = "=0.155.0"
+oxc_parser = "=0.155.0"
+oxc_semantic = "=0.155.0"
+oxc_span = "=0.155.0"
+oxc_syntax = "=0.155.0"
+oxc_resolver = "=11.24.3"
 tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"] }
 tokio-postgres = "=0.7.18"
 postgres-native-tls = "0.5"

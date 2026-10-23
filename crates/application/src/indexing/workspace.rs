@@ -68,6 +68,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         paths.insert(path.into());
     }
     let total = paths.len();
+    let planning_micros = operation_started.elapsed().as_micros();
     let started = std::time::Instant::now();
     context.report_progress("indexing", 0, Some(total), None);
     let mut results = Vec::new();
@@ -86,6 +87,7 @@ pub fn sync_workspace<P: WorkspacePort>(
     let mut reference_attempts = 0u64;
     let mut reference_resolved = 0u64;
     let mut nodes_written = 0u64;
+    let mut profile_totals = super::profile::Totals::default();
     for (position, path) in selected.iter().copied().enumerate() {
         if prepared.is_empty() && worker_count > 1 && context.check().is_ok() {
             let end = (position + worker_count).min(selected.len());
@@ -111,6 +113,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         match applied {
             Ok(mut result) => {
                 processed += 1;
+                profile_totals.record(&result);
                 if let Some(phases) = result["phaseTimingsMicros"].as_object() {
                     for (name, value) in phases {
                         *phase_totals.entry(name.clone()).or_default() +=
@@ -175,6 +178,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         }
     }
     context.report_progress("finalizing", processed, Some(total), None);
+    let finalization_started = std::time::Instant::now();
     if failure.is_none()
         && let Err((code, message)) = port.recheck(context).and_then(|()| context.check())
     {
@@ -183,6 +187,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         failure = Some(entry);
     }
     let native_complete = failure.is_none() && processed == total;
+    let finalization_micros = finalization_started.elapsed().as_micros();
     let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope,
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
         "failures":failures,"extractionWorkers":worker_count,"databaseWriters":1,
@@ -198,11 +203,14 @@ pub fn sync_workspace<P: WorkspacePort>(
         "synchronized":false,"globalFreshnessCertified":false,"fullProviderScope":false,
         "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"});
     if !phase_totals.is_empty() {
+        report["planningDurationMicros"] = json!(planning_micros);
+        report["finalizationDurationMicros"] = json!(finalization_micros);
         report["phaseTimingsMicros"] = json!(phase_totals);
         report["preparationDurationMicros"] = json!(preparation_micros);
         report["totalReferencesAttempted"] = json!(reference_attempts);
         report["totalReferencesResolved"] = json!(reference_resolved);
         report["totalNodesWritten"] = json!(nodes_written);
     }
+    profile_totals.write(&mut report);
     Ok(report)
 }

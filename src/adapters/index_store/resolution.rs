@@ -1,6 +1,10 @@
-use super::{candidates, imports, razor_invalidation, sql};
+use super::{candidates, imports, razor_invalidation, sql, sync_diagnostic};
 use crate::adapters::project::Project;
-use harness_domain::{Failure, execution::OperationContext};
+use harness_domain::{
+    Failure,
+    execution::OperationContext,
+    resolution_policy::{self, Candidate as PolicyCandidate, Selection as CandidateSelection},
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
@@ -77,10 +81,19 @@ pub(super) fn resolve_exact(
     mvc_snapshot: &mut super::super::index_razor_mvc::Snapshot,
     framework_snapshot: &mut super::repository::framework::Snapshot,
 ) -> Result<bool, Failure> {
-    let reference:Option<ResolutionReference> = sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?;
+    let profiling = sync_diagnostic::profile_active();
+    let reference: Option<ResolutionReference> = {
+        let _timer = profiling.then(|| {
+            sync_diagnostic::resolver_timer("resolver_reference_lookup")
+        });
+        sql(sql(db.prepare_cached("SELECT r.from_node_id,r.reference_name,r.reference_kind,r.line,r.col,r.file_path,r.language,n.qualified_name FROM unresolved_refs r JOIN nodes n ON n.id=r.from_node_id WHERE r.id=?1"))?.query_row([id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional())?
+    };
     let Some((from, name, kind, line, col, path, language, owner)) = reference else {
         return Ok(false);
     };
+    let special_timer = profiling.then(|| {
+        sync_diagnostic::resolver_timer("resolver_special")
+    });
     if matches!(
         kind.as_str(),
         "angular_route_component" | "angular_route_layout"
@@ -396,7 +409,11 @@ pub(super) fn resolve_exact(
     } else {
         None
     };
-    let mut candidates = if let Some((target, _)) = &razor_instance_target {
+    drop(special_timer);
+    let _candidate_timer = profiling.then(|| {
+        sync_diagnostic::resolver_timer("resolver_candidate_lookup")
+    });
+    let candidates = if let Some((target, _)) = &razor_instance_target {
         vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
     } else if let Some(target) = &rust_target {
         vec![sql(db.query_row("SELECT id,kind,file_path,qualified_name,visibility,is_exported,language FROM nodes WHERE id=?1", [target], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))))?]
@@ -415,61 +432,41 @@ pub(super) fn resolve_exact(
             context,
         )?
     };
-    if candidates.len() > 64 {
-        return Ok(false);
-    }
-    candidates.retain(|n| allowed.contains(&n.1.as_str()));
-    // Member blocks belong to the generated class of this view. A homonymous
-    // method in another view is never proof of a Razor call target.
-    if language == "razor"
-        && matches!(kind.as_str(), "calls" | "function_ref")
-        && razor_static_target.is_none()
-        && razor_instance_target.is_none()
-    {
-        candidates.retain(|n| n.2 == path);
-    }
-    if let Some(target) = imported_path {
-        candidates.retain(|n| n.2 == target && n.1 == "function" && n.3 == lookup);
-    } else if matches!(scope, imports::Scope::LocalOnly) {
-        candidates.retain(|n| n.2 == path);
-    }
-    // Cross-file private symbols require receiver/import/visibility analysis
-    // outside this subset. Keep them pending rather than guessing accessibility.
-    if imported_path.is_none() && rust_target.is_none() {
-        candidates.retain(|n| n.2 == path || n.4.as_deref() == Some("public") || n.5);
-    }
-    let qualified = lookup.contains('.') || lookup.contains("::");
-    if rust_target.is_some() || razor_static_target.is_some() || razor_instance_target.is_some() {
-        // The language-specific proof already selected the exact declaration.
-    } else if qualified {
-        candidates.retain(|n| n.3 == lookup);
-    } else if imported_path.is_none() {
-        let container = owner
-            .rsplit_once("::")
-            .map(|(p, _)| format!("{p}::"))
-            .or_else(|| owner.rsplit_once('.').map(|(p, _)| format!("{p}.")));
-        if let Some(container) = container {
-            let scoped = candidates
-                .iter()
-                .filter(|n| n.2 == path && n.3 == format!("{container}{name}"))
-                .cloned()
-                .collect::<Vec<_>>();
-            if !scoped.is_empty() {
-                candidates = scoped;
+    drop(_candidate_timer);
+    let selection = CandidateSelection {
+        allowed_kinds: allowed,
+        source_path: &path,
+        lookup,
+        name: &name,
+        owner: &owner,
+        imported_path,
+        local_only: matches!(scope, imports::Scope::LocalOnly),
+        razor_same_view: language == "razor"
+            && matches!(kind.as_str(), "calls" | "function_ref")
+            && razor_static_target.is_none()
+            && razor_instance_target.is_none(),
+        exact_proof: rust_target.is_some()
+            || razor_static_target.is_some()
+            || razor_instance_target.is_some(),
+        rust_proof: rust_target.is_some(),
+    };
+    let selected = {
+        let _timer = profiling.then(|| {
+            sync_diagnostic::resolver_timer("resolver_policy")
+        });
+        resolution_policy::select_candidate_index(&candidates, selection, |candidate| {
+            PolicyCandidate {
+                kind: &candidate.1,
+                file_path: &candidate.2,
+                qualified_name: &candidate.3,
+                visibility: candidate.4.as_deref(),
+                is_exported: candidate.5,
             }
-        }
-        let local = candidates
-            .iter()
-            .filter(|n| n.2 == path)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !local.is_empty() {
-            candidates = local;
-        }
-    }
-    if candidates.len() != 1 {
+        })
+    };
+    let Some(selected) = selected else {
         return Ok(false);
-    }
+    };
     let edge_kind = if kind == "function_ref" {
         "references"
     } else {
@@ -488,7 +485,7 @@ pub(super) fn resolve_exact(
         );
     }
     if rust_target.is_some() {
-        metadata["resolvedBy"] = json!(if candidates[0].2 == path {
+        metadata["resolvedBy"] = json!(if candidates[selected].2 == path {
             "ra-lexical-subset-v1"
         } else {
             "ra-module-subset-v1"
@@ -504,7 +501,10 @@ pub(super) fn resolve_exact(
         metadata["exportContributors"] = json!(export_contributors);
     }
     let metadata = metadata.to_string();
-    sql(sql(db.prepare_cached("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')"))?.execute(params![from,candidates[0].0,edge_kind,line,col,metadata]))?;
+    let _write_timer = profiling.then(|| {
+        sync_diagnostic::resolver_timer("resolver_edge_write")
+    });
+    sql(sql(db.prepare_cached("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,?3,?4,?5,?6,'heuristic')"))?.execute(params![from,candidates[selected].0,edge_kind,line,col,metadata]))?;
     sql(sql(db.prepare_cached("DELETE FROM unresolved_refs WHERE id=?1"))?.execute([id]))?;
     Ok(true)
 }

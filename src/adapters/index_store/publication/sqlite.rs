@@ -13,6 +13,7 @@ pub(in crate::adapters::index_store) fn publish(
     force: bool,
     prepared: Option<super::super::parallel::Prepared>,
     retry_memo: &mut super::super::resolution::RetryMemo,
+    rust_analysis_cache: &imports::RustFactsCache,
     invalidator: &ReferenceInvalidator,
 ) -> Result<(Value, imports::Sources), Failure> {
     let (configuration, config_changed) = configuration;
@@ -27,6 +28,7 @@ pub(in crate::adapters::index_store) fn publish(
         force,
         prepared,
         retry_memo,
+        rust_analysis_cache,
         invalidator,
     };
     harness_application::indexing::publish(&mut session, context)
@@ -43,6 +45,7 @@ struct SqlitePublication<'a, 'db> {
     force: bool,
     prepared: Option<super::super::parallel::Prepared>,
     retry_memo: &'a mut super::super::resolution::RetryMemo,
+    rust_analysis_cache: &'a imports::RustFactsCache,
     invalidator: &'a ReferenceInvalidator,
 }
 
@@ -396,8 +399,10 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         let retry_memo = &mut self.retry_memo;
         let mut candidate_snapshot = candidates::Snapshot::default();
         let mut resolved = 0;
-        let mut import_sources =
-            imports::Sources::configured(self.configuration.take().ok_or(INDEX)?);
+        let mut import_sources = imports::Sources::with_rust_cache(
+            self.configuration.take().ok_or(INDEX)?,
+            self.rust_analysis_cache.clone(),
+        );
         let mut mvc_snapshot = super::super::super::index_razor_mvc::Snapshot::default();
         let mut framework_snapshot = framework::Snapshot::default();
         for id in refs {

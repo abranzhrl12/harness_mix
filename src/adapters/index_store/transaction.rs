@@ -13,6 +13,7 @@ pub(super) struct SqliteFileTransaction<'a, 'db, F> {
     pub force: bool,
     pub prepared: Option<parallel::Prepared>,
     pub retry_memo: &'a mut resolution::RetryMemo,
+    pub rust_analysis_cache: &'a imports::RustFactsCache,
     pub invalidator: &'a publication::ReferenceInvalidator,
     pub before_recheck: Option<F>,
     pub reused: bool,
@@ -47,6 +48,7 @@ impl<F: FnOnce()> FileTransactionPort for SqliteFileTransaction<'_, '_, F> {
             self.force,
             self.prepared.take(),
             self.retry_memo,
+            self.rust_analysis_cache,
             self.invalidator,
         )?;
         result["tsconfig"] = sources.config.stamp();
@@ -61,8 +63,15 @@ impl<F: FnOnce()> FileTransactionPort for SqliteFileTransaction<'_, '_, F> {
         if let Some(before) = self.before_recheck.take() {
             before();
         }
-        self.scope.recheck(self.project, context)?;
-        publication.1.recheck(self.project, context)?;
+        {
+            let _timer = sync_diagnostic::operation("recheck_scope");
+            self.scope.recheck(self.project, context)?;
+        }
+        {
+            let _timer = sync_diagnostic::operation("recheck_dependencies");
+            publication.1.recheck(self.project, context)?;
+        }
+        let _timer = sync_diagnostic::operation("recheck_primary");
         let observed = if self.scope.excluded(self.relative) {
             None
         } else {
@@ -102,6 +111,7 @@ impl<F: FnOnce()> FileTransactionPort for SqliteFileTransaction<'_, '_, F> {
             .progress_handler(0, None::<fn() -> bool>)
             .map_err(|_| UNCERTAIN)?;
         sync_diagnostic::stage("commit_transaction");
+        sync_diagnostic::count("commit_attempts", 1);
         self.tx.commit().map_err(|error| {
             self.retry_memo.clear();
             sync_diagnostic::capture(&error);
@@ -112,6 +122,7 @@ impl<F: FnOnce()> FileTransactionPort for SqliteFileTransaction<'_, '_, F> {
         result["committed"] = json!(true);
         if let Some(profile) = sync_diagnostic::finish_profile() {
             result["phaseTimingsMicros"] = profile;
+            result["profileMetrics"] = sync_diagnostic::profile_metrics().unwrap_or(Value::Null);
         }
         Ok(result)
     }

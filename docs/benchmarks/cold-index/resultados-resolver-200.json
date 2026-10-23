@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "recordedAt": "2026-10-23T01:40:32.450Z",
+    "source": "E:\\harness_mix\\target\\cold-index-corpus-v1",
+    "sample": 200,
+    "trials": 3,
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "workers": 4,
+    "binaries": {
+      "before": {
+        "path": "E:\\harness_mix\\target\\cold-index-before-resolver.exe",
+        "sha256": "7cc5d4f4ffe0555b0cb2957a14657fe1b435281ed4635212ebbf4a0975066e41",
+        "modifiedAt": "2026-10-23T01:23:55.967Z"
+      },
+      "after": {
+        "path": "E:\\harness_mix\\target\\release\\examples\\index_phase_probe.exe",
+        "sha256": "a0824445c562922c446951563b5175d8ba83a9e4295043a6f8f64cd349c250eb",
+        "modifiedAt": "2026-10-23T01:40:26.234Z"
+      }
+    },
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "os": "win32 10.0.19045 x64",
+    "definition": "Empty temporary index per invocation; fixed corpus; OS caches not flushed; profiler enabled on both binaries."
+  },
+  "evidence": {
+    "sourceHash": "d08b32b3329fe107565cf93c0a5a926189f987778bc250925f89589f59208bd8",
+    "graphHash": "74996aa068bb2442716c50b17fdd9fc68d3cf22a3e2e81e55c84f8443da84575",
+    "filesProcessed": 200,
+    "referencesAttempted": 40928,
+    "referencesResolved": 309,
+    "nodesWritten": 2462,
+    "remaining": 0,
+    "unchecked": [],
+    "failures": [],
+    "skipped": []
+  },
+  "variants": [
+    {
+      "variant": "before",
+      "elapsedMs": [
+        13488.1798,
+        13754.7371,
+        14124.370799999999
+      ],
+      "medianElapsedMs": 13754.7371,
+      "phaseMediansMicros": {
+        "begin_transaction": 5809,
+        "capture_existing_graph": 110313,
+        "check_indexed_hash": 5765,
+        "commit_transaction": 1697952,
+        "configure_connection": 4618,
+        "delete_previous_graph": 37895,
+        "extract_source": 1376,
+        "integrity_check": 58196,
+        "invalidate_engine_edges": 120077,
+        "invalidate_references": 8380,
+        "load_file_scope": 38693,
+        "open_database": 3761,
+        "read_source": 217659,
+        "recheck_database_handle": 10328,
+        "recheck_framework_sources": 5,
+        "recheck_sources": 1835240,
+        "resolve_references": 6477059,
+        "restore_incoming_edges": 415,
+        "retry_binding_catalog": 335429,
+        "select_configuration": 69606,
+        "select_pending_references": 1102560,
+        "validate_schema": 36227,
+        "write_metadata": 39974,
+        "write_nodes_and_edges": 536459
+      }
+    },
+    {
+      "variant": "after",
+      "elapsedMs": [
+        16423.5548,
+        14150.4258,
+        14082.7729
+      ],
+      "medianElapsedMs": 14150.4258,
+      "phaseMediansMicros": {
+        "begin_transaction": 6064,
+        "capture_existing_graph": 116445,
+        "check_indexed_hash": 6406,
+        "commit_transaction": 1676056,
+        "configure_connection": 4590,
+        "delete_previous_graph": 38092,
+        "extract_source": 1380,
+        "integrity_check": 59057,
+        "invalidate_engine_edges": 127982,
+        "invalidate_references": 8760,
+        "load_file_scope": 40676,
+        "open_database": 3468,
+        "read_source": 227861,
+        "recheck_database_handle": 10703,
+        "recheck_framework_sources": 9,
+        "recheck_sources": 1983880,
+        "resolve_references": 6700066,
+        "resolver_candidate_lookup": 43831,
+        "resolver_edge_write": 16132,
+        "resolver_policy": 652,
+        "resolver_reference_lookup": 249380,
+        "resolver_special": 6365797,
+        "restore_incoming_edges": 454,
+        "retry_binding_catalog": 381948,
+        "select_configuration": 72841,
+        "select_pending_references": 1199313,
+        "validate_schema": 35908,
+        "write_metadata": 46431,
+        "write_nodes_and_edges": 598534
+      }
+    }
+  ],
+  "speedup": 0.9720369757353874,
+  "limitations": [
+    "Refactor and added profiling are measured together; do not attribute their timing difference exclusively to the refactor.",
+    "Subphase medians are independent; nested subphase timers must not be added to their parent duration.",
+    "This corpus/sample does not establish semantic equivalence for every language or workload."
+  ]
+}

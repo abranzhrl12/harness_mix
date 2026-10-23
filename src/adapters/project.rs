@@ -251,8 +251,57 @@ impl Project {
         }
         let limit = limit.min(MAX_FILE);
         context.check()?;
-        let path = self.target(relative)?;
+        let path = {
+            let _timer = crate::adapters::index_profile::operation("io_path_validation");
+            self.target(relative)?
+        };
         self.read_input_path(path, context, limit)
+    }
+
+    /// Index-source read: validate once, then keep Windows ancestors pinned until
+    /// the handle-based read completes. Never retain this validation across reads.
+    #[cfg(windows)]
+    pub(super) fn index_source_bytes(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Option<Vec<u8>>, Failure> {
+        use crate::adapters::index_profile as profile;
+        context.check()?;
+        let path = {
+            let _timer = profile::operation("source_path_guard");
+            self.target_optional(relative)?
+        };
+        let metadata = {
+            let _timer = profile::operation("source_metadata");
+            fs::symlink_metadata(&path)
+        };
+        match metadata {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                profile::count("source_missing", 1);
+                return Ok(None);
+            }
+            Err(_) => return Err(("IO", "Source metadata unavailable; absence not established")),
+            Ok(metadata) if !metadata.is_file() => {
+                return Err(("PATH", "Source is not a regular file"));
+            }
+            Ok(_) => {}
+        }
+        let _pins = {
+            let _timer = profile::operation("source_pin_directory");
+            super::edit_commit::pin_directory(
+                self,
+                path.parent().ok_or(("PATH", "Missing parent"))?,
+            )?
+        };
+        if self.external && external_sensitive(relative) {
+            return Err(("PATH", "External configuration/credential content requires the redacted config tool"));
+        }
+        // pin_directory checks every ancestor for reparse points and denies
+        // rename/delete sharing. read_input_path rejects a replaced final link,
+        // checks the opened handle and checks metadata again after reading.
+        self.read_input_path(path, context, limit.min(MAX_FILE)).map(Some)
     }
 
     fn read_input_path(
@@ -261,9 +310,11 @@ impl Project {
         context: &OperationContext,
         limit: u64,
     ) -> Result<Vec<u8>, Failure> {
+        let _profile = crate::adapters::index_profile::operation("io_project_read");
         context.check()?;
         #[cfg(windows)]
         let _pins = if self.external {
+            let _timer = crate::adapters::index_profile::operation("io_external_pin");
             Some(super::edit_commit::pin_directory(
                 self,
                 path.parent().ok_or(("PATH", "Missing parent"))?,
@@ -284,12 +335,14 @@ impl Project {
             // Do not follow a final-component reparse point introduced after target().
             options.custom_flags(0x0020_0000);
         }
-        let file = options
-            .open(&path)
-            .map_err(|_| ("PATH", "archivo no accesible"))?;
-        let before = file
-            .metadata()
-            .map_err(|_| ("IO", "no se pudo leer metadata"))?;
+        let file = {
+            let _timer = crate::adapters::index_profile::operation("io_open");
+            options.open(&path).map_err(|_| ("PATH", "archivo no accesible"))?
+        };
+        let before = {
+            let _timer = crate::adapters::index_profile::operation("io_metadata_before");
+            file.metadata().map_err(|_| ("IO", "no se pudo leer metadata"))?
+        };
         #[cfg(windows)]
         if self.external {
             use std::os::windows::io::AsRawHandle;
@@ -319,20 +372,25 @@ impl Project {
         let mut bytes = Vec::with_capacity(before.len() as usize);
         let mut reader = (&file).take(limit + 1);
         let mut chunk = [0_u8; 65536];
-        loop {
-            context.check()?;
-            let count = reader
-                .read(&mut chunk)
-                .map_err(|_| ("IO", "no se pudo leer el archivo"))?;
-            if count == 0 {
-                break;
+        {
+            let _timer = crate::adapters::index_profile::operation("io_read_bytes");
+            loop {
+                context.check()?;
+                let count = reader
+                    .read(&mut chunk)
+                    .map_err(|_| ("IO", "no se pudo leer el archivo"))?;
+                if count == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..count]);
             }
-            bytes.extend_from_slice(&chunk[..count]);
         }
+        crate::adapters::index_profile::count("io_bytes_read", bytes.len() as u64);
         context.check()?;
-        let after = file
-            .metadata()
-            .map_err(|_| ("IO", "no se pudo leer metadata"))?;
+        let after = {
+            let _timer = crate::adapters::index_profile::operation("io_metadata_after");
+            file.metadata().map_err(|_| ("IO", "no se pudo leer metadata"))?
+        };
         if bytes.len() as u64 != before.len()
             || before.len() != after.len()
             || before.modified().ok() != after.modified().ok()
@@ -378,6 +436,31 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn index_read_keeps_limits_absence_and_path_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("nested/file.rs"), b"abc").unwrap();
+        let p = Project::new(dir.path()).unwrap();
+        let context = OperationContext::default();
+        assert_eq!(p.index_source_bytes("nested/file.rs", &context, 3).unwrap(), Some(b"abc".to_vec()));
+        assert_eq!(p.index_source_bytes("nested/file.rs", &context, 2).unwrap_err().0, "SIZE");
+        assert_eq!(p.index_source_bytes("nested/absent.rs", &context, 3).unwrap(), None);
+        assert_eq!(p.index_source_bytes("nested", &context, 3).unwrap_err().0, "PATH");
+        for path in ["../outside", "nested/../file.rs", ".env", "NUL.rs"] {
+            assert_eq!(p.index_source_bytes(path, &context, 3).unwrap_err().0, "PATH");
+        }
+        // A validation never survives into the next read.
+        fs::write(dir.path().join("nested/file.rs"), b"xyz").unwrap();
+        assert_eq!(p.index_source_bytes("nested/file.rs", &context, 3).unwrap(), Some(b"xyz".to_vec()));
+        let external = Project { external: true, ..p.clone() };
+        fs::write(dir.path().join("appsettings.json"), b"{}").unwrap();
+        assert_eq!(external.index_source_bytes("appsettings.json", &context, 3).unwrap_err().0, "PATH");
+        let single = Project { single_file: Some(dir.path().join("nested/file.rs").canonicalize().unwrap()), ..p };
+        fs::write(dir.path().join("other.rs"), b"abc").unwrap();
+        assert_eq!(single.index_source_bytes("other.rs", &context, 3).unwrap_err().0, "PATH");
+    }
     #[test]
     fn read_limits_hash_and_newlines() {
         let dir = tempfile::tempdir().unwrap();
@@ -466,6 +549,12 @@ mod tests {
                 .bytes("junction/file")
                 .unwrap_err()
                 .0,
+            "PATH"
+        );
+        assert_eq!(
+            Project::new(dir.path()).unwrap()
+                .index_source_bytes("junction/file", &OperationContext::default(), 1024)
+                .unwrap_err().0,
             "PATH"
         );
         fs::remove_dir(junction).unwrap();

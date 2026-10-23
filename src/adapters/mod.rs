@@ -29,6 +29,7 @@ mod ignore;
 pub mod index_extract;
 mod index_freshness;
 mod index_inventory;
+mod index_profile;
 #[cfg(windows)]
 mod index_semantic;
 #[cfg(windows)]

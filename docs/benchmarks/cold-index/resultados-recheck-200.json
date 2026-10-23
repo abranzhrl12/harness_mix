@@ -1,0 +1,126 @@
+{
+  "metadata": {
+    "recordedAt": "2026-10-23T01:51:43.344Z",
+    "source": "E:\\harness_mix\\target\\cold-index-corpus-v1",
+    "sample": 200,
+    "trials": 3,
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "workers": 4,
+    "binaries": {
+      "before": {
+        "path": "E:\\harness_mix\\target\\cold-index-before-byte-recheck.exe",
+        "sha256": "a0824445c562922c446951563b5175d8ba83a9e4295043a6f8f64cd349c250eb",
+        "modifiedAt": "2026-10-23T01:40:26.234Z"
+      },
+      "after": {
+        "path": "E:\\harness_mix\\target\\release\\examples\\index_phase_probe.exe",
+        "sha256": "af66e274b5da8eef47fecf650061875019831b2f12ef7c6fb3c463d5f749812a",
+        "modifiedAt": "2026-10-23T01:51:33.667Z"
+      }
+    },
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "os": "win32 10.0.19045 x64",
+    "definition": "Empty temporary index per invocation; fixed corpus; OS caches not flushed; profiler enabled on both binaries."
+  },
+  "evidence": {
+    "sourceHash": "d08b32b3329fe107565cf93c0a5a926189f987778bc250925f89589f59208bd8",
+    "graphHash": "74996aa068bb2442716c50b17fdd9fc68d3cf22a3e2e81e55c84f8443da84575",
+    "filesProcessed": 200,
+    "referencesAttempted": 40928,
+    "referencesResolved": 309,
+    "nodesWritten": 2462,
+    "remaining": 0,
+    "unchecked": [],
+    "failures": [],
+    "skipped": []
+  },
+  "variants": [
+    {
+      "variant": "before",
+      "elapsedMs": [
+        13540.433,
+        13611.3851,
+        13717.035899999999
+      ],
+      "medianElapsedMs": 13611.3851,
+      "phaseMediansMicros": {
+        "begin_transaction": 5925,
+        "capture_existing_graph": 110759,
+        "check_indexed_hash": 5146,
+        "commit_transaction": 1679205,
+        "configure_connection": 4201,
+        "delete_previous_graph": 36534,
+        "extract_source": 1419,
+        "integrity_check": 56976,
+        "invalidate_engine_edges": 115728,
+        "invalidate_references": 8169,
+        "load_file_scope": 39055,
+        "open_database": 3759,
+        "read_source": 213846,
+        "recheck_database_handle": 10279,
+        "recheck_framework_sources": 8,
+        "recheck_sources": 1778361,
+        "resolve_references": 6366461,
+        "resolver_candidate_lookup": 44336,
+        "resolver_edge_write": 16591,
+        "resolver_policy": 578,
+        "resolver_reference_lookup": 214534,
+        "resolver_special": 6080015,
+        "restore_incoming_edges": 394,
+        "retry_binding_catalog": 327052,
+        "select_configuration": 70631,
+        "select_pending_references": 1140813,
+        "validate_schema": 34804,
+        "write_metadata": 39916,
+        "write_nodes_and_edges": 530061
+      }
+    },
+    {
+      "variant": "after",
+      "elapsedMs": [
+        14487.659000000001,
+        13284.9544,
+        14280.3644
+      ],
+      "medianElapsedMs": 14280.3644,
+      "phaseMediansMicros": {
+        "begin_transaction": 5952,
+        "capture_existing_graph": 113185,
+        "check_indexed_hash": 5661,
+        "commit_transaction": 1713112,
+        "configure_connection": 4390,
+        "delete_previous_graph": 38794,
+        "extract_source": 1418,
+        "integrity_check": 54550,
+        "invalidate_engine_edges": 122687,
+        "invalidate_references": 8793,
+        "load_file_scope": 41034,
+        "open_database": 3840,
+        "read_source": 223547,
+        "recheck_database_handle": 10354,
+        "recheck_framework_sources": 11,
+        "recheck_sources": 1967445,
+        "resolve_references": 6711899,
+        "resolver_candidate_lookup": 43638,
+        "resolver_edge_write": 14538,
+        "resolver_policy": 634,
+        "resolver_reference_lookup": 224999,
+        "resolver_special": 6375370,
+        "restore_incoming_edges": 453,
+        "retry_binding_catalog": 350779,
+        "select_configuration": 73926,
+        "select_pending_references": 1095598,
+        "validate_schema": 35019,
+        "write_metadata": 41869,
+        "write_nodes_and_edges": 530119
+      }
+    }
+  ],
+  "speedup": 0.9531539055123831,
+  "notes": [
+    "Both binaries have the same resolver profiling instrumentation; this experiment changes only VerifiedSources recheck comparison.",
+    "Six cold runs preserve graph/results. Global median increased 4.91%; no end-to-end speedup is demonstrated.",
+    "Unchanged phases varied too; this experiment does not isolate the reason for whole-index timing differences.",
+    "An isolated comparison benchmark measures reduced comparison CPU cost, not filesystem or indexing throughput."
+  ]
+}

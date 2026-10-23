@@ -431,10 +431,35 @@ fn read_source(
     path: &str,
     context: &OperationContext,
 ) -> Result<Option<Vec<u8>>, Failure> {
+    let _profile = sync_diagnostic::source_read(path);
+    #[cfg(windows)]
+    {
+        project.index_source_bytes(path, context, index_sync::MAX_SOURCE_BYTES as u64)
+    }
+    #[cfg(not(windows))]
+    read_source_unpinned(project, path, context)
+}
+
+#[cfg(not(windows))]
+fn read_source_unpinned(
+    project: &Project,
+    path: &str,
+    context: &OperationContext,
+) -> Result<Option<Vec<u8>>, Failure> {
     context.check()?;
-    let target = project.target_optional(path)?;
-    match std::fs::symlink_metadata(&target) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    let target = {
+        let _timer = sync_diagnostic::operation("source_path_guard");
+        project.target_optional(path)?
+    };
+    let metadata = {
+        let _timer = sync_diagnostic::operation("source_metadata");
+        std::fs::symlink_metadata(&target)
+    };
+    match metadata {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            sync_diagnostic::count("source_missing", 1);
+            return Ok(None);
+        }
         Err(_) => return Err(("IO", "Source metadata unavailable; absence not established")),
         Ok(metadata) if !metadata.is_file() => {
             return Err(("PATH", "Source is not a regular file"));
@@ -442,7 +467,10 @@ fn read_source(
         Ok(_) => {}
     }
     #[cfg(windows)]
-    let _pins = super::edit_commit::pin_directory(project, target.parent().ok_or(INDEX)?)?;
+    let _pins = {
+        let _timer = sync_diagnostic::operation("source_pin_directory");
+        super::edit_commit::pin_directory(project, target.parent().ok_or(INDEX)?)?
+    };
     project
         .bytes_with_limit(path, context, index_sync::MAX_SOURCE_BYTES as u64)
         .map(Some)

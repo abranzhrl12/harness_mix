@@ -17,26 +17,45 @@ struct State {
     phase_micros: BTreeMap<&'static str, u128>,
 }
 
+pub(super) use crate::adapters::index_profile::{Timer as ResolverTimer, operation, count, source_read};
+
 thread_local! {
     static CURRENT: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
+pub(super) fn profile_active() -> bool {
+    CURRENT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|state| state.phase_started.is_some())
+    })
+}
+
+pub(super) fn resolver_timer(phase: &'static str) -> ResolverTimer {
+    operation(phase)
+}
+
+pub(super) fn profile_metrics() -> Option<Value> {
+    crate::adapters::index_profile::metrics()
+}
+
 pub(super) fn begin(file: &str, database: &Path) {
     crate::adapters::index_extract::take_diagnostic();
+    let enabled = std::env::var_os("HARNESS_INDEX_PROFILE").is_some_and(|value| value == "1");
+    crate::adapters::index_profile::begin(enabled);
     CURRENT.with(|slot| {
         *slot.borrow_mut() = Some(State {
             file: file.to_owned(),
             database: database.display().to_string(),
             stage: "open_database",
-            phase_started: std::env::var_os("HARNESS_INDEX_PROFILE")
-                .filter(|value| value == "1")
-                .map(|_| Instant::now()),
+            phase_started: enabled.then(Instant::now),
             ..State::default()
         });
     });
 }
 
 pub(super) fn stage(stage: &'static str) {
+    crate::adapters::index_profile::stage(stage);
     CURRENT.with(|slot| {
         if let Some(state) = slot.borrow_mut().as_mut() {
             if let Some(started) = state.phase_started.as_mut() {
@@ -55,6 +74,10 @@ pub(super) fn finish_profile() -> Option<Value> {
         let state = slot.as_mut()?;
         let started = state.phase_started.take()?;
         *state.phase_micros.entry(state.stage).or_default() += started.elapsed().as_micros();
+        crate::adapters::index_profile::finish();
+        for (name, micros) in crate::adapters::index_profile::resolver_micros() {
+            *state.phase_micros.entry(name).or_default() += micros;
+        }
         Some(json!(state.phase_micros))
     })
 }
@@ -131,6 +154,7 @@ pub(super) fn capture(error: &Error) {
 
 pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
     let profile = finish_profile();
+    let metrics = profile_metrics();
     CURRENT.with(|slot| {
         slot.borrow_mut().take().map(|state| {
             json!({
@@ -150,6 +174,7 @@ pub(super) fn take(failure_code: &str, failure_message: &str) -> Option<Value> {
                 "sqlite": state.error,
                 "extraction": crate::adapters::index_extract::take_diagnostic(),
                 "phaseTimingsMicros": profile,
+                "profileMetrics": metrics,
                 "schemaValidation": state.schema_validation.or_else(|| {
                     state.schema_check.map(|check| json!({
                         "check": check,

@@ -1,4 +1,6 @@
-/// A symbol candidate read from the graph, with the stamp that certifies it.
+pub(in crate::adapters) use harness_domain::file_freshness::Verdict;
+
+/// A symbol candidate read from the graph, including its indexed content hash.
 #[derive(Clone, Debug)]
 pub(in crate::adapters) struct Candidate {
     pub(in crate::adapters) id: String,
@@ -12,28 +14,4 @@ pub(in crate::adapters) struct Candidate {
     pub(in crate::adapters) docstring: String,
     pub(in crate::adapters) language: String,
     pub(in crate::adapters) indexed_hash: Option<String>,
-}
-
-/// Freshness of one indexed file relative to the working tree.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(in crate::adapters) enum Verdict {
-    /// The indexed content hash still matches the file on disk.
-    Fresh,
-    /// The file changed after it was indexed.
-    Stale,
-    /// The indexed file no longer exists.
-    Missing,
-    /// Freshness could not be established.
-    Unknown,
-}
-
-impl Verdict {
-    pub(in crate::adapters) fn as_str(self) -> &'static str {
-        match self {
-            Verdict::Fresh => "fresh",
-            Verdict::Stale => "stale",
-            Verdict::Missing => "missing",
-            Verdict::Unknown => "unknown",
-        }
-    }
 }

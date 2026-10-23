@@ -92,6 +92,7 @@ impl<F: FnOnce()> FileIndexPort for NativeFile<'_, F> {
             force: self.force,
             prepared: self.prepared.take(),
             retry_memo: &mut writer.retry_memo,
+            rust_analysis_cache: &writer.rust_analysis_cache,
             invalidator: self.invalidator,
             before_recheck: self.before_recheck.take(),
             reused,

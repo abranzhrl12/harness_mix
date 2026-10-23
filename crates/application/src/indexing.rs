@@ -3,6 +3,7 @@ pub mod changed_paths;
 pub mod file;
 pub mod inventory;
 pub mod planning;
+mod profile;
 pub mod transaction;
 pub mod workspace;
 use crate::ports::indexing::PublicationSession;

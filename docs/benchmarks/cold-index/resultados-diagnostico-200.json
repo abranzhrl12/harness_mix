@@ -1,0 +1,478 @@
+{
+  "metadata": {
+    "recordedAt": "2026-10-23T02:17:57.562Z",
+    "binary": "E:\\harness_mix\\target\\release\\examples\\index_phase_probe.exe",
+    "binarySha256": "02bd1da1693eeb82663add7ff9fd32502a1b298157a64807b259cac278d76931",
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "source": "E:\\harness_mix\\target\\cold-index-corpus-v1",
+    "sample": 200,
+    "trials": 3,
+    "workers": 4,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "os": "win32 10.0.19045 x64",
+    "definition": "Empty temporary index per invocation; detailed profiler enabled; counts and wall time, not CPU samples; OS caches not flushed."
+  },
+  "evidence": {
+    "sourceHash": "d08b32b3329fe107565cf93c0a5a926189f987778bc250925f89589f59208bd8",
+    "graphHash": "74996aa068bb2442716c50b17fdd9fc68d3cf22a3e2e81e55c84f8443da84575",
+    "filesProcessed": 200,
+    "referencesAttempted": 40928,
+    "referencesResolved": 309,
+    "nodesWritten": 2462,
+    "remaining": 0,
+    "unchecked": [],
+    "failures": [],
+    "skipped": []
+  },
+  "elapsedMs": [
+    14299.976700000001,
+    16043.359299999998,
+    14377.827500000001
+  ],
+  "medianElapsedMs": 14377.827500000001,
+  "medianPlanningMicros": 312432,
+  "medianPreparationMicros": 507456,
+  "medianFinalizationMicros": 338,
+  "reconciliation": [
+    {
+      "trial": 1,
+      "publicationMicros": 13238777,
+      "accountedMicros": 14080705,
+      "remainderMicros": 219271.70000000112
+    },
+    {
+      "trial": 2,
+      "publicationMicros": 14852062,
+      "accountedMicros": 15821595,
+      "remainderMicros": 221764.29999999888
+    },
+    {
+      "trial": 3,
+      "publicationMicros": 13380173,
+      "accountedMicros": 14154446,
+      "remainderMicros": 223381.50000000186
+    }
+  ],
+  "phaseMediansMicros": {
+    "begin_transaction": 5937,
+    "capture_existing_graph": 115885,
+    "check_indexed_hash": 6266,
+    "commit_transaction": 2129364,
+    "configure_connection": 4296,
+    "delete_previous_graph": 39044,
+    "extract_source": 1383,
+    "integrity_check": 57203,
+    "invalidate_engine_edges": 125838,
+    "invalidate_references": 9391,
+    "load_file_scope": 43098,
+    "open_database": 4259,
+    "read_source": 231516,
+    "recheck_database_handle": 10863,
+    "recheck_framework_sources": 7,
+    "recheck_sources": 1910511,
+    "resolve_references": 6643438,
+    "resolver_candidate_lookup": 48858,
+    "resolver_edge_write": 14527,
+    "resolver_policy": 591,
+    "resolver_reference_lookup": 225841,
+    "resolver_special": 6326521,
+    "restore_incoming_edges": 474,
+    "retry_binding_catalog": 332392,
+    "select_configuration": 74450,
+    "select_pending_references": 1106474,
+    "validate_schema": 34790,
+    "write_metadata": 43270,
+    "write_nodes_and_edges": 551601
+  },
+  "operations": [
+    {
+      "name": "resolver_special",
+      "calls": [
+        40928,
+        40928,
+        40928
+      ],
+      "medianTotalMicros": 6326612,
+      "medianMeanMicros": 154.57906567630963
+    },
+    {
+      "name": "rust_target",
+      "calls": [
+        14493,
+        14493,
+        14493
+      ],
+      "medianTotalMicros": 6317234.2,
+      "medianMeanMicros": 435.8817498102532
+    },
+    {
+      "name": "rust_analyze",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 3156053.3,
+      "medianMeanMicros": 2085.957237276933
+    },
+    {
+      "name": "verified_observe",
+      "calls": [
+        5677,
+        5677,
+        5677
+      ],
+      "medianTotalMicros": 3135881.5,
+      "medianMeanMicros": 552.3835652633434
+    },
+    {
+      "name": "source_read_resolution",
+      "calls": [
+        5677,
+        5677,
+        5677
+      ],
+      "medianTotalMicros": 3024690.6,
+      "medianMeanMicros": 532.79735775938
+    },
+    {
+      "name": "source_path_guard",
+      "calls": [
+        7590,
+        7590,
+        7590
+      ],
+      "medianTotalMicros": 2284018.8,
+      "medianMeanMicros": 300.92474308300393
+    },
+    {
+      "name": "source_read_recheck",
+      "calls": [
+        1713,
+        1713,
+        1713
+      ],
+      "medianTotalMicros": 1778711.4,
+      "medianMeanMicros": 1038.3604203152363
+    },
+    {
+      "name": "recheck_dependencies",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 1630551.7,
+      "medianMeanMicros": 8152.7585
+    },
+    {
+      "name": "recheck_verified_sources",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 1576485.4,
+      "medianMeanMicros": 7882.427
+    },
+    {
+      "name": "rust_parse",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 1143454.8,
+      "medianMeanMicros": 755.7533377395903
+    },
+    {
+      "name": "rust_ast_analysis",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 1132402.5,
+      "medianMeanMicros": 748.4484467944482
+    },
+    {
+      "name": "source_pin_directory",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 915588.4,
+      "medianMeanMicros": 267.2470519556334
+    },
+    {
+      "name": "io_path_validation",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 838943.9,
+      "medianMeanMicros": 244.87562755399884
+    },
+    {
+      "name": "io_project_read",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 396367.5,
+      "medianMeanMicros": 115.69395796847635
+    },
+    {
+      "name": "source_metadata",
+      "calls": [
+        7590,
+        7590,
+        7590
+      ],
+      "medianTotalMicros": 248820.9,
+      "medianMeanMicros": 32.78272727272727
+    },
+    {
+      "name": "source_read_other",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 231013.4,
+      "medianMeanMicros": 1155.067
+    },
+    {
+      "name": "resolver_reference_lookup",
+      "calls": [
+        40928,
+        40928,
+        40928
+      ],
+      "medianTotalMicros": 225924.2,
+      "medianMeanMicros": 5.520040070367475
+    },
+    {
+      "name": "recheck_primary",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 223295.6,
+      "medianMeanMicros": 1116.478
+    },
+    {
+      "name": "io_read_bytes",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 150977.7,
+      "medianMeanMicros": 44.068213660245185
+    },
+    {
+      "name": "io_open",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 105823.3,
+      "medianMeanMicros": 30.888295388207823
+    },
+    {
+      "name": "verified_index_lookup",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 86908.9,
+      "medianMeanMicros": 57.44144084600132
+    },
+    {
+      "name": "recheck_scope",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 65918.3,
+      "medianMeanMicros": 329.5915
+    },
+    {
+      "name": "recheck_configuration",
+      "calls": [
+        200,
+        200,
+        200
+      ],
+      "medianTotalMicros": 54839.7,
+      "medianMeanMicros": 274.19849999999997
+    },
+    {
+      "name": "resolver_candidate_lookup",
+      "calls": [
+        1301,
+        1301,
+        1301
+      ],
+      "medianTotalMicros": 48904.4,
+      "medianMeanMicros": 37.58985395849347
+    },
+    {
+      "name": "io_metadata_before",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 30697,
+      "medianMeanMicros": 8.960011675423234
+    },
+    {
+      "name": "io_metadata_after",
+      "calls": [
+        3426,
+        3426,
+        3426
+      ],
+      "medianTotalMicros": 25581,
+      "medianMeanMicros": 7.466725043782837
+    },
+    {
+      "name": "resolver_edge_write",
+      "calls": [
+        309,
+        309,
+        309
+      ],
+      "medianTotalMicros": 14553.6,
+      "medianMeanMicros": 47.099029126213594
+    },
+    {
+      "name": "verified_initial_hash",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 10840.3,
+      "medianMeanMicros": 7.164771976206213
+    },
+    {
+      "name": "verified_compare",
+      "calls": [
+        1513,
+        1513,
+        1513
+      ],
+      "medianTotalMicros": 1702.1,
+      "medianMeanMicros": 1.124983476536682
+    },
+    {
+      "name": "resolver_policy",
+      "calls": [
+        1301,
+        1301,
+        1301
+      ],
+      "medianTotalMicros": 635.1,
+      "medianMeanMicros": 0.488162951575711
+    }
+  ],
+  "counters": {
+    "commit_attempts": 200,
+    "io_bytes_read": 26127486,
+    "rust_analyze_bytes": 11952969,
+    "rust_call_proof_miss": 11459,
+    "rust_facts_hits": 12637,
+    "rust_facts_misses": 6020,
+    "source_missing": 4164,
+    "verified_cache_misses": 5677,
+    "verified_hash_bytes": 11952969,
+    "verified_recheck_bytes": 11952969,
+    "verified_recheck_files": 1513
+  },
+  "paths": {
+    "unique": 209,
+    "omittedAttempts": 0,
+    "totalAttempts": 7590,
+    "topRepeated": [
+      [
+        "src/adapters/lib.rs",
+        1127
+      ],
+      [
+        "src/adapters/main.rs",
+        1127
+      ],
+      [
+        "src/adapters/mod.rs",
+        1127
+      ],
+      [
+        "crates/application/src/indexing/file.rs",
+        360
+      ],
+      [
+        "crates/application/src/indexing/lib.rs",
+        179
+      ],
+      [
+        "crates/application/src/indexing/main.rs",
+        179
+      ],
+      [
+        "crates/application/src/indexing/mod.rs",
+        179
+      ],
+      [
+        "experiments/ra-syntax-compare/baseline/index_rust.rs",
+        160
+      ],
+      [
+        "src/adapters/create_file.rs",
+        114
+      ],
+      [
+        "src/adapters/delete_file.rs",
+        106
+      ],
+      [
+        "src/adapters/diagnostics.rs",
+        104
+      ],
+      [
+        "src/adapters/doctor.rs",
+        100
+      ],
+      [
+        "src/adapters/edit.rs",
+        98
+      ],
+      [
+        "src/adapters/edit_commit.rs",
+        96
+      ],
+      [
+        "src/adapters/explore.rs",
+        92
+      ]
+    ]
+  },
+  "coverage": "successful_publications_main_thread; preparation_workers_not_included; nested_wall_times_do_not_sum",
+  "limitations": [
+    "Inclusive nested timers must not be summed; means are not p95.",
+    "Operations instrument successful publications on the main thread; parallel preparation remains aggregate only.",
+    "Detailed tracing adds overhead: use this run to locate cost, not claim a before/after speedup.",
+    "Wall time alone cannot distinguish CPU from filesystem/OS wait."
+  ],
+  "countersIdenticalAcrossTrials": true,
+  "pathCountsIdenticalAcrossTrials": true
+}

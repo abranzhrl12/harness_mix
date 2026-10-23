@@ -8,6 +8,9 @@ mod verified_sources;
 use verified_sources::VerifiedSources;
 #[path = "index_imports/rust_resolution.rs"]
 mod rust_resolution;
+#[path = "index_imports/rust_analysis_cache.rs"]
+mod rust_analysis_cache;
+pub(in crate::adapters) use rust_analysis_cache::RustFactsCache;
 use rust_resolution::RustResolution;
 
 #[path = "index_imports/angular.rs"]
@@ -63,6 +66,16 @@ pub(super) struct ExportTarget {
     pub contributors: Vec<serde_json::Value>,
 }
 impl Sources {
+    pub(super) fn with_rust_cache(
+        config: super::tsconfig::Snapshot,
+        cache: RustFactsCache,
+    ) -> Self {
+        Self {
+            rust: RustResolution::with_cache(cache),
+            config,
+            ..Self::default()
+        }
+    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn razor_instance_target(
         &mut self,
@@ -235,7 +248,11 @@ impl Sources {
         project: &Project,
         context: &OperationContext,
     ) -> Result<(), Failure> {
-        self.config.recheck(project, context)?;
+        {
+            let _timer = crate::adapters::index_profile::operation("recheck_configuration");
+            self.config.recheck(project, context)?;
+        }
+        let _timer = crate::adapters::index_profile::operation("recheck_verified_sources");
         self.verified.recheck(project, context)
     }
 }

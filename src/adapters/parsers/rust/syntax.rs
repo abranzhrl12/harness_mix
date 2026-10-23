@@ -2,6 +2,7 @@
 use harness_domain::{Failure, execution::OperationContext};
 
 use ra_ap_syntax::{Edition, SourceFile};
+use crate::adapters::index_profile;
 
 /// Callers return owned data; parsing remains strict even though RA can recover.
 pub(in crate::adapters) fn with_ast<T>(
@@ -35,7 +36,10 @@ pub(in crate::adapters) fn with_ast<T>(
     } else {
         input.to_owned()
     };
-    let parsed = SourceFile::parse(&prepared, Edition::Edition2024);
+    let parsed = {
+        let _timer = index_profile::operation("rust_parse");
+        SourceFile::parse(&prepared, Edition::Edition2024)
+    };
     context.check()?;
     // No Cargo edition is supplied by this interface. Preserve legacy syntax
     // such as `fn gen()` instead of imposing 2024's new reserved keywords.
@@ -43,7 +47,10 @@ pub(in crate::adapters) fn with_ast<T>(
         parsed
     } else {
         context.check()?;
-        let legacy = SourceFile::parse(&prepared, Edition::Edition2021);
+        let legacy = {
+            let _timer = index_profile::operation("rust_parse_legacy");
+            SourceFile::parse(&prepared, Edition::Edition2021)
+        };
         context.check()?;
         if !legacy.errors().is_empty() {
             return Err(("SYNTAX_ERROR", "Rust source is not syntactically valid"));
@@ -52,5 +59,6 @@ pub(in crate::adapters) fn with_ast<T>(
     };
     let ast = parsed.tree();
     context.check()?;
+    let _timer = index_profile::operation("rust_ast_analysis");
     consume(&ast, base)
 }

@@ -1,0 +1,15 @@
+[package]
+name = "recheck-comparison"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+sha2 = "=0.10.9"
+serde_json = "1"
+
+[profile.test]
+opt-level = 3
+debug = false
