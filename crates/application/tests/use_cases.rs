@@ -29,6 +29,14 @@ impl harness_application::ports::workspace::WorkspaceMetadata for FakeWorkspace 
     }
 }
 impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
+    fn read_symbol(
+        &self,
+        args: &harness_domain::contracts::ReadSymbolArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"path":args.path,"symbol":{"name":args.symbol},"text":"source"}))
+    }
     fn read(&self, args: &ReadArgs, _: &OperationContext) -> Result<Value, Failure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"path":args.path,"text":"memory"}))
@@ -81,6 +89,48 @@ struct MemorySessions {
     exists: bool,
     rules: Option<String>,
     capabilities: Option<String>,
+}
+
+#[test]
+fn navigation_advice_survives_batch_compaction_and_application_clones() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Application::new(
+        FakeWorkspace {
+            calls: calls.clone(),
+        },
+        MemorySessions::default(),
+    );
+    app.execute(Request::Bootstrap(
+        serde_json::from_value(json!({"compact":true})).unwrap(),
+    ));
+    let symbol = app.execute(Request::ReadSymbol(
+        serde_json::from_value(json!({
+            "path":"a.rs","symbol":"observed","session":"memory-session"
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(symbol["state"], "ok");
+    let batch = app.clone().execute(Request::Batch(
+        serde_json::from_value(json!({
+            "session":"memory-session","maxConcurrent":2,
+            "jobs":[
+                {"tool":"harness_read","arguments":{"path":"b.rs"}},
+                {"tool":"harness_read","arguments":{"path":"c.rs"}}
+            ]
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(batch["state"], "ok");
+    let hints: Vec<_> = batch["data"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|r| r["diagnostics"].as_array().unwrap())
+        .filter(|d| d["code"] == "EXPLORE_RECOMMENDED")
+        .collect();
+    assert_eq!(hints.len(), 1);
+    assert_eq!(hints[0]["nextCall"]["arguments"]["filePath"], "a.rs");
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 impl SessionRepository for MemorySessions {
     fn record(&mut self, _: &str, _: &str, _: &Value, _: &Value) -> Result<Option<Value>, Failure> {

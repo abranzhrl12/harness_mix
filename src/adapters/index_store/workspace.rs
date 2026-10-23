@@ -6,6 +6,7 @@ pub(super) struct NativeWorkspace<'a> {
     root: &'a Path,
     project: Project,
     scope: Option<scope::Snapshot>,
+    scope_check_failed: bool,
     #[cfg(windows)]
     writer: Option<writer::Writer>,
 }
@@ -16,6 +17,7 @@ impl<'a> NativeWorkspace<'a> {
             root,
             project: Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?,
             scope: None,
+            scope_check_failed: false,
             #[cfg(windows)]
             writer: None,
         })
@@ -62,7 +64,11 @@ impl WorkspacePort for NativeWorkspace<'_> {
     ) -> Result<Value, Failure> {
         sync_diagnostic::begin(path, &self.project.root.join(".codegraph/codegraph.db"));
         sync_diagnostic::stage("recheck_workspace_scope");
-        self.recheck(context)?;
+        self.scope_check_failed = false;
+        if let Err(error) = self.recheck(context) {
+            self.scope_check_failed = true;
+            return Err(error);
+        }
         #[cfg(windows)]
         {
             let invalidator: &publication::ReferenceInvalidator =
@@ -91,6 +97,9 @@ impl WorkspacePort for NativeWorkspace<'_> {
     }
     fn diagnostic(&mut self, code: &str, message: &str) -> Option<Value> {
         sync_diagnostic::take(code, message)
+    }
+    fn file_failure_is_isolated(&self) -> bool {
+        !self.scope_check_failed
     }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure> {
         self.scope

@@ -148,6 +148,7 @@ pub(super) fn extract(
         &positions,
         &mut nodes,
         &mut edges,
+        &mut references,
         context,
     )?;
     let style_rule_count = add_style_rules(
@@ -166,7 +167,7 @@ pub(super) fn extract(
         );
     }
     if component_candidate_count > 0 {
-        notices.insert("Vue template component tags are structural candidates and are not linked to script imports".into());
+        notices.insert("Vue template component tags are structural candidates; only unique explicit script setup imports can be linked; global registrations and dynamic component expressions are not resolved".into());
     }
     context.check()?;
     if nodes.len() > MAX_ROWS || edges.len() > MAX_ROWS || references.len() > MAX_ROWS {
@@ -197,6 +198,78 @@ fn block_name(block: &Block, index: usize) -> String {
         }
         kind => format!("{kind}#{index}"),
     }
+}
+
+/// Re-prove every template component site against one unique explicit setup import.
+/// The caller caches this bounded map for the duration of publication.
+pub(in crate::adapters) fn template_component_imports(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<BTreeMap<String, (String, i64, i64, String)>, Failure> {
+    let digest = hash(source.as_bytes());
+    let document = structure::parse(source, &digest, context)?;
+    let positions = framework::Positions::new(source);
+    let mut imports = None;
+    for block in &document.blocks {
+        context.check()?;
+        if block.kind != "script"
+            || structure::attr(&block.attrs, "setup").is_none()
+            || structure::attr(&block.attrs, "src").is_some()
+        {
+            continue;
+        }
+        let Some(language) = script_language(block) else {
+            return Ok(BTreeMap::new());
+        };
+        let extension = match language {
+            "javascript" => "js",
+            "typescript" => "ts",
+            "jsx" => "jsx",
+            "tsx" => "tsx",
+            _ => return Ok(BTreeMap::new()),
+        };
+        let parser_path = format!("{path}.{extension}");
+        let projection = framework::project(source, block.body.clone())?;
+        imports = Some(super::vue_router::bindings::component_runtime_imports(
+            &parser_path,
+            &projection,
+            context,
+        )?);
+        break;
+    }
+    let Some(imports) = imports else {
+        return Ok(BTreeMap::new());
+    };
+    let mut references = BTreeMap::new();
+    for element in &document.elements {
+        context.check()?;
+        if !is_component(element) || element.tag == "component" {
+            continue;
+        }
+        let key = super::vue_router::bindings::component_key(&element.tag);
+        let mut matches = imports
+            .iter()
+            .filter(|(local, _)| super::vue_router::bindings::component_key(local) == key);
+        let Some((_, module)) = matches.next() else {
+            continue;
+        };
+        if matches.next().is_some() {
+            continue;
+        }
+        let id = framework::id("vue", path, "module", element.range.start);
+        let (line, column) = positions.position(element.range.start + 1)?;
+        references.insert(
+            id,
+            (
+                element.tag.clone(),
+                line as i64,
+                column as i64,
+                module.clone(),
+            ),
+        );
+    }
+    Ok(references)
 }
 
 fn component_name(path: &str) -> &str {
@@ -464,6 +537,7 @@ fn add_template_elements(
     positions: &framework::Positions<'_>,
     nodes: &mut Vec<Value>,
     edges: &mut Vec<Value>,
+    references: &mut Vec<Value>,
     context: &OperationContext,
 ) -> Result<(usize, usize), Failure> {
     let Some((template_index, _)) = document
@@ -498,6 +572,20 @@ fn add_template_elements(
         nodes.push(node);
         component_ids[index] = Some(id);
         count += 1;
+        if element.tag != "component" {
+            let (line, column) = positions.position(element.range.start + 1)?;
+            references.push(json!({
+                "fromNodeId": component_ids[index],
+                "referenceName": element.tag,
+                "referenceKind": "vue_template_component",
+                "line": line,
+                "column": column,
+                "filePath": path
+            }));
+            if references.len() > MAX_ROWS {
+                return Err(LIMIT);
+            }
+        }
         if nodes.len() > MAX_ROWS {
             return Err(LIMIT);
         }

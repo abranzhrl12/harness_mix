@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "experiment": "Windows pinned source read",
+    "comparisonMode": "pinned-read",
+    "sample": "all",
+    "trials": 3,
+    "workers": 4,
+    "baseCommit": "1fd1d537387ac7654196107bc881570f7117b1e2",
+    "overlayCommit": "43bb1078f88c153143d847f4423ebccae290ea5c",
+    "overlayScope": "Step 11/12 index files, benchmark scripts, and docs only; Vue files excluded",
+    "corpus": "target/cold-index-corpus-v1",
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "sourceHash": "1e06bac31803b348635cb89fc39de63e386648a1f75f5a10fc0eb2abcec085a8",
+    "rustPending": {"before": "1", "after": "1"},
+    "pinnedRead": {"before": "0", "after": "1"},
+    "binarySha256": "fbea4298bcc1ba23ca45ee93291fdc6b3db097aeef179f2dcb4bdd4c391e3423",
+    "graphHash": "202c2e102ba97ae2470d172fece3dba4e79c8f9c8e5e1af1c531a58f71488bbb",
+    "osCachesFlushed": false,
+    "resultArtifact": "C:/harness_pinned_read_results/rust-pending-pinned-read-all/summary.json"
+  },
+  "results": {
+    "beforeSeconds": [83.079, 82.905, 71.857],
+    "beforeMedianSeconds": 82.905,
+    "afterSeconds": [63.765, 56.119, 58.548],
+    "afterMedianSeconds": 58.548,
+    "savedMedianSeconds": 24.357,
+    "elapsedReductionPercent": 29.38,
+    "ratioBeforeOverAfter": 1.416,
+    "filesCopied": 549,
+    "filesProcessed": 537,
+    "commits": 537,
+    "referencesAttempted": 283976,
+    "referencesResolved": 1227,
+    "nodesWritten": 6435,
+    "remaining": 0,
+    "failures": 0,
+    "unchecked": 0,
+    "skipped": 0
+  },
+  "medianOperationSeconds": {
+    "resolve_references": {"before": 29.006, "after": 20.471},
+    "source_path_guard": {"before": 17.381, "after": 0},
+    "source_path_policy": {"before": 0, "after": 0.702},
+    "source_pin_directory": {"before": 13.981, "after": 13.601},
+    "source_handle_boundary": {"before": 0, "after": 3.710},
+    "source_read_resolution": {"before": 21.940, "after": 14.934},
+    "source_read_recheck": {"before": 21.674, "after": 14.395},
+    "verified_observe": {"before": 22.685, "after": 15.596}
+  },
+  "unchangedCounters": {
+    "ioBytesRead": 372863670,
+    "verifiedRecheckFiles": 19818,
+    "verifiedRecheckBytes": 182843207,
+    "verifiedHashBytes": 182843207,
+    "verifiedNotIndexed": 50122,
+    "pendingSqlRows": 235460,
+    "pendingSqlVmSteps": 122085444,
+    "rustFactsHits": 74570,
+    "rustFactsMisses": 104147
+  },
+  "newCounter": {"sourcePinnedReads": 40710},
+  "validation": {
+    "projectTests": "15 passed, 0 failed with HARNESS_INDEX_PINNED_READ absent (fast default)",
+    "verifiedSourcesTests": "7 passed, 0 failed",
+    "rustRollbackAndLifecycleTests": "2 passed, 0 failed",
+    "symbolGraphFreshnessTests": "6 passed, 0 failed",
+    "benchmarkNodeSyntax": "both scripts passed node --check",
+    "defaultAndRollback": "Fast branch is the Windows default; HARNESS_INDEX_PINNED_READ=0 selects the checked path",
+    "projectBlobBeforeDefaultFlip": "b93dc411f13d75f571b128d0e1509f40489eec2f",
+    "projectBlobAfterDefaultFlip": "c68987fdfebc0eadf2b8ba4c02e49fa36b52a84e",
+    "projectReadTestsBlob": "f7c1d3b5d0d3f42e8fdf63fbc60404c0f5ed4539"
+  },
+  "limitations": [
+    "One paired three-trial run set on this Windows machine; OS file caches were not flushed.",
+    "The pre-Vue worktree was used because commit 43bb107 does not compile at src/adapters/index_extract/vue_router/parse.rs:199 (E0609: ExportNamedDeclaration has no declaration field). No Vue source was edited.",
+    "Nested phase timers overlap and must not be summed.",
+    "The benchmark compares identical binary hashes and validates identical graph/source hashes and publication counters."
+  ]
+}

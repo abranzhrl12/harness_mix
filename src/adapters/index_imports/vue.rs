@@ -125,4 +125,83 @@ impl Sources {
         }
         Ok(Some(resolved))
     }
+
+    pub(in crate::adapters::index_store) fn vue_template_component_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        from_node_id: &str,
+        name: &str,
+        line: i64,
+        column: i64,
+    ) -> Result<Option<(String, String)>, Failure> {
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(path))
+            || !self.observe(db, project, context, path)?
+        {
+            return Ok(None);
+        }
+        let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
+            .map_err(|_| super::INDEX)?;
+        if !self.vue_template_components.contains_key(path) {
+            let components = crate::adapters::index_extract::template_component_imports(
+                path, source, context,
+            )?;
+            let mut reserved = path.len().checked_add(128).ok_or(LIMIT)?;
+            for (id, (component, _, _, module)) in &components {
+                let item_bytes = id
+                    .len()
+                    .checked_add(component.len())
+                    .and_then(|bytes| bytes.checked_add(module.len()))
+                    .and_then(|bytes| bytes.checked_add(64))
+                    .ok_or(LIMIT)?;
+                reserved = reserved
+                    .checked_add(item_bytes)
+                    .ok_or(LIMIT)?;
+            }
+            self.vue_template_components_reserved = self
+                .vue_template_components_reserved
+                .checked_add(reserved)
+                .ok_or(LIMIT)?;
+            if self.vue_template_components_reserved > 16 * 1024 * 1024 {
+                return Err(LIMIT);
+            }
+            self.vue_template_components
+                .insert(path.to_owned(), components);
+        }
+        let Some((proved_name, proved_line, proved_column, module_specifier)) = self
+            .vue_template_components
+            .get(path)
+            .ok_or(LIMIT)?
+            .get(from_node_id)
+        else {
+            return Ok(None);
+        };
+        if proved_name != name || *proved_line != line || *proved_column != column {
+            return Ok(None);
+        }
+        let module_specifier = module_specifier.clone();
+        let imported = "default";
+        let Some(resolved) =
+            module_path(db, path, &module_specifier, "vue", context, self)?
+        else {
+            return Ok(None);
+        };
+        if !resolved.to_ascii_lowercase().ends_with(".vue")
+            || self
+                .config
+                .semantic
+                .as_ref()
+                .is_some_and(|policy| policy.excluded(&resolved))
+            || !self.observe(db, project, context, &resolved)?
+        {
+            return Ok(None);
+        }
+        Ok(Some((resolved, imported.to_string())))
+    }
 }

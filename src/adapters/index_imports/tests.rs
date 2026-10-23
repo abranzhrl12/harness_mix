@@ -89,7 +89,7 @@ fn runtime_export_memo_is_publication_local_and_sources_are_rechecked() {
     assert!(Sources::default().runtime.is_empty());
 }
 #[test]
-fn verified_source_cache_enforces_file_count_budget() {
+fn verified_source_cache_accepts_many_small_sources_across_languages() {
     let root = tempfile::tempdir().unwrap();
     let project = Project::new(root.path()).unwrap();
     let db = Connection::open_in_memory().unwrap();
@@ -100,7 +100,7 @@ fn verified_source_cache_enforces_file_count_budget() {
     let mut sources = Sources::default();
     let context = OperationContext::default();
 
-    for index in 0..=64 {
+    for index in 0..=128 {
         let path = format!("source-{index}.ts");
         std::fs::write(root.path().join(&path), b"").unwrap();
         db.execute(
@@ -108,14 +108,9 @@ fn verified_source_cache_enforces_file_count_budget() {
             [&path, &hash(b"")],
         )
         .unwrap();
-        let result = sources.observe(&db, &project, &context, &path);
-        if index < 64 {
-            assert!(result.unwrap());
-        } else {
-            assert_eq!(result, Err(super::super::LIMIT));
-        }
+        assert!(sources.observe(&db, &project, &context, &path).unwrap());
     }
-    assert_eq!(sources.verified.len(), 64);
+    assert_eq!(sources.verified.len(), 129);
     assert!(
         sources
             .observe(&db, &project, &context, "source-0.ts")

@@ -14,7 +14,7 @@ un paso sin medición terminada no se presenta como mejora.
 9. [Filtrado por índice antes de consultar el disco](09-filtrado-indice-antes-disco.md).
 10. [Pruebas de selección SQL de referencias pendientes](10-pruebas-seleccion-pendientes.md).
 11. [Selector Rust validado en indexación real](11-selector-rust-real.md).
-12. [Lectura protegida con pinning unificado: experimento pendiente](12-lectura-pinning-unificado.md).
+12. [Lectura protegida con pinning unificado: A/B medido](12-lectura-pinning-unificado.md) ([resultados](resultados-pinning-pinned-read-all.json)).
 
 Después de medir la línea base se priorizará la fase dominante: selección de
 pendientes, invalidación, resolución, escritura o commit. Cada cambio posterior

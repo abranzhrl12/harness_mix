@@ -24,6 +24,12 @@ pub trait WorkspacePort {
         context: &OperationContext,
     ) -> Result<serde_json::Value, Failure>;
     fn diagnostic(&mut self, code: &str, message: &str) -> Option<serde_json::Value>;
+    /// False when the last apply error invalidated a workspace precondition,
+    /// rather than one file. Systemic error codes still stop even if true.
+    /// File errors must have a confirmed rollback or use SYNC_COMMIT_UNCERTAIN.
+    fn file_failure_is_isolated(&self) -> bool {
+        true
+    }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure>;
 }
 
@@ -98,6 +104,10 @@ pub trait ChangedPathsPort {
         path: &str,
         context: &OperationContext,
     ) -> Result<Option<serde_json::Value>, Failure>;
+    /// Same isolation contract as WorkspacePort::file_failure_is_isolated.
+    fn file_failure_is_isolated(&self) -> bool {
+        true
+    }
 }
 
 pub trait PlanningPort {

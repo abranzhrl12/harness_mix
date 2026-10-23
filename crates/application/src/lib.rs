@@ -2,10 +2,11 @@
 mod admission;
 mod batch;
 mod dispatch;
+pub mod indexing;
 mod logging;
 mod metrics;
-pub mod indexing;
 pub mod ports;
+mod reading_guidance;
 mod session;
 
 use harness_domain::{Failure, contracts::Request, execution::OperationContext, results::Results};
@@ -19,6 +20,7 @@ pub struct Application<W, S> {
     results: Arc<Mutex<Results>>,
     admission: Arc<admission::Admission>,
     metrics: Arc<metrics::Metrics>,
+    reading_guidance: Arc<Mutex<reading_guidance::Guidance>>,
     tool_profile: harness_domain::tool_contract::ToolProfile,
 }
 
@@ -76,6 +78,7 @@ impl<W, S> Clone for Application<W, S> {
             results: self.results.clone(),
             admission: self.admission.clone(),
             metrics: self.metrics.clone(),
+            reading_guidance: self.reading_guidance.clone(),
             tool_profile: self.tool_profile,
         }
     }
@@ -95,6 +98,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             results: Arc::default(),
             admission: Arc::default(),
             metrics: Arc::new(metrics::Metrics::with_logs(logs)),
+            reading_guidance: Arc::default(),
             tool_profile: harness_domain::tool_contract::ToolProfile::Full,
         }
     }

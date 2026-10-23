@@ -60,6 +60,7 @@ pub(super) const PENDING_SQL: &str = pending_sql_with_common_prefix!(
 WHERE status='pending' AND (
     ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx')
         AND reference_kind IN ('angular_injects','angular_route_component','angular_route_layout','vue_route_component','vue_route_dynamic_component'))
+    OR ((?2='vue' OR ?3=1) AND language='vue' AND reference_kind='vue_template_component')
     OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1)
         AND reference_kind IN ('angular_provider_token','angular_provider_implementation'))
     OR ((?2 IN ('typescript','tsx','javascript','jsx','vue') OR ?3=1) AND language='vue'
@@ -88,6 +89,7 @@ OR (file_path=?1 AND (reference_name IN(SELECT name FROM nodes WHERE file_path=?
 OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND ((?5 IS NULL AND file_path IN(SELECT file_path FROM nodes WHERE kind='import')) OR (reference_kind IN ('calls','function_ref','instantiates','extends','implements') AND (file_path,reference_name) IN(SELECT json_extract(value,'$[0]'),json_extract(value,'$[1]') FROM json_each(?5)))))
 OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND reference_kind='angular_injects')
 OR ((?2 IN ('typescript','tsx','javascript','jsx') OR ?3=1) AND language IN ('typescript','tsx','javascript','jsx') AND reference_kind IN ('angular_route_component','angular_route_layout','vue_route_component','vue_route_dynamic_component'))
+OR ((?2='vue' OR ?3=1) AND language='vue' AND reference_kind='vue_template_component')
 OR ((?2 IN ('typescript','tsx','javascript','jsx','vue') OR ?3=1) AND language='vue' AND reference_kind='calls' AND file_path IN(SELECT file_path FROM nodes WHERE kind='import'))
 OR (?2='rust' AND language='rust' AND reference_name LIKE 'super::%' AND reference_kind IN ('calls','function_ref'))
 OR (?2='html' AND reference_kind='framework_template' AND reference_name=?1)) LIMIT 20001";

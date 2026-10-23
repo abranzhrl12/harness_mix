@@ -94,6 +94,23 @@ pub(super) fn resolve_exact(
     let special_timer = profiling.then(|| {
         sync_diagnostic::resolver_timer("resolver_special")
     });
+    if kind == "vue_template_component" {
+        return framework::vue_template_component(
+            db,
+            id,
+            project,
+            context,
+            sources,
+            framework::Site {
+                from: &from,
+                name: &name,
+                kind: &kind,
+                line,
+                col,
+                path: &path,
+            },
+        );
+    }
     if matches!(
         kind.as_str(),
         "vue_route_component" | "vue_route_dynamic_component"

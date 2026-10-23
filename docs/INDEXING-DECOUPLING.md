@@ -39,6 +39,10 @@ por compatibilidad. Un éxito de publicación aislada no confirma commit ni fres
 - Transacciones por archivo, no por workspace.
 - Antes del commit se revalidan scope, fuentes, configuración e integridad.
 - Error/cancelación provoca rollback, incluso con contexto cancelado.
+- Los errores aislados de archivo no impiden publicar los demás archivos del
+  workspace o lote de eventos; errores sistémicos y pérdida de scope sí detienen.
+- Los reportes de fallo están acotados a 32 detalles, con conteos exactos y
+  omisiones explícitas; los commits confirmados nunca se pierden del informe.
 - Durabilidad incierta nunca se comunica como rollback confirmado.
 - Cancelación posterior al commit confirmado no oculta la escritura.
 - Errores posteriores conservan la contabilidad de commits anteriores.
@@ -92,3 +96,6 @@ Los cambios previos del usuario en el `Cargo.toml` raíz se preservan.
 La optimización posterior del selector de reintentos y su medición por fase se
 documentan en [index-pending-2026-10-22.md](benchmarks/index-pending-2026-10-22.md).
 Conserva los puertos y las garantías anteriores; no es invalidación batch diferida.
+
+La recuperación del presupuesto de fuentes y la continuación ante fallos locales
+se detallan en [13-recuperacion-limite-fuentes.md](benchmarks/cold-index/13-recuperacion-limite-fuentes.md).

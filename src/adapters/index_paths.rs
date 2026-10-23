@@ -148,16 +148,15 @@ impl Routes {
             {
                 return Err(INDEX);
             }
-            if index_inventory::restricted(&path)
-                || !matches!(
-                    language.as_str(),
-                    "typescript" | "tsx" | "javascript" | "jsx"
-                )
-                || !matches!(
-                    index_extract::language(&path),
-                    Some("typescript" | "tsx" | "javascript" | "jsx")
-                )
-            {
+            let script_language = matches!(
+                language.as_str(),
+                "typescript" | "tsx" | "javascript" | "jsx"
+            ) && matches!(
+                index_extract::language(&path),
+                Some("typescript" | "tsx" | "javascript" | "jsx")
+            );
+            let vue_component = language == "vue" && index_extract::language(&path) == Some("vue");
+            if index_inventory::restricted(&path) || !(script_language || vue_component) {
                 continue;
             }
             let absolute = Path::new(ROOT).join(&path);
@@ -211,6 +210,7 @@ impl Routes {
             ("tsx", vec![".tsx", ".ts", ".d.ts", ".js", ".jsx", ""]),
             ("javascript", vec![".js", ".jsx", ".mjs", ".cjs", ""]),
             ("jsx", vec![".jsx", ".js", ""]),
+            ("vue", vec![".vue", ""]),
         ] {
             let mut configured = options(&extensions, &["index"]);
             if let Some((path, _)) = &view.0.config {
@@ -321,6 +321,9 @@ impl Routes {
                     .to_str()
                     .ok_or(INDEX)?
                     .replace('\\', "/");
+                if language != "vue" && relative.to_ascii_lowercase().ends_with(".vue") {
+                    return Ok(None);
+                }
                 if !self.view.0.files.contains(resolved.path())
                     || index_inventory::restricted(&relative)
                 {
@@ -334,6 +337,7 @@ impl Routes {
                     "tsx" => &["index.tsx", "index.ts", "index.js"][..],
                     "javascript" => &["index.js", "index.jsx"][..],
                     "jsx" => &["index.jsx", "index.js"][..],
+                    "vue" => &["index.vue"][..],
                     _ => &[][..],
                 };
                 let bare_index = bare
@@ -573,5 +577,30 @@ process.stdout.write(JSON.stringify(api.resolveImportPath('./' + input.target, '
                 .unwrap();
             assert_eq!(actual, expected, "{language}: {target}");
         }
+    }
+
+    #[test]
+    fn vue_files_resolve_from_vue_imports_without_changing_script_resolution() {
+        let context = OperationContext::default();
+        let mut routes = fixture(&["src/App.ts", "src/Parent.vue", "src/Card.vue"], &context);
+        assert_eq!(
+            routes
+                .resolve("src/Parent.vue", "src/Card", "vue", &context)
+                .unwrap()
+                .as_deref(),
+            Some("src/Card.vue")
+        );
+        assert_eq!(
+            routes
+                .resolve("src/App.ts", "src/Card", "typescript", &context)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            routes
+                .resolve("src/App.ts", "src/Card.vue", "typescript", &context)
+                .unwrap(),
+            None
+        );
     }
 }

@@ -4,9 +4,7 @@ use crate::SessionLease;
 mod bootstrap;
 use crate::ports;
 use crate::ports::{SessionRepository, Workspace};
-use harness_domain::{
-    Failure, contracts::BootstrapArgs, execution::OperationContext, hash,
-};
+use harness_domain::{Failure, contracts::BootstrapArgs, execution::OperationContext, hash};
 use serde_json::{Value, json};
 
 impl<W: Workspace, S: SessionRepository> Application<W, S> {

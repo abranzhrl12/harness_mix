@@ -79,7 +79,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                     let operation = match self.prepare(request, context.clone()) {
                         Ok(operation) => operation,
                         Err(result) => {
-                            results[index] = Some(json!({"index":index,"tool":tool,"result":result}));
+                            results[index] =
+                                Some(json!({"index":index,"tool":tool,"result":result}));
                             completed += 1;
                             continue;
                         }
@@ -102,7 +103,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                                 ("INTERNAL", "Batch child worker could not start"),
                             );
                             result["requestId"] = json!(failure_request_id);
-                            results[index] = Some(json!({"index":index,"tool":tool,"result":result}));
+                            results[index] =
+                                Some(json!({"index":index,"tool":tool,"result":result}));
                             completed += 1;
                         }
                     }
@@ -117,11 +119,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 active -= 1;
                 completed += 1;
                 let mut result = result.unwrap_or_else(|_| {
-                    self.failure(
-                        tool,
-                        &json!({}),
-                        ("INTERNAL", "Batch child worker failed"),
-                    )
+                    self.failure(tool, &json!({}), ("INTERNAL", "Batch child worker failed"))
                 });
                 result["requestId"] = json!(request_id);
                 results[index] = Some(json!({"index":index,"tool":tool,"result":result}));

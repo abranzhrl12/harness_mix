@@ -143,10 +143,9 @@ mod tests {
     #[test]
     fn source_validation_is_independent_of_hash_calculation() {
         let called = Cell::new(false);
-        let digest = Sha256Digest::parse(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-        )
-        .unwrap();
+        let digest =
+            Sha256Digest::parse("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+                .unwrap();
         let result = source_digest_with(b"abc", |bytes| {
             called.set(true);
             assert_eq!(bytes, b"abc");

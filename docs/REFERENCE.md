@@ -19,6 +19,7 @@ Sin opción, inicia un servidor persistente por stdio. Sin `--root`, intenta det
 | `--init-config` | Crear configuración opcional sin sobrescribir |
 | `--index init` | Crear esquema vacío; exige que no exista `.codegraph/` |
 | `--index plan` | Inspeccionar el plan de sincronización de un índice existente |
+| `--index plan --summary` | Devolver conteos exactos por categoría y hasta cinco rutas de muestra por categoría |
 | `--index sync` | Publicar archivos añadidos, modificados y borrados del alcance nativo |
 | `--index rebuild` | Reextraer también archivos sin cambios, conservando la base |
 | `--sync-file src/main.ts` | Actualizar un archivo relativo al proyecto |
@@ -27,6 +28,8 @@ Sin opción, inicia un servidor persistente por stdio. Sin `--root`, intenta det
 | `--persist-logs` | Iniciar MCP con historial de logs persistido |
 
 Aliases conservados: `--init-index` = `--index init`, `--sync-plan` = `--index plan`, `--sync` = `--index sync`, `--reindex` = `--index rebuild`. `--force` y `--tsconfig` se muestran como variantes separadas; no se anuncia su combinación.
+
+`--sync-plan --summary` es alias de `--index plan --summary`. El resumen conserva `added`, `modified`, `retryExtraction`, `removed`, `unchanged` y `unchecked`, con `count`, `samplePaths` y `omittedCount` en cada categoría, además de las banderas de cobertura y seguridad. Las rutas se mantienen completas; el presupuesto serializado limita muestras y respuesta a 12 KiB. `detailsIncluded:false` y `omittedSections` indican los campos omitidos. Sin `--summary`, la respuesta completa permanece igual. El resumen se construye después de calcular el plan y no reduce ese cálculo. `--summary` con `sync`, `rebuild`, `init` o `sync-file` es un error.
 
 Las operaciones de índice muestran progreso en stderr y JSON en stdout. `durationMs` mide el comando; la sincronización añade `indexingDurationMs` y tiempos por archivo en informes acotados. Los límites CLI son 30 s para init/plan/sync-file y 300 s para sync/rebuild; son presupuestos cooperativos, no mediciones ni garantías de duración.
 

@@ -1,9 +1,9 @@
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
+pub mod indexing;
 pub mod jobs;
 pub mod parsing;
-pub mod indexing;
 pub use jobs::{JobEvent, JobEventFuture, JobEventStream, JobFuture, JobService};
 
 /// Platform-dependent I/O. Implementations enforce filesystem safety and scan budgets.

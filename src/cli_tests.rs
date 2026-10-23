@@ -161,6 +161,98 @@ fn parses_file_sync_options() {
     ));
 }
 
+#[test]
+fn parses_skill_sync_modes_and_root_forms() {
+    assert!(matches!(
+        parse_args(&["skills", "sync"]),
+        Ok(Command::SkillsSync {
+            root: Root::Detect,
+            check: false,
+            dry_run: false,
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse_args(&["skills", "sync", "--check"]),
+        Ok(Command::SkillsSync { check: true, .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "skills", "sync", "--enable-auto"]),
+        Ok(Command::SkillsSync {
+            root: Root::Explicit(root),
+            enable_auto: true,
+            ..
+        }) if root == PathBuf::from("workspace")
+    ));
+    assert!(matches!(
+        parse_args(&["skills", "sync", "--root", "workspace", "--dry-run"]),
+        Ok(Command::SkillsSync {
+            root: Root::Explicit(root),
+            dry_run: true,
+            ..
+        }) if root == PathBuf::from("workspace")
+    ));
+    assert!(parse_args(&["wrong", "workspace", "skills", "sync"]).is_err());
+    assert!(parse_args(&["--root", "workspace", "skills", "sync", "--root", "other"]).is_err());
+    assert!(parse_args(&["skills", "sync", "--check", "--enable-auto"]).is_err());
+    assert!(parse_args(&["skills", "sync", "--enable-auto", "--disable-auto"]).is_err());
+    assert!(needs_workspace_root(&[OsString::from("skills")]));
+}
+
+#[test]
+fn parses_project_init_with_an_explicit_root_in_either_position() {
+    for args in [
+        vec!["init", "--root", "workspace"],
+        vec!["--root", "workspace", "init"],
+    ] {
+        assert!(matches!(
+            parse_args(&args),
+            Ok(Command::InitProject { root }) if root == PathBuf::from("workspace")
+        ));
+    }
+    assert!(parse_args(&["init"]).is_err());
+    assert!(parse_args(&["init", "--root", ""]).is_err());
+    assert!(parse_args(&["--root", "", "init"]).is_err());
+    assert!(parse_args(&["init", "--root", "w", "--root", "other"]).is_err());
+    assert!(parse_args(&["--root", "w", "init", "--root", "other"]).is_err());
+}
+
+#[test]
+fn summary_flag_is_restricted_to_plan_actions_and_keeps_default_full_mode() {
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "--index", "plan"]),
+        Ok(Command::Plan { summary: false, .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "--index", "plan", "--summary"]),
+        Ok(Command::Plan { summary: true, .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "--sync-plan", "--summary"]),
+        Ok(Command::Plan { summary: true, .. })
+    ));
+    assert!(matches!(
+        parse_args(&["--index", "plan", "--summary"]),
+        Ok(Command::Plan { summary: true, .. })
+    ));
+    for args in [
+        vec!["--root", "w", "--sync", "--summary"],
+        vec!["--root", "w", "--reindex", "--summary"],
+        vec!["--root", "w", "--init-index", "--summary"],
+        vec!["--root", "w", "--index", "sync", "--summary"],
+        vec!["--root", "w", "--index", "rebuild", "--summary"],
+        vec!["--root", "w", "--sync-file", "a.rs", "--summary"],
+        vec!["--root", "w", "--persist-logs", "--summary"],
+        vec!["--summary"],
+    ] {
+        assert!(parse_args(&args).is_err(), "unexpectedly accepted {args:?}");
+    }
+    assert!(matches!(
+        parse_args(&["--root", "workspace", "--sync-plan", "legacy-ignored"]),
+        Ok(Command::Plan { summary: false, .. })
+    ));
+}
+
 #[cfg(windows)]
 #[test]
 fn preserves_non_utf8_windows_paths_during_parsing() {

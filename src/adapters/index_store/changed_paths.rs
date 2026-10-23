@@ -6,6 +6,7 @@ pub(super) struct NativeChangedPaths<'a> {
     root: &'a Path,
     project: Project,
     scope: Option<scope::Snapshot>,
+    scope_check_failed: bool,
     writer: Option<writer::Writer>,
 }
 impl<'a> NativeChangedPaths<'a> {
@@ -14,6 +15,7 @@ impl<'a> NativeChangedPaths<'a> {
             root,
             project: Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?,
             scope: None,
+            scope_check_failed: false,
             writer: None,
         })
     }
@@ -54,9 +56,13 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
         path: &str,
         context: &OperationContext,
     ) -> Result<Option<Value>, Failure> {
+        self.scope_check_failed = false;
         self.project.target_optional(path)?;
         let scope = self.scope.as_ref().ok_or(INDEX)?;
-        scope.recheck(&self.project, context)?;
+        if let Err(error) = scope.recheck(&self.project, context) {
+            self.scope_check_failed = true;
+            return Err(error);
+        }
         if index_extract::language(path).is_none() || index_inventory::restricted(path) {
             return Ok(None);
         }
@@ -77,5 +83,8 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
             &mut self.writer,
         )
         .map(Some)
+    }
+    fn file_failure_is_isolated(&self) -> bool {
+        !self.scope_check_failed
     }
 }

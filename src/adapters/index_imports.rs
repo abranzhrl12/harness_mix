@@ -41,6 +41,9 @@ pub(super) struct Sources {
     semantic_reserved: usize,
     vue: BTreeMap<String, crate::adapters::index_semantic::vue::Facts>,
     vue_reserved: usize,
+    vue_template_components:
+        BTreeMap<String, BTreeMap<String, (String, i64, i64, String)>>,
+    vue_template_components_reserved: usize,
     vue_returns: BTreeMap<String, crate::adapters::index_semantic::vue_returns::Facts>,
     vue_returns_reserved: usize,
     angular: BTreeMap<String, crate::adapters::index_extract::angular::di::Facts>,

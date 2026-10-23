@@ -70,6 +70,7 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     let mut graph = super::decode::decode(&raw, path, lang, context)?;
     if matches!(lang, "typescript" | "tsx" | "javascript" | "jsx") {
         super::angular::enrich(path, source, &mut graph, context)?;
+        super::vue_router::enrich(path, source, &mut graph, context)?;
     }
     Ok(graph)
 }

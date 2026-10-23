@@ -37,41 +37,64 @@ y [GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/ap
 La protección de rename/delete no debe confundirse con impedir escrituras de
 contenido; por eso se conserva la revalidación.
 
-## Activación y medición prevista
+## Activación y método
 
-**Desactivada por defecto**, pendiente de verificar la versión final y medirla.
-`HARNESS_INDEX_PINNED_READ=1` selecciona la candidata;
-`HARNESS_INDEX_PINNED_READ=0` conserva el camino anterior.
+`HARNESS_INDEX_PINNED_READ=1` selecciona explícitamente la candidata;
+`HARNESS_INDEX_PINNED_READ=0` conserva el camino anterior. Tras la medición,
+la candidata quedó activada por defecto en Windows: la variable ausente usa el
+camino rápido. El runner `pinned-read` comparó las opciones `0` y `1` con el
+mismo binario y Rust SQL habilitado en las dos.
+Después del A/B, el selector cambió de opt-in a rápido por defecto en una sola
+línea; las corridas ya fijaban `0`/`1` explícitamente, así que compararon las
+mismas rutas de código.
 
-El runner admite `pinned-read` para comparar el mismo binario, selector apagado
-y encendido, con corpus congelado completo y Rust SQL habilitado en ambos.
-Las demás comparaciones mantienen este experimento apagado. No se modifica el
-índice original ni se cambia el esquema o la durabilidad de SQLite.
+La medición usó el corpus congelado completo (549 fuentes copiadas, 537
+publicaciones elegibles), tres parejas alternadas en Windows, un índice
+temporal vacío por ejecución y cachés del sistema operativo sin vaciar. No se
+tocó el índice original. El artefacto release tuvo SHA-256
+`fbea4298bcc1ba23ca45ee93291fdc6b3db097aeef179f2dcb4bdd4c391e3423`; antes y
+después ejecutaron exactamente ese mismo binario. La evidencia resumida está en
+[resultados-pinning-pinned-read-all.json](resultados-pinning-pinned-read-all.json).
 
-## Verificación e incidencia actual
+| Medida | Camino anterior | Pinning | Diferencia |
+| --- | ---: | ---: | ---: |
+| Tiempo total mediano | 82,905 s | 58,548 s | −24,357 s (−29,38 %) |
+| `resolve_references` | 29,006 s | 20,471 s | −29,4 % |
+| `source_path_guard` | 17,381 s | 0 s observados | desaparece en la ruta rápida |
+| `source_path_policy` | 0 s | 0,702 s | política léxica |
+| `source_pin_directory` | 13,981 s | 13,601 s | similar |
+| `source_handle_boundary` | 0 s | 3,710 s | coste nuevo de comprobación |
+| `source_read_resolution` | 21,940 s | 14,934 s | −31,9 % |
+| `source_read_recheck` | 21,674 s | 14,395 s | −33,6 % |
 
-La primera versión pasó 14 pruebas de Project (6 previas y 8 nuevas), incluidas
-restricciones, bytes/límites, cambios con tamaño/mtime conservados, scopes,
-cancelación, junction introducida tras construir el nombre, errores de pinning
-y retención/liberación de handles. Una prueba inicial usaba una ruta no
-canonicalizada al llamar directamente al pinning; se corrigió el fixture y se
-repitieron las 14 correctamente.
+Los temporizadores de operaciones se superponen; no deben sumarse. Las seis
+ejecuciones conservaron el mismo hash de fuentes
+(`1e06bac31803b348635cb89fc39de63e386648a1f75f5a10fc0eb2abcec085a8`) y el
+mismo grafo (`202c2e102ba97ae2470d172fece3dba4e79c8f9c8e5e1af1c531a58f71488bbb`):
+6.435 nodos, 283.976 referencias examinadas, 1.227 resueltas, cero pendientes,
+fallos, omisiones o rutas sin verificar. Se leyeron 372.863.670 bytes; las
+19.818 revalidaciones (182.843.207 bytes) y los demás contadores de frescura
+permanecieron iguales. La candidata registró 40.710 lecturas con ancestros
+pineados. La mejora observada corresponde a esta máquina y este corpus; una
+sola tanda de tres parejas no demuestra el mismo porcentaje en otras cargas.
 
-Después se añadió la verificación del handle abierto y una novena prueba
-específica para rechazar un handle de fuera del proyecto antes de leer bytes.
-**Esa versión final aún no tiene sus 15 pruebas ejecutadas ni benchmark A/B.**
-El release construido antes de esa ampliación no representa el código final y
-no debe usarse para atribuir resultados a esta candidata.
+## Verificación e incidencia de Vue
 
-La verificación por Harness quedó bloqueada por cambios paralelos de Vue. Al
-principio había dos errores E0433 por un módulo `vue_router` inexistente. Tras
-detectarse su incorporación se comprobó otra vez: ahora queda E0609 en
-`src/adapters/index_extract/vue_router/bindings.rs:130` (`arrow.body.statements`,
-campo inexistente en ArrowFunctionBody), además de un import sin uso en
-`vue_router.rs`. No se modificó ni revirtió ese trabajo. La combinación de flags
-Windows de la nueva API ya usa el tipo explícito requerido por windows 0.62.2;
-el último diagnóstico no contiene errores de los archivos de esta candidata.
+Para evitar mezclar cambios de Vue, las pruebas y el benchmark se ejecutaron
+en `C:\harness_pinned_read_base`, basado en `1fd1d53`, superponiendo solo los
+archivos Step 11/12 del commit `43bb107`. El commit de trabajo incluye también
+cambios Vue y no compila en
+`src/adapters/index_extract/vue_router/parse.rs:199` (E0609: el nodo
+`ExportNamedDeclaration` de OXC 0.155.0 no tiene campo `declaration`). Ese
+error es de Vue; no se editó ni revirtió código Vue.
 
-Siguiente paso: cuando Vue compile, ejecutar las 15 pruebas de Project y las
-regresiones de frescura/rollback, recompilar el probe, congelar el artefacto y
-medir tres parejas. No hay una mejora de rendimiento nueva que declarar aún.
+En la copia aislada pasaron 30 pruebas: Project 15/15, `verified_sources` 7/7,
+rollback/ciclo de Rust 2/2 y frescura de `symbol_graph` 6/6. Ambos scripts del
+benchmark pasaron `node --check`. El probe release se compiló desde el código
+final Step 12 antes de correr el A/B.
+
+Con el selector rápido ya predeterminado, se repitieron las mismas cuatro
+suites con `HARNESS_INDEX_PINNED_READ` explícitamente ausente: 30/30 pruebas
+pasaron. No se alteraron el algoritmo de lectura, los límites, el hash ni las
+revalidaciones de bytes; `HARNESS_INDEX_PINNED_READ=0` es el rollback operativo.
+La instalación del MCP y su ejecutable no se reemplazaron.

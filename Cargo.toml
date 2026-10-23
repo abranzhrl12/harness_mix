@@ -104,6 +104,14 @@ lto = "thin"
 strip = true
 codegen-units = 16
 
+# Perfil explícito para medir el ejecutable con máxima optimización de enlace.
+# Conserva el perfil release habitual como referencia y no fija una CPU local.
+[profile.release-max]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
 # Perfil para pruebas: código como release (opt-level 3) pero paralelizado,
 # sin LTO ni strip, para compilar en minutos y depurar cuelgues.
 [profile.bench-fast]

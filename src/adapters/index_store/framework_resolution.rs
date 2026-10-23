@@ -250,3 +250,53 @@ pub(super) fn vue_route_component(
     Ok(true)
 }
 
+pub(super) fn vue_template_component(
+    db: &Connection,
+    id: i64,
+    project: &Project,
+    context: &OperationContext,
+    sources: &mut imports::Sources,
+    site: Site<'_>,
+) -> Result<bool, Failure> {
+    let Some((target_path, imported)) = sources.vue_template_component_target(
+        db,
+        project,
+        context,
+        site.path,
+        site.from,
+        site.name,
+        site.line,
+        site.col,
+    )? else {
+        return Ok(false);
+    };
+    let mut statement = sql(db.prepare_cached(
+        "SELECT id FROM nodes WHERE file_path=?1 AND kind='component' LIMIT 2",
+    ))?;
+    let ids = sql(
+        statement.query_map([&target_path], |row| row.get::<_, String>(0)),
+    )?
+    .collect::<Result<Vec<_>, _>>();
+    let ids = sql(ids)?;
+    if ids.len() != 1 {
+        return Ok(false);
+    }
+    let mut metadata = json!({
+        "refName": site.name,
+        "refKind": site.kind,
+        "resolvedBy": "vue-script-setup-component-import-subset-v1",
+        "framework": "vue",
+        "targetPath": target_path,
+        "imported": imported,
+        "bindingEngine": "oxc-vue-template-import-proof-subset-v1"
+    });
+    if sources.config.path.is_some() {
+        metadata["tsconfig"] = json!(sources.config.stamp());
+    }
+    sql(db.execute(
+        "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+        params![site.from, ids[0], site.line, site.col, metadata.to_string()],
+    ))?;
+    sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+    Ok(true)
+}

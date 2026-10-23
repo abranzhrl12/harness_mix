@@ -12,6 +12,19 @@ const UNCERTAIN: Failure = (
     "Index commit or rollback could not be confirmed; inspect the index before retrying",
 );
 
+pub(super) fn systemic_failure(code: &str) -> bool {
+    matches!(
+        code,
+        "SYNC_SCHEMA"
+            | "SYNC_INDEX"
+            | "SYNC_INDEX_BUSY"
+            | "SYNC_INTEGRITY"
+            | "SYNC_COMMIT_UNCERTAIN"
+            | "PATH"
+            | "CANCELLED"
+    )
+}
+
 pub fn sync_workspace<P: WorkspacePort>(
     port: &mut P,
     context: &OperationContext,
@@ -78,6 +91,7 @@ pub fn sync_workspace<P: WorkspacePort>(
     let mut failed = 0;
     let mut failure = None;
     let mut failures = Vec::new();
+    let mut stopped_early = false;
     let mut skipped_reports = Vec::new();
     let worker_count = port.workers().clamp(1, 4);
     let selected: Vec<_> = paths.iter().take(max_files).collect();
@@ -142,7 +156,9 @@ pub fn sync_workspace<P: WorkspacePort>(
                     provider_dependent += 1;
                     unsupported += 1;
                     entry["skipped"] = json!(true);
-                    skipped_reports.push(entry.clone());
+                    if skipped_reports.len() < 32 {
+                        skipped_reports.push(entry.clone());
+                    }
                     if results.len() < 32 {
                         entry["skipped"] = json!(true);
                         results.push(entry);
@@ -155,22 +171,18 @@ pub fn sync_workspace<P: WorkspacePort>(
                 if failure.is_none() {
                     failure = Some(entry.clone());
                 }
-                failures.push(entry.clone());
+                if failures.len() < 32 {
+                    failures.push(entry.clone());
+                }
                 if results.len() < 32 {
                     results.push(entry);
                 }
                 failed += 1;
-                if matches!(
-                    code,
-                    "SYNC_SCHEMA"
-                        | "SYNC_INDEX_BUSY"
-                        | "SYNC_INTEGRITY"
-                        | "SYNC_COMMIT_UNCERTAIN"
-                        | "SYNC_LIMIT"
-                        | "LIMIT"
-                        | "PATH"
-                ) || context.check().is_err()
+                if systemic_failure(code)
+                    || !port.file_failure_is_isolated()
+                    || context.check().is_err()
                 {
+                    stopped_early = true;
                     break;
                 }
                 continue;
@@ -179,12 +191,19 @@ pub fn sync_workspace<P: WorkspacePort>(
     }
     context.report_progress("finalizing", processed, Some(total), None);
     let finalization_started = std::time::Instant::now();
-    if failure.is_none()
+    let mut final_scope_failure = false;
+    if !stopped_early
         && let Err((code, message)) = port.recheck(context).and_then(|()| context.check())
     {
         let entry = json!({"path":"codegraph.json","code":code,"message":message,"stage":"final_scope_recheck","commitState":"not_committed"});
-        failures.push(entry.clone());
-        failure = Some(entry);
+        final_scope_failure = true;
+        stopped_early = true;
+        if failures.len() < 32 {
+            failures.push(entry.clone());
+        }
+        if failure.is_none() {
+            failure = Some(entry);
+        }
     }
     let native_complete = failure.is_none() && processed == total;
     let finalization_micros = finalization_started.elapsed().as_micros();
@@ -202,6 +221,19 @@ pub fn sync_workspace<P: WorkspacePort>(
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
         "synchronized":false,"globalFreshnessCertified":false,"fullProviderScope":false,
         "resolutionPolicy":"native_exact_name_and_relative_named_import_subset"});
+    report["filesAttempted"] = json!(processed + failed + provider_dependent);
+    report["unattemptedFiles"] =
+        json!(total.saturating_sub(processed + failed + provider_dependent));
+    report["stoppedEarly"] = json!(stopped_early);
+    report["failureReportLimit"] = json!(32);
+    report["failureReportsOmitted"] = json!(
+        (failed + usize::from(final_scope_failure))
+            .saturating_sub(report["failures"].as_array().map_or(0, Vec::len))
+    );
+    report["skippedReportsOmitted"] = json!(
+        provider_dependent
+            .saturating_sub(report["skippedFileReports"].as_array().map_or(0, Vec::len))
+    );
     if !phase_totals.is_empty() {
         report["planningDurationMicros"] = json!(planning_micros);
         report["finalizationDurationMicros"] = json!(finalization_micros);

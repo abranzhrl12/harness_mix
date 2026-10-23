@@ -16,6 +16,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let mutating = request.is_mutating();
         let name = request.name();
         let request_arguments = request.arguments();
+        let reading_kind = match &request {
+            Request::Read(_) => "read",
+            Request::Outline(_) => "outline",
+            Request::ReadSymbol(_) => "symbol",
+            Request::Explore(_) => "explore",
+            _ => "other",
+        };
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
             Request::Explore(args) => queries::explore(self, args, context, &mut lease),
@@ -152,7 +159,12 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             }
             value
         });
-        let output = self.output(name, &request_arguments, result);
+        let mut output = self.output(name, &request_arguments, result);
+        if let Some(session) = lease.as_ref() {
+            if let Ok(mut guidance) = self.reading_guidance.lock() {
+                guidance.observe(&session.id, reading_kind, &request_arguments, &mut output);
+            }
+        }
         drop(lease);
         output
     }

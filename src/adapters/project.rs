@@ -271,7 +271,7 @@ impl Project {
         context: &OperationContext,
         limit: u64,
     ) -> Result<Option<Vec<u8>>, Failure> {
-        if std::env::var("HARNESS_INDEX_PINNED_READ").as_deref() == Ok("1") {
+        if std::env::var("HARNESS_INDEX_PINNED_READ").as_deref() != Ok("0") {
             self.index_source_bytes_pinned(relative, context, limit)
         } else {
             self.index_source_bytes_checked(relative, context, limit)

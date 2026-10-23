@@ -82,6 +82,12 @@ fn vue_extracts_ts_script_refs_and_sfc_structure_with_utf16_positions() {
     ));
 
     let refs = graph["unresolvedReferences"].as_array().unwrap();
+    let component_ref = refs
+        .iter()
+        .find(|r| r["referenceName"] == "CardView" && r["referenceKind"] == "vue_template_component")
+        .unwrap();
+    assert_eq!(component_ref["filePath"], "src/Parent.vue");
+    assert_eq!(component_ref["line"], 6);
     let imported = refs
         .iter()
         .find(|r| r["referenceName"] == "greet" && r["referenceKind"] == "imports")
@@ -105,6 +111,13 @@ fn vue_extracts_ts_script_refs_and_sfc_structure_with_utf16_positions() {
         graph["coverage"]["styles"]["selectorSemanticsResolved"],
         false
     );
+}
+
+#[test]
+fn vue_template_component_candidates_respect_the_parser_item_limit() {
+    let source = format!("<template>{}</template>", "<CardView/>".repeat(20_000));
+    let error = extract("src/Parent.vue", &source, &OperationContext::default()).unwrap_err();
+    assert_eq!(error.0, "PARSER_LIMIT");
 }
 
 #[test]

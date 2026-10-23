@@ -2,7 +2,7 @@
 use harness_domain::{Failure, execution::OperationContext};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    ArrayExpression, BindingPattern, CallExpression, Expression,
+    ArrayExpression, BindingPattern, CallExpression, Declaration, Expression,
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc_parser::Parser;
@@ -195,8 +195,8 @@ pub(super) fn registered_routes<'a>(
                     }
                 }
             }
-            Statement::ExportNamedDeclaration(export) => {
-                if let oxc_ast::ast::Declaration::VariableDeclaration(decl) = &export.declaration {
+            Statement::ExportDeclaration(export) => {
+                if let Declaration::VariableDeclaration(decl) = &export.declaration {
                     for declarator in &decl.declarations {
                         if let BindingPattern::BindingIdentifier(ident) = &declarator.id {
                             let var_name = ident.name.as_str();

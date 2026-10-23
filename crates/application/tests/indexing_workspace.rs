@@ -16,6 +16,7 @@ struct Fake {
     workers: usize,
     fallback: bool,
     partial_preparation: bool,
+    isolated_failure: bool,
 }
 impl Fake {
     fn new(paths: &[&str]) -> Self {
@@ -29,6 +30,7 @@ impl Fake {
             workers: 4,
             fallback: false,
             partial_preparation: false,
+            isolated_failure: true,
         }
     }
 }
@@ -91,6 +93,9 @@ impl WorkspacePort for Fake {
     fn diagnostic(&mut self, _: &str, _: &str) -> Option<Value> {
         Some(json!({"stage":"fake"}))
     }
+    fn file_failure_is_isolated(&self) -> bool {
+        self.isolated_failure
+    }
     fn recheck(&mut self, _: &OperationContext) -> Result<(), Failure> {
         if self.final_failure {
             Err(("STALE", "scope changed"))
@@ -128,6 +133,9 @@ fn workspace_cancellation_stops_after_current_file_without_later_publications() 
     assert_eq!(r["changedFilesCommitted"], 0);
 }
 impl ChangedPathsPort for Fake {
+    fn file_failure_is_isolated(&self) -> bool {
+        self.isolated_failure
+    }
     fn initialize(&mut self, _: &OperationContext) -> Result<(), Failure> {
         if self.start_failure.is_some() {
             Err(("TEST", "init"))
@@ -182,11 +190,10 @@ fn local_failure_keeps_confirmed_commits_and_continues() {
 fn all_systemic_failure_codes_stop_later_publications() {
     for code in [
         "SYNC_SCHEMA",
+        "SYNC_INDEX",
         "SYNC_INDEX_BUSY",
         "SYNC_INTEGRITY",
         "SYNC_COMMIT_UNCERTAIN",
-        "SYNC_LIMIT",
-        "LIMIT",
         "PATH",
     ] {
         let mut f = Fake::new(&["a.rs", "b.rs"]);
@@ -204,6 +211,82 @@ fn all_systemic_failure_codes_stop_later_publications() {
         );
     }
 }
+#[test]
+fn isolated_budget_and_source_failures_do_not_starve_other_files() {
+    for code in [
+        "SYNC_LIMIT",
+        "LIMIT",
+        "PARSER_LIMIT",
+        "SYNTAX_ERROR",
+        "ENCODING",
+        "STALE",
+        "TIMEOUT",
+    ] {
+        let mut f = Fake::new(&["a.rs", "b.rs", "c.rs"]);
+        f.failures.insert("b.rs".into(), (code, "local failure"));
+        let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 20, false).unwrap();
+        assert_eq!(f.applied, ["a.rs", "b.rs", "c.rs"]);
+        assert_eq!(r["changedFilesCommitted"], 2);
+        assert_eq!(r["failedFiles"], 1);
+        assert_eq!(r["nativeFilesRemaining"], 1);
+        assert_eq!(r["unattemptedFiles"], 0);
+        assert_eq!(r["stoppedEarly"], false);
+        assert_eq!(r["selectedScopeApplied"], false);
+    }
+}
+
+#[test]
+fn workspace_precondition_failure_stops_even_with_a_locally_recoverable_code() {
+    for code in ["STALE", "SYNC_LIMIT"] {
+        let mut f = Fake::new(&["a.rs", "b.rs"]);
+        f.isolated_failure = false;
+        f.failures
+            .insert("a.rs".into(), (code, "workspace precondition"));
+        let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 20, false).unwrap();
+        assert_eq!(f.applied, ["a.rs"]);
+        assert_eq!(r["stoppedEarly"], true);
+        assert_eq!(r["unattemptedFiles"], 1);
+    }
+}
+
+#[test]
+fn many_local_failures_are_bounded_without_losing_successes_or_error_counts() {
+    let paths: Vec<String> = (0..80)
+        .map(|n| format!("bad-{n:03}.rs"))
+        .chain(std::iter::once("z-good.rs".into()))
+        .collect();
+    let names: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let mut f = Fake::new(&names);
+    for path in &paths[..80] {
+        f.failures
+            .insert(path.clone(), ("SYNC_LIMIT", "local budget"));
+    }
+    let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 100, false).unwrap();
+    assert_eq!(f.applied.len(), 81);
+    assert_eq!(r["changedFilesCommitted"], 1);
+    assert_eq!(r["failedFiles"], 80);
+    assert_eq!(r["failures"].as_array().unwrap().len(), 32);
+    assert_eq!(r["failureReportsOmitted"], 48);
+    assert_eq!(r["filesAttempted"], 81);
+    assert_eq!(r["unattemptedFiles"], 0);
+    assert_eq!(r["nativeFilesRemaining"], 80);
+    assert_eq!(r["selectedScopeApplied"], false);
+}
+
+#[test]
+fn final_scope_failure_is_not_hidden_by_an_earlier_local_error() {
+    let mut f = Fake::new(&["a.rs", "b.rs"]);
+    f.failures
+        .insert("a.rs".into(), ("SYNC_LIMIT", "local budget"));
+    f.final_failure = true;
+    let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 20, false).unwrap();
+    assert_eq!(r["changedFilesCommitted"], 1);
+    assert_eq!(r["failures"].as_array().unwrap().len(), 2);
+    assert_eq!(r["failures"][1]["stage"], "final_scope_recheck");
+    assert_eq!(r["stoppedEarly"], true);
+    assert_eq!(r["selectedScopeApplied"], false);
+}
+
 #[test]
 fn provider_skip_is_reported_without_aborting_next_file() {
     let mut f = Fake::new(&["a.rs", "b.rs"]);
@@ -264,7 +347,7 @@ fn no_changes_revisits_one_module_to_detect_configuration_changes() {
     assert_eq!(f.applied, ["b.ts"]);
 }
 #[test]
-fn event_failure_preserves_prior_commits_and_stops() {
+fn event_local_failure_preserves_prior_commits_and_continues() {
     let mut f = Fake::new(&[]);
     f.failures.insert("c.rs".into(), ("TEST", "error"));
     let paths = ["a.rs", "b.skip", "c.rs", "d.rs"]
@@ -273,9 +356,83 @@ fn event_failure_preserves_prior_commits_and_stops() {
         .collect();
     let r =
         changed_paths::sync_changed_paths(&mut f, &paths, &OperationContext::default()).unwrap();
-    assert_eq!(r["changedFilesCommitted"], 1);
+    assert_eq!(r["changedFilesCommitted"], 2);
     assert_eq!(r["skippedFiles"], 1);
-    assert_eq!(f.applied, ["a.rs", "b.skip", "c.rs"]);
+    assert_eq!(r["failedFiles"], 1);
+    assert_eq!(r["unattemptedFiles"], 0);
+    assert_eq!(r["selectedScopeApplied"], false);
+    assert_eq!(f.applied, ["a.rs", "b.skip", "c.rs", "d.rs"]);
+}
+
+#[test]
+fn event_systemic_or_workspace_scope_failure_stops_later_files() {
+    for code in [
+        "SYNC_SCHEMA",
+        "SYNC_INDEX",
+        "SYNC_INDEX_BUSY",
+        "SYNC_INTEGRITY",
+        "SYNC_COMMIT_UNCERTAIN",
+        "PATH",
+        "STALE",
+    ] {
+        let mut f = Fake::new(&[]);
+        f.isolated_failure = code != "STALE";
+        f.failures.insert("a.rs".into(), (code, "systemic"));
+        let paths = ["a.rs", "b.rs"].map(String::from).into_iter().collect();
+        let r = changed_paths::sync_changed_paths(&mut f, &paths, &OperationContext::default())
+            .unwrap();
+        assert_eq!(f.applied, ["a.rs"]);
+        assert_eq!(r["stoppedEarly"], true);
+        assert_eq!(r["unattemptedFiles"], 1);
+        assert_eq!(
+            r["failure"]["commitState"],
+            if code == "SYNC_COMMIT_UNCERTAIN" {
+                "unknown"
+            } else {
+                "not_committed"
+            }
+        );
+    }
+}
+
+#[test]
+fn event_failure_reports_are_bounded_and_do_not_starve_good_files() {
+    let paths: BTreeSet<String> = (0..70)
+        .map(|n| format!("bad-{n:03}.rs"))
+        .chain(std::iter::once("z-good.rs".into()))
+        .collect();
+    let mut f = Fake::new(&[]);
+    for path in paths.iter().filter(|p| p.starts_with("bad-")) {
+        f.failures
+            .insert(path.clone(), ("SYNC_LIMIT", "local budget"));
+    }
+    let r =
+        changed_paths::sync_changed_paths(&mut f, &paths, &OperationContext::default()).unwrap();
+    assert_eq!(r["changedFilesCommitted"], 1);
+    assert_eq!(r["failedFiles"], 70);
+    assert_eq!(r["failures"].as_array().unwrap().len(), 32);
+    assert_eq!(r["failureReportsOmitted"], 38);
+    assert_eq!(r["unattemptedFiles"], 0);
+    assert_eq!(r["selectedScopeApplied"], false);
+}
+
+#[test]
+fn explicit_cancellation_code_stops_even_before_the_owner_flag_propagates() {
+    let mut full = Fake::new(&["a.rs", "b.rs"]);
+    full.failures
+        .insert("a.rs".into(), ("CANCELLED", "cancelled"));
+    let r = workspace::sync_workspace(&mut full, &OperationContext::default(), 20, false).unwrap();
+    assert_eq!(full.applied, ["a.rs"]);
+    assert_eq!(r["stoppedEarly"], true);
+    let mut events = Fake::new(&[]);
+    events
+        .failures
+        .insert("a.rs".into(), ("CANCELLED", "cancelled"));
+    let paths = ["a.rs", "b.rs"].map(String::from).into_iter().collect();
+    let r = changed_paths::sync_changed_paths(&mut events, &paths, &OperationContext::default())
+        .unwrap();
+    assert_eq!(events.applied, ["a.rs"]);
+    assert_eq!(r["stoppedEarly"], true);
 }
 #[test]
 fn event_worktree_fallback_uses_inventory_instead_of_publishing_blindly() {

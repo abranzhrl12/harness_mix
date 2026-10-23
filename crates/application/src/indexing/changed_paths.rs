@@ -30,6 +30,9 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
     let mut processed = 0;
     let mut skipped = 0;
     let mut failure = None;
+    let mut failures = Vec::new();
+    let mut failed = 0usize;
+    let mut stopped_early = false;
     for path in paths {
         let applied = context
             .check()
@@ -41,16 +44,30 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
             }
             Ok(None) => skipped += 1,
             Err((code, message)) => {
-                failure = Some(
-                    json!({"path":path,"code":code,"message":message,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}}),
-                );
-                break;
+                let entry = json!({"path":path,"code":code,"message":message,"commitState":if code==UNCERTAIN.0 {"unknown"}else{"not_committed"}});
+                failed += 1;
+                if failure.is_none() {
+                    failure = Some(entry.clone());
+                }
+                if failures.len() < 32 {
+                    failures.push(entry);
+                }
+                if super::workspace::systemic_failure(code)
+                    || !port.file_failure_is_isolated()
+                    || context.check().is_err()
+                {
+                    stopped_early = true;
+                    break;
+                }
             }
         }
     }
     Ok(
         json!({"mode":"sync_changed_paths","filesProcessed":processed,
         "changedFilesCommitted":changed,"skippedFiles":skipped,"failure":failure,
+        "failedFiles":failed,"failures":failures,"failureReportLimit":32,"failureReportsOmitted":failed.saturating_sub(32),
+        "nativeFilesRemaining":paths.len().saturating_sub(processed+skipped),
+        "unattemptedFiles":paths.len().saturating_sub(processed+skipped+failed),"stoppedEarly":stopped_early,
         "selectedScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
         "globalFreshnessCertified":false,"workspaceTransactionAtomic":false}),
     )

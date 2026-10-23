@@ -1,0 +1,13 @@
+{
+  "format_version": 1,
+  "package_version": "0.8.9",
+  "contract_version": "3.3.0",
+  "files": {
+    ".agents/skills/harness-edit/SKILL.md": "e9c7f1fed85aff08bf33f869b09319842e2a4ae4820340e35ef7a5b210ba08e5",
+    ".agents/skills/harness-read/SKILL.md": "850f0c9acbf22ecc259f0e964e65fd92e50db8062b8c5a9cda456f546ae18276",
+    ".agents/skills/harness-setup/SKILL.md": "1b56417554079694b71da8927fa9fab461b5962fa6f25594dd7ac4c7a0fa513b",
+    ".agents/skills/harness-sql/SKILL.md": "dec3e325e65027744f09e7f4fb8968190e74a94b2c3ff543e45a99e1c04d5c8f",
+    ".agents/skills/harness-svg/SKILL.md": "b32e7eaceb8ba550c3fbbd5d8e362fb7fc3f6c9ba29cc43f562d500eb5f44c5a",
+    ".agents/skills/harness-xlsx/SKILL.md": "295f3f47f3b9d8049f19845d68a2cdce1e221b98b65f1d6a0856eb662b0e38d3"
+  }
+}

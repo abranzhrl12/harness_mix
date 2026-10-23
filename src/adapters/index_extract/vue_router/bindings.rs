@@ -113,6 +113,87 @@ pub(in crate::adapters) fn named_runtime_import(
     Ok((bindings.len() == 1).then(|| bindings.remove(0)))
 }
 
+/// Return explicit default imports; callers match their local names to tags.
+pub(in crate::adapters) fn component_runtime_imports(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<Vec<(String, String)>, Failure> {
+    Ok(runtime_imports(path, source, context)?
+        .into_iter()
+        .filter(|(_, _, imported)| imported == "default")
+        .map(|(local, module, _)| (local, module))
+        .collect::<Vec<_>>())
+}
+
+pub(in crate::adapters) fn component_key(name: &str) -> String {
+    name.chars()
+        .filter(|character| *character != '-')
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn runtime_imports(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<Vec<(String, String, String)>, Failure> {
+    if source.len() > 1024 * 1024 {
+        return Err(LIMIT);
+    }
+    let source_type = SourceType::from_path(path.to_ascii_lowercase())
+        .map_err(|_| ("SYNC_LANGUAGE", "Unsupported Vue route source"))?;
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    context.check()?;
+    if parsed.diagnostics.has_errors() {
+        return Ok(Vec::new());
+    }
+    let semantic = SemanticBuilder::new()
+        .with_build_nodes(true)
+        .with_check_syntax_error(true)
+        .build(&parsed.program);
+    context.check()?;
+    if semantic.diagnostics.has_errors() {
+        return Ok(Vec::new());
+    }
+    let mut bindings = Vec::new();
+    for statement in &parsed.program.body {
+        context.check()?;
+        let Statement::ImportDeclaration(declaration) = statement else {
+            continue;
+        };
+        if declaration.import_kind != oxc_ast::ast::ImportOrExportKind::Value {
+            continue;
+        }
+        let Some(specifiers) = &declaration.specifiers else {
+            continue;
+        };
+        for specifier in specifiers {
+            match specifier {
+                ImportDeclarationSpecifier::ImportSpecifier(specifier)
+                    if specifier.import_kind == oxc_ast::ast::ImportOrExportKind::Value =>
+                {
+                    bindings.push((
+                        specifier.local.name.to_string(),
+                        declaration.source.value.display().to_string(),
+                        imported_name(&specifier.imported),
+                    ));
+                }
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
+                    bindings.push((
+                        specifier.local.name.to_string(),
+                        declaration.source.value.display().to_string(),
+                        "default".to_string(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(bindings)
+}
+
 /// Helper to check if an expression is a dynamic import call `import('...')`
 pub(super) fn is_dynamic_import_call<'a>(expr: &'a Expression<'a>) -> Option<&'a str> {
     match expr {

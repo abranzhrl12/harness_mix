@@ -11,6 +11,7 @@ mod vue;
 pub(in crate::adapters) mod vue_router;
 pub use orchestration::{extract, language};
 pub(in crate::adapters) use preview::preview;
+pub(in crate::adapters) use vue::template_component_imports;
 
 thread_local! {
     static DIAGNOSTIC: std::cell::RefCell<Option<serde_json::Value>> = const { std::cell::RefCell::new(None) };
