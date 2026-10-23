@@ -1,0 +1,107 @@
+{
+  "scope": "Restored synthetic SQLite pending-selection experiment; not end-to-end indexing",
+  "command": "cargo test --locked -p agent-harness --lib publication::retry::optimization_tests -- --nocapture --test-threads=1",
+  "passed": 6,
+  "failed": 0,
+  "warnings": 0,
+  "sourcePath": "src/adapters/index_store/publication/pending_optimization_tests.rs",
+  "restoration": "Semantic reconstruction from prior experiment, not byte-identical recovery",
+  "sourceLines": 632,
+  "sourceHashBefore": "b7c6d73b93516c7270c4963b944b33e69581eda1cd324baf0789b6e12f097749",
+  "sourceHashAfter": "b7c6d73b93516c7270c4963b944b33e69581eda1cd324baf0789b6e12f097749",
+  "unchangedDuringRun": true,
+  "productionSqlChanged": false,
+  "measurements": [
+    {
+      "case": "provider-heavy",
+      "repeats": 5,
+      "current": {
+        "median_us": 18642,
+        "vm_steps": 795498,
+        "plan": "MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 8 | MATERIALIZE fresh_names | MERGE (UNION) | LEFT | MATERIALIZE all_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN all_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MATERIALIZE public_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_kind (kind=? AND file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_kind (kind=? AND file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN public_names | LIST SUBQUERY 6 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | SCAN fresh_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 10 | SCAN public_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 12 | SCAN all_names | CREATE BLOOM FILTER | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 14 | SEARCH nodes USING COVERING INDEX idx_nodes_kind (kind=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 20 | SCAN json_each VIRTUAL TABLE INDEX 1: | LIST SUBQUERY 16 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | LIST SUBQUERY 18 | SEARCH nodes USING COVERING INDEX idx_nodes_kind (kind=?) | CREATE BLOOM FILTER"
+      },
+      "split": {
+        "median_us": 19032,
+        "vm_steps": 563549,
+        "plan": "MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 8 | MATERIALIZE fresh_names | MERGE (UNION) | LEFT | MATERIALIZE all_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN all_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MATERIALIZE public_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_kind (kind=? AND file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_kind (kind=? AND file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN public_names | LIST SUBQUERY 6 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | SCAN fresh_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 10 | SCAN public_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 12 | SCAN all_names | CREATE BLOOM FILTER | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 14 | SEARCH nodes USING COVERING INDEX idx_nodes_kind (kind=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 24 | SCAN json_each VIRTUAL TABLE INDEX 1: | LIST SUBQUERY 16 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | LIST SUBQUERY 20 | SEARCH nodes USING COVERING INDEX idx_nodes_kind (kind=?) | CREATE BLOOM FILTER | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?)"
+      }
+    },
+    {
+      "case": "language-profile",
+      "language": "rust",
+      "config_changed": false,
+      "repeats": 5,
+      "current": {
+        "median_us": 42872,
+        "vm_steps": 1211982
+      },
+      "split": {
+        "median_us": 18565,
+        "vm_steps": 361686
+      }
+    },
+    {
+      "case": "language-profile",
+      "language": "javascript",
+      "config_changed": false,
+      "repeats": 5,
+      "current": {
+        "median_us": 79475,
+        "vm_steps": 2014217
+      },
+      "split": {
+        "median_us": 83222,
+        "vm_steps": 1626068
+      }
+    },
+    {
+      "case": "language-profile",
+      "language": "javascript",
+      "config_changed": true,
+      "repeats": 5,
+      "current": {
+        "median_us": 61756,
+        "vm_steps": 2014217
+      },
+      "split": {
+        "median_us": 57309,
+        "vm_steps": 1626068
+      }
+    },
+    {
+      "case": "language-profile",
+      "language": "csharp",
+      "config_changed": false,
+      "repeats": 5,
+      "current": {
+        "median_us": 28339,
+        "vm_steps": 1116716
+      },
+      "split": {
+        "median_us": 4545,
+        "vm_steps": 150085
+      }
+    },
+    {
+      "case": "rust-super-like",
+      "repeats": 5,
+      "like_matches_uppercase": 3,
+      "current": {
+        "median_us": 17820,
+        "vm_steps": 680426,
+        "plan": "MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 8 | MATERIALIZE fresh_names | MERGE (UNION) | LEFT | MATERIALIZE all_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN all_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MATERIALIZE public_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN public_names | LIST SUBQUERY 6 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | SCAN fresh_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 10 | SCAN public_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 12 | SCAN all_names | CREATE BLOOM FILTER | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 14 | SCAN nodes | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 20 | SCAN json_each VIRTUAL TABLE INDEX 1: | LIST SUBQUERY 16 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | LIST SUBQUERY 18 | SCAN nodes | CREATE BLOOM FILTER"
+      },
+      "split": {
+        "median_us": 6671,
+        "vm_steps": 160517,
+        "plan": "MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 8 | MATERIALIZE fresh_names | MERGE (UNION) | LEFT | MATERIALIZE all_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN all_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MATERIALIZE public_names | MERGE (UNION) | LEFT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH nodes USING INDEX idx_nodes_file_path (file_path=?) | USE TEMP B-TREE FOR ORDER BY | SCAN public_names | LIST SUBQUERY 6 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | SCAN fresh_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 10 | SCAN public_names | USE TEMP B-TREE FOR ORDER BY | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 12 | SCAN all_names | CREATE BLOOM FILTER | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_file_path (file_path=?) | LIST SUBQUERY 14 | SCAN nodes | USE TEMP B-TREE FOR ORDER BY | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_name (reference_name=?) | LIST SUBQUERY 24 | SCAN json_each VIRTUAL TABLE INDEX 1: | LIST SUBQUERY 16 | SCAN json_each VIRTUAL TABLE INDEX 1: | CREATE BLOOM FILTER | USE TEMP B-TREE FOR ORDER BY | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | MERGE (UNION) | LEFT | MERGE (UNION) | LEFT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | LIST SUBQUERY 20 | SCAN nodes | CREATE BLOOM FILTER | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?) | RIGHT | SEARCH unresolved_refs USING INDEX idx_unresolved_status (status=?)"
+      }
+    }
+  ],
+  "limitations": [
+    "SQLite in-memory synthetic fixtures; test profile; not a full workspace test or indexing performance measurement.",
+    "Five repetitions with one untimed warmup per variant; order reversed on alternate repetitions; preparation excluded from timing.",
+    "Fixture schema is simplified and not the original project database.",
+    "Timing variability remains; VM counts and exact selected IDs were checked."
+  ]
+}

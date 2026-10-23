@@ -8,7 +8,7 @@ mod preview;
 mod razor;
 mod scss;
 mod vue;
-
+pub(in crate::adapters) mod vue_router;
 pub use orchestration::{extract, language};
 pub(in crate::adapters) use preview::preview;
 

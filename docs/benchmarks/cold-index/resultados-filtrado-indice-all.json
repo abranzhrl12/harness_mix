@@ -1,0 +1,456 @@
+{
+  "evidence": {
+    "failures": [],
+    "filesProcessed": 537,
+    "graphHash": "202c2e102ba97ae2470d172fece3dba4e79c8f9c8e5e1af1c531a58f71488bbb",
+    "nodesWritten": 6435,
+    "referencesAttempted": 283976,
+    "referencesResolved": 1227,
+    "remaining": 0,
+    "skipped": [],
+    "sourceHash": "1e06bac31803b348635cb89fc39de63e386648a1f75f5a10fc0eb2abcec085a8",
+    "unchecked": []
+  },
+  "limitations": [
+    "Identify code and profiling differences for each experiment before attributing runtime changes to a component.",
+    "Subphase medians are independent; nested subphase timers must not be added to their parent duration.",
+    "This corpus/sample does not establish semantic equivalence for every language or workload."
+  ],
+  "metadata": {
+    "binaries": {
+      "after": {
+        "modifiedAt": "2026-10-23T03:16:51.439Z",
+        "path": "E:\\harness_mix\\target\\release\\examples\\index_phase_probe.exe",
+        "sha256": "f8d87686063f680b31ae093e60ff247a1a2d67adac4206232269864c7769fd5d"
+      },
+      "before": {
+        "modifiedAt": "2026-10-23T03:08:40.427Z",
+        "path": "E:\\harness_mix\\target\\cold-index-before-index-gate.exe",
+        "sha256": "4ab48118e748c80bc2137a86fdc62bc3e4ed1a5c6a893aee1ed7a8367cc666b0"
+      }
+    },
+    "corpusManifestSha256": "d95cc4d6e2723bf0524e77c4438fd3fbf8d57765305eb3063be053fbbdcc22ab",
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "definition": "Empty temporary index per invocation; fixed corpus; OS caches not flushed; profiler enabled on both binaries.",
+    "os": "win32 10.0.19045 x64",
+    "recordedAt": "2026-10-23T03:17:08.940Z",
+    "sample": "all",
+    "source": "E:\\harness_mix\\target\\cold-index-corpus-v1",
+    "trials": 3,
+    "workers": 4
+  },
+  "speedup": 1.1747096239898818,
+  "variants": [
+    {
+      "elapsedMs": [
+        102051.894,
+        87406.81,
+        82547.19810000001
+      ],
+      "medianElapsedMs": 87406.81,
+      "phaseMediansMicros": {
+        "begin_transaction": 16217,
+        "capture_existing_graph": 337236,
+        "check_indexed_hash": 15971,
+        "commit_transaction": 5508021,
+        "configure_connection": 12046,
+        "delete_previous_graph": 109383,
+        "extract_source": 4138,
+        "integrity_check": 194130,
+        "invalidate_engine_edges": 1166118,
+        "invalidate_references": 23452,
+        "load_file_scope": 115293,
+        "open_database": 3516,
+        "read_source": 454736,
+        "recheck_database_handle": 30414,
+        "recheck_framework_sources": 72,
+        "recheck_sources": 17670239,
+        "resolve_references": 43412825,
+        "resolver_candidate_lookup": 121702,
+        "resolver_edge_write": 104884,
+        "resolver_policy": 1869,
+        "resolver_reference_lookup": 2893427,
+        "resolver_special": 40061781,
+        "restore_incoming_edges": 1307,
+        "retry_binding_catalog": 912638,
+        "select_configuration": 195766,
+        "select_pending_references": 12301443,
+        "validate_schema": 107162,
+        "write_metadata": 136863,
+        "write_nodes_and_edges": 2029791
+      },
+      "variant": "before"
+    },
+    {
+      "elapsedMs": [
+        74407.16260000001,
+        84672.4466,
+        70401.9145
+      ],
+      "medianElapsedMs": 74407.16260000001,
+      "phaseMediansMicros": {
+        "begin_transaction": 18507,
+        "capture_existing_graph": 380075,
+        "check_indexed_hash": 18864,
+        "commit_transaction": 5973333,
+        "configure_connection": 12813,
+        "delete_previous_graph": 124165,
+        "extract_source": 4405,
+        "integrity_check": 218966,
+        "invalidate_engine_edges": 1267438,
+        "invalidate_references": 27422,
+        "load_file_scope": 138047,
+        "open_database": 4450,
+        "read_source": 501856,
+        "recheck_database_handle": 32810,
+        "recheck_framework_sources": 55,
+        "recheck_sources": 19823392,
+        "resolve_references": 25676197,
+        "resolver_candidate_lookup": 146928,
+        "resolver_edge_write": 113263,
+        "resolver_policy": 2020,
+        "resolver_reference_lookup": 3050838,
+        "resolver_special": 22132648,
+        "restore_incoming_edges": 1526,
+        "retry_binding_catalog": 1015636,
+        "select_configuration": 224719,
+        "select_pending_references": 12618117,
+        "validate_schema": 118981,
+        "write_metadata": 168523,
+        "write_nodes_and_edges": 2393311
+      },
+      "variant": "after"
+    }
+  ],
+  "operationEvidence": [
+    {
+      "variant": "before",
+      "trial": 1,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 396750073,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "source_missing": 39928,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 206729610,
+            "verified_not_indexed": 10194,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 90832,
+              "meanMicros": 354.0725526246257,
+              "totalMicros": 32161118.1
+            },
+            "indexLookup": {
+              "calls": 30012,
+              "meanMicros": 58.702688924430234,
+              "totalMicros": 1761785.1
+            },
+            "open": {
+              "calls": 50904,
+              "meanMicros": 30.488892817853216,
+              "totalMicros": 1552006.6
+            },
+            "reads": {
+              "calls": 69940,
+              "meanMicros": 626.4939977123249,
+              "totalMicros": 43816990.2
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 948.446656841071,
+              "totalMicros": 19305631.7
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    },
+    {
+      "variant": "before",
+      "trial": 2,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 396750073,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "source_missing": 39928,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 206729610,
+            "verified_not_indexed": 10194,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 90832,
+              "meanMicros": 301.6273692090893,
+              "totalMicros": 27397417.2
+            },
+            "indexLookup": {
+              "calls": 30012,
+              "meanMicros": 47.47987471677995,
+              "totalMicros": 1424966
+            },
+            "open": {
+              "calls": 50904,
+              "meanMicros": 26.01024870344177,
+              "totalMicros": 1324025.7
+            },
+            "reads": {
+              "calls": 69940,
+              "meanMicros": 524.4038289962825,
+              "totalMicros": 36676803.8
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 845.3923655121592,
+              "totalMicros": 17207961.6
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    },
+    {
+      "variant": "before",
+      "trial": 3,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 396750073,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "source_missing": 39928,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 206729610,
+            "verified_not_indexed": 10194,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 90832,
+              "meanMicros": 283.34925136515767,
+              "totalMicros": 25737179.2
+            },
+            "indexLookup": {
+              "calls": 30012,
+              "meanMicros": 44.46155204584833,
+              "totalMicros": 1334380.1
+            },
+            "open": {
+              "calls": 50904,
+              "meanMicros": 25.419741081250983,
+              "totalMicros": 1293966.5
+            },
+            "reads": {
+              "calls": 69940,
+              "meanMicros": 499.9283643122676,
+              "totalMicros": 34964989.8
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 772.7520314419062,
+              "totalMicros": 15729367.6
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 1,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 372863670,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 182843207,
+            "verified_not_indexed": 50122,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 40710,
+              "meanMicros": 379.8022967329894,
+              "totalMicros": 15461751.5
+            },
+            "indexLookup": {
+              "calls": 69940,
+              "meanMicros": 4.985936517014585,
+              "totalMicros": 348716.4
+            },
+            "open": {
+              "calls": 40710,
+              "meanMicros": 29.83290837632031,
+              "totalMicros": 1214497.7
+            },
+            "reads": {
+              "calls": 19818,
+              "meanMicros": 999.0123423150671,
+              "totalMicros": 19798426.6
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 947.8416752640628,
+              "totalMicros": 19293317.3
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 2,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 372863670,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 182843207,
+            "verified_not_indexed": 50122,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 40710,
+              "meanMicros": 460.0417047408499,
+              "totalMicros": 18728297.8
+            },
+            "indexLookup": {
+              "calls": 69940,
+              "meanMicros": 5.534822705175865,
+              "totalMicros": 387105.5
+            },
+            "open": {
+              "calls": 40710,
+              "meanMicros": 34.700167035126505,
+              "totalMicros": 1412643.8
+            },
+            "reads": {
+              "calls": 19818,
+              "meanMicros": 1183.3623271773135,
+              "totalMicros": 23451874.6
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 1137.6375485138788,
+              "totalMicros": 23156612.3
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    },
+    {
+      "variant": "after",
+      "trial": 3,
+      "data": {
+        "copiedSourceFiles": 549,
+        "metrics": {
+          "counters": {
+            "commit_attempts": 537,
+            "io_bytes_read": 372863670,
+            "rust_analysis_cache_hits": 19426,
+            "rust_analysis_cache_misses": 392,
+            "rust_analyze_bytes": 2743421,
+            "rust_call_proof_miss": 48678,
+            "rust_facts_hits": 74570,
+            "rust_facts_misses": 104147,
+            "verified_cache_misses": 69940,
+            "verified_hash_bytes": 182843207,
+            "verified_not_indexed": 50122,
+            "verified_recheck_bytes": 182843207,
+            "verified_recheck_files": 19818
+          },
+          "operations": {
+            "guard": {
+              "calls": 40710,
+              "meanMicros": 372.5706755097028,
+              "totalMicros": 15167352.2
+            },
+            "indexLookup": {
+              "calls": 69940,
+              "meanMicros": 5.030283099799829,
+              "totalMicros": 351818
+            },
+            "open": {
+              "calls": 40710,
+              "meanMicros": 27.946101694915257,
+              "totalMicros": 1137685.8
+            },
+            "reads": {
+              "calls": 19818,
+              "meanMicros": 963.4035775557576,
+              "totalMicros": 19092732.1
+            },
+            "recheck": {
+              "calls": 20355,
+              "meanMicros": 912.341518054532,
+              "totalMicros": 18570711.6
+            }
+          }
+        },
+        "sampleFiles": 549
+      }
+    }
+  ],
+  "counterInvariantsVerified": [
+    "commit_attempts",
+    "rust_analysis_cache_hits",
+    "rust_analysis_cache_misses",
+    "rust_analyze_bytes",
+    "rust_call_proof_miss",
+    "rust_facts_hits",
+    "rust_facts_misses",
+    "verified_cache_misses",
+    "verified_recheck_bytes",
+    "verified_recheck_files"
+  ],
+  "reductionPercent": 14.87257960792756,
+  "savedMedianMs": 12999.647399999987
+}

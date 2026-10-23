@@ -122,17 +122,21 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
             None
         };
         sync_diagnostic::stage("select_pending_references");
-        for id in retry::pending(
+        let pending = retry::pending(
             db,
             path,
             language,
             config_changed,
             &retry_memo.json(),
             import_bindings.as_deref(),
-        )? {
-            outcome.recheck_refs.insert(id);
-            if outcome.recheck_refs.len() > MAX_ROWS {
-                return Err(LIMIT);
+        )?;
+        {
+            let _timer = sync_diagnostic::operation("pending_merge");
+            for id in pending {
+                outcome.recheck_refs.insert(id);
+                if outcome.recheck_refs.len() > MAX_ROWS {
+                    return Err(LIMIT);
+                }
             }
         }
 

@@ -99,6 +99,50 @@ impl Project {
         allow_missing: bool,
         credential: bool,
     ) -> Result<PathBuf, Failure> {
+        let target = self.build_target(relative, credential, |path| {
+            let meta = match fs::symlink_metadata(path) {
+                Ok(meta) => meta,
+                Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(());
+                }
+                Err(_) => return Err(("PATH", "archivo no accesible")),
+            };
+            if meta.file_type().is_symlink() {
+                return Err(("PATH", "no se admiten enlaces en la ruta"));
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if meta.file_attributes() & 0x400 != 0 {
+                    return Err(("PATH", "no se admiten reparse points"));
+                }
+            }
+            Ok(())
+        })?;
+        let existing = if allow_missing && !target.exists() {
+            target.ancestors().skip(1).find(|path| path.exists())
+                .ok_or(("PATH", "directorio no accesible"))?
+        } else {
+            target.as_path()
+        };
+        let real = existing.canonicalize().map_err(|_| ("PATH", "archivo no accesible"))?;
+        if self.single_file.as_ref().is_some_and(|single| *single != real) {
+            return Err(("PATH", "Scope authorizes only its registered file"));
+        }
+        if !real.starts_with(&self.root) {
+            return Err(("PATH", "destino fuera del proyecto"));
+        }
+        Ok(target)
+    }
+
+    /// Shared lexical policy. The visitor decides how each ancestor is checked;
+    /// this private builder alone is not proof that a filesystem path is safe.
+    fn build_target(
+        &self,
+        relative: &str,
+        credential: bool,
+        mut visit: impl FnMut(&Path) -> Result<(), Failure>,
+    ) -> Result<PathBuf, Failure> {
         if relative.is_empty()
             || relative.contains([':', '\0'])
             || relative.starts_with(['/', '\\'])
@@ -143,50 +187,10 @@ impl Project {
                         return Err(("PATH", "ruta restringida"));
                     }
                     target.push(part);
-                    let meta = match fs::symlink_metadata(&target) {
-                        Ok(meta) => meta,
-                        Err(error)
-                            if allow_missing && error.kind() == std::io::ErrorKind::NotFound =>
-                        {
-                            continue;
-                        }
-                        Err(_) => return Err(("PATH", "archivo no accesible")),
-                    };
-                    if meta.file_type().is_symlink() {
-                        return Err(("PATH", "no se admiten enlaces en la ruta"));
-                    }
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::fs::MetadataExt;
-                        if meta.file_attributes() & 0x400 != 0 {
-                            return Err(("PATH", "no se admiten reparse points"));
-                        }
-                    }
+                    visit(&target)?;
                 }
                 _ => return Err(("PATH", "ruta restringida o fuera del proyecto")),
             }
-        }
-        let existing = if allow_missing && !target.exists() {
-            target
-                .ancestors()
-                .skip(1)
-                .find(|path| path.exists())
-                .ok_or(("PATH", "directorio no accesible"))?
-        } else {
-            target.as_path()
-        };
-        let real = existing
-            .canonicalize()
-            .map_err(|_| ("PATH", "archivo no accesible"))?;
-        if self
-            .single_file
-            .as_ref()
-            .is_some_and(|single| *single != real)
-        {
-            return Err(("PATH", "Scope authorizes only its registered file"));
-        }
-        if !real.starts_with(&self.root) {
-            return Err(("PATH", "destino fuera del proyecto"));
         }
         Ok(target)
     }
@@ -267,26 +271,119 @@ impl Project {
         context: &OperationContext,
         limit: u64,
     ) -> Result<Option<Vec<u8>>, Failure> {
+        if std::env::var("HARNESS_INDEX_PINNED_READ").as_deref() == Ok("1") {
+            self.index_source_bytes_pinned(relative, context, limit)
+        } else {
+            self.index_source_bytes_checked(relative, context, limit)
+        }
+    }
+
+    #[cfg(windows)]
+    fn index_source_bytes_pinned(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Option<Vec<u8>>, Failure> {
+        use crate::adapters::index_profile as profile;
+        // External and single-file scopes retain canonical identity validation.
+        if self.external || self.single_file.is_some() {
+            return self.index_source_bytes_checked(relative, context, limit);
+        }
+        context.check()?;
+        let path = {
+            let _timer = profile::operation("source_path_policy");
+            self.build_target(relative, false, |_| Ok(()))?
+        };
+        let pins = {
+            let _timer = profile::operation("source_pin_directory");
+            super::edit_commit::pin_directory(self, path.parent().ok_or(("PATH", "Missing parent"))?)
+        };
+        let _pins = match pins {
+            Ok(pins) => pins,
+            Err(_) => {
+                // Classify absent ancestors and preserve the original failure
+                // policy. Never treat a failed pin as proof of absence.
+                profile::count("source_pin_fallback", 1);
+                return self.index_source_bytes_checked(relative, context, limit);
+            }
+        };
+        // Ancestors were opened root-first, rejecting reparses at every step,
+        // and cannot be renamed/deleted while these handles remain alive.
+        // Do not query the leaf through an unvalidated ancestor beforehand.
+        if !Self::source_present(&path)? {
+            return Ok(None);
+        }
+        profile::count("source_pinned_reads", 1);
+        self.read_input_path_with(path, context, limit.min(MAX_FILE), |file| {
+            self.verify_opened_source(file)
+        }).map(Some)
+    }
+
+    #[cfg(windows)]
+    fn verify_opened_source(&self, file: &File) -> Result<(), Failure> {
+        use std::{ffi::OsString, os::windows::{ffi::OsStringExt, io::AsRawHandle}};
+        use windows::Win32::{Foundation::HANDLE, Storage::FileSystem::{
+            GetFinalPathNameByHandleW, GETFINALPATHNAMEBYHANDLE_FLAGS, FILE_NAME_NORMALIZED, VOLUME_NAME_DOS,
+        }};
+        let _timer = crate::adapters::index_profile::operation("source_handle_boundary");
+        let mut buffer = vec![0u16; 512];
+        let handle = HANDLE(file.as_raw_handle());
+        let mut length = unsafe {
+            GetFinalPathNameByHandleW(handle, &mut buffer, GETFINALPATHNAMEBYHANDLE_FLAGS(FILE_NAME_NORMALIZED.0 | VOLUME_NAME_DOS.0))
+        } as usize;
+        if length >= buffer.len() {
+            if length > 32768 {
+                return Err(("PATH", "Opened source path exceeds Windows path budget"));
+            }
+            buffer.resize(length + 1, 0);
+            length = unsafe {
+                GetFinalPathNameByHandleW(handle, &mut buffer, GETFINALPATHNAMEBYHANDLE_FLAGS(FILE_NAME_NORMALIZED.0 | VOLUME_NAME_DOS.0))
+            } as usize;
+        }
+        if length == 0 || length >= buffer.len() {
+            return Err(("PATH", "Opened source identity unavailable"));
+        }
+        let opened = PathBuf::from(OsString::from_wide(&buffer[..length]));
+        if !opened.starts_with(&self.root) {
+            return Err(("PATH", "Opened source is outside the project"));
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn source_present(path: &Path) -> Result<bool, Failure> {
+        use crate::adapters::index_profile as profile;
+        let metadata = {
+            let _timer = profile::operation("source_metadata");
+            fs::symlink_metadata(path)
+        };
+        match metadata {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                profile::count("source_missing", 1);
+                Ok(false)
+            }
+            Err(_) => Err(("IO", "Source metadata unavailable; absence not established")),
+            Ok(metadata) if !metadata.is_file() => Err(("PATH", "Source is not a regular file")),
+            Ok(_) => Ok(true),
+        }
+    }
+
+    #[cfg(windows)]
+    fn index_source_bytes_checked(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+    ) -> Result<Option<Vec<u8>>, Failure> {
         use crate::adapters::index_profile as profile;
         context.check()?;
         let path = {
             let _timer = profile::operation("source_path_guard");
             self.target_optional(relative)?
         };
-        let metadata = {
-            let _timer = profile::operation("source_metadata");
-            fs::symlink_metadata(&path)
-        };
-        match metadata {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                profile::count("source_missing", 1);
-                return Ok(None);
-            }
-            Err(_) => return Err(("IO", "Source metadata unavailable; absence not established")),
-            Ok(metadata) if !metadata.is_file() => {
-                return Err(("PATH", "Source is not a regular file"));
-            }
-            Ok(_) => {}
+        if !Self::source_present(&path)? {
+            return Ok(None);
         }
         let _pins = {
             let _timer = profile::operation("source_pin_directory");
@@ -309,6 +406,16 @@ impl Project {
         path: PathBuf,
         context: &OperationContext,
         limit: u64,
+    ) -> Result<Vec<u8>, Failure> {
+        self.read_input_path_with(path, context, limit, |_| Ok(()))
+    }
+
+    fn read_input_path_with(
+        &self,
+        path: PathBuf,
+        context: &OperationContext,
+        limit: u64,
+        verify: impl FnOnce(&File) -> Result<(), Failure>,
     ) -> Result<Vec<u8>, Failure> {
         let _profile = crate::adapters::index_profile::operation("io_project_read");
         context.check()?;
@@ -370,6 +477,7 @@ impl Project {
             }
         }
         let mut bytes = Vec::with_capacity(before.len() as usize);
+        verify(&file)?;
         let mut reader = (&file).take(limit + 1);
         let mut chunk = [0_u8; 65536];
         {
@@ -432,6 +540,10 @@ impl Project {
         )
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "project/index_read_tests.rs"]
+mod index_read_tests;
 
 #[cfg(test)]
 mod tests {

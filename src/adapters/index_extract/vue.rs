@@ -360,6 +360,100 @@ fn extract_script(
         }
         references.push(reference);
     }
+
+    // Extraer llamadas a provide('key', ...) e inject('key') con clave literal
+    extract_vue_provide_inject(source, block, block_id, references)?;
+    Ok(())
+}
+
+fn extract_vue_provide_inject(
+    source: &str,
+    block: &Block,
+    block_id: &str,
+    references: &mut Vec<Value>,
+) -> Result<(), Failure> {
+    let body_src = &source[block.body.clone()];
+    let allocator = oxc_allocator::Allocator::default();
+    let source_type = oxc_span::SourceType::default();
+    let parsed = oxc_parser::Parser::new(&allocator, body_src, source_type).parse();
+    if parsed.diagnostics.has_errors() {
+        return Ok(());
+    }
+
+    let positions = framework::Positions::new(source);
+    let offset = block.body.start;
+
+    for stmt in &parsed.program.body {
+        scan_stmt_for_provide_inject(stmt, offset, source, block_id, &positions, references)?;
+    }
+    Ok(())
+}
+
+fn scan_stmt_for_provide_inject(
+    stmt: &oxc_ast::ast::Statement<'_>,
+    offset: usize,
+    source: &str,
+    block_id: &str,
+    positions: &framework::Positions<'_>,
+    references: &mut Vec<Value>,
+) -> Result<(), Failure> {
+    use oxc_ast::ast::*;
+    match stmt {
+        Statement::ExpressionStatement(expr_stmt) => {
+            scan_expr_for_provide_inject(&expr_stmt.expression, offset, source, block_id, positions, references)?;
+        }
+        Statement::VariableDeclaration(var_decl) => {
+            for decl in &var_decl.declarations {
+                if let Some(init) = &decl.init {
+                    scan_expr_for_provide_inject(init, offset, source, block_id, positions, references)?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn scan_expr_for_provide_inject(
+    expr: &oxc_ast::ast::Expression<'_>,
+    offset: usize,
+    _source: &str,
+    block_id: &str,
+    positions: &framework::Positions<'_>,
+    references: &mut Vec<Value>,
+) -> Result<(), Failure> {
+    use oxc_ast::ast::*;
+    use oxc_span::GetSpan;
+    if let Expression::CallExpression(call) = expr {
+        if let Expression::Identifier(ident) = &call.callee {
+            let fn_name = ident.name.as_str();
+            if fn_name == "provide" || fn_name == "inject" {
+                if let Some(first_arg) = call.arguments.first() {
+                    let key = match first_arg {
+                        Argument::StringLiteral(s) => Some(s.value.display().to_string()),
+                        _ => None,
+                    };
+                    if let Some(ref_name) = key {
+                        let span = first_arg.span();
+                        let abs_start = offset + span.start as usize;
+                        let (line, column) = positions.position(abs_start)?;
+                        let kind = if fn_name == "provide" {
+                            "vue_provide"
+                        } else {
+                            "vue_inject"
+                        };
+                        references.push(json!({
+                            "fromNodeId": block_id,
+                            "referenceName": ref_name,
+                            "referenceKind": kind,
+                            "line": line,
+                            "column": column,
+                        }));
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 

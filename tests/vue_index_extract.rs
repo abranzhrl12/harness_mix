@@ -201,3 +201,63 @@ fn vue_invalid_script_structure_and_cancellation_fail_closed() {
         "CANCELLED"
     );
 }
+
+#[test]
+fn vue_extracts_provide_and_inject_literal_references() {
+    let source = r#"<script setup lang="ts">
+import { provide, inject } from 'vue';
+provide('themeConfig', { dark: true });
+const config = inject('themeConfig');
+</script>
+<template><div /></template>"#;
+    let graph = extract_vue(source);
+    let refs = graph["unresolvedReferences"].as_array().unwrap();
+
+    let provide_ref = refs.iter().find(|r| r["referenceName"] == "themeConfig" && r["referenceKind"] == "vue_provide");
+    assert!(provide_ref.is_some(), "Debe extraer provide con clave 'themeConfig': {:?}", refs);
+
+    let inject_ref = refs.iter().find(|r| r["referenceName"] == "themeConfig" && r["referenceKind"] == "vue_inject");
+    assert!(inject_ref.is_some(), "Debe extraer inject con clave 'themeConfig': {:?}", refs);
+}
+
+
+#[test]
+fn vue_router_extracts_routes_and_component_references() {
+    let source = r#"
+import { createRouter, createWebHistory } from 'vue-router';
+import HomeView from './views/HomeView.vue';
+
+const routes = [
+  {
+    path: '/',
+    name: 'home',
+    component: HomeView
+  },
+  {
+    path: '/about',
+    name: 'about',
+    component: () => import('./views/AboutView.vue')
+  }
+];
+
+export const router = createRouter({
+  history: createWebHistory(),
+  routes
+});
+"#;
+    let graph = extract("src/router/index.ts", source, &OperationContext::default()).unwrap();
+    let nodes = graph["nodes"].as_array().unwrap();
+    let refs = graph["unresolvedReferences"].as_array().unwrap();
+
+    let route_home = nodes.iter().find(|n| n["kind"] == "route" && n["name"] == "/");
+    assert!(route_home.is_some(), "Debe emitir el nodo route '/': {:?}", nodes);
+
+    let route_about = nodes.iter().find(|n| n["kind"] == "route" && n["name"] == "/about");
+    assert!(route_about.is_some(), "Debe emitir el nodo route '/about': {:?}", nodes);
+
+    let home_ref = refs.iter().find(|r| r["referenceName"] == "HomeView" && r["referenceKind"] == "vue_route_component");
+    assert!(home_ref.is_some(), "Debe emitir la referencia estática a HomeView: {:?}", refs);
+
+    let about_ref = refs.iter().find(|r| r["referenceName"] == "./views/AboutView.vue" && r["referenceKind"] == "vue_route_dynamic_component");
+    assert!(about_ref.is_some(), "Debe emitir la referencia dinámica a AboutView: {:?}", refs);
+}

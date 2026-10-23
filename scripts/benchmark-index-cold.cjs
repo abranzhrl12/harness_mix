@@ -11,9 +11,12 @@ const assert = require('node:assert/strict');
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-async function execute(executable, source, sample, workers) {
+async function execute(executable, source, sample, workers, rustPending = '1', pinnedRead = '0') {
+  assert(['0', '1'].includes(rustPending), 'rustPending must be 0 or 1');
+  assert(['0', '1'].includes(pinnedRead), 'pinnedRead must be 0 or 1');
   const env = { ...process.env, HARNESS_INDEX_PROFILE: '1', HARNESS_INDEX_WORKERS: String(workers),
-    HARNESS_INDEX_RESOLUTION_MEMO: '1', HARNESS_INDEX_RETRY_BINDINGS: '1', HARNESS_INDEX_PENDING_QUERY: 'indexed' };
+    HARNESS_INDEX_RESOLUTION_MEMO: '1', HARNESS_INDEX_RETRY_BINDINGS: '1', HARNESS_INDEX_PENDING_QUERY: 'indexed',
+    HARNESS_INDEX_PENDING_RUST: rustPending, HARNESS_INDEX_PINNED_READ: pinnedRead };
   return new Promise((resolve, reject) => {
     const child = spawn(executable, [source, String(sample), '--batch', '--fresh', '--cold-only'],
       { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });

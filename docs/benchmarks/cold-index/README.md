@@ -12,6 +12,9 @@ un paso sin medición terminada no se presenta como mejora.
 7. [Lectura con una sola validación de ruta](07-lectura-ruta-validada.md).
 8. [Reutilización del análisis Rust por contenido](08-cache-analisis-rust.md).
 9. [Filtrado por índice antes de consultar el disco](09-filtrado-indice-antes-disco.md).
+10. [Pruebas de selección SQL de referencias pendientes](10-pruebas-seleccion-pendientes.md).
+11. [Selector Rust validado en indexación real](11-selector-rust-real.md).
+12. [Lectura protegida con pinning unificado: experimento pendiente](12-lectura-pinning-unificado.md).
 
 Después de medir la línea base se priorizará la fase dominante: selección de
 pendientes, invalidación, resolución, escritura o commit. Cada cambio posterior

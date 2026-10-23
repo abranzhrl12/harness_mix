@@ -154,3 +154,99 @@ pub(super) fn vue_method(
     sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
     Ok(true)
 }
+
+pub(super) fn vue_provide_inject(
+    db: &Connection,
+    id: i64,
+    site: Site<'_>,
+) -> Result<bool, Failure> {
+    // Si es un inject, buscar el provide correspondiente con el mismo reference_name
+    let target_kind = if site.kind == "vue_inject" {
+        "vue_provide"
+    } else {
+        "vue_inject"
+    };
+
+    let mut statement = sql(db.prepare_cached(
+        "SELECT from_node_id, file_path, line, col FROM unresolved_refs WHERE reference_name=?1 AND reference_kind=?2 AND from_node_id<>?3 LIMIT 2",
+    ))?;
+
+    let matches = sql(statement.query_map(params![site.name, target_kind, site.from], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    }))?
+    .collect::<Result<Vec<_>, _>>();
+    let matches = sql(matches)?;
+
+    if matches.len() != 1 {
+        return Ok(false);
+    }
+
+    let (target_node_id, target_file, target_line, target_col) = &matches[0];
+    let metadata = json!({
+        "refName": site.name,
+        "refKind": site.kind,
+        "resolvedBy": "vue-provide-inject-subset-v1",
+        "framework": "vue",
+        "key": site.name,
+        "targetFile": target_file,
+        "targetLine": target_line,
+        "targetCol": target_col,
+    });
+
+    sql(db.execute(
+        "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+        params![site.from, target_node_id, site.line, site.col, metadata.to_string()],
+    ))?;
+    sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+    Ok(true)
+}
+
+pub(super) fn vue_route_component(
+    db: &Connection,
+    id: i64,
+    project: &Project,
+    context: &OperationContext,
+    sources: &mut imports::Sources,
+    site: Site<'_>,
+) -> Result<bool, Failure> {
+    let Some(target_file) = sources.vue_route_component_target(
+        db, project, context, site.path, site.from, site.name, site.kind, site.line, site.col,
+    )?
+    else {
+        return Ok(false);
+    };
+    let mut statement = sql(db.prepare_cached(
+        "SELECT id FROM nodes WHERE file_path=?1 AND kind IN ('component', 'file') LIMIT 2",
+    ))?;
+    let ids = sql(
+        statement.query_map(params![target_file], |row| {
+            row.get::<_, String>(0)
+        }),
+    )?
+    .collect::<Result<Vec<_>, _>>();
+    let ids = sql(ids)?;
+    if ids.is_empty() {
+        return Ok(false);
+    }
+    let target_node_id = &ids[0];
+    let metadata = json!({
+        "refName": site.name,
+        "refKind": site.kind,
+        "resolvedBy": "vue-route-component-subset-v1",
+        "framework": "vue",
+        "targetPath": target_file,
+    })
+    .to_string();
+    sql(db.execute(
+        "INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')",
+        params![site.from, target_node_id, site.line, site.col, metadata],
+    ))?;
+    sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+    Ok(true)
+}
+

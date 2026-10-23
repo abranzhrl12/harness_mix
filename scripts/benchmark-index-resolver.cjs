@@ -6,10 +6,15 @@ const os = require('node:os');
 const { execute, median, sha256 } = require('./benchmark-index-cold.cjs');
 
 async function main() {
-  const [beforeArg, afterArg, sourceArg, outputArg, countArg = '200', trialsArg = '3'] = process.argv.slice(2);
+  const [beforeArg, afterArg, sourceArg, outputArg, countArg = '200', trialsArg = '3', mode = 'binaries'] = process.argv.slice(2);
   assert(beforeArg && afterArg && sourceArg && outputArg,
-    'Usage: node scripts/benchmark-index-resolver.cjs beforeExe afterExe frozenSource NEW_outputDirectory [sample=200|all] [oddTrials=3]');
+    'Usage: node scripts/benchmark-index-resolver.cjs beforeExe afterExe frozenSource NEW_outputDirectory [sample=200|all] [oddTrials=3] [binaries|rust-pending|pinned-read]');
+  assert(['binaries', 'rust-pending', 'pinned-read'].includes(mode), 'Unsupported comparison mode');
   const binaries = { before: fs.realpathSync(beforeArg), after: fs.realpathSync(afterArg) };
+  if (mode !== 'binaries') {
+    assert.equal(sha256(fs.readFileSync(binaries.before)), sha256(fs.readFileSync(binaries.after)),
+      'Selector comparisons require identical binary contents');
+  }
   const source = fs.realpathSync(sourceArg), output = path.resolve(outputArg);
   const allSources = countArg === 'all';
   const count = allSources ? 2000 : Number(countArg), trials = Number(trialsArg);
@@ -26,21 +31,32 @@ async function main() {
   };
   checkCorpus();
   fs.mkdirSync(output, { recursive: true });
+  const rustSettings = { before: mode === 'rust-pending' ? '0' : '1', after: '1' };
+  const pinSettings = { before: '0', after: mode === 'pinned-read' ? '1' : '0' };
   const metadata = { recordedAt: new Date().toISOString(), source, sample: allSources ? 'all' : count, trials,
+    comparisonMode: mode, rustPending: rustSettings, pinnedRead: pinSettings,
     corpusManifestSha256: sha256(fs.readFileSync(manifest)), workers: 4,
     binaries: Object.fromEntries(Object.entries(binaries).map(([name, file]) => [name,
       { path: file, sha256: sha256(fs.readFileSync(file)), modifiedAt: fs.statSync(file).mtime.toISOString() }])),
     cpu: os.cpus()[0]?.model, os: `${os.platform()} ${os.release()} ${os.arch()}`,
     definition: 'Empty temporary index per invocation; fixed corpus; OS caches not flushed; profiler enabled on both binaries.' };
   fs.writeFileSync(path.join(output, 'metadata.json'), JSON.stringify(metadata, null, 2));
+  const checkBinaries = () => {
+    for (const [variant, file] of Object.entries(binaries)) {
+      assert.equal(sha256(fs.readFileSync(file)), metadata.binaries[variant].sha256,
+        `Binary changed during benchmark: ${variant}`);
+    }
+  };
   const runs = [];
   let expected;
   for (let trial = 1; trial <= trials; trial++) {
     for (const variant of trial % 2 ? ['before', 'after'] : ['after', 'before']) {
       process.stdout.write(`resolver trial=${trial}/${trials} variant=${variant}\n`);
-      const { report, stderr } = await execute(binaries[variant], source, count, 4);
+      checkBinaries();
+      const { report, stderr } = await execute(binaries[variant], source, count, 4, rustSettings[variant], pinSettings[variant]);
       fs.writeFileSync(path.join(output, `${variant}-${trial}.json`), JSON.stringify(report, null, 2));
       checkCorpus();
+      checkBinaries();
       const pass = report.passes?.[0], workspace = pass?.workspaceReport;
       assert.equal(report.copiedExistingGraph, false);
       assert.deepEqual(report.graphBefore, { files: 0, nodes: 0, edges: 0 });

@@ -57,11 +57,9 @@ Baseline release capturado tras compilar correctamente:
 La consulta de hash utiliza una sentencia preparada cacheada de SQLite. No se
 añade un mapa de negativos ni un escaneo adicional del árbol de archivos.
 
-## Primera pareja completa (provisional)
+## Resultados del corpus completo congelado
 
-Ambos binarios release compilaron. La primera pareja sobre todos los archivos
-compatibles copiados dio 102,052 s antes y 74,407 s después. No es aún una
-mediana ni una garantía. El corpus contiene 549 archivos copiados; el coordinador
+Ambos binarios release compilaron. El corpus contiene 549 archivos copiados; el coordinador
 procesó los 537 candidatos elegibles, sin fallos ni candidatos nativos restantes.
 
 El volumen no es comparable con la muestra antigua de 200 archivos: esta pasada
@@ -82,7 +80,49 @@ llamadas Win32 individuales. El promedio de las lecturas restantes no es
 comparable directamente: desaparecen los candidatos ausentes y solo quedan
 lecturas de archivos existentes. No se afirma que cada lectura sea más rápida.
 
-El grafo coincide: `202c2e102ba97ae2470d172fece3dba4e79c8f9c8e5e1af1c531a58f71488bbb`.
-Ambas variantes conservan 1.227 referencias resueltas y los mismos análisis Rust
-y aciertos de caché. La segunda y tercera parejas siguen en ejecución en
-`target/cold-index-index-gate-all/`.
+| Tiempo | Antes | Después |
+| --- | ---: | ---: |
+| Pasada 1 | 102,052 s | 74,407 s |
+| Pasada 2 | 87,407 s | 84,672 s |
+| Pasada 3 | 82,547 s | 70,402 s |
+| Mediana | 87,407 s | 74,407 s |
+
+La mediana baja **13,000 segundos, un 14,87 % menos tiempo** (factor 1,175).
+La dispersión es importante: las mejoras por pareja no son uniformes. No se
+garantiza ese porcentaje en otro entorno ni se presenta el 27 % de la primera
+pareja como resultado final. El trabajo evitado sí coincide en las tres pasadas:
+50.122 intentos de lectura menos, 71,66 % de las consultas de dependencias.
+
+El grafo coincide en las seis pasadas:
+`202c2e102ba97ae2470d172fece3dba4e79c8f9c8e5e1af1c531a58f71488bbb`.
+Ambas variantes conservan 6.435 nodos, 1.227 referencias resueltas, los mismos
+análisis Rust y aciertos de caché; cero fallos, pendientes o archivos sin comprobar.
+Los contadores de revalidación, commits y resolución también se verificaron iguales.
+
+No se confunden intentos de consulta con lecturas físicas: las aperturas totales
+de archivo bajan de 50.904 a 40.710; los bytes leídos desde handles bajan de
+396.750.073 a 372.863.670. Los candidatos ausentes normalmente no abrían un
+archivo, pero sí recorrían y comprobaban sus rutas. No se midió tráfico físico
+al disco, RSS, utilización de CPU ni tiempos de espera del sistema operativo.
+
+La mediana del temporizador `verified_index_lookup` baja de 1.424,966 ms a
+351,818 ms pese a consultar más candidatos: se reutiliza la sentencia preparada.
+`resolve_references` baja de 43,413 s a 25,676 s; son medianas independientes y
+timers anidados, por lo que no se deben sumar para reconstruir el total.
+
+Datos completos en `target/cold-index-index-gate-all/`; resumen durable:
+[resultados-filtrado-indice-all.json](resultados-filtrado-indice-all.json).
+
+Reproducir conservando el baseline previo:
+
+```powershell
+cargo build --locked --release --example index_phase_probe
+node scripts/benchmark-index-resolver.cjs target/cold-index-before-index-gate.exe target/release/examples/index_phase_probe.exe target/cold-index-corpus-v1 target/NUEVA-carpeta-gate-all all 3
+```
+
+SHA-256 posterior:
+`f8d87686063f680b31ae093e60ff247a1a2d67adac4206232269864c7769fd5d`.
+Esta tarea no ejecutó commit/push ni modificó el índice original. Durante la
+medición la rama avanzó externamente a `1fd1d537387ac7654196107bc881570f7117b1e2`;
+no se alteró ni revirtió ese trabajo. Los resultados identifican los dos binarios
+medidos por SHA-256 y no asumen que HEAD sea su snapshot exacto de construcción.

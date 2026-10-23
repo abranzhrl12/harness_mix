@@ -96,6 +96,26 @@ pub(super) fn resolve_exact(
     });
     if matches!(
         kind.as_str(),
+        "vue_route_component" | "vue_route_dynamic_component"
+    ) {
+        return framework::vue_route_component(
+            db,
+            id,
+            project,
+            context,
+            sources,
+            framework::Site {
+                from: &from,
+                name: &name,
+                kind: &kind,
+                line,
+                col,
+                path: &path,
+            },
+        );
+    }
+    if matches!(
+        kind.as_str(),
         "angular_route_component" | "angular_route_layout"
     ) {
         return framework::angular_route_component(
@@ -217,6 +237,20 @@ pub(super) fn resolve_exact(
             ))?;
             sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
             return Ok(true);
+        }
+        if matches!(kind.as_str(), "vue_provide" | "vue_inject") {
+            return framework::vue_provide_inject(
+                db,
+                id,
+                framework::Site {
+                    from: &from,
+                    name: &name,
+                    kind: &kind,
+                    line,
+                    col,
+                    path: &path,
+                },
+            );
         }
         // HTML bindings and unsupported Vue reference kinds remain pending.
         return Ok(false);

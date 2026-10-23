@@ -1,7 +1,9 @@
-//! Source-verified Vue composable calls. Extracted graph metadata is advisory;
-//! every binding is re-derived from the current SFC before resolving its module.
+//! Source-verified Vue composable calls and route component resolution.
+//! Extracted graph metadata is advisory; every binding is re-derived from the
+//! current SFC/module before resolving its target.
 use super::{ExportTarget, Failure, LIMIT, OperationContext, Project, Sources, module_path};
 use crate::adapters::index_semantic::RuntimeKind;
+use crate::adapters::index_store::sql;
 use rusqlite::Connection;
 
 impl Sources {
@@ -56,5 +58,71 @@ impl Sources {
             &imported,
             RuntimeKind::Function,
         )
+    }
+
+    pub(in crate::adapters::index_store) fn vue_route_component_target(
+        &mut self,
+        db: &Connection,
+        project: &Project,
+        context: &OperationContext,
+        path: &str,
+        from_node_id: &str,
+        name: &str,
+        reference_kind: &str,
+        line: i64,
+        column: i64,
+    ) -> Result<Option<String>, Failure> {
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(path))
+            || !self.observe(db, project, context, path)?
+        {
+            return Ok(None);
+        }
+        let source = std::str::from_utf8(self.verified.bytes(path).ok_or(super::INDEX)?)
+            .map_err(|_| super::INDEX)?;
+        if !crate::adapters::index_extract::vue_router::proves_reference(
+            path,
+            source,
+            from_node_id,
+            name,
+            reference_kind,
+            line,
+            column,
+            context,
+        )? {
+            return Ok(None);
+        }
+        let module_specifier = if reference_kind == "vue_route_dynamic_component" {
+            name.to_string()
+        } else {
+            let Some((module, _)) =
+                crate::adapters::index_extract::vue_router::named_runtime_import(
+                    path, source, name, context,
+                )?
+            else {
+                return Ok(None);
+            };
+            module
+        };
+        let language: String = sql(db.query_row(
+            "SELECT language FROM files WHERE path=?1",
+            [path],
+            |row| row.get(0),
+        ))?;
+        let Some(resolved) = module_path(db, path, &module_specifier, &language, context, self)? else {
+            return Ok(None);
+        };
+        if self
+            .config
+            .semantic
+            .as_ref()
+            .is_some_and(|policy| policy.excluded(&resolved))
+        {
+            return Ok(None);
+        }
+        Ok(Some(resolved))
     }
 }

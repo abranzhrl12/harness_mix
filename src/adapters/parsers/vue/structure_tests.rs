@@ -55,3 +55,31 @@ fn malformed_structure_and_cancellation_are_reported() {
     );
     assert!(parse("<style>.x {</style>", "x", &OperationContext::default()).is_err());
 }
+
+#[test]
+fn template_scopes_extract_v_for_and_v_slot_variables() {
+    let source = r#"<template>
+  <ul>
+    <li v-for="(item, index) in items" :key="index">
+      <span>{{ item.title }}</span>
+    </li>
+  </ul>
+  <MyComp v-slot="{ user, role: userRole }">
+    <p>{{ user.name }} - {{ userRole }}</p>
+  </MyComp>
+</template>"#;
+    let document = parse(source, "digest", &OperationContext::default()).unwrap();
+    let symbols = &document.symbols;
+
+    let var_names: Vec<&str> = symbols
+        .iter()
+        .filter(|s| s.kind == "vue_template_variable")
+        .map(|s| s.name.as_str())
+        .collect();
+
+    assert!(var_names.contains(&"item"), "debe contener item, encontrados: {:?}", var_names);
+    assert!(var_names.contains(&"index"), "debe contener index, encontrados: {:?}", var_names);
+    assert!(var_names.contains(&"user"), "debe contener user, encontrados: {:?}", var_names);
+    assert!(var_names.contains(&"userRole"), "debe contener userRole, encontrados: {:?}", var_names);
+}
+

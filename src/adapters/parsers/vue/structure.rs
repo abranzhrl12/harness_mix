@@ -3,7 +3,7 @@
 use crate::adapters::parsers::{model::Symbol, vue::syntax as lex};
 use harness_domain::{Failure, execution::OperationContext, hash, results::prefix};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Argument, Expression, Statement};
+use oxc_ast::ast::{Argument, BindingPattern, Expression, Statement};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 use serde_json::{Value, json};
@@ -270,6 +270,36 @@ pub(in crate::adapters) fn parse(
         );
         e.id = item.id.clone();
         doc.symbols.push(item);
+
+        for a in &e.attrs {
+            let var_names = if a.name == "v-for" {
+                if let Some((lhs, _)) = a.value.split_once(" in ").or_else(|| a.value.split_once(" of ")) {
+                    extract_template_scope_variables(lhs)
+                } else {
+                    Vec::new()
+                }
+            } else if a.name == "v-slot" || a.name.starts_with("v-slot:") || a.name.starts_with('#') {
+                if !a.value.is_empty() {
+                    extract_template_scope_variables(&a.value)
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            for var_name in var_names {
+                doc.symbols.push(symbol(
+                    source,
+                    digest,
+                    var_name.clone(),
+                    format!("{}#{i}", e.tag),
+                    "vue_template_variable",
+                    e.range.clone(),
+                    format!("template variable {var_name}"),
+                ));
+            }
+        }
     }
     for r in &doc.rules {
         doc.symbols.push(symbol(
@@ -482,6 +512,60 @@ fn macro_call(
         }
     }
 }
+
+fn extract_binding_identifiers<'a>(pat: &'a BindingPattern<'a>, out: &mut Vec<&'a str>) {
+    match pat {
+        BindingPattern::BindingIdentifier(ident) => {
+            out.push(ident.name.as_str());
+        }
+        BindingPattern::ObjectPattern(obj) => {
+            for prop in &obj.properties {
+                extract_binding_identifiers(&prop.value, out);
+            }
+            if let Some(rest) = &obj.rest {
+                extract_binding_identifiers(&rest.argument, out);
+            }
+        }
+        BindingPattern::ArrayPattern(arr) => {
+            for elem in arr.elements.iter().flatten() {
+                extract_binding_identifiers(elem, out);
+            }
+            if let Some(rest) = &arr.rest {
+                extract_binding_identifiers(&rest.argument, out);
+            }
+        }
+        BindingPattern::AssignmentPattern(assign) => {
+            extract_binding_identifiers(&assign.left, out);
+        }
+    }
+}
+
+fn extract_template_scope_variables(expr: &str) -> Vec<String> {
+    let mut trimmed = expr.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    // Si viene como tupla de v-for: `(item, index)`, la convertimos a `[item, index]` para que sea un destructuring válido de JS
+    let tuple_buf;
+    if trimmed.starts_with('(') && trimmed.ends_with(')') && trimmed.len() >= 2 {
+        tuple_buf = format!("[{}]", &trimmed[1..trimmed.len() - 1]);
+        trimmed = &tuple_buf;
+    }
+    let allocator = Allocator::default();
+    let code = format!("let {trimmed} = null;");
+    let parsed = Parser::new(&allocator, &code, SourceType::default()).parse();
+    if !parsed.diagnostics.has_errors() {
+        if let Some(Statement::VariableDeclaration(decl)) = parsed.program.body.first() {
+            if let Some(declarator) = decl.declarations.first() {
+                let mut idents = Vec::new();
+                extract_binding_identifiers(&declarator.id, &mut idents);
+                return idents.into_iter().map(str::to_owned).collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
 
 // CSS/SCSS block parser with lexical states. Interpolation and Sass constructs
 // are retained as uncertain; no expansion or property evaluation is attempted.
