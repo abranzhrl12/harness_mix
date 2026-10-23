@@ -24,7 +24,7 @@ pub(super) fn imported_value(
 ) -> Option<ImportBinding> {
     let symbol = semantic
         .scoping()
-        .get_binding(semantic.scoping().root_scope_id(), name)?;
+        .get_binding(semantic.scoping().root_scope_id(), name.into())?;
     if !semantic.scoping().symbol_redeclarations(symbol).is_empty()
         || semantic.scoping().symbol_flags(symbol).is_type_import()
     {
@@ -46,7 +46,7 @@ pub(super) fn imported_value(
         .nodes()
         .ancestors(declaration.id())
         .find_map(|node| match node.kind() {
-            AstKind::ImportDeclaration(decl) => Some(decl.source.value.to_string()),
+            AstKind::ImportDeclaration(decl) => Some(decl.source.value.display().to_string()),
             _ => None,
         })?;
     Some(ImportBinding {
@@ -59,7 +59,7 @@ fn imported_name<'a>(name: &'a ModuleExportName<'a>) -> &'a str {
     match name {
         ModuleExportName::IdentifierName(id) => id.name.as_str(),
         ModuleExportName::IdentifierReference(id) => id.name.as_str(),
-        ModuleExportName::StringLiteral(lit) => lit.value.as_str(),
+        ModuleExportName::StringLiteral(lit) => lit.value.as_str().unwrap_or(""),
     }
 }
 
@@ -90,7 +90,7 @@ pub(super) fn decorator_role(
             };
             let symbol = semantic
                 .scoping()
-                .get_binding(semantic.scoping().root_scope_id(), namespace.name.as_str())?;
+                .get_binding(semantic.scoping().root_scope_id(), namespace.name)?;
             if !semantic.scoping().symbol_redeclarations(symbol).is_empty()
                 || semantic.scoping().symbol_flags(symbol).is_type_import()
                 || !matches!(
@@ -126,8 +126,8 @@ pub(super) fn classes<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Vec<&'a Cla
         .iter()
         .filter_map(|statement| match statement {
             Statement::ClassDeclaration(class) => Some(class.as_ref()),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(Declaration::ClassDeclaration(class)) => Some(class.as_ref()),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::ClassDeclaration(class) => Some(class.as_ref()),
                 _ => None,
             },
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
@@ -154,7 +154,7 @@ pub(super) fn properties<'a>(
         }
         let key = match &property.key {
             PropertyKey::StaticIdentifier(id) => id.name.to_string(),
-            PropertyKey::StringLiteral(literal) => literal.value.to_string(),
+            PropertyKey::StringLiteral(literal) => literal.value.display().to_string(),
             _ => return Err(()),
         };
         if found.insert(key, &**property).is_some() {

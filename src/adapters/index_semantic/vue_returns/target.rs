@@ -27,14 +27,15 @@ pub(in crate::adapters) fn returned_method(
     let source_type = SourceType::from_path(path).map_err(|_| INVALID)?;
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err(INVALID);
     }
     let built = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
-    if !built.errors.is_empty() || built.semantic.scoping().symbols_len() > MAX_FACTS {
+    if built.diagnostics.has_errors() || built.semantic.scoping().symbols_len() > MAX_FACTS {
         return Err(INVALID);
     }
     let semantic = built.semantic;
@@ -44,7 +45,7 @@ pub(in crate::adapters) fn returned_method(
     let positions = Positions::new(source);
     let Some(symbol) = semantic
         .scoping()
-        .get_binding(semantic.scoping().root_scope_id(), function_name)
+        .get_binding(semantic.scoping().root_scope_id(), function_name.into())
     else {
         return Ok(None);
     };
@@ -60,12 +61,15 @@ pub(in crate::adapters) fn returned_method(
             if semantic.scoping().symbol_flags(symbol).is_const_variable() =>
         {
             match variable.init.as_ref() {
-                Some(Expression::ArrowFunctionExpression(arrow)) => (
-                    arrow.body.statements.as_slice(),
-                    arrow.expression,
-                    arrow.r#async,
-                    false,
-                ),
+                Some(Expression::ArrowFunctionExpression(arrow)) => {
+                    let (statements, is_expression) = match &arrow.body {
+                        oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => {
+                            (body.statements.as_slice(), false)
+                        }
+                        _ => (&[][..], true),
+                    };
+                    (statements, is_expression, arrow.r#async, false)
+                }
                 Some(Expression::FunctionExpression(function)) if function.body.is_some() => (
                     function.body.as_ref().unwrap().statements.as_slice(),
                     false,
@@ -123,10 +127,10 @@ pub(in crate::adapters) fn returned_method(
             }
             Statement::VariableDeclaration(declaration) => {
                 for variable in &declaration.declarations {
-                    if variable.kind != VariableDeclarationKind::Const {
+                    if declaration.kind != VariableDeclarationKind::Const {
                         return Ok(None);
                     }
-                    let BindingPatternKind::BindingIdentifier(id) = &variable.id.kind else {
+                    let BindingPattern::BindingIdentifier(id) = &variable.id else {
                         return Ok(None);
                     };
                     let Some(symbol) = declared_symbol(&semantic, variable.span, id.name.as_str())
@@ -184,7 +188,7 @@ pub(in crate::adapters) fn returned_method(
         }
         let key = match &item.key {
             PropertyKey::StaticIdentifier(id) => id.name.to_string(),
-            PropertyKey::StringLiteral(value) => value.value.to_string(),
+            PropertyKey::StringLiteral(value) => value.value.display().to_string(),
             _ => return Ok(None),
         };
         if !keys.insert(key.clone()) {

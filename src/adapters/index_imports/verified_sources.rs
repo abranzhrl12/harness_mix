@@ -36,18 +36,20 @@ impl VerifiedSources {
             if self.files.len() >= 64 || self.reserved + 1024 * 1024 > 64 * 1024 * 1024 {
                 return Err(LIMIT);
             }
-            let Some(bytes) = read_source(project, path, context)? else {
-                return Ok(false);
-            };
+            context.check()?;
             let digest: Option<String> = {
                 let _timer = crate::adapters::index_profile::operation("verified_index_lookup");
-                sql(db
-                .query_row(
-                    "SELECT content_hash FROM files WHERE path=?1",
-                    [path],
-                    |r| r.get(0),
-                )
-                .optional())?
+                let mut statement = sql(
+                    db.prepare_cached("SELECT content_hash FROM files WHERE path=?1"),
+                )?;
+                sql(statement.query_row([path], |r| r.get(0)).optional())?
+            };
+            if digest.is_none() {
+                crate::adapters::index_profile::count("verified_not_indexed", 1);
+                return Ok(false);
+            }
+            let Some(bytes) = read_source(project, path, context)? else {
+                return Ok(false);
             };
             let current_hash = {
                 let _timer = crate::adapters::index_profile::operation("verified_initial_hash");
@@ -55,7 +57,7 @@ impl VerifiedSources {
                 hash(&bytes)
             };
             if digest.as_deref() != Some(current_hash.as_str()) {
-                crate::adapters::index_profile::count(if digest.is_none() { "verified_not_indexed" } else { "verified_hash_mismatch" }, 1);
+                crate::adapters::index_profile::count("verified_hash_mismatch", 1);
                 return Ok(false);
             }
             self.reserved += bytes.len();
@@ -94,12 +96,25 @@ mod tests {
     use super::*;
     use std::fs::{self, FileTimes, OpenOptions};
 
-    fn observed(root: &std::path::Path, bytes: &[u8]) -> (Project, VerifiedSources) {
-        fs::write(root.join("source.rs"), bytes).unwrap();
-        let project = Project::new(root).unwrap();
+    struct ProfileGuard;
+
+    impl Drop for ProfileGuard {
+        fn drop(&mut self) {
+            crate::adapters::index_profile::finish();
+        }
+    }
+
+    fn database() -> Connection {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE files(path TEXT PRIMARY KEY, content_hash TEXT);")
             .unwrap();
+        db
+    }
+
+    fn observed(root: &std::path::Path, bytes: &[u8]) -> (Project, VerifiedSources) {
+        fs::write(root.join("source.rs"), bytes).unwrap();
+        let project = Project::new(root).unwrap();
+        let db = database();
         db.execute("INSERT INTO files VALUES('source.rs',?1)", [hash(bytes)])
             .unwrap();
         let mut sources = VerifiedSources::default();
@@ -112,6 +127,109 @@ mod tests {
     }
 
     #[test]
+    fn unindexed_candidates_skip_source_reads_and_are_not_cached_as_missing() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("existing.rs"), b"present but unindexed").unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let db = database();
+        let mut sources = VerifiedSources::default();
+
+        crate::adapters::index_profile::begin(true);
+        let _profile = ProfileGuard;
+        crate::adapters::index_profile::stage("resolve_references");
+        assert!(!sources
+            .observe(&db, &project, &OperationContext::default(), "existing.rs")
+            .unwrap());
+        assert!(!sources
+            .observe(&db, &project, &OperationContext::default(), "missing.rs")
+            .unwrap());
+        fs::write(root.path().join("missing.rs"), b"created during publication").unwrap();
+        assert!(!sources
+            .observe(&db, &project, &OperationContext::default(), "missing.rs")
+            .unwrap());
+
+        let metrics = crate::adapters::index_profile::metrics().unwrap();
+        assert_eq!(metrics["operations"].get("source_read_resolution"), None);
+        assert_eq!(metrics["sourceReads"].as_object().unwrap().len(), 0);
+        assert_eq!(metrics["counters"]["verified_not_indexed"], 3);
+    }
+
+    #[test]
+    fn indexed_missing_source_can_appear_and_empty_digest_is_not_absence() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let db = database();
+        let bytes = b"created after initial missing observation";
+        db.execute("INSERT INTO files VALUES('later.rs',?1)", [hash(bytes)])
+            .unwrap();
+        db.execute_batch("INSERT INTO files VALUES('empty-digest.rs','');")
+            .unwrap();
+        let mut sources = VerifiedSources::default();
+
+        crate::adapters::index_profile::begin(true);
+        let _profile = ProfileGuard;
+        crate::adapters::index_profile::stage("resolve_references");
+        assert!(!sources
+            .observe(&db, &project, &OperationContext::default(), "later.rs")
+            .unwrap());
+        fs::write(root.path().join("later.rs"), bytes).unwrap();
+        assert!(sources
+            .observe(&db, &project, &OperationContext::default(), "later.rs")
+            .unwrap());
+
+        fs::write(root.path().join("empty-digest.rs"), b"has bytes").unwrap();
+        assert!(!sources
+            .observe(&db, &project, &OperationContext::default(), "empty-digest.rs")
+            .unwrap());
+
+        let metrics = crate::adapters::index_profile::metrics().unwrap();
+        assert_eq!(metrics["sourceReads"]["later.rs"], 2);
+        assert_eq!(metrics["sourceReads"]["empty-digest.rs"], 1);
+        assert_eq!(metrics["counters"]["verified_hash_mismatch"], 1);
+    }
+
+    #[test]
+    fn unindexed_fast_path_preserves_cancellation_and_indexed_paths_stay_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let db = database();
+        let mut sources = VerifiedSources::default();
+
+        let cancelled = OperationContext::default();
+        cancelled.cancel();
+        assert_eq!(
+            sources
+                .observe(&db, &project, &cancelled, "unindexed.rs")
+                .unwrap_err()
+                .0,
+            "CANCELLED"
+        );
+        let expired = OperationContext::with_timeout(std::time::Duration::ZERO);
+        assert_eq!(
+            sources
+                .observe(&db, &project, &expired, "unindexed.rs")
+                .unwrap_err()
+                .0,
+            "TIMEOUT"
+        );
+
+        db.execute_batch("INSERT INTO files VALUES('../outside.rs','outside-hash');")
+            .unwrap();
+        assert_eq!(
+            sources
+                .observe(
+                    &db,
+                    &project,
+                    &OperationContext::default(),
+                    "../outside.rs"
+                )
+                .unwrap_err()
+                .0,
+            "PATH"
+        );
+    }
+
+    #[test]
     fn recheck_accepts_identical_bytes_including_empty_and_non_utf8() {
         for bytes in [b"".as_slice(), b"fn main() {}\r\n", &[0xff, 0x00, 0xfe]] {
             let root = tempfile::tempdir().unwrap();
@@ -120,6 +238,18 @@ mod tests {
                 .recheck(&project, &OperationContext::default())
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn database_errors_are_not_mistaken_for_unindexed_candidates() {
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let db = Connection::open_in_memory().unwrap();
+        let mut sources = VerifiedSources::default();
+        // A broken index must fail even when the source is absent on disk.
+        assert!(sources.observe(&db, &project, &OperationContext::default(),
+            "missing.rs").is_err());
+        assert_eq!(sources.len(), 0);
     }
 
     #[test]

@@ -24,7 +24,7 @@ pub(in crate::adapters) fn validate_syntax(
     let parsed = Parser::new(&allocator, source, source_type).parse();
 
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err((
             "SYNTAX_ERROR",
             "JavaScript/TypeScript source is not syntactically valid",
@@ -44,12 +44,12 @@ pub(in crate::adapters) fn first_error_location(
     let source_type = SourceType::from_path(normalized_path.as_str()).unwrap_or_default();
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, source_type).parse();
-    let error = parsed.errors.first()?;
+    let error = parsed.diagnostics.errors().next()?;
     let offset = error
         .labels
         .as_ref()
-        .and_then(|labels| labels.first())
-        .map(|label| label.offset())?;
+        .first()
+        .map(|label| label.offset() as usize)?;
     let prefix = source.get(..offset.min(source.len()))?;
     let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
     let last_line = prefix.rsplit('\n').next()?;

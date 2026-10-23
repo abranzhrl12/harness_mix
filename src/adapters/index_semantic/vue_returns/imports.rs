@@ -51,7 +51,9 @@ pub(super) fn is_exported_binding(semantic: &Semantic<'_>, symbol: SymbolId) -> 
         .any(|node| {
             matches!(
                 node.kind(),
-                AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_)
+                AstKind::ExportNamedDeclaration(_)
+                    | AstKind::ExportDefaultDeclaration(_)
+                    | AstKind::ExportDeclaration(_)
             )
         })
 }

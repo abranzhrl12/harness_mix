@@ -2,8 +2,8 @@
 //! No OS filesystem; only one validated, sanitized configuration snapshot can be read.
 use super::{Failure, INDEX, LIMIT, OperationContext, index_extract, index_inventory, sql};
 use oxc_resolver::{
-    EnforceExtension, FileMetadata, FileSystem, FsCache, ResolveOptions, ResolverGeneric,
-    TsconfigOptions, TsconfigReferences,
+    EnforceExtension, FileMetadata, FileSystem, ResolveError, ResolveOptions, ResolverGeneric,
+    TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
 use rusqlite::Connection;
 use std::{
@@ -21,7 +21,7 @@ pub(super) fn virtual_path(path: &str) -> PathBuf {
     Path::new(ROOT).join(path)
 }
 const MAX_PROBES: usize = 100_000;
-type Resolver = ResolverGeneric<FsCache<View>>;
+type Resolver = ResolverGeneric<View>;
 
 struct Snapshot {
     files: BTreeSet<PathBuf>,
@@ -51,6 +51,13 @@ impl View {
     }
 }
 impl FileSystem for View {
+    fn new() -> Self {
+        // Views are always built from an explicit, validated snapshot via `new_with_file_system`.
+        unreachable!("snapshot view cannot be created without a snapshot")
+    }
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.read_to_string(path).map(String::into_bytes)
+    }
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
         self.guard(path)?;
         if let Some((selected, text)) = &self.0.config
@@ -74,9 +81,14 @@ impl FileSystem for View {
     fn symlink_metadata(&self, path: &Path) -> io::Result<FileMetadata> {
         self.metadata(path)
     }
-    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+    fn read_link(&self, path: &Path) -> Result<PathBuf, ResolveError> {
         self.guard(path)?;
-        Err(io::ErrorKind::PermissionDenied.into())
+        Err(io::Error::from(io::ErrorKind::PermissionDenied).into())
+    }
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        // The snapshot has no symlinks, so a validated path is already canonical.
+        self.guard(path)?;
+        Ok(path.to_path_buf())
     }
 }
 
@@ -187,7 +199,7 @@ impl Routes {
             context: context.clone(),
             config,
         }));
-        let cache = Arc::new(FsCache::new(view.clone()));
+        let seed = Resolver::new_with_file_system(view.clone(), options(&[""], &[]));
         let mut resolvers = BTreeMap::new();
         // Explicitly pinned v1.6.2 priorities, NOT Oxc defaults. Directory cases
         // outside these provider lists are deferred after resolution below.
@@ -202,22 +214,22 @@ impl Routes {
         ] {
             let mut configured = options(&extensions, &["index"]);
             if let Some((path, _)) = &view.0.config {
-                configured.tsconfig = Some(TsconfigOptions {
+                configured.tsconfig = Some(TsconfigDiscovery::Manual(TsconfigOptions {
                     config_file: path.clone(),
                     references: TsconfigReferences::Disabled,
-                });
+                }));
             }
             resolvers.insert(
                 language.into(),
-                Resolver::new_with_cache(cache.clone(), configured),
+                seed.clone_with_options(configured),
             );
         }
         let mut emitted_options = options(&[""], &[]);
         if let Some((path, _)) = &view.0.config {
-            emitted_options.tsconfig = Some(TsconfigOptions {
+            emitted_options.tsconfig = Some(TsconfigDiscovery::Manual(TsconfigOptions {
                 config_file: path.clone(),
                 references: TsconfigReferences::Disabled,
-            });
+            }));
         }
         emitted_options.extension_alias = vec![
             (
@@ -231,7 +243,7 @@ impl Routes {
         Ok(Self {
             view,
             resolvers,
-            emitted: Resolver::new_with_cache(cache, emitted_options),
+            emitted: seed.clone_with_options(emitted_options),
             memo: BTreeMap::new(),
             memo_bytes: 0,
             bare_directory,

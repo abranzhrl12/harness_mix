@@ -245,7 +245,7 @@ pub(in crate::adapters) fn collect_symbols(
                     [..24]
                     .to_owned();
             symbols.push(Symbol {
-                name: format!("import {}", decl.source.value),
+                name: format!("import {}", decl.source.value.display()),
                 container: "frontmatter".into(),
                 kind: "astro_import",
                 start: line(source, range.start),

@@ -15,7 +15,7 @@ fn has_core_import(
 ) -> bool {
     let Some(symbol) = semantic
         .scoping()
-        .get_binding(semantic.scoping().root_scope_id(), name)
+        .get_binding(semantic.scoping().root_scope_id(), name.into())
     else {
         return false;
     };
@@ -55,7 +55,7 @@ fn has_core_import(
 fn has_core_namespace_import(semantic: &Semantic<'_>, name: &str, start: u32, end: u32) -> bool {
     let Some(symbol) = semantic
         .scoping()
-        .get_binding(semantic.scoping().root_scope_id(), name)
+        .get_binding(semantic.scoping().root_scope_id(), name.into())
     else {
         return false;
     };
@@ -87,7 +87,7 @@ fn module_export_name<'a>(name: &'a ModuleExportName<'a>) -> &'a str {
     match name {
         ModuleExportName::IdentifierName(identifier) => identifier.name.as_str(),
         ModuleExportName::IdentifierReference(identifier) => identifier.name.as_str(),
-        ModuleExportName::StringLiteral(literal) => literal.value.as_str(),
+        ModuleExportName::StringLiteral(literal) => literal.value.as_str().unwrap_or(""),
     }
 }
 
@@ -133,7 +133,7 @@ pub(super) fn imported_token(
 ) -> Option<(String, String)> {
     let symbol = semantic
         .scoping()
-        .get_binding(semantic.scoping().root_scope_id(), name)?;
+        .get_binding(semantic.scoping().root_scope_id(), name.into())?;
     if !semantic.scoping().symbol_redeclarations(symbol).is_empty()
         || semantic.scoping().symbol_flags(symbol).is_type_import()
     {
@@ -156,7 +156,7 @@ pub(super) fn imported_token(
         .nodes()
         .ancestors(declaration.id())
         .find_map(|node| match node.kind() {
-            AstKind::ImportDeclaration(declaration) => Some(declaration.source.value.to_string()),
+            AstKind::ImportDeclaration(declaration) => Some(declaration.source.value.display().to_string()),
             _ => None,
         })?;
     Some((module, imported))

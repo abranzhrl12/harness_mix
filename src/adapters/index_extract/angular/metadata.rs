@@ -44,7 +44,7 @@ fn imported_name(name: &ModuleExportName<'_>) -> Option<String> {
     match name {
         ModuleExportName::IdentifierName(id) => Some(id.name.to_string()),
         ModuleExportName::IdentifierReference(id) => Some(id.name.to_string()),
-        ModuleExportName::StringLiteral(lit) => Some(lit.value.to_string()),
+        ModuleExportName::StringLiteral(lit) => Some(lit.value.display().to_string()),
     }
 }
 fn imports(program: &oxc_ast::ast::Program<'_>) -> Imports {
@@ -53,7 +53,7 @@ fn imports(program: &oxc_ast::ast::Program<'_>) -> Imports {
         let Statement::ImportDeclaration(declaration) = statement else {
             continue;
         };
-        if declaration.source.value.as_str() != "@angular/core"
+        if declaration.source.value != "@angular/core"
             || declaration.import_kind != oxc_ast::ast::ImportOrExportKind::Value
         {
             continue;
@@ -140,14 +140,14 @@ fn literal(source: &str, expression: &Expression<'_>) -> Option<(String, Range<u
             (matches!(quote, b'\'' | b'"')
                 && raw.as_bytes().last().copied() == Some(quote)
                 && !body.contains('\\')
-                && body == value.value.as_str())
+                && value.value == body)
             .then(|| (body.to_owned(), range.start + 1..range.end - 1))
         }
         Expression::TemplateLiteral(value)
             if value.expressions.is_empty() && value.quasis.len() == 1 =>
         {
             let body = raw.get(1..raw.len().checked_sub(1)?)?;
-            let cooked = value.quasis[0].value.cooked.as_deref()?;
+            let cooked = value.quasis[0].value.cooked?.as_str()?;
             (raw.starts_with('`') && raw.ends_with('`') && !body.contains('\\') && body == cooked)
                 .then(|| (body.to_owned(), range.start + 1..range.end - 1))
         }
@@ -168,7 +168,7 @@ fn metadata_properties<'a>(
         }
         let name = match &entry.key {
             PropertyKey::StaticIdentifier(name) => name.name.to_string(),
-            PropertyKey::StringLiteral(name) => name.value.to_string(),
+            PropertyKey::StringLiteral(name) => name.value.display().to_string(),
             _ => return Err(()),
         };
         if found.insert(name, &entry.value).is_some() {
@@ -209,8 +209,8 @@ fn classes<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Vec<&'a Class<'a>> {
         .iter()
         .filter_map(|statement| match statement {
             Statement::ClassDeclaration(class) => Some(class.as_ref()),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(Declaration::ClassDeclaration(class)) => Some(class.as_ref()),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::ClassDeclaration(class) => Some(class.as_ref()),
                 _ => None,
             },
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
@@ -240,7 +240,7 @@ fn collect(
     context.check()?;
     // The existing native TS extractor is authoritative. If Oxc cannot parse an otherwise accepted file,
     // preserve that graph unchanged; malformed Angular source is already rejected by the base extractor.
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Ok((Vec::new(), Vec::new()));
     }
     let imported = imports(&parsed.program);

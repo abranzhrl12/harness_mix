@@ -11,6 +11,7 @@ un paso sin medición terminada no se presenta como mejora.
 6. [Diagnóstico por operación, llamadas, bytes y repetición](06-diagnostico-costes.md).
 7. [Lectura con una sola validación de ruta](07-lectura-ruta-validada.md).
 8. [Reutilización del análisis Rust por contenido](08-cache-analisis-rust.md).
+9. [Filtrado por índice antes de consultar el disco](09-filtrado-indice-antes-disco.md).
 
 Después de medir la línea base se priorizará la fase dominante: selección de
 pendientes, invalidación, resolución, escritura o commit. Cada cambio posterior

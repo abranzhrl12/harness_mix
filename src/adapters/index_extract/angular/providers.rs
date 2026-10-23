@@ -1,4 +1,4 @@
-//! Static Angular provider registration subset (`useClass` / `useExisting`).
+﻿//! Static Angular provider registration subset (`useClass` / `useExisting`).
 //!
 //! A registration is a source fact. It does not claim which provider an Angular
 //! injector selects at runtime.
@@ -217,13 +217,14 @@ fn collect(
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Ok((Vec::new(), BTreeSet::new()));
     }
     let built = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
-    if !built.errors.is_empty() {
+    if built.diagnostics.has_errors() {
         return Ok((Vec::new(), BTreeSet::new()));
     }
     if built.semantic.scoping().symbols_len() > 20_000 {

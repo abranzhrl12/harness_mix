@@ -127,7 +127,7 @@ fn import_bindings(
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, projection, source_type(parser_path)?).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err(INVALID);
     }
     let mut imports = BTreeMap::new();

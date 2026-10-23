@@ -100,14 +100,15 @@ fn collect_script_calls(
     let source_type = SourceType::from_path(path).map_err(|_| INVALID)?;
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err(INVALID);
     }
     let built = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
-    if !built.errors.is_empty() || built.semantic.scoping().symbols_len() > MAX_FACTS {
+    if built.diagnostics.has_errors() || built.semantic.scoping().symbols_len() > MAX_FACTS {
         return Err(INVALID);
     }
     if has_direct_eval(&built.semantic) {
@@ -145,23 +146,28 @@ fn collect_script_calls(
             if identifier.name.as_str() != local || !call.arguments.is_empty() || call.optional {
                 continue;
             }
-            let Some(variable) = semantic
+            let Some((variable, variable_kind)) = semantic
                 .nodes()
                 .ancestors(reference.node_id())
                 .find_map(|node| {
                     let AstKind::VariableDeclarator(declarator) = node.kind() else {
                         return None;
                     };
+                    let AstKind::VariableDeclaration(declaration) =
+                        semantic.nodes().parent_kind(node.id())
+                    else {
+                        return None;
+                    };
                     declarator
                         .init
                         .as_ref()
                         .filter(|init| init.span() == call.span)
-                        .map(|_| declarator)
+                        .map(|_| (declarator, declaration.kind))
                 })
             else {
                 continue;
             };
-            if variable.kind != VariableDeclarationKind::Const {
+            if variable_kind != VariableDeclarationKind::Const {
                 continue;
             }
             initializers.push((module.clone(), imported.clone(), variable));
@@ -172,8 +178,8 @@ fn collect_script_calls(
     for (module, imported, declarator) in initializers {
         context.check()?;
         let init_end = declarator.init.as_ref().ok_or(INVALID)?.span().end;
-        match &declarator.id.kind {
-            BindingPatternKind::BindingIdentifier(id) => {
+        match &declarator.id {
+            BindingPattern::BindingIdentifier(id) => {
                 let Some(symbol) = declared_symbol(&semantic, declarator.span, id.name.as_str())
                 else {
                     continue;
@@ -184,7 +190,7 @@ fn collect_script_calls(
                     tracked.insert(symbol, (module, imported, String::new(), init_end));
                 }
             }
-            BindingPatternKind::ObjectPattern(pattern) => {
+            BindingPattern::ObjectPattern(pattern) => {
                 if pattern.rest.is_some() {
                     continue;
                 }
@@ -196,7 +202,7 @@ fn collect_script_calls(
                     let PropertyKey::StaticIdentifier(key) = &property.key else {
                         continue;
                     };
-                    let BindingPatternKind::BindingIdentifier(id) = &property.value.kind else {
+                    let BindingPattern::BindingIdentifier(id) = &property.value else {
                         continue;
                     };
                     let Some(symbol) =

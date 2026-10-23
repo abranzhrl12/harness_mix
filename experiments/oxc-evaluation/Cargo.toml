@@ -9,12 +9,12 @@ publish = false
 [workspace]
 
 [dependencies]
-oxc_allocator = "=0.75.0"
-oxc_ast = "=0.75.0"
-oxc_parser = "=0.75.0"
-oxc_semantic = "=0.75.0"
-oxc_span = "=0.75.0"
-oxc_resolver = "=11.0.0"
+oxc_allocator = "=0.155.0"
+oxc_ast = "=0.155.0"
+oxc_parser = "=0.155.0"
+oxc_semantic = "=0.155.0"
+oxc_span = "=0.155.0"
+oxc_resolver = "=11.24.3"
 
 [dev-dependencies]
 codegraph-native = { path = "../../vendor/codegraph-native" }

@@ -1,4 +1,4 @@
-//! Proven Angular DI token sites. Provider visibility and runtime injector
+﻿//! Proven Angular DI token sites. Provider visibility and runtime injector
 //! selection are intentionally left to runtime-aware tooling.
 mod bindings;
 mod presentation;
@@ -61,8 +61,8 @@ fn classes<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Vec<&'a Class<'a>> {
         .iter()
         .filter_map(|statement| match statement {
             Statement::ClassDeclaration(class) => Some(class.as_ref()),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(oxc_ast::ast::Declaration::ClassDeclaration(class)) => Some(class.as_ref()),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                oxc_ast::ast::Declaration::ClassDeclaration(class) => Some(class.as_ref()),
                 _ => None,
             },
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
@@ -162,7 +162,7 @@ fn add_site(
 fn token_type<'a>(
     parameter: &'a oxc_ast::ast::FormalParameter<'a>,
 ) -> Option<&'a oxc_ast::ast::IdentifierReference<'a>> {
-    let annotation = parameter.pattern.type_annotation.as_ref()?;
+    let annotation = parameter.type_annotation.as_ref()?;
     let TSType::TSTypeReference(reference) = &annotation.type_annotation else {
         return None;
     };
@@ -219,13 +219,14 @@ pub(in crate::adapters) fn analyze(
     let source_type = SourceType::from_path(path.to_ascii_lowercase()).map_err(|_| INVALID)?;
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Ok(Facts::default());
     }
     let semantic_built = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
-    if !semantic_built.errors.is_empty() {
+    if semantic_built.diagnostics.has_errors() {
         return Ok(Facts::default());
     }
     let semantic = semantic_built.semantic;
@@ -307,7 +308,7 @@ pub(in crate::adapters) fn analyze(
         let imported = match &specifier.imported {
             oxc_ast::ast::ModuleExportName::IdentifierName(id) => id.name.as_str(),
             oxc_ast::ast::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
-            oxc_ast::ast::ModuleExportName::StringLiteral(literal) => literal.value.as_str(),
+            oxc_ast::ast::ModuleExportName::StringLiteral(literal) => literal.value.as_str().unwrap_or(""),
         };
         if imported != "inject" {
             continue;

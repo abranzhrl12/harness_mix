@@ -8,10 +8,11 @@ const { execute, median, sha256 } = require('./benchmark-index-cold.cjs');
 async function main() {
   const [beforeArg, afterArg, sourceArg, outputArg, countArg = '200', trialsArg = '3'] = process.argv.slice(2);
   assert(beforeArg && afterArg && sourceArg && outputArg,
-    'Usage: node scripts/benchmark-index-resolver.cjs beforeExe afterExe frozenSource NEW_outputDirectory [sample=200] [oddTrials=3]');
+    'Usage: node scripts/benchmark-index-resolver.cjs beforeExe afterExe frozenSource NEW_outputDirectory [sample=200|all] [oddTrials=3]');
   const binaries = { before: fs.realpathSync(beforeArg), after: fs.realpathSync(afterArg) };
   const source = fs.realpathSync(sourceArg), output = path.resolve(outputArg);
-  const count = Number(countArg), trials = Number(trialsArg);
+  const allSources = countArg === 'all';
+  const count = allSources ? 2000 : Number(countArg), trials = Number(trialsArg);
   assert(Number.isInteger(count) && count >= 1 && count <= 2000);
   assert(Number.isInteger(trials) && trials >= 3 && trials <= 9 && trials % 2 === 1);
   assert(!fs.existsSync(output), 'Use a new output directory');
@@ -25,7 +26,7 @@ async function main() {
   };
   checkCorpus();
   fs.mkdirSync(output, { recursive: true });
-  const metadata = { recordedAt: new Date().toISOString(), source, sample: count, trials,
+  const metadata = { recordedAt: new Date().toISOString(), source, sample: allSources ? 'all' : count, trials,
     corpusManifestSha256: sha256(fs.readFileSync(manifest)), workers: 4,
     binaries: Object.fromEntries(Object.entries(binaries).map(([name, file]) => [name,
       { path: file, sha256: sha256(fs.readFileSync(file)), modifiedAt: fs.statSync(file).mtime.toISOString() }])),
@@ -44,7 +45,13 @@ async function main() {
       assert.equal(report.copiedExistingGraph, false);
       assert.deepEqual(report.graphBefore, { files: 0, nodes: 0, edges: 0 });
       assert.equal(report.passes.length, 1);
-      assert.equal(report.sampleFiles, count);
+      if (allSources) {
+        assert(report.copiedSourceFiles < count, 'Full corpus reaches the probe cap; coverage is not established');
+        assert.equal(report.sampleFiles, report.copiedSourceFiles, 'Full corpus was truncated');
+        assert.equal(workspace.nativeFilesRemaining, 0, 'Full corpus has unprocessed native files');
+      } else {
+        assert.equal(report.sampleFiles, count);
+      }
       assert.equal(workspace.databaseWriters, 1);
       const evidence = { sourceHash: report.sampleSourceHash, graphHash: pass.graphHash,
         filesProcessed: workspace.filesProcessed, referencesAttempted: workspace.totalReferencesAttempted,

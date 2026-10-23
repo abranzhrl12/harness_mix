@@ -1,4 +1,4 @@
-//! Source-coordinate proofs used by the index-store resolver.
+﻿//! Source-coordinate proofs used by the index-store resolver.
 use super::parse::imported_name;
 use harness_domain::{Failure, execution::OperationContext};
 use oxc_allocator::Allocator;
@@ -55,14 +55,15 @@ pub(in crate::adapters) fn named_runtime_import(
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Ok(None);
     }
     let semantic = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
-    if !semantic.errors.is_empty() {
+    if semantic.diagnostics.has_errors() {
         return Ok(None);
     }
     let mut bindings = Vec::new();
@@ -83,7 +84,7 @@ pub(in crate::adapters) fn named_runtime_import(
                 && specifier.local.name.as_str() == local_name
             {
                 bindings.push((
-                    declaration.source.value.to_string(),
+                    declaration.source.value.display().to_string(),
                     imported_name(&specifier.imported),
                 ));
             }

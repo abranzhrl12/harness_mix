@@ -5,7 +5,7 @@ use crate::adapters::parsers::model::Symbol;
 use harness_domain::{Failure, execution::OperationContext, hash, results::prefix};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPatternKind, ClassElement, Declaration, ExportDefaultDeclarationKind, Statement,
+    BindingPattern, ClassElement, Declaration, ExportDefaultDeclarationKind, Statement,
     TSInterfaceDeclaration, TSTypeAliasDeclaration,
 };
 use oxc_parser::Parser;
@@ -143,7 +143,7 @@ impl<'a> TsCollector<'a> {
             }
             Statement::VariableDeclaration(var_decl) => {
                 for decl in &var_decl.declarations {
-                    if let BindingPatternKind::BindingIdentifier(ident) = &decl.id.kind {
+                    if let BindingPattern::BindingIdentifier(ident) = &decl.id {
                         let kind = if decl.init.as_ref().is_some_and(|init| {
                             matches!(
                                 init,
@@ -160,10 +160,8 @@ impl<'a> TsCollector<'a> {
                     }
                 }
             }
-            Statement::ExportNamedDeclaration(export_decl) => {
-                if let Some(decl) = &export_decl.declaration {
-                    self.visit_declaration(decl, container)?;
-                }
+            Statement::ExportDeclaration(export_decl) => {
+                self.visit_declaration(&export_decl.declaration, container)?;
             }
             Statement::ExportDefaultDeclaration(export_default) => {
                 match &export_default.declaration {
@@ -227,20 +225,29 @@ impl<'a> TsCollector<'a> {
                     self.record(member_name, &enum_container, "enum_item", member.span, None)?;
                 }
             }
-            Statement::TSModuleDeclaration(module_decl) => {
-                if let Some(body) = &module_decl.body {
-                    let name = match &module_decl.id {
-                        oxc_ast::ast::TSModuleDeclarationName::Identifier(id) => id.name.as_str(),
-                        oxc_ast::ast::TSModuleDeclarationName::StringLiteral(lit) => {
-                            lit.value.as_str()
-                        }
-                    };
+            Statement::TSNamespaceDeclaration(module_decl) => {
+                let mod_container = self.record(
+                    module_decl.id.name.as_str(),
+                    container,
+                    "internal_module",
+                    module_decl.span,
+                    None,
+                )?;
+                if let oxc_ast::ast::TSNamespaceDeclarationBody::TSModuleBlock(block) =
+                    &module_decl.body
+                {
+                    for inner in &block.body {
+                        self.visit_statement(inner, &mod_container)?;
+                    }
+                }
+            }
+            Statement::TSExternalModuleDeclaration(module_decl) => {
+                if let Some(block) = &module_decl.body {
+                    let name = module_decl.id.value.as_str().unwrap_or("");
                     let mod_container =
                         self.record(name, container, "internal_module", module_decl.span, None)?;
-                    if let oxc_ast::ast::TSModuleDeclarationBody::TSModuleBlock(block) = body {
-                        for inner in &block.body {
-                            self.visit_statement(inner, &mod_container)?;
-                        }
+                    for inner in &block.body {
+                        self.visit_statement(inner, &mod_container)?;
                     }
                 }
             }
@@ -280,7 +287,7 @@ impl<'a> TsCollector<'a> {
             }
             Declaration::VariableDeclaration(var_decl) => {
                 for d in &var_decl.declarations {
-                    if let BindingPatternKind::BindingIdentifier(ident) = &d.id.kind {
+                    if let BindingPattern::BindingIdentifier(ident) = &d.id {
                         let kind = if d.init.as_ref().is_some_and(|init| {
                             matches!(
                                 init,
@@ -444,7 +451,7 @@ pub(in crate::adapters) fn collect(
     let parsed = Parser::new(&allocator, source, source_type).parse();
 
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err(("SYNTAX_ERROR", "JS/TS syntax error"));
     }
 

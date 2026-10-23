@@ -1,8 +1,8 @@
-//! Oxc based static Angular route table recognition.
+﻿//! Oxc based static Angular route table recognition.
 use harness_domain::{Failure, execution::OperationContext};
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    Argument, ArrayExpression, BindingPattern, BindingPatternKind, Class, Expression,
+    Argument, ArrayExpression, BindingPattern, Class, Expression,
     ImportDeclarationSpecifier, ModuleExportName, ObjectPropertyKind, PropertyKey, Statement,
     TSType, TSTypeName, VariableDeclarationKind, VariableDeclarator,
 };
@@ -55,7 +55,7 @@ pub(super) fn imported_name(name: &ModuleExportName<'_>) -> String {
     match name {
         ModuleExportName::IdentifierName(id) => id.name.to_string(),
         ModuleExportName::IdentifierReference(id) => id.name.to_string(),
-        ModuleExportName::StringLiteral(lit) => lit.value.to_string(),
+        ModuleExportName::StringLiteral(lit) => lit.value.display().to_string(),
     }
 }
 
@@ -65,7 +65,7 @@ fn router_imports(program: &oxc_ast::ast::Program<'_>) -> RouterImports {
         let Statement::ImportDeclaration(declaration) = statement else {
             continue;
         };
-        if declaration.source.value.as_str() != "@angular/router" {
+        if declaration.source.value != "@angular/router" {
             continue;
         }
         let Some(specifiers) = &declaration.specifiers else {
@@ -163,11 +163,11 @@ fn static_path(source: &str, expression: &Expression<'_>) -> Option<(String, usi
     if !matches!(quote, b'\'' | b'"')
         || raw.as_bytes().last().copied() != Some(quote)
         || raw.get(1..raw.len().checked_sub(1)?)?.contains('\\')
-        || raw.get(1..raw.len() - 1)? != value.value.as_str()
+        || value.value != raw.get(1..raw.len() - 1)?
     {
         return None;
     }
-    Some((value.value.to_string(), start))
+    Some((value.value.display().to_string(), start))
 }
 
 fn properties<'a>(
@@ -183,7 +183,7 @@ fn properties<'a>(
         }
         let key = match &property.key {
             PropertyKey::StaticIdentifier(key) => key.name.to_string(),
-            PropertyKey::StringLiteral(key) => key.value.to_string(),
+            PropertyKey::StringLiteral(key) => key.value.display().to_string(),
             _ => return None,
         };
         if result.insert(key, &property.value).is_some() {
@@ -283,13 +283,13 @@ fn imported_route_type(ty: &TSType<'_>, imports: &RouterImports) -> bool {
 }
 
 fn route_table_binding<'a>(
-    pattern: &BindingPattern<'a>,
+    declarator: &VariableDeclarator<'a>,
     imports: &RouterImports,
 ) -> Option<&'a str> {
-    let BindingPatternKind::BindingIdentifier(identifier) = &pattern.kind else {
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
         return None;
     };
-    let annotation = pattern.type_annotation.as_ref()?;
+    let annotation = declarator.type_annotation.as_ref()?;
     imported_route_type(&annotation.type_annotation, imports).then_some(identifier.name.as_str())
 }
 
@@ -425,8 +425,8 @@ fn classes<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Vec<&'a Class<'a>> {
         .iter()
         .filter_map(|statement| match statement {
             Statement::ClassDeclaration(class) => Some(class.as_ref()),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(oxc_ast::ast::Declaration::ClassDeclaration(class)) => Some(class.as_ref()),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                oxc_ast::ast::Declaration::ClassDeclaration(class) => Some(class.as_ref()),
                 _ => None,
             },
             _ => None,
@@ -447,14 +447,15 @@ pub(super) fn registered_routes(
     let allocator = oxc_allocator::Allocator::default();
     let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Ok(Vec::new());
     }
     let semantic = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
-    if !semantic.errors.is_empty() {
+    if semantic.diagnostics.has_errors() {
         return Ok(Vec::new());
     }
     let imports = router_imports(&parsed.program);
@@ -488,8 +489,8 @@ pub(super) fn registered_routes(
                     )?;
                 }
             }
-            Statement::ExportNamedDeclaration(export) => {
-                if let Some(oxc_ast::ast::Declaration::VariableDeclaration(declaration)) =
+            Statement::ExportDeclaration(export) => {
+                if let oxc_ast::ast::Declaration::VariableDeclaration(declaration) =
                     &export.declaration
                 {
                     for declarator in &declaration.declarations {
@@ -550,7 +551,7 @@ pub(super) fn registered_routes(
         if !is_const {
             continue;
         }
-        let Some(name) = route_table_binding(&declarator.id, &imports) else {
+        let Some(name) = route_table_binding(declarator, &imports) else {
             continue;
         };
         let Some(registrations) = registered_names.get(name).filter(|items| items.len() == 1)

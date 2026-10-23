@@ -418,7 +418,7 @@ fn scripts(
                 doc.symbols.push(symbol(
                     source,
                     digest,
-                    format!("import {}", decl.source.value),
+                    format!("import {}", decl.source.value.display()),
                     container.into(),
                     "vue_import",
                     range.clone(),

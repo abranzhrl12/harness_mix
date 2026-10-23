@@ -61,17 +61,18 @@ pub(super) fn analyze(
     let source_type = SourceType::from_path(path.to_ascii_lowercase()).map_err(|_| INVALID)?;
     let parsed = Parser::new(&allocator, source, source_type).parse();
     context.check()?;
-    if !parsed.errors.is_empty() {
+    if parsed.diagnostics.has_errors() {
         return Err((
             "SYNC_SEMANTIC",
             "JavaScript/TypeScript parser rejected the source; inspect syntax diagnostics for this file",
         ));
     }
     let built = SemanticBuilder::new()
+        .with_build_nodes(true)
         .with_check_syntax_error(true)
         .build(&parsed.program);
     context.check()?;
-    if !built.errors.is_empty() {
+    if built.diagnostics.has_errors() {
         return Err((
             "SYNC_SEMANTIC",
             "JavaScript/TypeScript lexical binding analysis rejected the source; inspect duplicate declarations or invalid scope bindings",
@@ -177,7 +178,7 @@ pub(super) fn analyze(
                     }
                 } else if let Some(symbol) = semantic
                     .scoping()
-                    .get_binding(semantic.scoping().root_scope_id(), local.as_str())
+                    .get_binding(semantic.scoping().root_scope_id(), local.as_str().into())
                 {
                     let declaration = semantic.symbol_declaration(symbol).kind();
                     let kind = match declaration {
@@ -189,8 +190,8 @@ pub(super) fn analyze(
                         AstKind::VariableDeclarator(variable)
                             if semantic.scoping().symbol_flags(symbol).is_const_variable()
                                 && matches!(
-                                    &variable.id.kind,
-                                    oxc_ast::ast::BindingPatternKind::BindingIdentifier(_)
+                                    &variable.id,
+                                    oxc_ast::ast::BindingPattern::BindingIdentifier(_)
                                 )
                                 && matches!(
                                     &variable.init,
