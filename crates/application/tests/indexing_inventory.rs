@@ -213,6 +213,27 @@ fn pure_classification_handles_all_categories_without_sql() {
     assert_eq!(r.removed, ["missing.rs"]);
     assert_eq!(r.unchecked, ["unchecked.rs"]);
 }
+
+#[test]
+fn classification_preserves_case_insensitive_hash_compatibility() {
+    let lowercase = hash(b"same");
+    let uppercase = lowercase.to_ascii_uppercase();
+    let indexed = BTreeMap::from([("same.rs".into(), (uppercase, true))]);
+    let observed = BTreeMap::from([(
+        "same.rs".into(),
+        Observation::Content(lowercase),
+    )]);
+
+    let plan = planning::classify(
+        &indexed,
+        &observed,
+        false,
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.unchanged, ["same.rs"]);
+    assert!(plan.modified.is_empty());
+}
 #[test]
 fn incomplete_or_unreadable_observations_never_infer_deletion() {
     let indexed = BTreeMap::from([("a.rs".into(), (hash(b""), true))]);

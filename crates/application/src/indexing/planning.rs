@@ -1,6 +1,10 @@
 //! Pure source observations and incremental classification.
 pub use harness_domain::indexing::{Observation, Plan};
-use harness_domain::{Failure, execution::OperationContext, hash};
+use harness_domain::{
+    Failure,
+    execution::OperationContext,
+    hashing::{Sha256Digest, sha256_digest},
+};
 use std::collections::BTreeMap;
 
 /// Coordinates one indexed snapshot, source inventory, classification and optional
@@ -42,6 +46,13 @@ pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 /// UTF-8 rather than silently introducing a different replacement policy.
 /// Oversize markers must NOT be passed as Content: they don't prove freshness.
 pub fn source_hash(bytes: &[u8]) -> Result<String, Failure> {
+    source_digest_with(bytes, sha256_digest).map(Sha256Digest::to_hex)
+}
+
+fn source_digest_with(
+    bytes: &[u8],
+    calculate: impl FnOnce(&[u8]) -> Sha256Digest,
+) -> Result<Sha256Digest, Failure> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return Err((
             "SYNC_LIMIT",
@@ -49,7 +60,7 @@ pub fn source_hash(bytes: &[u8]) -> Result<String, Failure> {
         ));
     }
     std::str::from_utf8(bytes).map_err(|_| ("SYNC_UNCHECKED", "Source is not UTF-8"))?;
-    Ok(hash(bytes))
+    Ok(calculate(bytes))
 }
 
 pub fn valid_path(path: &str) -> bool {
@@ -61,7 +72,7 @@ pub fn valid_path(path: &str) -> bool {
 }
 
 pub fn valid_hash(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    Sha256Digest::parse(value).is_some()
 }
 
 /// Classify a validated indexed snapshot against conservative source observations.
@@ -84,10 +95,10 @@ pub fn classify(
                 "Inventory contains an invalid relative path",
             ));
         }
-        if let Observation::Content(digest) = observation
-            && !valid_hash(digest)
-        {
-            return Err(("SYNC_CONTRACT", "Inventory contains an invalid source hash"));
+        if let Observation::Content(digest) = observation {
+            if Sha256Digest::parse(digest).is_none() {
+                return Err(("SYNC_CONTRACT", "Inventory contains an invalid source hash"));
+            }
         }
     }
     let mut result = Plan {
@@ -121,4 +132,55 @@ pub fn classify(
     // Even an empty plan cannot certify extraction, relationships or publication.
     context.check()?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_SOURCE_BYTES, source_digest_with};
+    use harness_domain::{hashing::Sha256Digest, hashing::sha256_digest};
+    use std::cell::Cell;
+
+    #[test]
+    fn source_validation_is_independent_of_hash_calculation() {
+        let called = Cell::new(false);
+        let digest = Sha256Digest::parse(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        )
+        .unwrap();
+        let result = source_digest_with(b"abc", |bytes| {
+            called.set(true);
+            assert_eq!(bytes, b"abc");
+            digest
+        })
+        .unwrap();
+        assert!(called.get());
+        assert_eq!(result, digest);
+
+        called.set(false);
+        assert_eq!(
+            source_digest_with(&[0xff], |_| {
+                called.set(true);
+                digest
+            })
+            .unwrap_err()
+            .0,
+            "SYNC_UNCHECKED"
+        );
+        assert!(!called.get());
+
+        assert_eq!(
+            source_digest_with(&vec![b'x'; MAX_SOURCE_BYTES + 1], |_| {
+                called.set(true);
+                digest
+            })
+            .unwrap_err()
+            .0,
+            "SYNC_LIMIT"
+        );
+        assert!(!called.get());
+        assert_eq!(
+            super::source_hash(b"abc").unwrap(),
+            sha256_digest(b"abc").to_hex()
+        );
+    }
 }
