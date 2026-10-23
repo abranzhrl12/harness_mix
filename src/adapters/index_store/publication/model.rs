@@ -54,6 +54,7 @@ pub(super) struct UnresolvedReferenceRow<'a> {
 
 pub(super) struct ExtractedGraph<'a> {
     pub(super) nodes: Vec<NodeRow<'a>>,
+    pub(super) duplicate_nodes: usize,
     pub(super) edges: Vec<EdgeRow<'a>>,
     pub(super) unresolved_references: Vec<UnresolvedReferenceRow<'a>>,
     pub(super) coverage: Option<&'a Value>,
@@ -91,6 +92,51 @@ impl<'a> ExtractedGraph<'a> {
                 return_type: super::super::opt_string(node, "returnType"),
             });
         }
+        let mut seen_nodes = std::collections::HashMap::new();
+        let mut unique_nodes = Vec::with_capacity(nodes.len());
+        let mut duplicate_nodes = 0;
+        for node in nodes {
+            context.check()?;
+            if let Some(index) = seen_nodes.get(node.id).copied() {
+                let previous: &mut NodeRow<'a> = &mut unique_nodes[index];
+                if previous.kind != node.kind
+                    || previous.name != node.name
+                    || previous.qualified_name != node.qualified_name
+                    || matches!(previous.kind, "method" | "function")
+                        && previous.signature != node.signature
+                {
+                    return Err(super::super::INDEX);
+                }
+                let incoming_start = node.start_line.map(|line| {
+                    (line, node.start_column.unwrap_or(i64::MAX))
+                });
+                let previous_start = previous.start_line.map(|line| {
+                    (line, previous.start_column.unwrap_or(i64::MAX))
+                });
+                if incoming_start.is_some()
+                    && previous_start.is_none_or(|prior| incoming_start.unwrap() < prior)
+                {
+                    previous.start_line = incoming_start.map(|(line, _)| line);
+                    previous.start_column = node.start_column;
+                }
+                let incoming_end = node
+                    .end_line
+                    .map(|line| (line, node.end_column.unwrap_or(i64::MIN)));
+                let previous_end = previous
+                    .end_line
+                    .map(|line| (line, previous.end_column.unwrap_or(i64::MIN)));
+                if incoming_end.is_some()
+                    && previous_end.is_none_or(|prior| incoming_end.unwrap() > prior)
+                {
+                    previous.end_line = incoming_end.map(|(line, _)| line);
+                    previous.end_column = node.end_column;
+                }
+                duplicate_nodes += 1;
+            } else {
+                seen_nodes.insert(node.id, unique_nodes.len());
+                unique_nodes.push(node);
+            }
+        }
         let mut edges = Vec::new();
         for edge in super::super::array(value, "edges")? {
             context.check()?;
@@ -117,7 +163,8 @@ impl<'a> ExtractedGraph<'a> {
             });
         }
         Ok(Self {
-            nodes,
+            nodes: unique_nodes,
+            duplicate_nodes,
             edges,
             unresolved_references,
             coverage: value.get("coverage"),

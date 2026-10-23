@@ -79,6 +79,40 @@ fn mvc_reference_locations_use_original_lines_and_utf16_columns() {
     assert_eq!(result[1]["column"], 0);
 }
 
+#[test]
+fn url_content_emits_only_safe_literal_asset_paths() {
+    let source = concat!(
+        "<script src=\"@Url.Content(\"~/Scripts/app.js\")\"></script>\n",
+        "@Url.Content(\"~/Content/site.css\")\n",
+        "@Url.Content(path) @Url.Content(\"~/../secret.js\")\n",
+        "@{ var text = \"@Url.Content('~/Scripts/string.js')\"; }\n",
+        "@* @Url.Content(\"~/Scripts/comment.js\") *@"
+    );
+    let refs = collect(
+        source,
+        "Views/Home/Index.cshtml",
+        "view",
+        &[],
+        &OperationContext::default(),
+    )
+    .unwrap();
+    let assets = refs
+        .iter()
+        .filter(|reference| reference["referenceKind"] == "razor_asset")
+        .collect::<Vec<_>>();
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets[0]["referenceName"], "Scripts/app.js");
+    assert_eq!(assets[0]["line"], 1);
+    assert_eq!(
+        crate::adapters::parsers::razor::mvc::asset_path(
+            "App/Areas/Admin/Views/Home/Index.cshtml",
+            "~/Scripts/app.js"
+        )
+        .as_deref(),
+        Some("App/Scripts/app.js")
+    );
+}
+
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch("CREATE TABLE nodes(id TEXT,name TEXT,kind TEXT,qualified_name TEXT,file_path TEXT,language TEXT,visibility TEXT,is_static INTEGER,is_abstract INTEGER,decorators TEXT,signature TEXT,type_parameters TEXT); CREATE INDEX by_name ON nodes(name); CREATE INDEX idx_nodes_lower_name ON nodes(lower(name)); CREATE INDEX by_file ON nodes(file_path);").unwrap();

@@ -97,6 +97,12 @@ fn compute() -> Value {
                     }))
             );
     }
+    // Verification discovers Visual Studio MSBuild through vswhere, so the
+    // bootstrap availability field must use that same bounded resolver.
+    record_msbuild_availability(
+        &mut available,
+        super::process::executable(harness_domain::process::Program::Msbuild).is_ok(),
+    );
     // Native execution never uses PATHEXT wrappers or relative PATH entries.
     for (name, program) in [
         ("cargo", harness_domain::process::Program::Cargo),
@@ -110,4 +116,22 @@ fn compute() -> Value {
         available[name] = json!(super::process::executable(program).is_ok());
     }
     available
+}
+
+fn record_msbuild_availability(available: &mut Value, discovered_by_vswhere: bool) {
+    available["msbuild"] = json!(discovered_by_vswhere);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn msbuild_discovered_outside_path_is_reported_as_available() {
+        let mut available = json!({"msbuild":false});
+
+        record_msbuild_availability(&mut available, true);
+
+        assert_eq!(available["msbuild"], true);
+    }
 }

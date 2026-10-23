@@ -277,6 +277,22 @@ pub(in crate::adapters) fn view_candidates(path: &str, name: &str) -> Vec<String
     candidates
 }
 
+/// A literal `~/` URL content path is an asset reference only when it names a
+/// concrete JavaScript file supported by the graph's indexed file nodes.
+pub(in crate::adapters) fn asset_path(path: &str, value: &str) -> Option<String> {
+    let scope = view_scope(path)?;
+    let value = value.strip_prefix("~/")?;
+    if value.is_empty()
+        || value.len() > 512
+        || value.contains(['?', '#', '\\', '$', '{', '}', '\n', '\r'])
+        || !matches!(value.rsplit_once('.')?.1.to_ascii_lowercase().as_str(), "js" | "mjs" | "cjs")
+        || value.split('/').any(|part| part.is_empty() || matches!(part, "." | ".."))
+    {
+        return None;
+    }
+    Some(join(&scope.app_root, value))
+}
+
 /// Literal view name: no interpolation, no escapes and no markup delimiters.
 fn view_name(value: &str) -> Option<&str> {
     let value = value.trim();
@@ -307,6 +323,7 @@ pub(in crate::adapters) fn is_mvc_helper_call(name: &str) -> bool {
             | "Html.Action"
             | "Html.RenderAction"
             | "Url.Action"
+            | "Url.Content"
     )
 }
 
@@ -392,7 +409,15 @@ pub(in crate::adapters) fn collect(
     );
     let mut visible = source.as_bytes().to_vec();
     for found in hidden.find_iter(source) {
-        visible[found.range()].fill(b' ');
+        let matched = &source[found.range()];
+        if matched.get(..7).is_some_and(|prefix| prefix.eq_ignore_ascii_case("<script")) {
+            // Keep the opening tag so its literal `src="@Url.Content(...)"`
+            // can be resolved, while hiding executable script contents.
+            let opening_end = matched.find('>').map(|at| at + 1).unwrap_or(matched.len());
+            visible[found.start() + opening_end..found.end()].fill(b' ');
+        } else {
+            visible[found.range()].fill(b' ');
+        }
     }
     static SHADOW: OnceLock<Regex> = OnceLock::new();
     let shadowed = regex(
@@ -427,7 +452,7 @@ pub(in crate::adapters) fn collect(
         // without the Razor transition character.
         for capture in regex(
             &HELPER,
-            r"(?:@)?(Html\.(?:ActionLink|RenderPartial|Partial|RenderAction|Action)|Url\.Action)\s*\(",
+            r"(?:@)?(Html\.(?:ActionLink|RenderPartial|Partial|RenderAction|Action)|Url\.(?:Action|Content))\s*\(",
         )
         .captures_iter(&code)
         {
@@ -449,6 +474,26 @@ pub(in crate::adapters) fn collect(
                 continue;
             };
             let arguments = &code[all.end()..end];
+            if method == "Url.Content" {
+                let Some(arguments) = split_arguments(arguments) else {
+                    continue;
+                };
+                if arguments.len() != 1 {
+                    continue;
+                }
+                let Some(value) = arguments[0]
+                    .trim()
+                    .strip_prefix('"')
+                    .and_then(|value| value.strip_suffix('"'))
+                else {
+                    continue;
+                };
+                let Some(asset) = asset_path(path, value) else {
+                    continue;
+                };
+                found.push((all.start(), "razor_asset", asset));
+                continue;
+            }
             if matches!(method, "Html.Partial" | "Html.RenderPartial") {
                 let Some(arguments) = split_arguments(arguments) else {
                     continue;

@@ -103,12 +103,13 @@ impl Writer {
         }
         let _pins = super::super::edit_commit::pin_directory(project, path.parent().ok_or(INDEX)?)?;
         // Deny DELETE sharing so SQLite's path cannot be replaced after validation.
-        let pin = File::options()
-            .read(true)
-            .share_mode(3)
-            .custom_flags(0x0020_0000)
-            .open(&path)
-            .map_err(|_| INDEX)?;
+        let pin = super::super::index_lock::open_database_pin(&path, context).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::TimedOut {
+                super::INDEX_BUSY
+            } else {
+                context.check().err().unwrap_or(INDEX)
+            }
+        })?;
         let metadata = pin.metadata().map_err(|_| INDEX)?;
         if !metadata.is_file()
             || metadata.len() > 512 * 1024 * 1024

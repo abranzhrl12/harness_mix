@@ -26,6 +26,34 @@ impl<'a> NativeChangedPaths<'a> {
             |r| r.get(0),
         ))
     }
+
+    fn sql_callers(db: &rusqlite::Connection) -> Result<Vec<String>, Failure> {
+        let mut statement = sql(db.prepare(
+            "SELECT file_path FROM (
+                SELECT DISTINCT n.file_path AS file_path
+                FROM edges e JOIN nodes n ON n.id=e.source
+                WHERE CASE WHEN json_valid(e.metadata) THEN
+                    json_extract(e.metadata,'$.resolvedBy')='local-sql-literal-v1'
+                    AND json_extract(e.metadata,'$.refKind')='stored_procedure_call'
+                    ELSE 0 END
+                    AND n.language='csharp' AND n.file_path IS NOT NULL
+                UNION
+                SELECT DISTINCT file_path
+                FROM unresolved_refs
+                WHERE language='csharp' AND reference_kind='stored_procedure_call'
+                    AND status IN ('pending','failed') AND file_path IS NOT NULL
+            ) ORDER BY file_path LIMIT 257",
+        ))?;
+        let paths = sql(sql(statement.query_map([], |row| row.get::<_, String>(0)))?
+            .collect::<rusqlite::Result<Vec<_>>>())?;
+        if paths.len() > 256 {
+            return Err((
+                "SYNC_LIMIT",
+                "SQL change has more than 256 dependent C# files; no dependents were re-synced",
+            ));
+        }
+        Ok(paths)
+    }
 }
 impl ChangedPathsPort for NativeChangedPaths<'_> {
     fn initialize(&mut self, context: &OperationContext) -> Result<(), Failure> {
@@ -63,7 +91,12 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
             self.scope_check_failed = true;
             return Err(error);
         }
-        if index_extract::language(path).is_none() || index_inventory::restricted(path) {
+        let is_sql = Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("sql"));
+        if (index_extract::language(path).is_none() && !is_sql)
+            || index_inventory::restricted(path)
+        {
             return Ok(None);
         }
         let tracked = self.tracked(path)?;
@@ -72,6 +105,57 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
         }
         if !tracked && !scope.included(path) && ignored_new_source(&self.project, path, context)? {
             return Ok(None);
+        }
+        if is_sql {
+            // Materialize the complete dependent set before re-syncing: the first C#
+            // publication may remove/replace SQL graph edges used by later callers.
+            let callers = Self::sql_callers(&self.writer.as_ref().ok_or(INDEX)?.db)?;
+            let mut changed = 0usize;
+            let mut committed = Vec::new();
+            let mut failures = Vec::new();
+            let mut failed_count = 0usize;
+            let mut stopped_early = false;
+            for caller in &callers {
+                let result = context.check().and_then(|()| sync_file_config_reuse(
+                    self.root,
+                    caller,
+                    None,
+                    context,
+                    || {},
+                    true,
+                    &mut self.writer,
+                ));
+                match result {
+                    Ok(result) => {
+                        committed.push(caller.clone());
+                        changed += usize::from(result["changed"] == true);
+                    }
+                    Err((code, message)) => {
+                        failed_count += 1;
+                        if failures.len() < 32 {
+                            failures.push(json!({"path":caller,"code":code,"message":message}));
+                        }
+                        if harness_application::indexing::workspace::systemic_failure(code)
+                            || context.check().is_err() {
+                            stopped_early = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            return Ok(Some(json!({
+                "changed": changed > 0,
+                "sqlPath": path,
+                "sqlRefreshComplete": failures.is_empty() && !stopped_early,
+                "dependentFilesProcessed": committed.len() + failed_count,
+                "dependentFilesChanged": changed,
+                "dependentFilesCommitted": committed,
+                "dependentFilesFailed": failed_count,
+                "dependentFailures": failures,
+                "dependentFailureReportsOmitted": failed_count.saturating_sub(32),
+                "unattemptedDependents": callers.len().saturating_sub(committed.len() + failed_count),
+                "stoppedEarly": stopped_early,
+            })));
         }
         sync_file_config_reuse(
             self.root,
@@ -86,5 +170,51 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
     }
     fn file_failure_is_isolated(&self) -> bool {
         !self.scope_check_failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn dependency_db() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE nodes(id TEXT PRIMARY KEY,file_path TEXT,language TEXT);
+             CREATE TABLE edges(source TEXT,target TEXT,metadata TEXT);
+             CREATE TABLE unresolved_refs(file_path TEXT,language TEXT,reference_kind TEXT,status TEXT);
+             INSERT INTO nodes VALUES('resolved','Resolved.cs','csharp');
+             INSERT INTO nodes VALUES('wrong-language','Other.js','javascript');
+             INSERT INTO edges VALUES('resolved','sql-local:proc','{\"resolvedBy\":\"local-sql-literal-v1\",\"refKind\":\"stored_procedure_call\"}');
+             INSERT INTO edges VALUES('wrong-language','sql-local:proc','{\"resolvedBy\":\"local-sql-literal-v1\",\"refKind\":\"stored_procedure_call\"}');
+             INSERT INTO unresolved_refs VALUES('Pending.cs','csharp','stored_procedure_call','pending');
+             INSERT INTO unresolved_refs VALUES('Failed.cs','csharp','stored_procedure_call','failed');",
+        )
+        .unwrap();
+        db
+    }
+
+    #[test]
+    fn sql_dependency_collection_includes_resolved_and_pending_callers_only() {
+        let db = dependency_db();
+        let paths = NativeChangedPaths::sql_callers(&db).unwrap();
+        assert_eq!(paths, ["Failed.cs", "Pending.cs", "Resolved.cs"]);
+    }
+
+    #[test]
+    fn sql_dependency_collection_enforces_limit_before_resync() {
+        let db = dependency_db();
+        for index in 0..257 {
+            db.execute(
+                "INSERT INTO unresolved_refs VALUES(?1,'csharp','stored_procedure_call','pending')",
+                [format!("Caller{index:03}.cs")],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            NativeChangedPaths::sql_callers(&db).unwrap_err().0,
+            "SYNC_LIMIT"
+        );
     }
 }

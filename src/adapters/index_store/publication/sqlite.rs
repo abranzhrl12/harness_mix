@@ -63,6 +63,7 @@ struct CapturedGraph {
 
 struct WrittenGraph {
     node_count: usize,
+    duplicate_nodes: usize,
     refs: BTreeSet<i64>,
     provider_kept: usize,
     provider_dropped: usize,
@@ -118,9 +119,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
                 if let Some(result) = prepared.take().and_then(|value| value.consume(bytes)) {
                     return result;
                 }
-                let text =
-                    std::str::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
-                index_extract::extract(path, text, context)
+                let text = harness_domain::encoding::decode_source(bytes)
+                    .map_err(|_| ("ENCODING", "Source cannot be decoded as UTF-8 or Windows-1252"))?;
+                index_extract::extract(path, text.as_ref(), context)
             })
             .transpose()?;
         Ok(extracted_value)
@@ -252,6 +253,7 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         )?;
         Ok(WrittenGraph {
             node_count: graph_write.node_count,
+            duplicate_nodes: prepared_graph.as_ref().map_or(0, |graph| graph.duplicate_nodes),
             refs: graph_write.refs,
             provider_kept: 0,
             provider_dropped: 0,
@@ -485,6 +487,7 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         } = captured;
         let WrittenGraph {
             node_count,
+            duplicate_nodes,
             refs,
             provider_kept,
             provider_dropped,
@@ -492,7 +495,7 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         } = written;
         let ResolutionResult {
             resolved,
-            import_sources,
+            mut import_sources,
             ..
         } = resolution;
         let invalidation::InvalidationOutcome {
@@ -525,6 +528,16 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
             extraction_coverage,
         }
         .into_json();
+        let semantic_warning_files = import_sources.semantic_warning_files();
+        let semantic_warnings = import_sources.take_semantic_warnings();
+        if !semantic_warnings.is_empty() {
+            report["warningFiles"] = json!(semantic_warning_files);
+            report["warnings"] = json!(semantic_warnings);
+            report["graphStatus"] = json!("partial");
+        }
+        if duplicate_nodes > 0 {
+            report["duplicateNodesMerged"] = json!(duplicate_nodes);
+        }
         if std::env::var("HARNESS_INDEX_PROFILE").as_deref() == Ok("1") {
             report["retryMemoNames"] = json!(retry_memo.retained_names());
             report["retryMemoDataVersion"] = json!(retry_memo.data_version());

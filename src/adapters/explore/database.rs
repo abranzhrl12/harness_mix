@@ -86,6 +86,22 @@ pub(super) fn open(
 ) -> Result<OpenIndex, Failure> {
     let failed = |error| failure(error, diagnostic, context, started);
     diagnostic.borrow_mut()["stage"] = json!("sqlite_open");
+    #[cfg(windows)]
+    let _database_pin = super::super::index_lock::open_database_pin(path, context).map_err(|error| {
+        if let Err(cancelled) = context.check() {
+            return cancelled;
+        }
+        diagnostic.borrow_mut()["cause"] = json!(if error.kind() == std::io::ErrorKind::TimedOut {
+            "database_busy"
+        } else {
+            "database_inaccessible"
+        });
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            ("INDEX_BUSY", "CodeGraph index remained locked until the wait timed out")
+        } else {
+            INDEX
+        }
+    })?;
     let db = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -93,7 +109,7 @@ pub(super) fn open(
             | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
     .map_err(failed)?;
-    db.busy_timeout(Duration::from_millis(100))
+    db.busy_timeout(Duration::from_millis(super::super::INDEX_BUSY_TIMEOUT_MS))
         .map_err(failed)?;
     db.set_limit(Limit::SQLITE_LIMIT_LENGTH, 65536)
         .map_err(failed)?;
@@ -137,4 +153,41 @@ pub(super) fn open(
         version,
         has_qualified,
     })
+}
+
+#[cfg(all(test, windows))]
+mod lock_tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    #[test]
+    fn read_open_waits_for_an_exclusive_sqlite_transaction_to_release() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("codegraph.db");
+        let blocker = Connection::open(&path).unwrap();
+        blocker
+            .execute_batch(
+                "PRAGMA journal_mode=DELETE;
+                 CREATE TABLE schema_versions(version INTEGER);
+                 INSERT INTO schema_versions(version) VALUES(11);
+                 CREATE TABLE nodes(id INTEGER, qualified_name TEXT);
+                 CREATE TABLE edges(id INTEGER);
+                 BEGIN EXCLUSIVE;",
+            )
+            .unwrap();
+
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            blocker.execute_batch("ROLLBACK;").unwrap();
+        });
+        let diagnostic = RefCell::new(json!({}));
+        let context = OperationContext::default();
+        let started = Instant::now();
+        let opened = open(&path, &context, &diagnostic, started);
+        release.join().unwrap();
+
+        let opened = opened.unwrap();
+        assert_eq!(opened.version, 11);
+        assert!(started.elapsed() >= Duration::from_millis(100));
+    }
 }

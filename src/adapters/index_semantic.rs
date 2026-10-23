@@ -86,13 +86,6 @@ pub(super) fn analyze(
     let mut reserved = 0usize;
     for symbol in semantic.scoping().symbol_ids() {
         context.check()?;
-        // TypeScript may record conflicts without emitting semantic errors.
-        if !semantic.scoping().symbol_redeclarations(symbol).is_empty() {
-            return Err((
-                "SYNC_SEMANTIC",
-                "JavaScript/TypeScript binding has multiple declarations; imported/exported bindings cannot be resolved unambiguously",
-            ));
-        }
         if semantic.scoping().symbol_flags(symbol).is_type_import()
             || !matches!(
                 semantic.symbol_declaration(symbol).kind(),
@@ -100,6 +93,13 @@ pub(super) fn analyze(
             )
         {
             continue;
+        }
+        // TypeScript may record conflicts without emitting semantic errors.
+        if !semantic.scoping().symbol_redeclarations(symbol).is_empty() {
+            return Err((
+                "SYNC_SEMANTIC",
+                "JavaScript/TypeScript binding has multiple declarations; imported/exported bindings cannot be resolved unambiguously",
+            ));
         }
         let name = semantic.scoping().symbol_name(symbol);
         for reference in semantic.symbol_references(symbol) {

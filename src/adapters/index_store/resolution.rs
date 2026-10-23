@@ -94,6 +94,17 @@ pub(super) fn resolve_exact(
     let special_timer = profiling.then(|| {
         sync_diagnostic::resolver_timer("resolver_special")
     });
+    if language == "csharp" && kind == "stored_procedure_call" {
+        let Some(target) = mvc_snapshot.sql_objects.resolve(db, project, &name, context, framework_snapshot)? else {
+            return Ok(false);
+        };
+        let metadata = json!({"refName":name,"refKind":kind,
+            "resolvedBy":"local-sql-literal-v1","confidence":0.9,
+            "targetHash":target.hash,"sqlInventoryComplete":true}).to_string();
+        sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')", params![from,target.id,line,col,metadata]))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
+    }
     if kind == "vue_template_component" {
         return framework::vue_template_component(
             db,
@@ -328,6 +339,18 @@ pub(super) fn resolve_exact(
             "confidence":0.9})
         .to_string();
         sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'calls',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
+        sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
+        return Ok(true);
+    }
+    if language == "razor" && kind == "razor_asset" {
+        let Some(target) = mvc_snapshot.resolve_asset(db, &name, context)? else {
+            return Ok(false);
+        };
+        let metadata = json!({"refName":name,"refKind":kind,
+            "resolvedBy":"razor-literal-content-asset-v1",
+            "confidence":1.0})
+        .to_string();
+        sql(db.execute("INSERT OR IGNORE INTO edges(source,target,kind,line,col,metadata,provenance) VALUES(?1,?2,'references',?3,?4,?5,'heuristic')", params![from,target,line,col,metadata]))?;
         sql(db.execute("DELETE FROM unresolved_refs WHERE id=?1", [id]))?;
         return Ok(true);
     }

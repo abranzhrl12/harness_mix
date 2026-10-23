@@ -42,8 +42,8 @@ pub fn plan_workspace<P: crate::ports::indexing::PlanningPort>(
 pub const MAX_FILES: usize = 20_000;
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
-/// CodeGraph hashes decoded UTF-8 text, not arbitrary raw bytes. Reject invalid
-/// UTF-8 rather than silently introducing a different replacement policy.
+/// Validate that source bytes can be decoded, but hash the original bytes so a
+/// change in encoding or exact source contents always invalidates the snapshot.
 /// Oversize markers must NOT be passed as Content: they don't prove freshness.
 pub fn source_hash(bytes: &[u8]) -> Result<String, Failure> {
     source_digest_with(bytes, sha256_digest).map(Sha256Digest::to_hex)
@@ -59,7 +59,8 @@ fn source_digest_with(
             "Source exceeds the CodeGraph extraction limit",
         ));
     }
-    std::str::from_utf8(bytes).map_err(|_| ("SYNC_UNCHECKED", "Source is not UTF-8"))?;
+    harness_domain::encoding::decode_source(bytes)
+        .map_err(|_| ("SYNC_UNCHECKED", "Source cannot be decoded as UTF-8 or Windows-1252"))?;
     Ok(calculate(bytes))
 }
 
@@ -157,7 +158,7 @@ mod tests {
 
         called.set(false);
         assert_eq!(
-            source_digest_with(&[0xff], |_| {
+            source_digest_with(&[0x81], |_| {
                 called.set(true);
                 digest
             })
@@ -181,5 +182,7 @@ mod tests {
             super::source_hash(b"abc").unwrap(),
             sha256_digest(b"abc").to_hex()
         );
+        let legacy = b"acci\xf3n";
+        assert_eq!(super::source_hash(legacy).unwrap(), sha256_digest(legacy).to_hex());
     }
 }

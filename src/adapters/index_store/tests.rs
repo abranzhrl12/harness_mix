@@ -162,7 +162,7 @@ fn workspace_reports_errors_after_the_success_report_limit() {
 
 #[cfg(windows)]
 #[test]
-fn semantic_exclusion_keeps_symbols_and_prevents_deep_binding_failure() {
+fn semantic_exclusion_keeps_symbols_and_skips_import_binding() {
     use super::*;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -172,12 +172,22 @@ fn semantic_exclusion_keeps_symbols_and_prevents_deep_binding_failure() {
     std::fs::create_dir_all(root.join("Scripts/vendor")).unwrap();
     std::fs::write(root.join("lib.js"), "export function run() {}\n").unwrap();
     sync_file(root, "lib.js", &context).unwrap();
-    // Duplicate var declarations are valid legacy JS, but outside this resolver's
-    // conservative semantic subset. Basic provider extraction still succeeds.
+    // Duplicate var declarations are valid legacy JS; unrelated redeclarations
+    // must not prevent import binding in the native semantic resolver.
     let source = "import { run } from '../../lib.js'; var x = 1; var x = 2; export function plugin() { run(); }\n";
     std::fs::write(root.join("Scripts/vendor/plugin.js"), source).unwrap();
-    let before = sync_file(root, "Scripts/vendor/plugin.js", &context).unwrap_err();
-    assert_eq!(before.0, "SYNC_SEMANTIC");
+    let before = sync_file(root, "Scripts/vendor/plugin.js", &context).unwrap();
+    assert_eq!(before["changed"], true);
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let bound_before_exclusion: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges WHERE source IN (SELECT id FROM nodes WHERE file_path='Scripts/vendor/plugin.js') AND target IN (SELECT id FROM nodes WHERE file_path='lib.js')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(bound_before_exclusion > 0);
+    drop(db);
     std::fs::write(
         root.join(".agents/harness.config.json"),
         r#"{"indexing":{"semanticExclude":["Scripts/vendor/**"]}}"#,
@@ -193,6 +203,46 @@ fn semantic_exclusion_keeps_symbols_and_prevents_deep_binding_failure() {
     let imported: i64 = db.query_row("SELECT count(*) FROM edges WHERE source IN (SELECT id FROM nodes WHERE file_path='Scripts/vendor/plugin.js') AND target IN (SELECT id FROM nodes WHERE file_path='lib.js')", [], |r| r.get(0)).unwrap();
     assert_eq!(imported, 0);
 }
+
+#[cfg(windows)]
+#[test]
+fn semantic_import_collision_warns_and_keeps_syncing_other_files() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    std::fs::write(root.join("lib.js"), "export function run() {}\n").unwrap();
+    sync_file(root, "lib.js", &context).unwrap();
+    // This is syntactically extractable JS, but the local declaration collides
+    // with the imported binding, so semantic import resolution must be partial.
+    let source = "import { run } from './lib.js'; const run = () => {}; export function plugin() { run(); }\n";
+    std::fs::write(root.join("plugin.js"), source).unwrap();
+    let report = sync_file(root, "plugin.js", &context).unwrap();
+    assert_eq!(report["graphStatus"], "partial");
+    assert_eq!(report["warningFiles"], 1);
+    assert_eq!(report["warnings"][0]["code"], "SYNC_SEMANTIC");
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let plugin: i64 = db
+        .query_row(
+            "SELECT count(*) FROM nodes WHERE file_path='plugin.js' AND name='plugin'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(plugin, 1);
+    let imported: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges WHERE source IN (SELECT id FROM nodes WHERE file_path='plugin.js') AND target IN (SELECT id FROM nodes WHERE file_path='lib.js')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(imported, 0);
+    std::fs::write(root.join("other.js"), "export function other() {}\n").unwrap();
+    assert_eq!(sync_file(root, "other.js", &context).unwrap()["changed"], true);
+}
+
 #[cfg(windows)]
 #[test]
 fn reused_writer_preserves_full_durability_and_rejects_late_links() {

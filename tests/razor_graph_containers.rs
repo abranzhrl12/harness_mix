@@ -119,3 +119,41 @@ fn razor_explore_reaches_an_absolute_public_static_controller_method() {
         "{result}"
     );
 }
+
+#[test]
+fn razor_url_content_resolves_to_an_indexed_script_file() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".codegraph")).unwrap();
+    let db = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    db.execute_batch(include_str!("../vendor/codegraph-native/schema.sql"))
+        .unwrap();
+    db.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+    db.execute(
+        "INSERT INTO schema_versions(version,applied_at) VALUES(11,0)",
+        [],
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.path().join("Scripts")).unwrap();
+    std::fs::write(root.path().join("Scripts/app.js"), "function boot() {}\n").unwrap();
+    sync_file(root.path(), "Scripts/app.js", &OperationContext::default()).unwrap();
+    std::fs::create_dir_all(root.path().join("Views/Home")).unwrap();
+    std::fs::write(
+        root.path().join("Views/Home/Index.cshtml"),
+        "<script src=\"@Url.Content(\"~/Scripts/app.js\")\"></script>",
+    )
+    .unwrap();
+    sync_file(
+        root.path(),
+        "Views/Home/Index.cshtml",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    let links: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='references' AND s.file_path='Views/Home/Index.cshtml' AND t.file_path='Scripts/app.js'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(links, 1);
+}

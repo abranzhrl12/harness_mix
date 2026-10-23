@@ -3,6 +3,7 @@ pub mod assistance;
 pub mod contracts;
 pub mod diagnostics;
 pub mod editing;
+pub mod encoding;
 pub mod execution;
 pub mod file_freshness;
 pub mod freshness;

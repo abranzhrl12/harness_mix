@@ -41,6 +41,22 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
             Ok(Some(result)) => {
                 processed += 1;
                 changed += usize::from(result["changed"] == true);
+                if result["sqlRefreshComplete"] == false {
+                    let entry = json!({
+                        "path":path,
+                        "code":"SYNC_SQL_PARTIAL",
+                        "message":"SQL dependents were only partially refreshed; see dependentFailures and dependentFilesCommitted",
+                        "commitState":if result["dependentFilesCommitted"].as_array().is_some_and(|files| !files.is_empty()) {"partial"} else {"not_committed"},
+                        "sqlRefresh":result,
+                    });
+                    failed += 1;
+                    if failure.is_none() {
+                        failure = Some(entry.clone());
+                    }
+                    if failures.len() < 32 {
+                        failures.push(entry);
+                    }
+                }
             }
             Ok(None) => skipped += 1,
             Err((code, message)) => {
@@ -71,4 +87,78 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
         "selectedScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
         "globalFreshnessCertified":false,"workspaceTransactionAtomic":false}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockChangedPaths {
+        result: Option<Value>,
+    }
+
+    impl ChangedPathsPort for MockChangedPaths {
+        fn initialize(&mut self, _: &OperationContext) -> Result<(), Failure> {
+            Ok(())
+        }
+
+        fn needs_inventory(&self, _: &BTreeSet<String>) -> Result<bool, Failure> {
+            Ok(false)
+        }
+
+        fn sync_workspace(&mut self, _: &OperationContext) -> Result<Value, Failure> {
+            unreachable!("these tests exercise incremental paths")
+        }
+
+        fn apply_changed(
+            &mut self,
+            _: &str,
+            _: &OperationContext,
+        ) -> Result<Option<Value>, Failure> {
+            Ok(self.result.take())
+        }
+    }
+
+    fn partial_result(committed: &[&str]) -> Value {
+        json!({
+            "changed": !committed.is_empty(),
+            "sqlRefreshComplete": false,
+            "dependentFilesCommitted": committed,
+            "dependentFailures": [{"path":"Broken.cs","code":"SYNC_FILE","message":"fixture failure"}],
+        })
+    }
+
+    fn run_partial(committed: &[&str]) -> Value {
+        let mut port = MockChangedPaths {
+            result: Some(partial_result(committed)),
+        };
+        sync_changed_paths(
+            &mut port,
+            &BTreeSet::from(["schema.sql".to_owned()]),
+            &OperationContext::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn sql_partial_preserves_committed_dependents_and_fails_batch_report() {
+        let result = run_partial(&["Committed.cs"]);
+        assert_eq!(result["changedFilesCommitted"], 1);
+        assert_eq!(result["failedFiles"], 1);
+        assert_eq!(result["failure"]["code"], "SYNC_SQL_PARTIAL");
+        assert_eq!(result["failure"]["commitState"], "partial");
+        assert_eq!(
+            result["failure"]["sqlRefresh"]["dependentFilesCommitted"][0],
+            "Committed.cs"
+        );
+        assert_eq!(result["selectedScopeApplied"], false);
+    }
+
+    #[test]
+    fn sql_partial_without_confirmed_commit_reports_not_committed() {
+        let result = run_partial(&[]);
+        assert_eq!(result["changedFilesCommitted"], 0);
+        assert_eq!(result["failure"]["code"], "SYNC_SQL_PARTIAL");
+        assert_eq!(result["failure"]["commitState"], "not_committed");
+    }
 }

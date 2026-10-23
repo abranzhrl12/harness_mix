@@ -12,7 +12,7 @@ const UNCERTAIN: Failure = (
     "Index commit or rollback could not be confirmed; inspect the index before retrying",
 );
 
-pub(super) fn systemic_failure(code: &str) -> bool {
+pub fn systemic_failure(code: &str) -> bool {
     matches!(
         code,
         "SYNC_SCHEMA"
@@ -91,6 +91,8 @@ pub fn sync_workspace<P: WorkspacePort>(
     let mut failed = 0;
     let mut failure = None;
     let mut failures = Vec::new();
+    let mut warnings = Vec::new();
+    let mut warning_files = 0;
     let mut stopped_early = false;
     let mut skipped_reports = Vec::new();
     let worker_count = port.workers().clamp(1, 4);
@@ -127,6 +129,14 @@ pub fn sync_workspace<P: WorkspacePort>(
         match applied {
             Ok(mut result) => {
                 processed += 1;
+                if let Some(file_warnings) = result["warnings"].as_array() {
+                    warning_files += result["warningFiles"]
+                        .as_u64()
+                        .unwrap_or(file_warnings.len() as u64) as usize;
+                    for warning in file_warnings.iter().take(32usize.saturating_sub(warnings.len())) {
+                        warnings.push(warning.clone());
+                    }
+                }
                 profile_totals.record(&result);
                 if let Some(phases) = result["phaseTimingsMicros"].as_object() {
                     for (name, value) in phases {
@@ -164,6 +174,30 @@ pub fn sync_workspace<P: WorkspacePort>(
                         results.push(entry);
                     }
                     continue;
+                }
+                // Legacy JS/TS files may exceed the native semantic subset. Keep
+                // the file visibly partial, but give the workspace report a
+                // dedicated non-blocking warning while later files continue.
+                let script_language = matches!(
+                    port.language(path),
+                    Some("javascript" | "jsx" | "typescript" | "tsx")
+                );
+                let source_warning = script_language
+                    && matches!(
+                        code,
+                        "SYNC_SEMANTIC"
+                            | "EXTRACTION_DEFERRED"
+                            | "EXTRACTION_LIMIT"
+                            | "PARSER_LIMIT"
+                            | "SYNTAX_ERROR"
+                    );
+                if source_warning {
+                    entry["severity"] = json!("warning");
+                    entry["indexStatus"] = json!("not_updated");
+                    warning_files += 1;
+                    if warnings.len() < 32 {
+                        warnings.push(entry.clone());
+                    }
                 }
                 // A per-file failure does not stop the rest of the workspace:
                 // the first failure is reported and the remaining files are
@@ -205,9 +239,9 @@ pub fn sync_workspace<P: WorkspacePort>(
             failure = Some(entry);
         }
     }
-    let native_complete = failure.is_none() && processed == total;
+    let native_complete = failure.is_none() && processed == total && warning_files == 0;
     let finalization_micros = finalization_started.elapsed().as_micros();
-    let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"scope":scope,
+    let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"warnings":warnings,"scope":scope,
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
         "failures":failures,"extractionWorkers":worker_count,"databaseWriters":1,
         "skippedFileReports":skipped_reports,"inventoryDiagnostics":planned["inventory"]["fileDiagnostics"],"uncheckedFilePaths":planned["plan"]["unchecked"],
@@ -215,7 +249,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         "durationMs":operation_started.elapsed().as_millis(),
         "filesProcessed":processed,"fileReportsOmitted":(processed+failed+provider_dependent).saturating_sub(results.len()),"fileReportLimit":32,
         "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
-        "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,
+        "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,"warningFiles":warning_files,"nativeFilesWithWarnings":warning_files,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
         "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
         "discoveryComplete":planned["inventory"]["discoveryComplete"],
@@ -229,6 +263,10 @@ pub fn sync_workspace<P: WorkspacePort>(
     report["failureReportsOmitted"] = json!(
         (failed + usize::from(final_scope_failure))
             .saturating_sub(report["failures"].as_array().map_or(0, Vec::len))
+    );
+    report["warningReportLimit"] = json!(32);
+    report["warningReportsOmitted"] = json!(
+        warning_files.saturating_sub(report["warnings"].as_array().map_or(0, Vec::len))
     );
     report["skippedReportsOmitted"] = json!(
         provider_dependent

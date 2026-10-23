@@ -62,27 +62,38 @@ pub(super) fn load(
         let file = &selected.file_path;
         let related = related_ids.contains(selected.id.as_str());
         context.check()?;
-        let read = super::super::symbols::read_symbol(
-            project,
-            &ReadSymbolArgs {
-                external_scope: None,
-                path: file.clone(),
-                symbol: selected.name.clone(),
-                container: if related {
-                    None
-                } else {
-                    args.container.clone()
+        let read = if selected.id.starts_with("sql-local:")
+            && matches!(selected.kind.as_str(), "stored_procedure" | "table")
+        {
+            super::super::index_store::sql_objects::read_object(
+                project,
+                file,
+                &selected.id,
+                context,
+            )
+        } else {
+            super::super::symbols::read_symbol(
+                project,
+                &ReadSymbolArgs {
+                    external_scope: None,
+                    path: file.clone(),
+                    symbol: selected.name.clone(),
+                    container: if related {
+                        None
+                    } else {
+                        args.container.clone()
+                    },
+                    symbol_id: None,
+                    view: if summary {
+                        Some(SymbolView::Signature)
+                    } else {
+                        None
+                    },
+                    session: None,
                 },
-                symbol_id: None,
-                view: if summary {
-                    Some(SymbolView::Signature)
-                } else {
-                    None
-                },
-                session: None,
-            },
-            context,
-        );
+                context,
+            )
+        };
         match read {
             Ok(value) => {
                 let identity = (

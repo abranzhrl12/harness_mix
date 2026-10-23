@@ -39,6 +39,73 @@ fn extraction_model_projects_typed_rows_without_changing_optional_json_values() 
 }
 
 #[test]
+fn duplicate_node_ids_with_same_identity_are_merged_with_combined_source_range() {
+    let extraction = json!({
+        "nodes":[
+            {"id":"n1","kind":"function","name":"run","qualifiedName":"module::run","startLine":3,"endLine":3},
+            {"id":"n1","kind":"function","name":"run","qualifiedName":"module::run","startLine":1,"endLine":5}
+        ],
+        "edges":[],
+        "unresolvedReferences":[]
+    });
+    let graph = ExtractedGraph::prepare(&extraction, &OperationContext::default()).unwrap();
+    assert_eq!(graph.nodes.len(), 1);
+    assert_eq!(graph.duplicate_nodes, 1);
+    assert_eq!(graph.nodes[0].start_line, Some(1));
+    assert_eq!(graph.nodes[0].end_line, Some(5));
+}
+
+#[test]
+fn conflicting_duplicate_node_ids_remain_a_contract_error() {
+    let extraction = json!({
+        "nodes":[
+            {"id":"n1","kind":"function","name":"run","qualifiedName":"module::run"},
+            {"id":"n1","kind":"class","name":"run","qualifiedName":"module::run"}
+        ],
+        "edges":[],
+        "unresolvedReferences":[]
+    });
+    assert_eq!(
+        ExtractedGraph::prepare(&extraction, &OperationContext::default()).err(),
+        Some(super::super::INDEX)
+    );
+}
+
+#[test]
+fn duplicate_nodes_on_same_line_merge_column_bounds() {
+    let extraction = json!({
+        "nodes":[
+            {"id":"n1","kind":"variable","name":"value","qualifiedName":"module::value","startLine":3,"startColumn":12,"endLine":3,"endColumn":20},
+            {"id":"n1","kind":"variable","name":"value","qualifiedName":"module::value","startLine":3,"startColumn":4,"endLine":3,"endColumn":28}
+        ],
+        "edges":[],
+        "unresolvedReferences":[]
+    });
+    let graph = ExtractedGraph::prepare(&extraction, &OperationContext::default()).unwrap();
+    assert_eq!(graph.nodes.len(), 1);
+    assert_eq!(graph.nodes[0].start_line, Some(3));
+    assert_eq!(graph.nodes[0].start_column, Some(4));
+    assert_eq!(graph.nodes[0].end_line, Some(3));
+    assert_eq!(graph.nodes[0].end_column, Some(28));
+}
+
+#[test]
+fn duplicate_method_ids_with_different_overload_signatures_are_rejected() {
+    let extraction = json!({
+        "nodes":[
+            {"id":"n1","kind":"method","name":"run","qualifiedName":"module::run","signature":"void run()"},
+            {"id":"n1","kind":"method","name":"run","qualifiedName":"module::run","signature":"void run(int value)"}
+        ],
+        "edges":[],
+        "unresolvedReferences":[]
+    });
+    assert_eq!(
+        ExtractedGraph::prepare(&extraction, &OperationContext::default()).err(),
+        Some(super::super::INDEX)
+    );
+}
+
+#[test]
 fn borrowed_required_text_preserves_original_index_validation_limits() {
     assert_eq!(
         required_str(&json!({"id":""}), "id"),

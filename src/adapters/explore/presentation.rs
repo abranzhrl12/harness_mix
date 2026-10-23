@@ -76,6 +76,27 @@ pub(super) fn context_nodes<'a>(
             }
         }
     }
+    // A local SQL call has a useful second step: the tables read/written by its
+    // procedure. Include that evidence under the same existing context budget.
+    let procedures: BTreeSet<_> = targets
+        .iter()
+        .chain(candidates.values().copied())
+        .filter(|node| node.kind == "stored_procedure" && node.id.starts_with("sql-local:"))
+        .map(|node| node.id.as_str())
+        .collect();
+    for edge in edges.iter().filter(|edge| edge["kind"] == "references") {
+        if !procedures.contains(edge["source"].as_str().unwrap_or("")) {
+            continue;
+        }
+        let id = edge["target"].as_str().unwrap_or("");
+        if let Some(node) = nodes.get(id) {
+            if node.kind == "table" && node.id.starts_with("sql-local:") && !ids.contains(id) {
+                candidates
+                    .entry((false, 2, node.file_path.as_str(), node.start_line, id))
+                    .or_insert(node);
+            }
+        }
+    }
     let mut files: BTreeSet<_> = targets.iter().map(|n| n.file_path.as_str()).collect();
     let mut selected = Vec::new();
     let mut seen = BTreeSet::new();

@@ -45,6 +45,34 @@ fn explicit_symbol_does_not_require_a_duplicate_query() {
 }
 
 #[test]
+fn explore_reads_cp1252_source_and_keeps_the_raw_content_hash() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    let source = b"pub fn target() { let label = \"acci\xf3n\"; }\npub fn caller() { target(); }\npub fn callee() {}\n";
+    std::fs::write(root.path().join("lib.rs"), source).unwrap();
+    db.execute(
+        "UPDATE files SET content_hash=?1 WHERE path='lib.rs'",
+        [harness_domain::hash(source)],
+    )
+    .unwrap();
+    drop(db);
+
+    let result = adapters::application(root.path())
+        .unwrap()
+        .execute(Request::Explore(args("target")));
+
+    assert_eq!(result["state"], "ok", "{result}");
+    let target = result["data"]["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|definition| definition["symbol"]["name"] == "target")
+        .unwrap();
+    assert!(result["data"]["text"].as_str().unwrap().contains("acción"));
+    assert_eq!(target["hash"], harness_domain::hash(source));
+}
+
+#[test]
 #[ignore = "opt-in retrieval comparison against an existing index; no synchronization"]
 fn compare_context_on_existing_index() {
     let root = std::path::PathBuf::from(

@@ -45,9 +45,9 @@ pub(super) fn prepare(
                 let scope = scope::Snapshot::load(&project, &context).ok()?;
                 if scope.excluded(path) { return None; }
                 let bytes = read_source(&project, path, &context).ok()??;
-                let source = std::str::from_utf8(&bytes).ok()?;
+                let source = harness_domain::encoding::decode_source(&bytes).ok()?;
                 let graph = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    index_extract::extract(path, source, &context)
+                    index_extract::extract(path, source.as_ref(), &context)
                 })).unwrap_or_else(|panic| {
                     let message = panic.downcast_ref::<String>().map(String::as_str)
                         .or_else(|| panic.downcast_ref::<&str>().copied())

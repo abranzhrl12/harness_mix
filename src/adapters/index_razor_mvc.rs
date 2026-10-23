@@ -13,9 +13,11 @@ fn regex(slot: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
 type Actions = BTreeMap<String, Option<String>>;
 #[derive(Default)]
 pub(in crate::adapters) struct Snapshot {
+    pub(in crate::adapters) sql_objects: super::index_store::sql_objects::Snapshot,
     controllers: BTreeMap<(String, String, String), Option<Actions>>,
     routes: BTreeMap<String, BTreeMap<String, Option<String>>>,
     views: BTreeMap<String, Option<String>>,
+    assets: BTreeMap<String, Option<String>>,
     route_count: usize,
     bytes: usize,
     #[cfg(test)]
@@ -143,6 +145,30 @@ impl Snapshot {
         };
         if self.views.len() < 4096 {
             self.views.insert(key, target.clone());
+        }
+        Ok(target)
+    }
+
+    /// Resolve a concrete URL.Content path to an already indexed asset file.
+    /// Missing or ambiguous files stay pending; this never creates graph nodes.
+    pub(in crate::adapters) fn resolve_asset(
+        &mut self,
+        db: &Connection,
+        path: &str,
+        context: &OperationContext,
+    ) -> Result<Option<String>, Failure> {
+        if let Some(target) = self.assets.get(path) {
+            return Ok(target.clone());
+        }
+        context.check()?;
+        let mut statement = sql(db.prepare_cached(
+            "SELECT id FROM nodes WHERE kind='file' AND language IN ('javascript','typescript') AND file_path=?1 COLLATE NOCASE LIMIT 2",
+        ))?;
+        let rows = sql(statement.query_map([path], |row| row.get::<_, String>(0)))?;
+        let rows = sql(rows.collect::<rusqlite::Result<Vec<_>>>())?;
+        let target = (rows.len() == 1).then(|| rows[0].clone());
+        if self.assets.len() < 4096 {
+            self.assets.insert(path.to_owned(), target.clone());
         }
         Ok(target)
     }

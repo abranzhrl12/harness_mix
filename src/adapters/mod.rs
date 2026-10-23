@@ -31,6 +31,8 @@ mod index_freshness;
 mod index_inventory;
 mod index_profile;
 #[cfg(windows)]
+mod index_lock;
+#[cfg(windows)]
 mod index_semantic;
 #[cfg(windows)]
 pub mod index_store;

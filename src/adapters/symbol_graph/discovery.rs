@@ -46,6 +46,14 @@ pub(in crate::adapters) fn discover(
         Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_INDEX_BYTES => {}
         _ => return Ok(None),
     }
+    #[cfg(windows)]
+    let _database_pin = match super::super::index_lock::open_database_pin(&path, context) {
+        Ok(pin) => pin,
+        Err(_) => {
+            context.check()?;
+            return Ok(None);
+        }
+    };
     let db = match Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -55,7 +63,7 @@ pub(in crate::adapters) fn discover(
         Ok(db) => db,
         Err(_) => return Ok(None),
     };
-    let _ = db.busy_timeout(Duration::from_millis(100));
+    let _ = db.busy_timeout(Duration::from_millis(super::super::INDEX_BUSY_TIMEOUT_MS));
     let _ = db.set_limit(Limit::SQLITE_LIMIT_LENGTH, 65536);
     let _ = db.set_limit(Limit::SQLITE_LIMIT_SQL_LENGTH, 8192);
     let _ = db.execute_batch(

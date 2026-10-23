@@ -62,6 +62,20 @@ fn plan_workspace_inner(
     }
     #[cfg(windows)]
     let _pins = super::edit_commit::pin_directory(&project, path.parent().ok_or(index_error)?)?;
+    #[cfg(windows)]
+    let _database_pin = super::index_lock::open_database_pin(&path, context).map_err(|error| {
+        if let Err(cancelled) = context.check() {
+            return cancelled;
+        }
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            (
+                "INDEX_BUSY",
+                "CodeGraph index remained locked until the wait timed out",
+            )
+        } else {
+            index_error
+        }
+    })?;
     let db = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -384,7 +398,8 @@ mod tests {
         for text in ["", "fn main() {}\r\n", "á😀\n", "\u{feff}source"] {
             assert_eq!(source_hash(text.as_bytes()).unwrap(), hash(text.as_bytes()));
         }
-        assert_eq!(source_hash(&[0xff]).unwrap_err().0, "SYNC_UNCHECKED");
+        assert_eq!(source_hash(&[0xff]).unwrap(), hash(&[0xff]));
+        assert_eq!(source_hash(&[0x81]).unwrap_err().0, "SYNC_UNCHECKED");
         assert!(source_hash(&vec![b'x'; MAX_SOURCE_BYTES]).is_ok());
         assert_eq!(
             source_hash(&vec![b'x'; MAX_SOURCE_BYTES + 1])

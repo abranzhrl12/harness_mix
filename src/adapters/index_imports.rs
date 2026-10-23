@@ -39,6 +39,8 @@ pub(super) struct Sources {
     verified: VerifiedSources,
     semantic: BTreeMap<String, super::super::index_semantic::Calls>,
     semantic_reserved: usize,
+    semantic_warning_paths: std::collections::BTreeSet<String>,
+    semantic_warnings: Vec<serde_json::Value>,
     vue: BTreeMap<String, crate::adapters::index_semantic::vue::Facts>,
     vue_reserved: usize,
     vue_template_components:
@@ -188,9 +190,30 @@ impl Sources {
             return Ok(false);
         }
         if !self.semantic.contains_key(path) {
-            let source =
-                std::str::from_utf8(self.verified.bytes(path).ok_or(INDEX)?).map_err(|_| INDEX)?;
-            let calls = super::super::index_semantic::analyze(source, path, context)?;
+            let source = harness_domain::encoding::decode_source(
+                self.verified.bytes(path).ok_or(INDEX)?,
+            )
+            .map_err(|_| ("SYNC_SEMANTIC", "Source cannot be decoded as UTF-8 or Windows-1252"))?;
+            let calls = match super::super::index_semantic::analyze(source.as_ref(), path, context) {
+                Ok(calls) => calls,
+                Err(("SYNC_SEMANTIC", message)) => {
+                    if self.semantic_warning_paths.insert(path.to_owned())
+                        && self.semantic_warnings.len() < 32
+                    {
+                        self.semantic_warnings.push(serde_json::json!({
+                            "path": path,
+                            "code": "SYNC_SEMANTIC",
+                            "message": message,
+                            "stage": "semantic_resolution",
+                            "severity": "warning",
+                            "graphStatus": "partial",
+                            "unresolvedReferencesRetained": true
+                        }));
+                    }
+                    return Ok(false);
+                }
+                Err(failure) => return Err(failure),
+            };
             self.semantic_reserved += calls.reserved;
             if self.semantic_reserved > 16 * 1024 * 1024 {
                 return Err(LIMIT);
@@ -198,6 +221,12 @@ impl Sources {
             self.semantic.insert(path.into(), calls);
         }
         Ok(true)
+    }
+    pub(super) fn take_semantic_warnings(&mut self) -> Vec<serde_json::Value> {
+        std::mem::take(&mut self.semantic_warnings)
+    }
+    pub(super) fn semantic_warning_files(&self) -> usize {
+        self.semantic_warning_paths.len()
     }
     pub(super) fn export_target(
         &mut self,

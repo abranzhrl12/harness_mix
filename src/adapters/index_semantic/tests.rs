@@ -28,6 +28,14 @@ fn lexical_scopes_keep_import_call_but_not_shadowed_calls() {
     assert_eq!(calls.sites.len(), 1);
     assert!(calls.contains("execute", 3, 27));
 }
+
+#[test]
+fn unrelated_legacy_var_redeclarations_do_not_block_import_analysis() {
+    let source = "import {run as execute} from './lib'; var legacy = 1; var legacy = 2; export function caller() { execute(); }";
+    let calls = analyze(source, "app.js", &OperationContext::default()).unwrap();
+    assert_eq!(calls.sites.len(), 1);
+    assert!(calls.sites.iter().any(|(name, _, _)| name == "execute"));
+}
 #[test]
 fn semantic_positions_match_codegraph_with_unicode_and_crlf() {
     let source = "import {run as execute} from './lib';\r\nexport function caller() { const emoji = '😀'; execute(); }\r\n";

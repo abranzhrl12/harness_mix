@@ -40,6 +40,9 @@ use self::publication::publish;
 #[path = "index_store/resolution.rs"]
 mod resolution;
 
+#[path = "index_store/sql_objects.rs"]
+pub(super) mod sql_objects;
+
 #[cfg(test)]
 #[path = "index_store/tests.rs"]
 mod tests;
@@ -311,6 +314,16 @@ fn sync_file_windows(
     relative: &str,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    if Path::new(relative)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("sql"))
+    {
+        return sync_changed_paths(
+            root,
+            &BTreeSet::from([normalize_relative(relative)]),
+            context,
+        );
+    }
     sync_file_with(root, relative, context, || {})
 }
 

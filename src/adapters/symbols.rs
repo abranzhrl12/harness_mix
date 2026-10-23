@@ -41,7 +41,9 @@ fn snapshot_selected(
 
     let bytes = project.bytes_with_context(path, context)?;
     let digest = hash(&bytes);
-    let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "Source is not valid UTF-8"))?;
+    let text = harness_domain::encoding::decode_source(&bytes)
+        .map_err(|_| ("ENCODING", "Source cannot be decoded as UTF-8 or Windows-1252"))?
+        .into_owned();
 
     let mut structure = None;
     let symbols = match language {

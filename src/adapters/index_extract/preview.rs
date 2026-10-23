@@ -44,9 +44,9 @@ pub(in crate::adapters) fn preview(
             {
                 return Err(("STALE", "Source changed after inventory"));
             }
-            let source =
-                std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "Source is not UTF-8"))?;
-            let extracted = super::orchestration::extract(path, source, context)?;
+            let source = harness_domain::encoding::decode_source(&bytes)
+                .map_err(|_| ("ENCODING", "Source cannot be decoded as UTF-8 or Windows-1252"))?;
+            let extracted = super::orchestration::extract(path, source.as_ref(), context)?;
             let mut result = json!({"path":path,"sourceHash":digest,"status":"extracted_not_published",
                 "nodes":extracted["nodes"].as_array().ok_or(CONTRACT)?.len(),
                 "edges":extracted["edges"].as_array().ok_or(CONTRACT)?.len(),

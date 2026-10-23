@@ -186,6 +186,23 @@ fn local_failure_keeps_confirmed_commits_and_continues() {
     assert_eq!(r["failure"]["diagnostic"]["stage"], "fake");
     assert_eq!(r["selectedScopeApplied"], false);
 }
+
+#[test]
+fn legacy_script_semantic_failure_is_reported_as_warning_and_does_not_stop_workspace() {
+    let mut f = Fake::new(&["a.ts", "b.ts", "c.ts"]);
+    f.failures
+        .insert("b.ts".into(), ("SYNC_SEMANTIC", "outside native semantic subset"));
+    let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 20, false).unwrap();
+    assert_eq!(f.applied, ["a.ts", "b.ts", "c.ts"]);
+    assert_eq!(r["changedFilesCommitted"], 2);
+    assert_eq!(r["failedFiles"], 1);
+    assert_eq!(r["warningFiles"], 1);
+    assert_eq!(r["warnings"][0]["path"], "b.ts");
+    assert_eq!(r["warnings"][0]["severity"], "warning");
+    assert_eq!(r["warnings"][0]["indexStatus"], "not_updated");
+    assert_eq!(r["stoppedEarly"], false);
+    assert_eq!(r["selectedScopeApplied"], false);
+}
 #[test]
 fn all_systemic_failure_codes_stop_later_publications() {
     for code in [
