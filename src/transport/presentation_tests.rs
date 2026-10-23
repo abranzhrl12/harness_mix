@@ -1,4 +1,4 @@
-use super::response_with_presentation;
+use super::{response_with_compact, response_with_presentation};
 use serde_json::{Value, json};
 
 fn sample() -> Value {
@@ -56,4 +56,50 @@ fn legacy_errors_and_summary_keep_their_json_content() {
         assert_eq!(decoded, envelope);
         assert_eq!(result["isError"], state != "ok");
     }
+}
+
+#[test]
+fn compact_removes_only_empty_envelope_metadata() {
+    let envelope = json!({
+        "state":"ok", "requestId":"internal-correlation-id", "scope":{"tool":"harness_read"},
+        "diagnostics":[], "omitted":{}, "detail":null,
+        "data":{"path":"file.rs", "hash":"sha256", "text":"exact source"}
+    });
+    let result = response_with_compact(envelope, true);
+    let compact = result.structured_content.unwrap();
+    assert_eq!(compact["state"], "ok");
+    assert_eq!(compact["scope"]["tool"], "harness_read");
+    assert_eq!(compact["data"]["text"], "exact source");
+    assert!(compact.get("requestId").is_none());
+    assert!(compact.get("diagnostics").is_none());
+    assert!(compact.get("omitted").is_none());
+    assert!(compact.get("detail").is_none());
+}
+
+#[test]
+fn compact_preserves_nonempty_warnings_omissions_and_detail_refs() {
+    let mut envelope = json!({
+        "state":"ok", "requestId":"internal-correlation-id", "scope":{"tool":"harness_read"},
+        "diagnostics":[{"code":"READ_WARNING"}], "omitted":{"text":true},
+        "detail":{"ref":"detail-ref", "complete":false}, "data":{"text":"source"}
+    });
+    let expected_diagnostics = envelope["diagnostics"].clone();
+    let expected_omitted = envelope["omitted"].clone();
+    let expected_detail = envelope["detail"].clone();
+    let compact = response_with_compact(envelope.take(), true)
+        .structured_content.unwrap();
+    assert_eq!(compact["diagnostics"], expected_diagnostics);
+    assert_eq!(compact["omitted"], expected_omitted);
+    assert_eq!(compact["detail"], expected_detail);
+    assert!(compact.get("requestId").is_none());
+}
+
+#[test]
+fn default_response_preserves_legacy_envelope() {
+    let envelope = json!({
+        "state":"ok", "requestId":"r1", "scope":{"tool":"harness_read"},
+        "diagnostics":[], "omitted":{}, "detail":null, "data":{"text":"source"}
+    });
+    let result = response_with_presentation(envelope.clone(), false);
+    assert_eq!(result.structured_content.as_ref(), Some(&envelope));
 }

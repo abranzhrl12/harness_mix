@@ -193,6 +193,8 @@ fn protects_instructions_internal_paths_secrets_and_hardlinks() {
         path: "original.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     }));
     assert_eq!(result["data"]["text"], "old");

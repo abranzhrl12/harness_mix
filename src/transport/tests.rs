@@ -175,6 +175,8 @@ async fn cancellation_and_handler_drop_stop_workers_and_release_session_leases()
             path: "waiting".into(),
             start: 1,
             end: 1,
+            compact: false,
+            line_numbers: false,
             session: Some("session".into()),
         });
         let handler = tokio::spawn(async move {

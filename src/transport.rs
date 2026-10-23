@@ -15,7 +15,7 @@ use harness_domain::contracts::{
 };
 use presentation::response;
 #[cfg(test)]
-use presentation::response_with_presentation;
+use presentation::{response_with_compact, response_with_presentation};
 use rmcp::{
     RoleServer, ServerHandler,
     handler::server::wrapper::Parameters,
@@ -242,7 +242,7 @@ where
         self.call(Request::Bootstrap(args), context).await
     }
 
-    #[tool(description = "Lee hasta 420 líneas UTF-8 con hash y contexto.")]
+    #[tool(description = "Lee hasta 420 líneas UTF-8 con hash y contexto. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text.")]
     async fn harness_read(
         &self,
         Parameters(args): Parameters<ReadArgs>,

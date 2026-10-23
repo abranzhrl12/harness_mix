@@ -32,6 +32,8 @@ fn a_source_reader_can_be_injected_without_unrelated_workspace_capabilities() {
         path: "sample.rs".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     };
     assert_eq!(

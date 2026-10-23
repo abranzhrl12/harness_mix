@@ -263,6 +263,34 @@ const tabs = [{ path: 'also-fake', component: Fake }];
             .iter()
             .any(|node| node["kind"] == "route")
     );
+    assert!(graph["unresolvedReferences"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|reference| !matches!(
+            reference["referenceKind"].as_str(),
+            Some("angular_route_component" | "angular_route_layout")
+        )));
+    let node_ids = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|node| node["id"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert!(graph["edges"].as_array().unwrap().iter().all(|edge| {
+        [edge["source"].as_str(), edge["target"].as_str()]
+            .into_iter()
+            .flatten()
+            .all(|id| node_ids.contains(id))
+    }));
+
+    let ordinary = "// import type { Routes } from '@angular/router';\nconst marker = '@angular/router';\nconst routes = [{ path: 'ordinary', component: View }];";
+    let graph = extract("ordinary.ts", ordinary, &OperationContext::default()).unwrap();
+    assert!(graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["kind"] == "route"));
 }
 
 #[test]

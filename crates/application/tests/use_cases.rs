@@ -251,6 +251,8 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
         path: "a.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: Some("missing".into()),
     }));
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
@@ -273,6 +275,8 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
         path: "a.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     }));
     assert_eq!(read["state"], "ok");
@@ -381,6 +385,8 @@ fn read_request() -> Request {
         path: "a.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     })
 }
@@ -500,6 +506,8 @@ fn cancellation_and_timeout_are_distinct_and_do_not_leak_session_leases() {
         path: "a.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: Some("memory-session".into()),
     });
     assert_eq!(app.execute(read)["state"], "ok");

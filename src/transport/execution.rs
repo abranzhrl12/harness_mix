@@ -1,5 +1,5 @@
 //! Cancellation and admission ownership for blocking application operations.
-use super::presentation::response;
+use super::presentation::{compact_envelope_metadata, response_with_compact};
 use harness_application::{
     Application,
     ports::{SessionRepository, Workspace},
@@ -19,6 +19,15 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
     request: Request,
     cancelled: impl std::future::Future<Output = ()>,
 ) -> CallToolResult {
+    let compact = matches!(&request, Request::Read(args) if args.compact);
+    let compact_batch_reads = match &request {
+        Request::Batch(args) => args.jobs.iter().enumerate().filter_map(|(index, job)| {
+            (job.tool.name() == "harness_read"
+                && job.arguments.get("compact") == Some(&serde_json::Value::Bool(true)))
+            .then_some(index)
+        }).collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
     let name = request.name();
     let mutating = request.is_mutating();
     let args = request.arguments();
@@ -29,7 +38,7 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
     let _cancel_on_drop = CancelOnDrop(context.clone());
     let operation = match application.prepare(request, context.clone()) {
         Ok(operation) => operation,
-        Err(envelope) => return response(envelope),
+        Err(envelope) => return response_with_compact(envelope, compact),
     };
     let request_id = operation.request_id().to_owned();
     let mut worker = tokio::task::spawn_blocking(move || operation.run());
@@ -46,7 +55,18 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
             else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
         },
     };
+    for index in compact_batch_reads {
+        if let Some(result) = envelope["data"]["results"].as_array_mut().and_then(|items| items.get_mut(index)) {
+            compact_envelope_metadata(result);
+        }
+        if let Some(result) = envelope["data"]["_detail"]["results"].as_array_mut()
+            .and_then(|items| items.get_mut(index))
+            .and_then(|item| item.get_mut("result"))
+        {
+            compact_envelope_metadata(result);
+        }
+    }
     // A detached worker retains its admission/session guards until it really stops.
     envelope["requestId"] = serde_json::json!(request_id);
-    response(envelope)
+    response_with_compact(envelope, compact)
 }

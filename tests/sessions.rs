@@ -82,6 +82,8 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         path: "demo.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: Some("current".into()),
     }));
     assert_eq!(read_res["state"], "ok", "{read_res}");

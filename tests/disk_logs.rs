@@ -8,6 +8,8 @@ fn read(app: &NativeApplication) -> Value {
         path: "good.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     }))
 }

@@ -64,6 +64,11 @@ pub struct ReadArgs {
     pub path: String,
     pub start: usize,
     pub end: usize,
+    /// Remove only empty envelope metadata and the public request ID; defaults to false.
+    pub compact: bool,
+    /// Add display-only absolute line numbers while preserving `text`; defaults to false.
+    #[serde(rename = "lineNumbers")]
+    pub line_numbers: bool,
     pub session: Option<String>,
 }
 
@@ -89,6 +94,12 @@ struct ReadInput {
     /// Number of lines starting at start; mutually exclusive with end.
     #[serde(default)]
     lines: Option<usize>,
+    /// Compact envelope presentation; disabled by default.
+    #[serde(default)]
+    compact: bool,
+    /// Add display-only absolute line numbers; disabled by default.
+    #[serde(default, rename = "lineNumbers")]
+    line_numbers: bool,
     #[serde(alias = "sessionId")]
     session: Option<String>,
 }
@@ -124,6 +135,8 @@ impl TryFrom<ReadInput> for ReadArgs {
             path: input.path,
             start: input.start,
             end,
+            compact: input.compact,
+            line_numbers: input.line_numbers,
             session: input.session,
         })
     }

@@ -6,6 +6,34 @@ use harness_domain::contracts::{
 };
 
 #[cfg(test)]
+mod read_presentation_contract_tests {
+    use harness_domain::contracts::ReadArgs;
+    use serde_json::json;
+
+    #[test]
+    fn compact_and_line_numbers_are_optional_false_by_default_and_accepted() {
+        let defaults: ReadArgs = serde_json::from_value(json!({"path":"x.rs", "lines":2})).unwrap();
+        assert!(!defaults.compact);
+        assert!(!defaults.line_numbers);
+
+        let requested: ReadArgs = serde_json::from_value(json!({
+            "path":"x.rs", "lines":2, "compact":true, "lineNumbers":true
+        })).unwrap();
+        assert!(requested.compact);
+        assert!(requested.line_numbers);
+        let serialized = serde_json::to_value(requested).unwrap();
+        assert_eq!(serialized["compact"], true);
+        assert_eq!(serialized["lineNumbers"], true);
+        for invalid in [
+            json!({"path":"x.rs", "lines":1, "compact":"yes"}),
+            json!({"path":"x.rs", "lines":1, "lineNumbers":1}),
+        ] {
+            assert!(serde_json::from_value::<ReadArgs>(invalid).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
 mod symbols_contract_tests {
     use super::*;
     use serde_json::json;

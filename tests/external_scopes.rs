@@ -31,6 +31,8 @@ fn read(app: &NativeApplication, id: &str, scope: &str, path: &str) -> Value {
         path: path.into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: Some(id.into()),
         external_scope: Some(scope.into()),
     }))

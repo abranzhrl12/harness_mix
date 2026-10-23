@@ -9,6 +9,33 @@ use std::{
 
 const MAX_FILE: u64 = 2 * 1024 * 1024;
 
+pub(crate) fn numbered_text(text: &str, start: usize, end: usize) -> String {
+    if end < start {
+        return String::new();
+    }
+    let mut numbered = String::with_capacity(text.len() + text.lines().count() * 12);
+    let mut line_number = start;
+
+    if text.is_empty() {
+        return format!("{line_number} | ");
+    }
+
+    for line in text.split_inclusive('\n') {
+        if line_number > end {
+            break;
+        }
+        numbered.push_str(&format!("{line_number} | "));
+        numbered.push_str(line);
+        line_number += 1;
+    }
+
+    if text.ends_with('\n') && line_number <= end {
+        numbered.push_str(&format!("{line_number} | "));
+    }
+
+    numbered
+}
+
 pub(super) fn external_sensitive(relative: &str) -> bool {
     external_sensitive_reason(relative).is_some()
 }
@@ -585,6 +612,18 @@ mod tests {
         for (start, end) in [(0, 1), (2, 1), (1, 421), (4, 4)] {
             assert_eq!(p.read("example.txt", start, end).unwrap_err().0, "RANGE");
         }
+    }
+    #[test]
+    fn numbered_text_preserves_newlines_and_uses_absolute_line_numbers() {
+        assert_eq!(numbered_text("uno\r\ndos\r\n", 8, 10), "8 | uno\r\n9 | dos\r\n10 | ");
+        assert_eq!(numbered_text("uno\ndos", 4, 5), "4 | uno\n5 | dos");
+    }
+    #[test]
+    fn numbered_text_handles_eof_without_a_final_newline_and_empty_text() {
+        assert_eq!(numbered_text("fin", 12, 12), "12 | fin");
+        assert_eq!(numbered_text("a\n", 12, 12), "12 | a\n");
+        assert_eq!(numbered_text("", 1, 1), "1 | ");
+        assert_eq!(numbered_text("", 1, 0), "");
     }
     #[test]
     fn wider_reads_keep_byte_and_range_limits() {

@@ -2,14 +2,47 @@
 use rmcp::model::CallToolResult;
 
 pub(super) fn response(envelope: serde_json::Value) -> CallToolResult {
-    response_with_presentation(
+    response_with_compact(envelope, false)
+}
+
+pub(super) fn response_with_compact(
+    mut envelope: serde_json::Value,
+    compact: bool,
+) -> CallToolResult {
+    if compact {
+        compact_envelope_metadata(&mut envelope);
+    }
+    response_with_options(
         envelope,
         std::env::var("HARNESS_MCP_PRESENTATION").as_deref() == Ok("context"),
     )
 }
 
+pub(super) fn compact_envelope_metadata(envelope: &mut serde_json::Value) {
+    if let Some(object) = envelope.as_object_mut() {
+        object.remove("requestId");
+        if object.get("diagnostics").is_some_and(|v| v.as_array().is_some_and(Vec::is_empty)) {
+            object.remove("diagnostics");
+        }
+        if object.get("omitted").is_some_and(|v| v.as_object().is_some_and(serde_json::Map::is_empty)) {
+            object.remove("omitted");
+        }
+        if object.get("detail").is_some_and(serde_json::Value::is_null) {
+            object.remove("detail");
+        }
+    }
+}
+
 // Opt-in client presentation only. The complete structured envelope stays unchanged.
+#[cfg(test)]
 pub(super) fn response_with_presentation(
+    envelope: serde_json::Value,
+    context: bool,
+) -> CallToolResult {
+    response_with_options(envelope, context)
+}
+
+fn response_with_options(
     envelope: serde_json::Value,
     context: bool,
 ) -> CallToolResult {

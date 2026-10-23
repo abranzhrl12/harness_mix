@@ -11,6 +11,8 @@ fn request() -> Request {
         path: "private-path-not-retained.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     })
 }
@@ -37,6 +39,8 @@ fn clones_share_metrics_but_restarts_and_sessions_do_not_restore_counters() {
             path: "good.txt".into(),
             start: 1,
             end: 1,
+            compact: false,
+            line_numbers: false,
             session: None
         }))["state"],
         "ok"

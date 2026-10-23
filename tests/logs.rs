@@ -24,6 +24,8 @@ fn logs_filter_worker_failures_without_paths_arguments_or_contents() {
         path: "secret-request-path.txt".into(),
         start: 1,
         end: 1,
+        compact: false,
+        line_numbers: false,
         session: None,
     }));
     let errors = logs(&app, Some("error"), None);
@@ -53,6 +55,8 @@ fn cancelled_rejections_and_abandoned_work_are_warnings() {
             path: "x".into(),
             start: 1,
             end: 1,
+            compact: false,
+            line_numbers: false,
             session: None,
         })
     };
@@ -89,6 +93,8 @@ fn request_ids_correlate_completed_rejected_and_abandoned_operations() {
             path: "x".into(),
             start: 1,
             end: 1,
+            compact: false,
+            line_numbers: false,
             session: None,
         })
     };

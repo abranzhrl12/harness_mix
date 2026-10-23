@@ -167,6 +167,12 @@ pub(super) fn registered_routes<'a>(
     if parsed.diagnostics.has_errors() {
         return Ok(Vec::new());
     }
+    if parsed.program.body.iter().any(|statement| {
+        matches!(statement, Statement::ImportDeclaration(declaration)
+            if declaration.source.value == "@angular/router")
+    }) {
+        return Ok(Vec::new());
+    }
 
     let mut route_arrays = Vec::<&ArrayExpression<'_>>::new();
     let mut candidate_arrays = BTreeMap::<String, &ArrayExpression<'_>>::new();
