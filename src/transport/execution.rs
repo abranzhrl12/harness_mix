@@ -1,5 +1,7 @@
 //! Cancellation and admission ownership for blocking application operations.
-use super::presentation::{compact_envelope_metadata, response_with_compact};
+use super::presentation::{
+    clean_empty_metadata, compact_envelope_metadata, response_with_compact,
+};
 use harness_application::{
     Application,
     ports::{SessionRepository, Workspace},
@@ -55,6 +57,18 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
             else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
         },
     };
+    if let Some(results) = envelope["data"]["results"].as_array_mut() {
+        for result in results {
+            clean_empty_metadata(result);
+        }
+    }
+    if let Some(results) = envelope["data"]["_detail"]["results"].as_array_mut() {
+        for item in results {
+            if let Some(result) = item.get_mut("result") {
+                clean_empty_metadata(result);
+            }
+        }
+    }
     for index in compact_batch_reads {
         if let Some(result) = envelope["data"]["results"].as_array_mut().and_then(|items| items.get_mut(index)) {
             compact_envelope_metadata(result);

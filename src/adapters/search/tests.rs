@@ -13,12 +13,12 @@ fn configured_ignore_filename_is_reported_even_without_a_policy_file() {
     }))
     .unwrap();
     let result = search(&project, &args).unwrap();
-    assert_eq!(result["exclusionPolicy"]["customFile"], ".harnessignore");
-    assert!(result["exclusionPolicy"]["customPatterns"].is_null());
+    assert_eq!(result["_detail"]["exclusionPolicy"]["customFile"], ".harnessignore");
+    assert!(result["_detail"]["exclusionPolicy"]["customPatterns"].is_null());
     args.scope = Some("visible.txt".into());
     let scoped = search(&project, &args).unwrap();
-    assert!(scoped["exclusionPolicy"]["customFile"].is_null());
-    assert!(scoped["exclusionPolicy"]["customPatterns"].is_null());
+    assert!(scoped["_detail"]["exclusionPolicy"]["customFile"].is_null());
+    assert!(scoped["_detail"]["exclusionPolicy"]["customPatterns"].is_null());
 }
 
 #[test]
@@ -341,8 +341,8 @@ fn harnessignore_excludes_and_supports_negation_without_incomplete_results() {
     assert!(paths.iter().any(|path| *path == "src.txt"));
     assert_eq!(result["complete"], true);
     assert_eq!(result["skipped"], 0);
-    assert_eq!(result["exclusionPolicy"]["scopeOverride"], false);
-    assert_eq!(result["exclusionPolicy"]["customPatterns"], 2);
+    assert_eq!(result["_detail"]["exclusionPolicy"]["scopeOverride"], false);
+    assert_eq!(result["_detail"]["exclusionPolicy"]["customPatterns"], 2);
 }
 
 #[test]
@@ -355,7 +355,7 @@ fn explicit_scope_overrides_harnessignore_with_warning() {
     let result = search(&project, &text_args(Some("generated"))).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
     assert_eq!(result["warnings"][0]["code"], "SCOPE_OVERRIDES_EXCLUSIONS");
-    assert_eq!(result["exclusionPolicy"]["customFile"], Value::Null);
+    assert_eq!(result["_detail"]["exclusionPolicy"]["customFile"], Value::Null);
     assert_eq!(result["complete"], true);
 }
 

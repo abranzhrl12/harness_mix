@@ -305,9 +305,10 @@ impl Routes {
         } else {
             Path::new(ROOT)
         };
-        let found = resolver
-            .resolve(directory, &request)
-            .or_else(|_| self.emitted.resolve(directory, &request));
+    let found = resolver
+        .resolve(directory, &request)
+        .or_else(|_| self.emitted.resolve(directory, &request));
+        eprintln!("RESOLVE-DIAG bare={bare} request={request} found={found:?}");
         context.check()?;
         if self.view.0.probes.load(Ordering::Relaxed) >= MAX_PROBES {
             return Err(LIMIT);

@@ -69,7 +69,7 @@ pub fn impact(args: &ExploreArgs, result: Value) -> Value {
         "fileFreshness":result["fileFreshness"],"diagnostics":result["diagnostics"],
         "unresolved":result["unresolved"],"traversal":graph["traversal"],"truncation":graph["truncation"],
         "truncated":graph_limited || omitted>0,"absenceProven":false,"indexFreshness":"not_certified",
-        "notice":"Indexed callers only; dynamic dispatch, macros and unresolved references may be absent. Declaration lines are not exact call sites. Inspect ambiguity and coverage before editing.",
+        "notice":"Indexed callers only; dynamic dispatch, macros and unresolved references may be absent.",
         "_complete":result["_complete"]==true && !ambiguous && omitted==0,
         "_detail":{"callers":all,"graph":graph,"exploration":result}})
 }

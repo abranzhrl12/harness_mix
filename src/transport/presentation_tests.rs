@@ -103,3 +103,21 @@ fn default_response_preserves_legacy_envelope() {
     let result = response_with_presentation(envelope.clone(), false);
     assert_eq!(result.structured_content.as_ref(), Some(&envelope));
 }
+
+#[test]
+fn default_compact_response_cleans_empty_diagnostics_omitted_and_detail() {
+    let envelope = json!({
+        "state":"ok", "requestId":"r1", "scope":{"tool":"harness_symbols"},
+        "diagnostics":[], "omitted":{}, "detail":null, "data":{"found":true}
+    });
+    let result = response_with_compact(envelope, false);
+    let structured = result.structured_content.unwrap();
+    assert_eq!(structured["state"], "ok");
+    assert_eq!(structured["scope"]["tool"], "harness_symbols");
+    assert_eq!(structured["data"]["found"], true);
+    assert_eq!(structured["requestId"], "r1");
+    assert!(structured.get("diagnostics").is_none());
+    assert!(structured.get("omitted").is_none());
+    assert!(structured.get("detail").is_none());
+}
+

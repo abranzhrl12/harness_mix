@@ -182,6 +182,14 @@ pub(super) fn respond(
         ]
     };
     let preview = prefix(&text, max_chars);
+    // Compact data view: when every contributing file still matches, the full
+    // per-file freshness records and legal notices stay retrievable in _detail.
+    let freshness_full = freshness;
+    let freshness = if matching {
+        json!({"status":freshness_full["status"],"matchingFiles":freshness_full["matchingFiles"],"staleFiles":freshness_full["staleFiles"],"uncheckedFiles":freshness_full["uncheckedFiles"],"detailTarget":"_detail.fileFreshness"})
+    } else {
+        freshness_full.clone()
+    };
     let partial = truncated
         || context_omitted > 0
         || !unresolved.is_empty()
@@ -242,13 +250,14 @@ pub(super) fn respond(
     Ok(
         json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") || (super::razor_file_selector(args) && !targets.is_empty()) {"resolved"} else {"unresolved"}},
         "view":if impact {"impact"} else if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
-        "reuseGuidance":"Use complete definitions already present in your context; do not read them again unless missing or changed. For partial/signature_only definitions use nextCall only when the missing body is needed. Hashes identify the observed source, not future freshness. Numbered Markdown is not replacement text.",
+        "reuseGuidance":"Reuse definitions already in context; call nextCall only for missing bodies. Numbered Markdown is not replacement text.",
         "contextSelection":{"requestedSymbols":requested,"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls and local SQL table dependencies; production before tests; ambiguous local bodies are not guessed"},
         "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",
         "indexFreshness":"not_certified","synchronized":false,"absenceProven":false,"fileFreshness":freshness,"diagnostics":diagnostics,
-        "synchronization":{"performed":false,"nativeIndexerAvailable":true,"supportedLanguages":["rust","csharp","javascript","typescript","jsx","tsx"],"reason":"syncIndex_not_requested"},
-        "notice":"Bounded indexed relationships, not execution traces. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. No exhaustive impact, absence or index freshness claims. Indexer availability does not grant write authorization. Preview is not replacement text.",
+        "synchronization":{"performed":false,"nativeIndexerAvailable":true},
+        "notice":"Bounded indexed relationships, not execution traces; full notices in _detail.notice.",
         "truncated":truncated || utf16_len(&text)>max_chars || context_omitted>0 || displayed_graph["summaryTruncated"]==true,"_complete":!partial,
-        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":full_graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness,"indexFreshness":"not_certified","synchronized":false}}),
+        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":full_graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness_full,
+        "notice":"Not execution traces or exhaustive impact; matching content does not prove index completeness, relation validity, unindexed changes or a coherent whole-workspace snapshot. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. Indexer availability does not grant write authorization. Preview is not replacement text.","indexFreshness":"not_certified","synchronized":false}}),
     )
 }

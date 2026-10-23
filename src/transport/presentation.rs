@@ -9,8 +9,11 @@ pub(super) fn response_with_compact(
     mut envelope: serde_json::Value,
     compact: bool,
 ) -> CallToolResult {
+    clean_empty_metadata(&mut envelope);
     if compact {
-        compact_envelope_metadata(&mut envelope);
+        if let Some(object) = envelope.as_object_mut() {
+            object.remove("requestId");
+        }
     }
     response_with_options(
         envelope,
@@ -18,9 +21,8 @@ pub(super) fn response_with_compact(
     )
 }
 
-pub(super) fn compact_envelope_metadata(envelope: &mut serde_json::Value) {
+pub(super) fn clean_empty_metadata(envelope: &mut serde_json::Value) {
     if let Some(object) = envelope.as_object_mut() {
-        object.remove("requestId");
         if object.get("diagnostics").is_some_and(|v| v.as_array().is_some_and(Vec::is_empty)) {
             object.remove("diagnostics");
         }
@@ -31,6 +33,13 @@ pub(super) fn compact_envelope_metadata(envelope: &mut serde_json::Value) {
             object.remove("detail");
         }
     }
+}
+
+pub(super) fn compact_envelope_metadata(envelope: &mut serde_json::Value) {
+    if let Some(object) = envelope.as_object_mut() {
+        object.remove("requestId");
+    }
+    clean_empty_metadata(envelope);
 }
 
 // Opt-in client presentation only. The complete structured envelope stays unchanged.

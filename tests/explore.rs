@@ -385,8 +385,23 @@ fn contributing_files_are_checked_and_strict_mode_requires_matching_content() {
         "matches_observed_files"
     );
     assert_eq!(
-        initial["data"]["fileFreshness"]["certifiesIndexFreshness"],
-        false
+        initial["data"]["fileFreshness"]["detailTarget"],
+        "_detail.fileFreshness"
+    );
+    let detail = app.execute(Request::DataQuery(
+        serde_json::from_value(json!({
+            "resultRef":initial["detail"]["ref"],
+            "query":"{freshness:fileFreshness.certifiesIndexFreshness,notice:fileFreshness.notice}",
+            "maxChars":16000
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(detail["state"], "ok", "{detail}");
+    let recovered = &detail["data"]["result"];
+    assert_eq!(recovered["freshness"], false);
+    assert_eq!(
+        recovered["notice"],
+        "Matching content does not prove index completeness, relation validity, unindexed changes or a coherent whole-workspace snapshot; intermediate reverted changes can be missed."
     );
     assert_eq!(initial["data"]["indexFreshness"], "not_certified");
     std::fs::write(
@@ -463,14 +478,18 @@ fn freshness_covers_related_files_and_never_certifies_unindexed_changes() {
         shallow["data"]["fileFreshness"]["status"],
         "matches_observed_files"
     );
-    assert_eq!(
-        shallow["data"]["fileFreshness"]["unindexedFilesChecked"],
-        false
-    );
-    assert_eq!(
-        shallow["data"]["fileFreshness"]["wholeWorkspaceChecked"],
-        false
-    );
+    let detail = app.execute(Request::DataQuery(
+        serde_json::from_value(json!({
+            "resultRef":shallow["detail"]["ref"],
+            "query":"{unindexed:fileFreshness.unindexedFilesChecked,whole:fileFreshness.wholeWorkspaceChecked}",
+            "maxChars":16000
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(detail["state"], "ok", "{detail}");
+    let recovered = &detail["data"]["result"];
+    assert_eq!(recovered["unindexed"], false);
+    assert_eq!(recovered["whole"], false);
     assert_eq!(shallow["data"]["synchronization"]["performed"], false);
 }
 

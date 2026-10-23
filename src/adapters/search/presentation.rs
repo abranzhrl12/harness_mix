@@ -45,24 +45,45 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
     } else {
         "matches"
     };
-    let mut result = json!({"omitted":all.len().saturating_sub(compact.len()),"truncated":truncated || !complete,"_complete":complete,
-        "cancelled":cancelled,"timedOut":timed_out,"complete":complete,"scanned":visited,"bytesRead":bytes,"skipped":skipped,"skippedFiles":skipped_files,"unvisitedFiles":bounded || timed_out || cancelled,"limited":bounded,
-        "timings":{"executionMs":execution_ms,"directoryProcessing":folders,
-            "omittedFolders":omitted_folders,
-            "walkAndOtherMicros":walk_and_other_micros,
-            "coverage":"top 8 folder processing times, grouped to depth 2; traversal and other work reported separately"},
-        "exclusions":[".git",".hg",".svn","node_modules","target","credential and secret paths"],
-        "exclusionPolicy":{
-            "defaults":ignore_policy::DEFAULT_EXCLUSIONS,
-            "hardExclusions":ignore_policy::HARD_EXCLUSIONS,
-            "customFile":if !explicit_scope {json!(ignore_policy::FILE)} else {Value::Null},
-            "customPatterns":custom_patterns.map_or(Value::Null, |count| json!(count)),
-            "scopeOverride":explicit_scope,
-            "gitignore":true,
-            "effect":"Policy exclusions reduce scanned paths; they are not skipped-file errors and never make complete=false"
+    let mut result = json!({
+        "omitted": all.len().saturating_sub(compact.len()),
+        "truncated": truncated || !complete,
+        "_complete": complete,
+        "cancelled": cancelled,
+        "timedOut": timed_out,
+        "complete": complete,
+        "scanned": visited,
+        "bytesRead": bytes,
+        "skipped": skipped,
+        "skippedFiles": skipped_files,
+        "unvisitedFiles": bounded || timed_out || cancelled,
+        "limited": bounded,
+        "warnings": if explicit_scope {
+            json!([{"code":"SCOPE_OVERRIDES_EXCLUSIONS","message":"An explicit scope bypasses project .harnessignore patterns; VCS metadata, secrets and defaults remain excluded"}])
+        } else {
+            json!([])
         },
-        "warnings":if explicit_scope {json!([{"code":"SCOPE_OVERRIDES_EXCLUSIONS","message":"An explicit scope bypasses project .harnessignore patterns; VCS metadata, secrets and defaults remain excluded"}])} else {json!([])},
-        "_detail":{},"diagnostics":[]});
+        "_detail": {
+            "timings": {
+                "executionMs": execution_ms,
+                "directoryProcessing": folders,
+                "omittedFolders": omitted_folders,
+                "walkAndOtherMicros": walk_and_other_micros,
+                "coverage": "top 8 folder processing times, grouped to depth 2; traversal and other work reported separately"
+            },
+            "exclusions": [".git", ".hg", ".svn", "node_modules", "target", "credential and secret paths"],
+            "exclusionPolicy": {
+                "defaults": ignore_policy::DEFAULT_EXCLUSIONS,
+                "hardExclusions": ignore_policy::HARD_EXCLUSIONS,
+                "customFile": if !explicit_scope { json!(ignore_policy::FILE) } else { Value::Null },
+                "customPatterns": custom_patterns.map_or(Value::Null, |count| json!(count)),
+                "scopeOverride": explicit_scope,
+                "gitignore": true,
+                "effect": "Policy exclusions reduce scanned paths; they are not skipped-file errors and never make complete=false"
+            }
+        },
+        "diagnostics": []
+    });
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
     if args.context_lines.is_some() {
