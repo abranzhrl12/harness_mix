@@ -33,6 +33,32 @@ pub(super) fn clean_empty_metadata(envelope: &mut serde_json::Value) {
             object.remove("detail");
         }
     }
+    clean_collection_result_placeholders(envelope);
+}
+
+// These response envelopes own these collection slots. Do not walk arbitrary
+// JSON payloads: a SQL row may legitimately contain `results: null`.
+fn clean_collection_result_placeholders(envelope: &mut serde_json::Value) {
+    if !matches!(
+        envelope["scope"]["tool"].as_str(),
+        Some("harness_read" | "harness_search" | "harness_batch")
+    ) {
+        return;
+    }
+    let Some(data) = envelope.get_mut("data").and_then(serde_json::Value::as_object_mut) else {
+        return;
+    };
+    if data.get("results").is_some_and(serde_json::Value::is_null) {
+        data.remove("results");
+    }
+    if let Some(detail) = data.get_mut("_detail").and_then(serde_json::Value::as_object_mut) {
+        if detail.get("results").is_some_and(serde_json::Value::is_null) {
+            detail.remove("results");
+        }
+        if detail.is_empty() {
+            data.remove("_detail");
+        }
+    }
 }
 
 pub(super) fn compact_envelope_metadata(envelope: &mut serde_json::Value) {
@@ -100,4 +126,50 @@ fn response_with_options(
         result.content = vec![rmcp::model::ContentBlock::text(text)];
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_empty_metadata;
+    use serde_json::json;
+
+    #[test]
+    fn removes_null_results_from_read_search_and_batch_envelopes() {
+        for tool in ["harness_read", "harness_search", "harness_batch"] {
+            let mut response = json!({
+                "scope": {"tool": tool},
+                "data": {
+                    "results": null,
+                    "_detail": {"results": null},
+                    "optional": null
+                }
+            });
+
+            clean_empty_metadata(&mut response);
+
+            assert_eq!(response, json!({
+                "scope": {"tool": tool},
+                "data": {"optional": null}
+            }));
+        }
+
+        let mut payload = json!({
+            "scope": {"tool": "harness_sql"},
+            "data": {"rows": [{"results": null}], "_detail": {"results": null}}
+        });
+        let expected = payload.clone();
+        clean_empty_metadata(&mut payload);
+        assert_eq!(payload, expected);
+
+        let mut populated = json!({
+            "scope": {"tool": "harness_search"},
+            "data": {
+                "results": [{"match": 1}],
+                "_detail": {"results": [{"match": 2}], "cursor": "next"}
+            }
+        });
+        let expected = populated.clone();
+        clean_empty_metadata(&mut populated);
+        assert_eq!(populated, expected);
+    }
 }
