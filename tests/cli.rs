@@ -28,6 +28,34 @@ fn help_and_version_exit_without_starting_mcp() {
 }
 
 #[test]
+fn agent_configuration_and_noninteractive_errors_do_not_start_mcp_or_an_agent() {
+    let root = tempfile::tempdir().unwrap();
+    for option in ["config", "/config"] {
+        let output = command(root.path())
+            .env("PATH", "")
+            .env("LOCALAPPDATA", root.path())
+            .arg(option)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Antigravity: no instalado"));
+        assert!(output.stderr.is_empty());
+    }
+    let menu = command(root.path()).arg("active").output().unwrap();
+    assert!(!menu.status.success());
+    assert!(String::from_utf8_lossy(&menu.stderr).contains("necesita una terminal"));
+    let unavailable = command(root.path())
+        .env("PATH", "")
+        .env("LOCALAPPDATA", root.path())
+        .args(["active", "antigravity"])
+        .output()
+        .unwrap();
+    assert!(!unavailable.status.success());
+    assert!(!root.path().join(".codegraph").exists());
+    assert!(!root.path().join(".agents").exists());
+}
+
+#[test]
 fn index_options_detect_the_project_without_root_argument() {
     let root = tempfile::tempdir().unwrap();
     let implicit = command(root.path()).arg("--sync-plan").output().unwrap();

@@ -11,6 +11,10 @@ autotests = true
 name = "agent-harness"
 path = "src/main.rs"
 
+[[bin]]
+name = "harnessmix"
+path = "src/harnessmix.rs"
+
 [[test]]
 name = "razor_graph_containers"
 path = "tests/razor_graph_containers.rs"
@@ -55,7 +59,10 @@ exclude = ["vendor/codegraph-native"]
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "net"] }
+rustyline-async = { path = "vendor/rustyline-async" }
+termimad = "=0.35.4"
+base64 = "=0.22.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "net", "process", "signal"] }
 uuid = { version = "1", features = ["v4"] }
 harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
@@ -87,13 +94,14 @@ jmespath = { version = "0.3", features = ["sync"] }
 mimalloc = { version = "0.1.52", default-features = false }
 raffia = "=0.13.0"
 tl = "=0.7.8"
+image = { version = "=0.25.8", default-features = false, features = ["bmp", "png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 notify = "=8.2.0"
-windows = { version = "=0.62.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_Memory"] }
 
 [dev-dependencies]
 syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "visit"] }

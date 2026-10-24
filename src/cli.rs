@@ -1,5 +1,6 @@
 use std::{ffi::OsString, path::PathBuf};
 
+mod active;
 mod parser;
 mod plan_summary;
 mod skills_sync;
@@ -17,6 +18,10 @@ pub async fn run(
     match command {
         Command::Help => print_help(),
         Command::Version => println!("agent-harness {}", env!("CARGO_PKG_VERSION")),
+        Command::Config => active::config()?,
+        Command::Active { root, provider } => {
+            active::run(&resolve_root(root)?, provider.as_deref())?;
+        }
         Command::InitConfig { root } => {
             let result = agent_harness::adapters::database_setup::initialize(&resolve_root(root)?)
                 .map_err(|(code, message)| format!("{code}: {message}"))?;
@@ -203,6 +208,7 @@ fn run_index(
 }
 
 fn print_help() {
+    println!("Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n");
     println!(
         "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init --root <proyecto> Preparar skills, config local y ejemplo MCP del proyecto\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
     );

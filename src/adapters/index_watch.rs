@@ -56,11 +56,13 @@ impl IndexWatch {
             .share_mode(0)
             .custom_flags(0x0020_0000)
             .open(lock)
-            .map_err(|_| {
+            .map_err(|error| if lock_contended(&error) {
                 (
                     "SYNC_WATCH_BUSY",
-                    "Another automatic index writer owns this project, or its lock is unavailable",
+                    "Another automatic index writer owns this project",
                 )
+            } else {
+                ("SYNC_WATCH", "Cannot open automatic index lock")
             })?;
         let mut identity = BY_HANDLE_FILE_INFORMATION::default();
         unsafe { GetFileInformationByHandle(HANDLE(lease.as_raw_handle()), &mut identity) }
@@ -126,6 +128,10 @@ impl IndexWatch {
             status,
         })
     }
+}
+
+fn lock_contended(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(32 | 33)) // sharing/lock violation
 }
 
 impl Drop for IndexWatch {

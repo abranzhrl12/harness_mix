@@ -1,0 +1,16 @@
+{
+  "harnessmix-acp-hook-probe": {
+    "PreToolUse": [
+      {
+        "matcher": "view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .agents/deny_view_file.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

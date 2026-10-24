@@ -11,6 +11,8 @@ use parsers::{
     rust::syntax as rust_syntax, vue::structure as vue_structure, vue::syntax as vue_syntax,
 };
 mod capabilities;
+pub mod agent;
+pub mod acp;
 mod composition;
 mod config;
 mod create_file;

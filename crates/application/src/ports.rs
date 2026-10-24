@@ -2,6 +2,8 @@ use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
 pub mod indexing;
+pub mod agent;
+pub mod conversation;
 pub mod jobs;
 pub mod parsing;
 pub use jobs::{JobEvent, JobEventFuture, JobEventStream, JobFuture, JobService};

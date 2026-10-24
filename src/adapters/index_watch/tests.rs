@@ -32,6 +32,13 @@ fn count(root: &Path, query: &str) -> i64 {
 }
 
 #[test]
+fn watcher_busy_means_windows_sharing_or_lock_violation() {
+    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(32)));
+    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(33)));
+    assert!(!super::lock_contended(&std::io::Error::from_raw_os_error(5)));
+}
+
+#[test]
 fn native_watcher_updates_only_changed_files_handles_rename_delete_and_releases_lease() {
     let root = tempfile::tempdir().unwrap();
     index_store::initialize(root.path(), &OperationContext::default()).unwrap();

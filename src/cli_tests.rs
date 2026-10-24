@@ -5,6 +5,41 @@ fn parse_args(args: &[&str]) -> Result<Command, String> {
 }
 
 #[test]
+fn parses_agent_menu_without_changing_stdio_server_default() {
+    assert!(matches!(
+        parse_args(&["active"]),
+        Ok(Command::Active {
+            root: Root::DetectOrCurrent,
+            provider: None,
+        })
+    ));
+    for args in [
+        vec!["active", "antigravity", "--root", "project with spaces"],
+        vec!["--root", "project with spaces", "active", "antigravity"],
+    ] {
+        assert!(matches!(parse_args(&args), Ok(Command::Active {
+            root: Root::Explicit(root), provider: Some(provider),
+        }) if root == PathBuf::from("project with spaces") && provider == "antigravity"));
+    }
+    for args in [vec!["config"], vec!["/config"]] {
+        assert!(matches!(parse_args(&args), Ok(Command::Config)));
+    }
+    for args in [
+        vec!["active", "unknown"],
+        vec!["active", "--root"],
+        vec!["active", "--root", ""],
+        vec!["active", "antigravity", "antigravity"],
+        vec!["--root", "one", "active", "--root", "two"],
+        vec!["config", "unexpected"],
+    ] {
+        assert!(
+            parse_args(&args).is_err(),
+            "accepted invalid args: {args:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_server_defaults_and_flags() {
     assert!(matches!(
         parse_args(&[]),
