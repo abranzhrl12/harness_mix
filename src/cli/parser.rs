@@ -12,6 +12,11 @@ pub(super) enum Root {
 pub(super) enum Command {
     Help,
     Version,
+    Active {
+        root: Root,
+        provider: Option<String>,
+    },
+    Config,
     Serve {
         root: Root,
         workspace_config: Option<PathBuf>,
@@ -54,6 +59,23 @@ pub(super) enum Command {
 pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(Command::Help);
+    }
+
+    if args
+        .first()
+        .is_some_and(|arg| arg == "config" || arg == "/config")
+    {
+        return if args.len() == 1 {
+            Ok(Command::Config)
+        } else {
+            Err("usage: agent-harness config".into())
+        };
+    }
+    if args.first().is_some_and(|arg| arg == "active") {
+        return parse_active_command(&args[1..], None);
+    }
+    if args.len() >= 3 && args[0] == "--root" && args[2] == "active" {
+        return parse_active_command(&args[3..], Some(PathBuf::from(args[1].clone())));
     }
 
     if args.first().is_some_and(|arg| arg == "--workspace-config") {
@@ -210,6 +232,33 @@ pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     }
 
     Err("usage: agent-harness [--root <workspace>] [--workspace-config <manifest.json>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into())
+}
+
+fn parse_active_command(args: &[OsString], mut root: Option<PathBuf>) -> Result<Command, String> {
+    let usage = "usage: agent-harness active [antigravity] [--root <workspace>]";
+    let mut provider = None;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--root" && index + 1 < args.len() && root.is_none() {
+            root = Some(PathBuf::from(&args[index + 1]));
+            index += 2;
+        } else if args[index] == "antigravity" && provider.is_none() {
+            provider = Some("antigravity".to_owned());
+            index += 1;
+        } else {
+            return Err(usage.into());
+        }
+    }
+    if root
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err("active requires a non-empty --root path".into());
+    }
+    Ok(Command::Active {
+        root: root.map_or(Root::DetectOrCurrent, Root::Explicit),
+        provider,
+    })
 }
 
 fn parse_skills_command(args: &[OsString], root: Root) -> Result<Command, String> {

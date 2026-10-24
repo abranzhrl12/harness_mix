@@ -6,10 +6,13 @@ mod platform {
     use super::*;
     use std::{
         io,
-        os::windows::{io::AsRawHandle, process::CommandExt},
+        os::windows::{
+            io::{AsRawHandle, FromRawHandle, OwnedHandle},
+            process::CommandExt,
+        },
     };
     use windows::Win32::{
-        Foundation::{CloseHandle, ERROR_NO_MORE_FILES, HANDLE},
+        Foundation::{ERROR_NO_MORE_FILES, HANDLE},
         System::{
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First,
@@ -27,12 +30,16 @@ mod platform {
         },
     };
 
-    struct Handle(HANDLE);
-    impl Drop for Handle {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = CloseHandle(self.0);
-            }
+    struct Handle(OwnedHandle);
+    impl Handle {
+        /// Takes ownership of a Win32 handle returned by an API.
+        unsafe fn from_raw(handle: HANDLE) -> Self {
+            // SAFETY: callers pass a newly created handle that is not owned elsewhere.
+            Self(unsafe { OwnedHandle::from_raw_handle(handle.0) })
+        }
+
+        fn raw(&self) -> HANDLE {
+            HANDLE(self.0.as_raw_handle())
         }
     }
     pub(crate) struct Tree {
@@ -45,42 +52,52 @@ mod platform {
 
     impl Tree {
         pub(crate) fn attach(child: &Child) -> io::Result<Self> {
+            Self::attach_handle(child.as_raw_handle(), child.id())
+        }
+
+        /// Attach a suspended native or async-runtime child to a new private
+        /// Job Object, then resume its primary thread. The caller retains
+        /// ownership of the process handle.
+        pub(crate) fn attach_handle(
+            process_handle: std::os::windows::io::RawHandle,
+            process_id: u32,
+        ) -> io::Result<Self> {
             // SAFETY: handles remain owned through each API call; all buffers have
             // the exact Win32 structure size and outlive the synchronous calls.
             unsafe {
-                let job = Handle(CreateJobObjectW(None, None).map_err(io::Error::other)?);
+                let job = Handle::from_raw(CreateJobObjectW(None, None).map_err(io::Error::other)?);
                 let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
                 limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
                 SetInformationJobObject(
-                    job.0,
+                    job.raw(),
                     JobObjectExtendedLimitInformation,
                     &limits as *const _ as _,
                     std::mem::size_of_val(&limits) as u32,
                 )
                 .map_err(io::Error::other)?;
-                AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle()))
+                AssignProcessToJobObject(job.raw(), HANDLE(process_handle))
                     .map_err(io::Error::other)?;
                 let tree = Self { job };
-                let snapshot = Handle(
+                let snapshot = Handle::from_raw(
                     CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0).map_err(io::Error::other)?,
                 );
                 let mut entry = THREADENTRY32 {
                     dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
                     ..Default::default()
                 };
-                Thread32First(snapshot.0, &mut entry).map_err(io::Error::other)?;
+                Thread32First(snapshot.raw(), &mut entry).map_err(io::Error::other)?;
                 loop {
-                    if entry.th32OwnerProcessID == child.id() {
-                        let thread = Handle(
+                    if entry.th32OwnerProcessID == process_id {
+                        let thread = Handle::from_raw(
                             OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID)
                                 .map_err(io::Error::other)?,
                         );
-                        if ResumeThread(thread.0) == u32::MAX {
+                        if ResumeThread(thread.raw()) == u32::MAX {
                             return Err(io::Error::last_os_error());
                         }
                         return Ok(tree);
                     }
-                    match Thread32Next(snapshot.0, &mut entry) {
+                    match Thread32Next(snapshot.raw(), &mut entry) {
                         Ok(()) => {}
                         Err(error) if error.code() == ERROR_NO_MORE_FILES.to_hresult() => break,
                         Err(error) => return Err(io::Error::other(error)),
@@ -92,7 +109,7 @@ mod platform {
 
         pub(crate) fn stop(&self) -> io::Result<()> {
             // SAFETY: job handle is live and uniquely owned by this Tree.
-            unsafe { TerminateJobObject(self.job.0, 1).map_err(io::Error::other) }
+            unsafe { TerminateJobObject(self.job.raw(), 1).map_err(io::Error::other) }
         }
 
         pub(crate) fn empty(&self) -> io::Result<bool> {
@@ -100,7 +117,7 @@ mod platform {
             // SAFETY: writable buffer has the documented type and size.
             unsafe {
                 QueryInformationJobObject(
-                    Some(self.job.0),
+                    Some(self.job.raw()),
                     JobObjectBasicAccountingInformation,
                     &mut accounting as *mut _ as _,
                     std::mem::size_of_val(&accounting) as u32,
