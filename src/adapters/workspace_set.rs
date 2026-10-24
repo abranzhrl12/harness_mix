@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::adapters::NativeWorkspace;
+use harness_application::ports::browser::BrowserInspection;
 use harness_application::ports::workspace::{
     ArtifactQueries, LogPersistence, SessionPersistence, SourceEditing, SourceQueries, SqlAccess,
     Verification, VersionControl, WorkspaceDiagnostics, WorkspaceMetadata,
@@ -27,6 +28,22 @@ pub struct WorkspaceProject {
 pub struct MultiNativeWorkspace {
     pub projects: Vec<(WorkspaceProject, NativeWorkspace)>,
     pub workspace_mode: bool,
+}
+
+// A browser connection is session-owned, not tied to a project's filesystem.
+// Keep its registry on the primary workspace so IDs route consistently.
+impl BrowserInspection for MultiNativeWorkspace {
+    fn browser(
+        &self,
+        args: &harness_domain::browser::BrowserArgs,
+        context: &OperationContext,
+    ) -> Result<harness_domain::browser::BrowserResult, Failure> {
+        self.projects
+            .first()
+            .ok_or(("WORKSPACE", "No workspace is configured"))?
+            .1
+            .browser(args, context)
+    }
 }
 
 impl MultiNativeWorkspace {

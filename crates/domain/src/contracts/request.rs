@@ -5,9 +5,11 @@ use super::{
     ProcessStatusArgs, ProposalArgs, ReadArgs, ReadSymbolArgs, ReplaceArgs, SearchArgs,
     TasksAction, TasksArgs, VerifyArgs, VueExtractPreviewArgs, WriteArgs,
 };
+use crate::browser::BrowserArgs;
 use serde_json::Value;
 
 pub enum Request {
+    Browser(BrowserArgs),
     PatchPreview(ReplaceArgs),
     Explore(ExploreArgs),
     ExternalScope(ExternalScopeArgs),
@@ -48,15 +50,24 @@ pub enum Request {
 }
 impl Request {
     pub fn execution_timeout(&self) -> std::time::Duration {
-        if matches!(self, Self::Verify(_)) {
-            // Process deadline plus a bounded window to collect output and stop its tree.
-            std::time::Duration::from_secs(65)
+        if let Self::Verify(args) = self {
+            // The request deadline includes bounded process-tree cleanup after the requested process limit.
+            args.effective_timeout()
+                .unwrap_or_else(|_| {
+                    std::time::Duration::from_secs(
+                        crate::contracts::verification::DEFAULT_VERIFICATION_TIMEOUT_SECONDS,
+                    )
+                })
+                .saturating_add(std::time::Duration::from_secs(5))
         } else {
             crate::execution::DEFAULT_TIMEOUT
         }
     }
     pub fn is_mutating(&self) -> bool {
         matches!(
+            self,
+            Self::Browser(args) if args.is_mutating()
+        ) || matches!(
             self,
             Self::Replace(_)
                 | Self::Write(_)
@@ -78,6 +89,7 @@ impl Request {
     }
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Browser(_) => "harness_browser",
             Self::PatchPreview(_) => "harness_patch_preview",
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
@@ -116,6 +128,7 @@ impl Request {
     }
     pub fn arguments(&self) -> Value {
         match self {
+            Self::Browser(args) => serde_json::to_value(args),
             Self::PatchPreview(args) => serde_json::to_value(args),
             Self::Explore(args) => serde_json::to_value(args),
             Self::ExternalScope(args) => serde_json::to_value(args),
@@ -170,5 +183,99 @@ impl Request {
             Self::Ignore(args) => serde_json::to_value(args),
         }
         .expect("request arguments serialize")
+    }
+}
+
+#[cfg(test)]
+mod browser_request_tests {
+    use super::*;
+
+    #[test]
+    fn browser_request_keeps_tool_name_and_serialized_action() {
+        let request = Request::Browser(BrowserArgs::Connect {
+            endpoint: "http://127.0.0.1:9222".into(),
+            session: Some("session-1".into()),
+        });
+        assert_eq!(request.name(), "harness_browser");
+        assert_eq!(request.arguments()["action"], "connect");
+        assert_eq!(request.arguments()["session"], "session-1");
+        assert!(request.is_mutating());
+    }
+
+    #[test]
+    fn browser_connection_lifecycle_is_mutating_but_inspection_is_read_only() {
+        let read = Request::Browser(BrowserArgs::Inspect {
+            connection_id: "connection-1".into(),
+            target_id: "target-1".into(),
+            selector: None,
+            max_chars: Some(1024),
+            session: Some("session-1".into()),
+        });
+        let attach = Request::Browser(BrowserArgs::Attach {
+            connection_id: "connection-1".into(),
+            target_id: "target-1".into(),
+            session: Some("session-1".into()),
+        });
+        assert!(!read.is_mutating());
+        assert!(attach.is_mutating());
+    }
+}
+
+#[cfg(test)]
+mod verify_timeout_tests {
+    use super::*;
+
+    fn args(timeout_seconds: Option<u64>) -> VerifyArgs {
+        VerifyArgs {
+            language: "rust".into(),
+            scope: None,
+            package: None,
+            project: None,
+            configuration: None,
+            action: None,
+            engine: None,
+            warnings: None,
+            timeout_seconds,
+            session: None,
+        }
+    }
+
+    #[test]
+    fn verify_timeout_defaults_and_adds_cleanup_grace() {
+        assert_eq!(
+            args(None).effective_timeout().unwrap(),
+            std::time::Duration::from_secs(
+                crate::contracts::verification::DEFAULT_VERIFICATION_TIMEOUT_SECONDS
+            )
+        );
+        assert_eq!(
+            Request::Verify(args(None)).execution_timeout(),
+            std::time::Duration::from_secs(905)
+        );
+        assert_eq!(
+            Request::Verify(args(Some(3600))).execution_timeout(),
+            std::time::Duration::from_secs(3605)
+        );
+    }
+
+    #[test]
+    fn invalid_programmatic_timeout_returns_failure_and_request_uses_safe_default() {
+        let invalid = args(Some(0));
+        assert_eq!(invalid.effective_timeout().unwrap_err().0, "VERIFY_TIMEOUT");
+        assert_eq!(
+            Request::Verify(invalid).execution_timeout(),
+            std::time::Duration::from_secs(905)
+        );
+    }
+
+    #[test]
+    fn verify_timeout_rejects_zero_and_values_above_maximum() {
+        for seconds in [0, 3601] {
+            let parsed = serde_json::from_value::<VerifyArgs>(serde_json::json!({
+                "language": "rust",
+                "timeoutSeconds": seconds
+            }));
+            assert!(parsed.is_err(), "timeoutSeconds={seconds} must be invalid");
+        }
     }
 }

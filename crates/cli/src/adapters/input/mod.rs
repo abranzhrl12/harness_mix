@@ -1,62 +1,24 @@
-use std::{
-    ffi::{OsStr, OsString},
-    path::PathBuf,
-};
+use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 
-pub(super) enum Root {
-    Explicit(PathBuf),
-    Detect,
-    DetectOrCurrent,
+use crate::{ArgumentParser, Command, Root};
+
+mod subcommands;
+
+pub struct Parser;
+
+impl ArgumentParser for Parser {
+    fn needs_workspace_root(&self, args: &[OsString]) -> bool {
+        needs_workspace_root(args)
+    }
+
+    fn parse(&self, args: Vec<OsString>) -> Result<Command, String> {
+        parse(args)
+    }
 }
+use subcommands::{parse_active_command, parse_init_command, parse_skills_command};
 
-pub(super) enum Command {
-    Help,
-    Version,
-    Active {
-        root: Root,
-        provider: Option<String>,
-    },
-    Config,
-    Serve {
-        root: Root,
-        workspace_config: Option<PathBuf>,
-        persist_logs: bool,
-    },
-    InitConfig {
-        root: Root,
-    },
-    InitIndex {
-        root: Root,
-    },
-    SyncWorkspace {
-        root: Root,
-    },
-    Rebuild {
-        root: Root,
-    },
-    Plan {
-        root: Root,
-        summary: bool,
-    },
-    SyncFile {
-        root: Root,
-        relative: OsString,
-        config: Option<OsString>,
-        force: bool,
-    },
-    SkillsSync {
-        root: Root,
-        check: bool,
-        dry_run: bool,
-        enable_auto: bool,
-        disable_auto: bool,
-    },
-    InitProject {
-        root: PathBuf,
-    },
-}
-
-pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
+pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(Command::Help);
     }
@@ -234,100 +196,7 @@ pub(super) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     Err("usage: agent-harness [--root <workspace>] [--workspace-config <manifest.json>] [--index <init|sync|rebuild|plan> | --persist-logs | --sync-file <relative> [--tsconfig <relative.json>]] | --version".into())
 }
 
-fn parse_active_command(args: &[OsString], mut root: Option<PathBuf>) -> Result<Command, String> {
-    let usage = "usage: agent-harness active [antigravity] [--root <workspace>]";
-    let mut provider = None;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "--root" && index + 1 < args.len() && root.is_none() {
-            root = Some(PathBuf::from(&args[index + 1]));
-            index += 2;
-        } else if args[index] == "antigravity" && provider.is_none() {
-            provider = Some("antigravity".to_owned());
-            index += 1;
-        } else {
-            return Err(usage.into());
-        }
-    }
-    if root
-        .as_ref()
-        .is_some_and(|path| path.as_os_str().is_empty())
-    {
-        return Err("active requires a non-empty --root path".into());
-    }
-    Ok(Command::Active {
-        root: root.map_or(Root::DetectOrCurrent, Root::Explicit),
-        provider,
-    })
-}
-
-fn parse_skills_command(args: &[OsString], root: Root) -> Result<Command, String> {
-    if args.first().is_none_or(|arg| arg != "sync") {
-        return Err("usage: agent-harness [--root <workspace>] skills sync [--check | --dry-run | --enable-auto | --disable-auto]".into());
-    }
-    let mut check = false;
-    let mut dry_run = false;
-    let mut enable_auto = false;
-    let mut disable_auto = false;
-    let mut resolved_root = root;
-    let mut root_option_seen = matches!(&resolved_root, Root::Explicit(_));
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].to_str() {
-            Some("--check") => check = true,
-            Some("--dry-run") => dry_run = true,
-            Some("--enable-auto") => enable_auto = true,
-            Some("--disable-auto") => disable_auto = true,
-            Some("--root") if index + 1 < args.len() => {
-                if root_option_seen {
-                    return Err("skills sync accepts --root only once".into());
-                }
-                resolved_root = Root::Explicit(PathBuf::from(args[index + 1].clone()));
-                root_option_seen = true;
-                index += 1;
-            }
-            _ => return Err("unknown or incomplete skills sync option".into()),
-        }
-        index += 1;
-    }
-    let selected_modes = [check, dry_run, enable_auto, disable_auto]
-        .into_iter()
-        .filter(|selected| *selected)
-        .count();
-    if selected_modes > 1 {
-        return Err("skills sync modes are mutually exclusive".into());
-    }
-    Ok(Command::SkillsSync {
-        root: resolved_root,
-        check,
-        dry_run,
-        enable_auto,
-        disable_auto,
-    })
-}
-
-fn parse_init_command(args: &[OsString], root: Option<PathBuf>) -> Result<Command, String> {
-    let mut resolved_root = root;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] != "--root" || index + 1 >= args.len() || resolved_root.is_some() {
-            return Err("usage: agent-harness init --root <workspace>".into());
-        }
-        let path = PathBuf::from(args[index + 1].clone());
-        if path.as_os_str().is_empty() {
-            return Err("init requires a non-empty --root path".into());
-        }
-        resolved_root = Some(path);
-        index += 2;
-    }
-    let root = resolved_root.ok_or("usage: agent-harness init --root <workspace>")?;
-    if root.as_os_str().is_empty() {
-        return Err("init requires a non-empty --root path".into());
-    }
-    Ok(Command::InitProject { root })
-}
-
-pub(super) fn needs_workspace_root(args: &[OsString]) -> bool {
+pub fn needs_workspace_root(args: &[OsString]) -> bool {
     args.first().is_some_and(|flag| {
         [
             "--index",

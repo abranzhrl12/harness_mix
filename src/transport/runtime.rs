@@ -100,6 +100,7 @@ pub async fn serve_with_logging(
                 persist_logs,
                 tasks: tasks.clone(),
                 index_watch: watch_status,
+                ..Default::default()
             },
         )?
         .with_tool_profile(profile),

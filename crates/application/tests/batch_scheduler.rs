@@ -62,6 +62,7 @@ impl workspace::WorkspaceDiagnostics for SchedulerWorkspace {}
 impl workspace::VersionControl for SchedulerWorkspace {}
 impl workspace::SqlAccess for SchedulerWorkspace {}
 impl workspace::ArtifactQueries for SchedulerWorkspace {}
+impl harness_application::ports::browser::BrowserInspection for SchedulerWorkspace {}
 impl workspace::SessionPersistence for SchedulerWorkspace {}
 impl workspace::LogPersistence for SchedulerWorkspace {}
 impl workspace::Verification for SchedulerWorkspace {}
@@ -114,10 +115,12 @@ fn starts_a_queued_child_when_any_worker_finishes() {
     );
     let jobs: Vec<_> = ["first", "second", "third"]
         .into_iter()
-        .map(|path| json!({
-            "tool":"harness_read",
-            "arguments":{"path":path,"start":1,"end":1}
-        }))
+        .map(|path| {
+            json!({
+                "tool":"harness_read",
+                "arguments":{"path":path,"start":1,"end":1}
+            })
+        })
         .collect();
     let args: BatchArgs = serde_json::from_value(json!({
         "maxConcurrent": 2,

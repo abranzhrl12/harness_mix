@@ -456,6 +456,109 @@ fn portable_layers_cannot_gain_unreviewed_infrastructure_dependencies() {
 }
 
 #[test]
+fn browser_cdp_stays_in_an_optional_outward_adapter_crate() {
+    let output = Command::new(env!("CARGO"))
+        .args([
+            "metadata",
+            "--offline",
+            "--locked",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let packages = metadata["packages"].as_array().unwrap();
+    fn package<'a>(packages: &'a [Value], name: &str) -> &'a Value {
+        packages
+            .iter()
+            .find(|package| package["name"] == name)
+            .unwrap_or_else(|| panic!("workspace package {name} is missing"))
+    }
+    fn dependency_names(package: &Value) -> Vec<String> {
+        package["dependencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|dependency| dependency["name"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    }
+
+    let root = package(packages, "agent-harness");
+    let root_dependencies = dependency_names(root);
+    assert!(
+        !root_dependencies.iter().any(|name| name == "chromiumoxide"),
+        "the executable should depend on the browser adapter, not CDP directly"
+    );
+    assert!(
+        !root_dependencies.iter().any(|name| name == "url"),
+        "CDP-only URL parsing belongs in the optional browser adapter"
+    );
+    let browser_dependency = root["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|dependency| dependency["name"] == "harness-browser")
+        .expect("root composition depends on harness-browser");
+    assert_eq!(browser_dependency["optional"], true);
+    let browser_feature = root["features"]["browser-cdp"]
+        .as_array()
+        .expect("browser-cdp feature exists");
+    assert!(
+        browser_feature
+            .iter()
+            .any(|value| value == "dep:harness-browser")
+    );
+    assert!(
+        root["features"]["default"]
+            .as_array()
+            .is_some_and(|features| features.iter().any(|value| value == "browser-cdp")),
+        "normal builds enable browser support while --no-default-features can omit CDP"
+    );
+
+    let browser = package(packages, "harness-browser");
+    let default_members = metadata["workspace_default_members"]
+        .as_array()
+        .expect("workspace default-members are reported by Cargo metadata");
+    assert!(
+        !default_members.iter().any(|id| id == &browser["id"]),
+        "harness-browser is pulled through the root feature, not built as a default workspace member"
+    );
+    let browser_dependencies = dependency_names(browser);
+    for dependency in ["chromiumoxide", "harness-application", "harness-domain"] {
+        assert!(
+            browser_dependencies.iter().any(|name| name == dependency),
+            "harness-browser must depend on {dependency}"
+        );
+    }
+    assert!(
+        !browser_dependencies
+            .iter()
+            .any(|name| name == "agent-harness"),
+        "the browser adapter cannot depend back on its composition root"
+    );
+    for layer in [
+        package(packages, "harness-domain"),
+        package(packages, "harness-application"),
+    ] {
+        let dependencies = dependency_names(layer);
+        assert!(
+            !dependencies.iter().any(|name| name == "harness-browser")
+                && !dependencies.iter().any(|name| name == "chromiumoxide"),
+            "portable layers cannot depend on the browser adapter or CDP"
+        );
+    }
+}
+
+#[test]
 fn language_parsers_stay_independent_of_projects_transport_and_filesystem() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/parsers");
     let mut files = Vec::new();
@@ -738,5 +841,158 @@ fn application_dispatch_delegates_to_typed_capability_use_cases() {
             !contains_inline_test(&syn::parse_file(&source).unwrap().items),
             "keep capability use-case tests in external modules"
         );
+    }
+}
+
+#[test]
+fn portable_layers_do_not_import_tokio_or_browser_cdp_types() {
+    use syn::visit::Visit;
+
+    #[derive(Default)]
+    struct ForbiddenArchitecturePaths {
+        layer: &'static str,
+        paths: Vec<String>,
+    }
+
+    fn record_if_forbidden(layer: &str, segments: &[String], output: &mut Vec<String>) {
+        let runtime_or_cdp = segments
+            .first()
+            .is_some_and(|root| root == "tokio" || root == "chromiumoxide" || root == "cdp");
+        let inward_layer = segments.windows(2).any(|pair| {
+            pair[0] == "crate"
+                && (pair[1] == "infrastructure"
+                    || pair[1] == "composition"
+                    || (layer == "domain" && pair[1] == "application"))
+        });
+        let application_in_domain = layer == "domain"
+            && segments
+                .first()
+                .is_some_and(|root| root == "harness_application");
+        if runtime_or_cdp || inward_layer || application_in_domain {
+            output.push(segments.join("::"));
+        }
+    }
+
+    fn collect_use_tree(
+        tree: &syn::UseTree,
+        prefix: &mut Vec<String>,
+        imports: &mut Vec<Vec<String>>,
+    ) {
+        match tree {
+            syn::UseTree::Path(path) => {
+                prefix.push(path.ident.to_string());
+                collect_use_tree(&path.tree, prefix, imports);
+                prefix.pop();
+            }
+            syn::UseTree::Name(name) => {
+                let mut path = prefix.clone();
+                path.push(name.ident.to_string());
+                imports.push(path);
+            }
+            syn::UseTree::Rename(rename) => {
+                let mut path = prefix.clone();
+                path.push(rename.ident.to_string());
+                imports.push(path);
+            }
+            syn::UseTree::Group(group) => {
+                for item in &group.items {
+                    collect_use_tree(item, prefix, imports);
+                }
+            }
+            syn::UseTree::Glob(_) => imports.push(prefix.clone()),
+        }
+    }
+
+    impl<'ast> Visit<'ast> for ForbiddenArchitecturePaths {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            let segments = path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            record_if_forbidden(self.layer, &segments, &mut self.paths);
+            syn::visit::visit_path(self, path);
+        }
+
+        fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+            let mut imports = Vec::new();
+            collect_use_tree(&item.tree, &mut Vec::new(), &mut imports);
+            for import in imports {
+                record_if_forbidden(self.layer, &import, &mut self.paths);
+            }
+            syn::visit::visit_item_use(self, item);
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixture = syn::parse_file(
+        "use std::sync::{Arc, Mutex};\nuse crate::{infrastructure::Backend, composition::Service};\nuse chromiumoxide::cdp::Target;\nuse tokio::runtime::Runtime;",
+    )
+    .unwrap();
+    let mut fixture_visitor = ForbiddenArchitecturePaths {
+        layer: "application",
+        ..Default::default()
+    };
+    fixture_visitor.visit_file(&fixture);
+    assert!(
+        fixture_visitor
+            .paths
+            .iter()
+            .any(|path| path == "crate::infrastructure::Backend")
+    );
+    assert!(
+        fixture_visitor
+            .paths
+            .iter()
+            .any(|path| path == "crate::composition::Service")
+    );
+    assert!(
+        fixture_visitor
+            .paths
+            .iter()
+            .any(|path| path == "chromiumoxide::cdp::Target")
+    );
+    assert!(
+        fixture_visitor
+            .paths
+            .iter()
+            .any(|path| path == "tokio::runtime::Runtime")
+    );
+    assert!(
+        !fixture_visitor
+            .paths
+            .iter()
+            .any(|path| path.starts_with("std::sync"))
+    );
+
+    for (layer, path) in [
+        ("domain", "crates/domain/src"),
+        ("application", "crates/application/src"),
+        ("domain", "crates/browser/src/domain"),
+        ("application", "crates/browser/src/application"),
+    ] {
+        let mut files = Vec::new();
+        let layer_root = root.join(path);
+        assert!(layer_root.is_dir(), "portable layer {path} is missing");
+        rust_files(&layer_root, &mut files);
+        assert!(
+            !files.is_empty(),
+            "portable layer {path} has no Rust sources"
+        );
+        for path in files {
+            let source = fs::read_to_string(&path).unwrap();
+            let parsed = syn::parse_file(&source).unwrap();
+            let mut visitor = ForbiddenArchitecturePaths {
+                layer,
+                ..Default::default()
+            };
+            visitor.visit_file(&parsed);
+            assert!(
+                visitor.paths.is_empty(),
+                "{} imports inward/runtime infrastructure {:?}; keep CDP, Tokio, composition, and app policy outside portable domain",
+                path.strip_prefix(root).unwrap().display(),
+                visitor.paths
+            );
+        }
     }
 }

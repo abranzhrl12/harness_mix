@@ -1,6 +1,7 @@
 //! Transport-independent contracts, hashes and result policy. No filesystem or MCP SDK.
-pub mod assistance;
 pub mod agent;
+pub mod assistance;
+pub mod browser;
 pub mod contracts;
 pub mod conversation;
 pub mod diagnostics;
@@ -41,7 +42,10 @@ mod hash_tests {
     #[test]
     fn compatibility_hash_remains_lowercase_sha256_hex() {
         let digest = sha256_digest(b"abc");
-        assert_eq!(digest.to_hex(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            digest.to_hex(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         assert_eq!(hash(b"abc"), digest.to_hex());
     }
 

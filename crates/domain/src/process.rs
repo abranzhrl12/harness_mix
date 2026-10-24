@@ -63,6 +63,19 @@ impl ProcessSpec {
         })
     }
 
+    /// Explicit opt-in for a foreground verifier's bounded execution budget.
+    /// Other process users retain the constructor's 60-second ceiling.
+    pub fn with_verification_timeout(mut self, timeout: Duration) -> Result<Self, Failure> {
+        if timeout.is_zero() || timeout > Duration::from_secs(3600) {
+            return Err((
+                "PROCESS_BUDGET",
+                "Verification timeout must be within 1 second to 1 hour",
+            ));
+        }
+        self.timeout = timeout;
+        Ok(self)
+    }
+
     /// Explicit opt-in for managed background processes. Synchronous callers
     /// retain the bounded 60-second constructor budget.
     pub fn with_background_timeout(mut self, timeout: Option<Duration>) -> Result<Self, Failure> {
@@ -161,6 +174,28 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn verification_timeout_is_explicitly_opt_in_and_capped_at_one_hour() {
+        let configured = spec(vec![], 30, 1024)
+            .unwrap()
+            .with_verification_timeout(Duration::from_secs(3600))
+            .unwrap();
+        assert_eq!(configured.timeout(), Duration::from_secs(3600));
+        assert!(
+            spec(vec![], 30, 1024)
+                .unwrap()
+                .with_verification_timeout(Duration::ZERO)
+                .is_err()
+        );
+        assert!(
+            spec(vec![], 30, 1024)
+                .unwrap()
+                .with_verification_timeout(Duration::from_secs(3601))
+                .is_err()
+        );
+        assert!(spec(vec![], 61, 1024).is_err());
     }
 
     #[test]

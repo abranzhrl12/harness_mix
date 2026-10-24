@@ -1,20 +1,15 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::path::PathBuf;
 
 mod active;
-mod parser;
 mod plan_summary;
 mod skills_sync;
-use parser::{Command, Root, needs_workspace_root, parse};
+use harness_cli::{Command, Root};
 
 pub async fn run(
-    args: impl IntoIterator<Item = OsString>,
+    args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut args: Vec<_> = args.into_iter().collect();
-    if needs_workspace_root(&args) && args.first().is_none_or(|arg| arg != "skills") {
-        let root = auto_detect_workspace()?;
-        args.splice(0..0, [OsString::from("--root"), root.into_os_string()]);
-    }
-    let command = parse(args).map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+    let command = harness_cli::prepare_command(args)
+        .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
     match command {
         Command::Help => print_help(),
         Command::Version => println!("agent-harness {}", env!("CARGO_PKG_VERSION")),
@@ -161,12 +156,7 @@ pub async fn run(
 }
 
 fn resolve_root(root: Root) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    match root {
-        Root::Explicit(root) => Ok(root),
-        Root::Detect => auto_detect_workspace(),
-        Root::DetectOrCurrent => Ok(auto_detect_workspace()
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))),
-    }
+    harness_cli::resolve_root(root).map_err(|error| -> Box<dyn std::error::Error> { error.into() })
 }
 
 fn run_index(
@@ -208,7 +198,9 @@ fn run_index(
 }
 
 fn print_help() {
-    println!("Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n");
+    println!(
+        "Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n"
+    );
     println!(
         "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init --root <proyecto> Preparar skills, config local y ejemplo MCP del proyecto\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
     );
@@ -219,38 +211,3 @@ fn print_help() {
         "Resumen de plan: --index plan --summary o --sync-plan --summary. Reduce la respuesta JSON; el cálculo del plan no cambia."
     );
 }
-
-fn auto_detect_workspace() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    for var in [
-        "WORKSPACE_ROOT",
-        "VSCODE_CWD",
-        "INIT_CWD",
-        "PROJECT_ROOT",
-        "ANTIGRAVITY_WORKSPACE",
-        "GEMINI_WORKSPACE",
-    ] {
-        if let Some(val) = std::env::var_os(var) {
-            let path = PathBuf::from(val);
-            if path.is_dir() {
-                return Ok(path);
-            }
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut curr = cwd.clone();
-        loop {
-            if curr.join(".git").exists() || curr.join(".agents").exists() {
-                return Ok(curr);
-            }
-            if !curr.pop() {
-                break;
-            }
-        }
-        return Ok(cwd);
-    }
-    Err("Cannot detect workspace root".into())
-}
-
-#[cfg(test)]
-#[path = "cli_tests.rs"]
-mod tests;

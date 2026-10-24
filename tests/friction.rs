@@ -118,6 +118,7 @@ fn package_check_skips_broken_siblings_and_logs_command_and_error_tails() {
             action: None,
             engine: None,
             warnings: None,
+            timeout_seconds: None,
             session: None,
         }))
     };

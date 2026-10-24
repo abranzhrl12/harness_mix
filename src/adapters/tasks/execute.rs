@@ -51,7 +51,9 @@ pub(super) async fn execute(
         }
         let work_inner = inner.clone();
         let work_id = id.clone();
-        let work_context = context.with_execution_timeout(timeout);
+        let execution_timeout =
+            timeout.or_else(|| verify_args.timeout_seconds.map(Duration::from_secs));
+        let work_context = context.with_execution_timeout(execution_timeout);
         let work_args = verify_args.clone();
         let syntax_only = matches!(spec, verify::BackgroundVerificationPlan::TypeScriptSyntax);
         let result = tokio::task::spawn_blocking(move || match spec {

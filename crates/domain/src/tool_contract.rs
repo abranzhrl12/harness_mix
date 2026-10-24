@@ -247,7 +247,7 @@ mod tests {
             text,
             include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n")
         );
-        assert_eq!(tool_names("rust").len(), 24);
+        assert_eq!(tool_names("rust").len(), 25);
         assert_eq!(tool_names("node").len(), 26);
     }
 }

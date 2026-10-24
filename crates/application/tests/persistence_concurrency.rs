@@ -75,6 +75,7 @@ impl harness_application::ports::workspace::WorkspaceDiagnostics for Disk {
 impl harness_application::ports::workspace::VersionControl for Disk {}
 impl harness_application::ports::workspace::SqlAccess for Disk {}
 impl harness_application::ports::workspace::ArtifactQueries for Disk {}
+impl harness_application::ports::browser::BrowserInspection for Disk {}
 impl harness_application::ports::workspace::SessionPersistence for Disk {
     fn persist_session(&self, _: &str, _: &Value, _: &OperationContext) -> Result<(), Failure> {
         self.started.send(()).unwrap();

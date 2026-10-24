@@ -150,6 +150,7 @@ fn successful_verification_is_recorded_without_claiming_current_code_freshness()
         action: Some(VerifyAction::Build),
         engine: None,
         warnings: None,
+        timeout_seconds: None,
         session: Some(id.clone()),
     }));
     assert_eq!(result["state"], "ok", "{result}");
@@ -253,6 +254,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
             action: Some(VerifyAction::Build),
             engine: None,
             warnings: None,
+            timeout_seconds: None,
             session: Some(id.clone()),
         }));
         assert_eq!(result["state"], "ok", "{result}");
@@ -307,6 +309,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
         action: Some(VerifyAction::Build),
         engine: None,
         warnings: None,
+        timeout_seconds: None,
         session: Some(id.clone()),
     }));
     assert_eq!(rerun["state"], "ok", "{rerun}");
@@ -330,6 +333,7 @@ fn refresh_compares_live_checks_without_certifying_or_revalidating_history() {
         action: Some(VerifyAction::Build),
         engine: None,
         warnings: None,
+        timeout_seconds: None,
         session: Some(id.clone()),
     }));
     assert_eq!(next["state"], "ok", "{next}");

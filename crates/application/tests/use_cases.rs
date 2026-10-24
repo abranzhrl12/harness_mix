@@ -68,6 +68,17 @@ impl harness_application::ports::workspace::WorkspaceDiagnostics for FakeWorkspa
 impl harness_application::ports::workspace::VersionControl for FakeWorkspace {}
 impl harness_application::ports::workspace::SqlAccess for FakeWorkspace {}
 impl harness_application::ports::workspace::ArtifactQueries for FakeWorkspace {}
+impl harness_application::ports::browser::BrowserInspection for FakeWorkspace {
+    fn browser(
+        &self,
+        args: &harness_domain::browser::BrowserArgs,
+        _: &OperationContext,
+    ) -> Result<harness_domain::browser::BrowserResult, Failure> {
+        assert!(args.session().is_some());
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(("BROWSER_CONNECTION", "Fake browser is disconnected"))
+    }
+}
 impl harness_application::ports::workspace::SessionPersistence for FakeWorkspace {}
 impl harness_application::ports::workspace::LogPersistence for FakeWorkspace {}
 impl harness_application::ports::workspace::Verification for FakeWorkspace {
@@ -89,6 +100,49 @@ struct MemorySessions {
     exists: bool,
     rules: Option<String>,
     capabilities: Option<String>,
+}
+
+#[test]
+fn browser_requires_session_before_io_and_releases_lease_on_adapter_failure() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let sessions = MemorySessions::default();
+    let active = sessions.active.clone();
+    let app = Application::new(
+        FakeWorkspace {
+            calls: calls.clone(),
+        },
+        sessions,
+    );
+    let request = |session: Option<&str>| {
+        Request::Browser(
+            serde_json::from_value(json!({
+                "action":"connect", "endpoint":"http://127.0.0.1:9222",
+                "session":session
+            }))
+            .unwrap(),
+        )
+    };
+    assert_eq!(
+        app.execute(request(None))["diagnostics"][0]["code"],
+        "SESSION_REQUIRED"
+    );
+    assert_eq!(
+        app.execute(request(Some("missing")))["diagnostics"][0]["code"],
+        "SESSION"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    app.execute(Request::Bootstrap(
+        serde_json::from_value(json!({"compact":true})).unwrap(),
+    ));
+    let failed = app.execute(request(Some("memory-session")));
+    assert_eq!(failed["diagnostics"][0]["code"], "BROWSER_CONNECTION");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(active.load(Ordering::SeqCst), 0);
+    let context = OperationContext::default();
+    context.cancel();
+    app.execute_with_context(request(Some("memory-session")), context);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(active.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -208,6 +262,7 @@ fn verification_admission_prevents_io_and_releases_session_lease() {
             action: None,
             engine: None,
             warnings: None,
+            timeout_seconds: None,
             session: Some(id.into()),
         })
     };

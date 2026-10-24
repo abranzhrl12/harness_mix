@@ -27,6 +27,7 @@ pub(in crate::adapters) mod angular;
 pub(super) use typescript::run_typescript_syntax;
 
 fn validate_verify_options(args: &VerifyArgs) -> Result<(), Failure> {
+    args.effective_timeout()?;
     if (args.project.is_some() || args.configuration.is_some())
         && !args.language.eq_ignore_ascii_case("angular")
     {
@@ -107,6 +108,30 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     rust::plan(project, args)
 }
 
+fn verification_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    let spec = plan(project, args)?;
+    let arguments = spec
+        .arguments()
+        .iter()
+        .map(|argument| {
+            if spec.program() == Program::Go && argument == "-timeout=20s" {
+                args.timeout_seconds
+                    .map(|seconds| format!("-timeout={seconds}s"))
+                    .unwrap_or_else(|| argument.clone())
+            } else {
+                argument.clone()
+            }
+        })
+        .collect();
+    ProcessSpec::new(
+        spec.program(),
+        arguments,
+        Duration::from_secs(30),
+        spec.output_limit(),
+    )?
+    .with_verification_timeout(args.effective_timeout()?)
+}
+
 #[path = "verification/dotnet.rs"]
 mod dotnet;
 
@@ -132,6 +157,7 @@ pub(super) fn background_plan(
             "Background timeout must be 1 second to 24 hours",
         ));
     }
+    validate_verify_options(args)?;
     if args.session.is_some() {
         return Err((
             "ARGUMENT",
@@ -156,13 +182,16 @@ pub(super) fn background_plan(
             }
         })
         .collect();
+    let verifier_timeout = args.effective_timeout()?;
+    let execution_timeout = timeout.or_else(|| args.timeout_seconds.map(Duration::from_secs));
     ProcessSpec::new(
         spec.program(),
         arguments,
         Duration::from_secs(30),
         spec.output_limit(),
     )?
-    .with_background_timeout(timeout)
+    .with_verification_timeout(verifier_timeout)?
+    .with_background_timeout(execution_timeout)
     .map(BackgroundVerificationPlan::Process)
 }
 
@@ -181,12 +210,13 @@ pub(super) fn verify(
             "warnings must be all, changed-files or none",
         ));
     }
+    validate_verify_options(args)?;
     let native_typescript = typescript::typescript_scope(project, args)?.is_some();
     let angular = args.language.eq_ignore_ascii_case("angular");
     let spec = if native_typescript {
         None
     } else {
-        Some(plan(project, args)?)
+        Some(verification_plan(project, args)?)
     };
     let before = super::fingerprint::capture(project, context);
     context.check()?;

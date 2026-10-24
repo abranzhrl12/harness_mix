@@ -1,5 +1,10 @@
 {
   "contractVersion": "3.3.0",
+  "executionPolicy": {
+    "rustVerifyProcessTimeoutMs": 900000,
+    "rustVerifyMaxTimeoutMs": 3600000,
+    "verifyCleanupGraceMs": 5000
+  },
   "toolProfiles": {
     "investigate": [
       "harness_bootstrap",
@@ -438,7 +443,8 @@
     {
       "name": "harness_browser",
       "backends": [
-        "node"
+        "node",
+        "rust"
       ]
     },
     {

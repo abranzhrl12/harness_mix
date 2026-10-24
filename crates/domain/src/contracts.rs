@@ -1,5 +1,6 @@
 //! Transport-independent request contracts, split by responsibility.
 //! Public types remain available from `harness_domain::contracts`.
+pub use crate::browser::BrowserArgs;
 
 mod batch;
 mod compat;

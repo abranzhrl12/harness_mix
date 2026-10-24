@@ -5,6 +5,44 @@ use harness_domain::{contracts::WriteArgs, execution::OperationContext};
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn composition_uses_injected_browser_without_initializing_native_connection() {
+    struct FakeBrowser;
+    impl harness_application::ports::browser::BrowserInspection for FakeBrowser {}
+    let root = tempfile::tempdir().expect("temporary project root");
+    let browser: Arc<dyn harness_application::ports::browser::BrowserInspection> =
+        Arc::new(FakeBrowser);
+    let (workspace, _) = dependencies(
+        root.path(),
+        NativeApplicationOptions {
+            browser: Some(browser.clone()),
+            ..NativeApplicationOptions::default()
+        },
+    )
+    .expect("compose injected browser");
+    assert!(Arc::ptr_eq(&browser, &workspace.browser));
+}
+
+#[test]
+#[cfg(not(feature = "browser-cdp"))]
+fn composition_without_browser_feature_reports_backend_unavailable() {
+    let root = tempfile::tempdir().expect("temporary project root");
+    let (workspace, _) = dependencies(root.path(), NativeApplicationOptions::default())
+        .expect("compose without browser dependency");
+    let error = workspace
+        .browser
+        .browser(
+            &harness_domain::browser::BrowserArgs::Connect {
+                endpoint: "ws://127.0.0.1:9222/devtools/browser/test".into(),
+                session: Some("test".into()),
+            },
+            &OperationContext::default(),
+        )
+        .expect_err("browser backend is disabled");
+    assert_eq!(error.0, "UNSUPPORTED");
+    assert!(error.1.contains("--features browser-cdp"));
+}
+
+#[test]
 fn default_composition_disables_optional_persistent_adapters() {
     let root = tempfile::tempdir().expect("temporary project root");
 

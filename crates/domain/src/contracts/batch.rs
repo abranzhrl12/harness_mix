@@ -134,3 +134,15 @@ impl BatchJob {
         })
     }
 }
+
+#[cfg(test)]
+mod browser_batch_tests {
+    use super::*;
+
+    #[test]
+    fn stateful_browser_tool_is_not_in_batch_catalog() {
+        assert!(
+            serde_json::from_value::<BatchTool>(Value::String("harness_browser".into())).is_err()
+        );
+    }
+}

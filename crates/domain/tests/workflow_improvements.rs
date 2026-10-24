@@ -10,6 +10,12 @@ fn public_arguments_accept_the_new_workflow_options() {
     .unwrap();
     assert_eq!(verify.engine.as_deref(), Some("auto"));
     assert_eq!(verify.warnings.as_deref(), Some("changed-files"));
+    assert_eq!(verify.timeout_seconds, None);
+    let verify_timeout: VerifyArgs = serde_json::from_value(json!({
+        "language":"rust","timeoutSeconds":3600
+    }))
+    .unwrap();
+    assert_eq!(verify_timeout.timeout_seconds, Some(3600));
     let git: GitArgs = serde_json::from_value(json!({
         "action":"diff","path":".","comparison":"auto"
     }))
@@ -44,6 +50,8 @@ fn schemas_advertise_the_parameters_accepted_by_the_runtime() {
             .unwrap()
             .contains(&json!("auto"))
     );
+    assert_eq!(verify["properties"]["timeoutSeconds"]["minimum"], 1);
+    assert_eq!(verify["properties"]["timeoutSeconds"]["maximum"], 3600);
     assert!(
         verify["properties"]["warnings"]["enum"]
             .as_array()
@@ -58,4 +66,15 @@ fn schemas_advertise_the_parameters_accepted_by_the_runtime() {
     assert!(job["properties"]["args"].is_object());
     let git = serde_json::to_value(schemars::schema_for!(GitArgs)).unwrap();
     assert!(git.to_string().contains("HEAD:worktree"));
+}
+
+#[test]
+fn verify_timeout_rejects_zero_and_values_above_maximum() {
+    for seconds in [0, 3601] {
+        let parsed = serde_json::from_value::<VerifyArgs>(json!({
+            "language": "rust",
+            "timeoutSeconds": seconds
+        }));
+        assert!(parsed.is_err(), "timeoutSeconds={seconds} must be rejected");
+    }
 }

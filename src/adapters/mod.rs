@@ -10,9 +10,9 @@ use parsers::{
     razor::render as razor_render, razor::syntax as razor_syntax, rust::symbols as rust_symbols,
     rust::syntax as rust_syntax, vue::structure as vue_structure, vue::syntax as vue_syntax,
 };
-mod capabilities;
-pub mod agent;
 pub mod acp;
+pub mod agent;
+mod capabilities;
 mod composition;
 mod config;
 mod create_file;
@@ -31,9 +31,9 @@ mod ignore;
 pub mod index_extract;
 mod index_freshness;
 mod index_inventory;
-mod index_profile;
 #[cfg(windows)]
 mod index_lock;
+mod index_profile;
 #[cfg(windows)]
 mod index_semantic;
 #[cfg(windows)]
@@ -106,6 +106,7 @@ pub struct NativeWorkspace {
     source_queries: workspace::services::SourceQueryService,
     source_editing: workspace::services::SourceEditingService,
     session_service: workspace::services::SessionService,
+    browser: std::sync::Arc<dyn harness_application::ports::browser::BrowserInspection>,
     tasks: Option<tasks::TaskManager>,
     index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
 }
@@ -115,6 +116,8 @@ pub type NativeApplication = Application<workspace_set::MultiNativeWorkspace, se
 /// Defaults preserve the lightweight constructors used by library callers.
 #[derive(Default)]
 pub(crate) struct NativeApplicationOptions {
+    pub(crate) browser:
+        Option<std::sync::Arc<dyn harness_application::ports::browser::BrowserInspection>>,
     pub(crate) persist_logs: bool,
     pub(crate) tasks: Option<tasks::TaskManager>,
     pub(crate) index_watch: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
@@ -156,6 +159,7 @@ pub(crate) fn application_with_background(
             persist_logs,
             tasks,
             index_watch,
+            ..NativeApplicationOptions::default()
         },
     )
 }
@@ -191,6 +195,7 @@ pub(crate) fn application_with_projects(
             persist_logs,
             tasks: tasks.get(index).cloned(),
             index_watch: index_watches.get(index).cloned().flatten(),
+            ..NativeApplicationOptions::default()
         };
         let (workspace, project_sessions) = composition::dependencies(&project.root, options)?;
         if sessions.is_none() {

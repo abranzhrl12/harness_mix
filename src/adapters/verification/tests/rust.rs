@@ -18,6 +18,7 @@ fn manifest_scope_cannot_escape_or_become_an_option() {
         scope: Some("crate with spaces".into()),
         action: Some(VerifyAction::Test),
         session: None,
+        timeout_seconds: None,
     };
     let spec = plan(&project, &args).unwrap();
     assert_eq!(spec.arguments()[0], "test");
@@ -37,18 +38,18 @@ fn manifest_scope_cannot_escape_or_become_an_option() {
 }
 
 #[test]
-fn package_plan_defaults_to_check_with_sixty_second_process_budget() {
+fn package_plan_defaults_to_check_with_fifteen_minute_process_budget() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("Cargo.toml"), "[workspace]\n").unwrap();
     let project = Project::new(root.path()).unwrap();
     let args: VerifyArgs =
         serde_json::from_value(json!({"language":"rust","package":"domain"})).unwrap();
-    let spec = plan(&project, &args).unwrap();
+    let spec = verification_plan(&project, &args).unwrap();
     assert_eq!(spec.arguments()[0], "check");
     assert_eq!(&spec.arguments()[5..], &["-p", "domain"]);
-    assert_eq!(spec.timeout(), Duration::from_secs(60));
+    assert_eq!(spec.timeout(), args.effective_timeout().unwrap());
     assert_eq!(
         harness_domain::contracts::Request::Verify(args).execution_timeout(),
-        Duration::from_secs(65)
+        Duration::from_secs(905)
     );
 }

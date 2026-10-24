@@ -24,6 +24,7 @@ pub use workspace_metadata::WorkspaceMetadata;
 /// Complete tool-host composition; individual use cases may depend on one capability.
 pub trait Workspace:
     WorkspaceMetadata
+    + super::browser::BrowserInspection
     + SourceQueries
     + SourceEditing
     + WorkspaceDiagnostics
@@ -38,6 +39,7 @@ pub trait Workspace:
 
 impl<T: ?Sized> Workspace for T where
     T: WorkspaceMetadata
+        + super::browser::BrowserInspection
         + SourceQueries
         + SourceEditing
         + WorkspaceDiagnostics

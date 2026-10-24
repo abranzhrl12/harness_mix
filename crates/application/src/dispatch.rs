@@ -42,6 +42,16 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Doctor(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.doctor(&args, context)),
+            Request::Browser(mut args) => self.lease(args.session(), &mut lease).and_then(|()| {
+                let session = lease.as_ref().ok_or((
+                    "SESSION_REQUIRED",
+                    "Browser operations require a bootstrap session",
+                ))?;
+                args.with_session(session.id.clone());
+                let result = self.workspace.browser(&args, context)?;
+                serde_json::to_value(result)
+                    .map_err(|_| ("INTERNAL", "Browser result serialization failed"))
+            }),
             Request::GitStatus(args) => queries::git_status(self, args, context, &mut lease),
             Request::GitDiff(args) => self
                 .lease(args.session.as_deref(), &mut lease)

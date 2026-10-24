@@ -1,0 +1,56 @@
+use std::{ffi::OsString, path::PathBuf};
+
+/// Workspace selection requested by a parsed command.
+pub enum Root {
+    Explicit(PathBuf),
+    Detect,
+    DetectOrCurrent,
+}
+
+/// Parsed CLI request, independent of the host that executes it.
+pub enum Command {
+    Help,
+    Version,
+    Active {
+        root: Root,
+        provider: Option<String>,
+    },
+    Config,
+    Serve {
+        root: Root,
+        workspace_config: Option<PathBuf>,
+        persist_logs: bool,
+    },
+    InitConfig {
+        root: Root,
+    },
+    InitIndex {
+        root: Root,
+    },
+    SyncWorkspace {
+        root: Root,
+    },
+    Rebuild {
+        root: Root,
+    },
+    Plan {
+        root: Root,
+        summary: bool,
+    },
+    SyncFile {
+        root: Root,
+        relative: OsString,
+        config: Option<OsString>,
+        force: bool,
+    },
+    SkillsSync {
+        root: Root,
+        check: bool,
+        dry_run: bool,
+        enable_auto: bool,
+        disable_auto: bool,
+    },
+    InitProject {
+        root: PathBuf,
+    },
+}

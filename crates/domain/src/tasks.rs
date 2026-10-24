@@ -15,7 +15,8 @@ pub struct TaskArgs {
     pub task_id: Option<String>,
     /// Return events after this sequence number (or context lines after match for observe).
     pub after: Option<u64>,
-    /// Optional execution deadline in seconds. Omit for no execution deadline.
+    /// Optional outer job deadline in seconds. Omit to preserve no job-level deadline; if omitted,
+    /// an explicitly configured `verify.timeoutSeconds` still bounds that process.
     pub timeout_seconds: Option<u64>,
     /// Total attempts, including the first: defaults to one, at most three.
     pub max_attempts: Option<u8>,
@@ -75,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_camel_case_and_leaves_execution_deadline_optional() {
+    fn accepts_camel_case_and_preserves_optional_outer_job_deadline() {
         let args: TaskArgs = serde_json::from_value(json!({
             "action":"start", "verify":{"language":"rust"}, "maxAttempts":2
         }))
@@ -89,6 +90,12 @@ mod tests {
         assert_eq!(args.task_id.as_deref(), Some("job-1"));
         assert_eq!(args.after, Some(7));
         assert_eq!(args.timeout_seconds, Some(60));
+        let args: TaskArgs = serde_json::from_value(json!({
+            "action":"start", "verify":{"language":"rust", "timeoutSeconds":120}
+        }))
+        .unwrap();
+        assert!(args.timeout_seconds.is_none());
+        assert_eq!(args.verify.unwrap().timeout_seconds, Some(120));
     }
 
     #[test]

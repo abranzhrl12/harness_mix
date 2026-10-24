@@ -103,6 +103,7 @@ fn compute() -> Value {
         &mut available,
         super::process::executable(harness_domain::process::Program::Msbuild).is_ok(),
     );
+    record_browser_cdp_status(&mut available, cfg!(feature = "browser-cdp"));
     // Native execution never uses PATHEXT wrappers or relative PATH entries.
     for (name, program) in [
         ("cargo", harness_domain::process::Program::Cargo),
@@ -122,6 +123,13 @@ fn record_msbuild_availability(available: &mut Value, discovered_by_vswhere: boo
     available["msbuild"] = json!(discovered_by_vswhere);
 }
 
+fn record_browser_cdp_status(available: &mut Value, backend_compiled: bool) {
+    available["browserCdp"] = json!({
+        "backendCompiled": backend_compiled,
+        "connectionProbed": false,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +141,17 @@ mod tests {
         record_msbuild_availability(&mut available, true);
 
         assert_eq!(available["msbuild"], true);
+    }
+
+    #[test]
+    fn browser_cdp_status_reports_compilation_without_claiming_connection() {
+        for backend_compiled in [false, true] {
+            let mut available = json!({});
+
+            record_browser_cdp_status(&mut available, backend_compiled);
+
+            assert_eq!(available["browserCdp"]["backendCompiled"], backend_compiled);
+            assert_eq!(available["browserCdp"]["connectionProbed"], false);
+        }
     }
 }

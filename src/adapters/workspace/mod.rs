@@ -1,5 +1,6 @@
 //! Native implementations grouped by their application capability.
 mod artifact_queries;
+mod browser;
 mod log_persistence;
 pub(super) mod services;
 mod session_persistence;

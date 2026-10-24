@@ -26,6 +26,7 @@ impl harness_application::ports::workspace::WorkspaceMetadata for WaitingWorkspa
         json!({})
     }
 }
+impl harness_application::ports::browser::BrowserInspection for WaitingWorkspace {}
 impl harness_application::ports::workspace::SourceQueries for WaitingWorkspace {
     fn read(&self, _: &ReadArgs, context: &OperationContext) -> Result<Value, Failure> {
         self.started

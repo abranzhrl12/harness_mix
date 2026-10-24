@@ -11,7 +11,7 @@ mod profile;
 mod runtime;
 use execution::execute;
 use harness_domain::contracts::{
-    BootstrapArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,
+    BootstrapArgs, BrowserArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,
 };
 use presentation::response;
 #[cfg(test)]
@@ -85,6 +85,16 @@ where
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Config(args), context).await
+    }
+    #[tool(
+        description = "Conecta o inspecciona un navegador Chromium: action=connect|targets|attach|inspect|errors|screenshot|disconnect. Devuelve errores de consola/red, DOM y medidas del elemento seleccionado."
+    )]
+    async fn harness_browser(
+        &self,
+        Parameters(args): Parameters<BrowserArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Browser(args), context).await
     }
     #[tool(
         description = "Ejecuta 1–4 lecturas independientes en paralelo; admite harness_explore con syncIndex=false."
@@ -242,7 +252,9 @@ where
         self.call(Request::Bootstrap(args), context).await
     }
 
-    #[tool(description = "Lee hasta 420 líneas UTF-8 con hash y contexto. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text.")]
+    #[tool(
+        description = "Lee hasta 420 líneas UTF-8 con hash y contexto. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text."
+    )]
     async fn harness_read(
         &self,
         Parameters(args): Parameters<ReadArgs>,
