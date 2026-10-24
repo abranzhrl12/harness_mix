@@ -2,6 +2,25 @@ use super::Store;
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 
+#[test]
+fn writer_busy_means_os_reported_lock_contention_only() {
+    #[cfg(windows)]
+    {
+        assert!(super::filesystem::lock_contended(&std::io::Error::from_raw_os_error(32)));
+        assert!(super::filesystem::lock_contended(&std::io::Error::from_raw_os_error(33)));
+        assert!(!super::filesystem::lock_contended(&std::io::Error::from_raw_os_error(5)));
+    }
+    #[cfg(unix)]
+    {
+        assert!(super::filesystem::lock_contended(&std::io::Error::from(
+            std::io::ErrorKind::WouldBlock,
+        )));
+        assert!(!super::filesystem::lock_contended(&std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )));
+    }
+}
+
 fn crash_snapshot() -> Value {
     json!({"tasks":(0..64).map(|index| json!({"taskId":index,"padding":"x".repeat(100 * 1024)})).collect::<Vec<_>>(),"events":[],"cursor":1})
 }

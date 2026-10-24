@@ -12,7 +12,7 @@ use harness_domain::conversation::{
     PermissionRequest, SessionConfigOption, SessionInfo, SessionUsage, UsageCost,
 };
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -177,8 +177,9 @@ impl AntigravityAcpAdapter {
         let (message_tx, messages) = mpsc::channel(64);
         tokio::spawn(async move {
             let mut stdout = BufReader::new(stdout);
+            let mut line = Vec::with_capacity(4096);
             loop {
-                let message = read_protocol_message(&mut stdout)
+                let message = read_protocol_message(&mut stdout, &mut line)
                     .await
                     .map_err(|error| error.to_string());
                 let done = message.is_err();
@@ -251,9 +252,11 @@ impl AntigravityAcpAdapter {
         observer: &dyn ConversationObserver,
     ) -> Result<ConnectionInfo, ConversationError> {
         if state.is_none() {
+            let started = Instant::now();
             let process = self.spawn_process().await?;
             *self.cancel_stdin.lock().await = Some(process.stdin.clone());
             *state = Some(process);
+            report_acp_timing(observer, "spawn", started.elapsed());
         }
         let process = state.as_mut().expect("process was started");
         if !process.initialized {
@@ -671,25 +674,52 @@ async fn request(
     params: Value,
     observer: &dyn ConversationObserver,
 ) -> Result<Value, ConversationError> {
+    let started = Instant::now();
     send_message(
         process,
         &json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
     )
     .await?;
+    let sent_after = started.elapsed();
+    let measure_timings = acp_timings_enabled();
+    let mut first_text_after = None;
     let timeout = match method {
         "initialize" => Some(Duration::from_secs(120)),
         "authenticate" => Some(Duration::from_secs(300)),
         _ => None,
     };
-    if let Some(timeout) = timeout {
-        return tokio::time::timeout(
+    let response = if let Some(timeout) = timeout {
+        tokio::time::timeout(
             timeout,
-            request_response_loop(process, id, method, observer),
+            request_response_loop(process, id, method, observer, started, measure_timings, &mut first_text_after),
         )
         .await
-        .map_err(|_| other(format!("ACP {method} timed out")))?;
+        .unwrap_or_else(|_| Err(other(format!("ACP {method} timed out"))))
+    } else {
+        request_response_loop(process, id, method, observer, started, measure_timings, &mut first_text_after).await
+    };
+    if measure_timings {
+        let elapsed = started.elapsed();
+        let status = if method == "session/prompt" {
+            match first_text_after {
+                Some(first) => format!(
+                    "ACP timing session/prompt: send={}ms, first_text={}ms, total={}ms",
+                    sent_after.as_millis(), first.as_millis(), elapsed.as_millis()
+                ),
+                None => format!(
+                    "ACP timing session/prompt: send={}ms, first_text=none, total={}ms",
+                    sent_after.as_millis(), elapsed.as_millis()
+                ),
+            }
+        } else {
+            format!(
+                "ACP timing {method}: send={}ms, total={}ms",
+                sent_after.as_millis(), elapsed.as_millis()
+            )
+        };
+        let _ = notify(observer, ConversationEvent::Status(status));
     }
-    request_response_loop(process, id, method, observer).await
+    response
 }
 
 async fn request_response_loop(
@@ -697,6 +727,9 @@ async fn request_response_loop(
     id: u64,
     method: &str,
     observer: &dyn ConversationObserver,
+    started: Instant,
+    measure_timings: bool,
+    first_text_after: &mut Option<Duration>,
 ) -> Result<Value, ConversationError> {
     loop {
         let message = tokio::select! {
@@ -728,6 +761,20 @@ async fn request_response_loop(
                 .ok_or_else(|| other(format!("ACP {method} response omitted result")));
         }
         if message.get("method").and_then(Value::as_str) == Some("session/update") {
+            if measure_timings
+                && method == "session/prompt"
+                && first_text_after.is_none()
+                && message
+                    .pointer("/params/update/sessionUpdate")
+                    .and_then(Value::as_str)
+                    == Some("agent_message_chunk")
+                && message
+                    .pointer("/params/update/content/text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.is_empty())
+            {
+                *first_text_after = Some(started.elapsed());
+            }
             handle_update(
                 Some(process),
                 message.get("params").unwrap_or(&Value::Null),
@@ -748,17 +795,35 @@ async fn request_response_loop(
 
 async fn read_protocol_message(
     stdout: &mut (impl AsyncBufRead + Unpin),
+    line: &mut Vec<u8>,
 ) -> Result<Value, ConversationError> {
-    let mut line = Vec::new();
+    if line.capacity() > 64 * 1024 {
+        *line = Vec::with_capacity(4096);
+    } else {
+        line.clear();
+    }
     let read = (&mut *stdout)
         .take((MAX_PROTOCOL_LINE_BYTES + 1) as u64)
-        .read_until(b'\n', &mut line)
+        .read_until(b'\n', line)
         .await
         .map_err(|e| other(format!("ACP stdout read failed: {e}")))?;
     if read == 0 {
         return Err(other("ACP agent closed stdout"));
     }
-    parse_protocol_line(&line)
+    parse_protocol_line(line)
+}
+
+fn acp_timings_enabled() -> bool {
+    std::env::var("HARNESSMIX_ACP_TIMINGS").as_deref() == Ok("1")
+}
+
+fn report_acp_timing(observer: &dyn ConversationObserver, stage: &str, elapsed: Duration) {
+    if acp_timings_enabled() {
+        let _ = notify(
+            observer,
+            ConversationEvent::Status(format!("ACP timing {stage}: total={}ms", elapsed.as_millis())),
+        );
+    }
 }
 
 fn parse_protocol_line(line: &[u8]) -> Result<Value, ConversationError> {
@@ -994,3 +1059,52 @@ fn other(message: impl Into<String>) -> ConversationError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod line_buffer_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn consecutive_protocol_frames_reuse_the_line_buffer() {
+        let frames = b"{\"id\":1}\n{\"id\":2}\n";
+        let mut reader = BufReader::new(&frames[..]);
+        let mut line = Vec::with_capacity(4096);
+
+        assert_eq!(read_protocol_message(&mut reader, &mut line).await.unwrap()["id"], 1);
+        let buffer = line.as_ptr();
+        assert_eq!(read_protocol_message(&mut reader, &mut line).await.unwrap()["id"], 2);
+        assert_eq!(line.as_ptr(), buffer);
+    }
+
+    #[tokio::test]
+    async fn oversized_protocol_frame_is_rejected_with_a_reused_buffer() {
+        let mut oversized = vec![b' '; MAX_PROTOCOL_LINE_BYTES + 1];
+        oversized.push(b'\n');
+        let mut reader = BufReader::new(&oversized[..]);
+        let mut line = Vec::with_capacity(4096);
+
+        assert_eq!(
+            read_protocol_message(&mut reader, &mut line).await,
+            Err(other("ACP message exceeded the 8 MiB limit"))
+        );
+    }
+
+    #[tokio::test]
+    async fn large_protocol_frame_does_not_keep_a_large_buffer_for_the_next_frame() {
+        let large = json!({"data": "x".repeat(70 * 1024)});
+        let frames = format!("{large}\n{{\"id\":7}}\n");
+        let mut reader = BufReader::new(frames.as_bytes());
+        let mut line = Vec::with_capacity(4096);
+
+        assert_eq!(
+            read_protocol_message(&mut reader, &mut line).await.unwrap()["data"]
+                .as_str()
+                .unwrap()
+                .len(),
+            70 * 1024
+        );
+        assert!(line.capacity() > 64 * 1024);
+        assert_eq!(read_protocol_message(&mut reader, &mut line).await.unwrap()["id"], 7);
+        assert!(line.capacity() <= 64 * 1024);
+    }
+}

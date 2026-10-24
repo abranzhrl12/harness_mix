@@ -189,7 +189,7 @@ pub(super) fn writer(directory: &Path) -> Result<File, Failure> {
         .create(true)
         .truncate(false)
         .open(path)
-        .map_err(|_| BUSY)?;
+        .map_err(|error| if lock_contended(&error) { BUSY } else { IO })?;
     inspect(&file)?;
     if file.metadata().map_err(|_| PATH)?.len() != 0 {
         return Err(PATH);
@@ -199,8 +199,25 @@ pub(super) fn writer(directory: &Path) -> Result<File, Failure> {
         use std::os::fd::AsRawFd;
         // SAFETY: flock borrows this live descriptor. Closing it releases the lock.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(BUSY);
+            let error = std::io::Error::last_os_error();
+            return Err(if lock_contended(&error) { BUSY } else { IO });
         }
     }
     Ok(file)
+}
+
+pub(super) fn lock_contended(error: &std::io::Error) -> bool {
+    #[cfg(windows)]
+    {
+        matches!(error.raw_os_error(), Some(32 | 33)) // sharing/lock violation
+    }
+    #[cfg(unix)]
+    {
+        error.kind() == std::io::ErrorKind::WouldBlock
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = error;
+        false
+    }
 }

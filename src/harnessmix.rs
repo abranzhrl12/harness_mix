@@ -2,6 +2,8 @@
 mod config;
 #[path = "harnessmix/images.rs"]
 mod images;
+#[path = "harnessmix/clipboard.rs"]
+mod clipboard;
 #[path = "harnessmix/hooks.rs"]
 mod hooks;
 #[path = "harnessmix/menu.rs"]

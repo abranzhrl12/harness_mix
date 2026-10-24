@@ -5,6 +5,19 @@ use std::sync::Arc;
 /// A full-screen UI may replace the presentation layer without changing ACP.
 pub trait MessageRenderer: Send + Sync {
     fn render(&self, markdown: &str, width: usize) -> String;
+
+    /// Render a streamed segment while carrying Markdown state across lines.
+    /// Callers should commit the updated state only after the output is written.
+    fn render_progressive(&self, markdown: &str, width: usize, _state: &mut RenderState) -> String {
+        self.render(markdown, width)
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct RenderState {
+    fence: Option<(char, usize)>,
+    bold: bool,
+    inline_code: bool,
 }
 
 pub struct PlainRenderer;
@@ -23,6 +36,100 @@ impl MessageRenderer for TermimadRenderer {
         let skin = termimad::MadSkin::default_dark();
         skin.text(&clean, Some(width.clamp(1, 4096))).to_string()
     }
+
+
+    fn render_progressive(&self, markdown: &str, _width: usize, state: &mut RenderState) -> String {
+        // Termimad needs a complete block for fences and tables. Keep its full
+        // message renderer, but style streamed lines with a small state machine.
+        let clean = sanitize(markdown);
+        let mut output = String::with_capacity(clean.len() + 32);
+        for segment in clean.split_inclusive('\n') {
+            let (line, newline) = segment.strip_suffix('\n')
+                .map_or((segment, ""), |line| (line, "\n"));
+            if let Some((marker, count)) = state.fence {
+                if is_closing_fence(line, marker, count) {
+                    output.push_str("\x1b[2;38;5;245m");
+                    output.push_str(line);
+                    output.push_str("\x1b[0m");
+                    state.fence = None;
+                } else {
+                    output.push_str("\x1b[38;5;252m");
+                    output.push_str(line);
+                    output.push_str("\x1b[0m");
+                }
+            } else if let Some(fence) = opening_fence(line) {
+                state.fence = Some(fence);
+                state.bold = false;
+                state.inline_code = false;
+                output.push_str("\x1b[2;38;5;245m");
+                output.push_str(line);
+                output.push_str("\x1b[0m");
+            } else if line.trim_start().starts_with('|') {
+                // A table may arrive before its separator. Preserve each row as
+                // written instead of letting a single-row parser rearrange it.
+                output.push_str("\x1b[38;5;250m");
+                output.push_str(line);
+                output.push_str("\x1b[0m");
+            } else if let Some(heading) = heading_text(line) {
+                output.push_str("\x1b[1;36m");
+                output.push_str(heading);
+                output.push_str("\x1b[0m");
+            } else {
+                render_inline(line, state, &mut output);
+            }
+            output.push_str(newline);
+            if !newline.is_empty() {
+                state.bold = false;
+                state.inline_code = false;
+            }
+        }
+        output
+    }
+}
+
+fn opening_fence(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 { return None; }
+    let marker = trimmed.chars().next()?;
+    if marker != '`' && marker != '~' { return None; }
+    let count = trimmed.chars().take_while(|value| *value == marker).count();
+    (count >= 3).then_some((marker, count))
+}
+
+fn is_closing_fence(line: &str, marker: char, minimum: usize) -> bool {
+    let trimmed = line.trim();
+    let count = trimmed.chars().take_while(|value| *value == marker).count();
+    count >= minimum && trimmed[count..].trim().is_empty()
+}
+
+fn heading_text(line: &str) -> Option<&str> {
+    let count = line.chars().take_while(|value| *value == '#').count();
+    (1..=6).contains(&count).then(|| line[count..].strip_prefix(' ')).flatten()
+}
+
+fn render_inline(line: &str, state: &mut RenderState, output: &mut String) {
+    if state.inline_code {
+        output.push_str("\x1b[38;5;214m");
+    } else if state.bold {
+        output.push_str("\x1b[1m");
+    }
+    let mut rest = line;
+    while !rest.is_empty() {
+        if rest.starts_with('`') {
+            state.inline_code = !state.inline_code;
+            output.push_str(if state.inline_code { "\x1b[38;5;214m" } else if state.bold { "\x1b[1m" } else { "\x1b[0m" });
+            rest = &rest[1..];
+        } else if !state.inline_code && rest.starts_with("**") {
+            state.bold = !state.bold;
+            output.push_str(if state.bold { "\x1b[1m" } else { "\x1b[0m" });
+            rest = &rest[2..];
+        } else {
+            let character = rest.chars().next().expect("nonempty text");
+            output.push(character);
+            rest = &rest[character.len_utf8()..];
+        }
+    }
+    if state.bold || state.inline_code { output.push_str("\x1b[0m"); }
 }
 
 pub fn renderer(styled: bool) -> Arc<dyn MessageRenderer> {
@@ -91,5 +198,49 @@ mod tests {
         let rendered = sanitize(&renderer(true).render("**Hola**", 40));
         assert!(rendered.contains("Hola"));
         assert!(!rendered.contains("**"));
+    }
+
+    #[test]
+    fn progressive_fence_keeps_code_styled_until_closing_line() {
+        let renderer = TermimadRenderer;
+        let mut state = RenderState::default();
+        let open = renderer.render_progressive("```rust\n", 80, &mut state);
+        let code = renderer.render_progressive("let café = 1;\n", 80, &mut state);
+        let close = renderer.render_progressive("```\n", 80, &mut state);
+        let prose = renderer.render_progressive("**Listo**\n", 80, &mut state);
+        assert!(open.contains("```rust"));
+        assert!(code.contains("let café = 1;"));
+        assert!(code.starts_with("\x1b[38;5;252m"));
+        assert!(close.contains("```"));
+        assert!(prose.contains("Listo"));
+        assert!(!prose.contains("**"));
+        assert!(prose.ends_with('\n'));
+    }
+
+    #[test]
+    fn progressive_table_rows_arrive_without_waiting_for_separator() {
+        let renderer = TermimadRenderer;
+        let mut state = RenderState::default();
+        assert!(renderer.render_progressive("| A | B |\n", 80, &mut state).contains("| A | B |"));
+        assert!(renderer.render_progressive("|---|---|\n", 80, &mut state).contains("|---|---|"));
+    }
+
+    #[test]
+    fn plain_progressive_output_has_no_added_newline() {
+        let renderer = PlainRenderer;
+        let mut state = RenderState::default();
+        assert_eq!(renderer.render_progressive("**rápido** 🚀", 80, &mut state), "**rápido** 🚀");
+    }
+
+    #[test]
+    fn inline_style_continues_across_partial_chunks_and_resets_at_line_end() {
+        let renderer = TermimadRenderer;
+        let mut state = RenderState::default();
+        let first = renderer.render_progressive("**muy ", 80, &mut state);
+        let second = renderer.render_progressive("rápido**\n", 80, &mut state);
+        let third = renderer.render_progressive("normal\n", 80, &mut state);
+        assert!(first.contains("muy "));
+        assert!(second.starts_with("\x1b[1mrápido"));
+        assert_eq!(third, "normal\n");
     }
 }

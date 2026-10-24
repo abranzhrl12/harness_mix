@@ -1,24 +1,38 @@
 //! Incremental presentation framing, independent of the terminal and Markdown engine.
-//! Ordinary completed lines are ready immediately; tables and fenced code wait for
-//! a structural boundary. Segments concatenate back to the exact original input.
+//! Every completed line is ready immediately, including lines inside tables and
+//! fenced code. Segments concatenate back to the exact original input.
 
-const SOFT_LINE_CHARS: usize = 192;
+const SOFT_LINE_CHARS: usize = 64;
+const MAX_SOFT_LINE_CHARS: usize = 128;
 const MAX_PENDING_BYTES: usize = 64 * 1024;
 
 #[derive(Default)]
 pub struct StreamBuffer {
     pending: String,
+    complete_lines_only: bool,
 }
 
 impl StreamBuffer {
+    /// Use with a line editor that cannot safely display partial output lines.
+    /// The unfinished final line remains available through `finish`.
+    pub fn complete_lines() -> Self {
+        Self { pending: String::new(), complete_lines_only: true }
+    }
+
     pub fn push(&mut self, text: &str) -> Vec<String> {
+        // In complete-line mode `pending` never contains a newline between
+        // calls, so avoid rescanning a growing line for every small ACP delta.
+        if self.complete_lines_only && !text.contains('\n') {
+            self.pending.push_str(text);
+            return Vec::new();
+        }
         self.pending.push_str(text);
         let mut ready = Vec::new();
         loop {
             let boundary = self.boundary().or_else(|| {
-                // Pathological unclosed fences/tables/words cannot retain unlimited
-                // memory. This fallback preserves bytes, at the cost of block styling.
-                (self.pending.len() > MAX_PENDING_BYTES).then(|| {
+                // A redirected stream may emit a long word without whitespace.
+                // Interactive line editing intentionally waits for a newline.
+                (!self.complete_lines_only && self.pending.len() > MAX_PENDING_BYTES).then(|| {
                     let mut end = MAX_PENDING_BYTES;
                     while !self.pending.is_char_boundary(end) { end -= 1; }
                     end
@@ -37,58 +51,24 @@ impl StreamBuffer {
     }
 
     fn boundary(&self) -> Option<usize> {
-        let Some(first_end) = self.pending.find('\n').map(|index| index + 1) else {
-            return self.soft_line_boundary();
-        };
-        let first = &self.pending[..first_end];
-        if let Some((marker, count)) = fence(first) {
-            let mut offset = first_end;
-            for line in self.pending[first_end..].split_inclusive('\n') {
-                offset += line.len();
-                if line.ends_with('\n') && closes_fence(line, marker, count) {
-                    return Some(offset);
-                }
-            }
-            return None;
-        }
-        if first.contains('|') {
-            let mut offset = first_end;
-            for line in self.pending[first_end..].split_inclusive('\n') {
-                if !line.ends_with('\n') { return None; }
-                if line.trim().is_empty() { return Some(offset + line.len()); }
-                if !line.contains('|') { return Some(offset); }
-                offset += line.len();
-            }
-            return None;
-        }
-        Some(first_end)
+        self.pending.find('\n').map(|index| index + 1).or_else(|| {
+            (!self.complete_lines_only).then(|| self.soft_line_boundary()).flatten()
+        })
     }
 
     fn soft_line_boundary(&self) -> Option<usize> {
-        // Never split a potential Markdown construct merely because it is long.
-        // Complete lines/fences handle those; the hard cap is the safety valve.
-        if self.pending.contains(['`', '~', '*', '_', '[', ']', '|', '\\']) {
-            return None;
+        let mut hard_boundary = None;
+        for (count, (index, character)) in self.pending.char_indices().enumerate() {
+            if count >= SOFT_LINE_CHARS && character.is_whitespace() {
+                return Some(index + character.len_utf8());
+            }
+            if count >= MAX_SOFT_LINE_CHARS {
+                hard_boundary = Some(index);
+                break;
+            }
         }
-        self.pending.char_indices().enumerate().find_map(|(count, (index, character))| {
-            (count >= SOFT_LINE_CHARS && character.is_whitespace())
-                .then_some(index + character.len_utf8())
-        })
+        hard_boundary
     }
-}
-
-fn fence(line: &str) -> Option<(char, usize)> {
-    let line = line.trim_start_matches(' ');
-    let marker = line.chars().next()?;
-    if marker != '`' && marker != '~' { return None; }
-    let count = line.chars().take_while(|value| *value == marker).count();
-    (count >= 3).then_some((marker, count))
-}
-
-fn closes_fence(line: &str, marker: char, minimum: usize) -> bool {
-    let line = line.trim();
-    let count = line.chars().take_while(|value| *value == marker).count();
-    count >= minimum && line[count..].trim().is_empty()
 }
 
 #[cfg(test)]
@@ -105,29 +85,49 @@ mod tests {
     }
 
     #[test]
-    fn fences_split_across_chunks_are_emitted_as_one_closed_block() {
+    fn fences_split_across_chunks_are_emitted_line_by_line() {
         let mut stream = StreamBuffer::default();
         assert!(stream.push("``").is_empty());
-        assert!(stream.push("`rust\nfn main() {\n").is_empty());
-        assert!(stream.push("}\n``").is_empty());
-        assert_eq!(stream.push("`\nDespués\n"), ["```rust\nfn main() {\n}\n```\n", "Después\n"]);
+        assert_eq!(stream.push("`rust\nfn main() {\n"), ["```rust\n", "fn main() {\n"]);
+        assert_eq!(stream.push("}\n``"), ["}\n"]);
+        assert_eq!(stream.push("`\nDespués\n"), ["```\n", "Después\n"]);
         assert!(stream.finish().is_none());
     }
 
     #[test]
-    fn table_header_separator_and_rows_are_not_rendered_separately() {
+    fn table_header_separator_and_rows_are_emitted_line_by_line() {
         let mut stream = StreamBuffer::default();
-        assert!(stream.push("| A | B |\n|-").is_empty());
-        assert!(stream.push("--|---|\n| 1 | 2 |\n").is_empty());
-        assert_eq!(stream.push("\nListo\n"), ["| A | B |\n|---|---|\n| 1 | 2 |\n\n", "Listo\n"]);
+        assert_eq!(stream.push("| A | B |\n|-"), ["| A | B |\n"]);
+        assert_eq!(stream.push("--|---|\n| 1 | 2 |\n"), ["|---|---|\n", "| 1 | 2 |\n"]);
+        assert_eq!(stream.push("\nListo\n"), ["\n", "Listo\n"]);
     }
 
     #[test]
     fn unfinished_fence_is_retained_on_cancel_and_reset_for_next_turn() {
         let mut stream = StreamBuffer::default();
-        assert!(stream.push("~~~\nparcial").is_empty());
-        assert_eq!(stream.finish().as_deref(), Some("~~~\nparcial"));
+        assert_eq!(stream.push("~~~\nparcial"), ["~~~\n"]);
+        assert_eq!(stream.finish().as_deref(), Some("parcial"));
         assert_eq!(stream.push("nuevo\n"), ["nuevo\n"]);
+    }
+
+    #[test]
+    fn markdown_does_not_block_soft_progress_or_change_unicode() {
+        let source = "**rápido** | `código` 🚀 ".repeat(20);
+        let mut stream = StreamBuffer::default();
+        let mut emitted = Vec::new();
+        for character in source.chars() { emitted.extend(stream.push(&character.to_string())); }
+        assert!(!emitted.is_empty());
+        emitted.extend(stream.finish());
+        assert_eq!(emitted.concat(), source);
+    }
+
+    #[test]
+    fn interactive_mode_emits_only_complete_lines_until_finish() {
+        let mut stream = StreamBuffer::complete_lines();
+        let long = "**sin salto** 🚀 ".repeat(100);
+        assert!(stream.push(&long).is_empty());
+        assert_eq!(stream.push("\n"), [format!("{long}\n")]);
+        assert_eq!(stream.finish(), None);
     }
 
     #[test]
