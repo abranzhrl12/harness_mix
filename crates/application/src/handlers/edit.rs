@@ -8,7 +8,7 @@ use harness_domain::{
 };
 use serde_json::Value;
 
-use crate::ports::workspace::SourceEditing;
+use crate::ports::workspace::{IgnoreManagement, SourceEditing, SourcePreviews};
 
 pub fn delete<S: SourceEditing + ?Sized>(
     service: &S,
@@ -42,7 +42,7 @@ pub fn move_file<S: SourceEditing + ?Sized>(
     service.move_file(args, context)
 }
 
-pub fn ignore<S: SourceEditing + ?Sized>(
+pub fn ignore<S: IgnoreManagement + ?Sized>(
     service: &S,
     args: &IgnoreArgs,
     context: &OperationContext,
@@ -50,7 +50,7 @@ pub fn ignore<S: SourceEditing + ?Sized>(
     service.ignore(args, context)
 }
 
-pub fn patch_preview<S: SourceEditing + ?Sized>(
+pub fn patch_preview<S: SourcePreviews + ?Sized>(
     service: &S,
     args: &ReplaceArgs,
     context: &OperationContext,
@@ -66,7 +66,7 @@ pub fn prepare_proposal<S: SourceEditing + ?Sized>(
     service.prepare_proposal(args, context)
 }
 
-pub fn vue_extract_preview<S: SourceEditing + ?Sized>(
+pub fn vue_extract_preview<S: SourcePreviews + ?Sized>(
     service: &S,
     args: &VueExtractPreviewArgs,
     context: &OperationContext,

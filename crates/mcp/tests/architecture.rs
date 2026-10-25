@@ -1,8 +1,9 @@
 use harness_application::{Application, ports::{SessionContext, SessionRepository}};
 use harness_application::ports::browser::BrowserInspection;
 use harness_application::ports::workspace::{
-    ArtifactQueries, LogPersistence, SessionPersistence, SourceEditing, SourceQueries, SqlAccess,
-    Verification, VersionControl, WorkspaceDiagnostics, WorkspaceMetadata,
+    ArtifactQueries, IgnoreManagement, LogPersistence, SessionPersistence, SourceEditing,
+    SourcePreviews, SourceQueries, SqlAccess, Verification, VersionControl,
+    WorkspaceDiagnostics, WorkspaceMetadata,
 };
 use harness_domain::{Failure, execution::OperationContext};
 use harness_mcp::{BoundedLines, MAX_MESSAGE_BYTES, McpServer};
@@ -37,6 +38,8 @@ impl SourceEditing for TestWorkspace {
         _: &OperationContext,
     ) -> Result<Value, Failure> { unreachable!() }
 }
+impl SourcePreviews for TestWorkspace {}
+impl IgnoreManagement for TestWorkspace {}
 impl WorkspaceDiagnostics for TestWorkspace {}
 impl VersionControl for TestWorkspace {}
 impl SqlAccess for TestWorkspace {}

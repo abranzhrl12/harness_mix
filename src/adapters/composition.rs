@@ -19,9 +19,9 @@ pub(super) fn dependencies(
     let workspace = NativeWorkspace {
         external_scopes: std::sync::Arc::clone(&external_scopes),
         log_store,
-        source_queries: services::SourceQueryService::new(
+        source_queries: services::SourceQueryService::new(project.clone(), external_scopes),
+        index_maintenance: services::IndexMaintenanceService::new(
             project.clone(),
-            external_scopes,
             std::sync::Arc::clone(&edit_lock),
         ),
         source_editing: services::SourceEditingService::new(

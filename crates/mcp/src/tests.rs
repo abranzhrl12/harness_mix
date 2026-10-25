@@ -126,6 +126,8 @@ impl harness_application::ports::workspace::SourceEditing for WaitingWorkspace {
         Ok(json!({"changed":true,"commitStatus":"committed"}))
     }
 }
+impl harness_application::ports::workspace::SourcePreviews for WaitingWorkspace {}
+impl harness_application::ports::workspace::IgnoreManagement for WaitingWorkspace {}
 impl harness_application::ports::workspace::WorkspaceDiagnostics for WaitingWorkspace {}
 impl harness_application::ports::workspace::VersionControl for WaitingWorkspace {}
 impl harness_application::ports::workspace::SqlAccess for WaitingWorkspace {}

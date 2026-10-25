@@ -1,6 +1,9 @@
 use super::*;
 use crate::adapters::{Project, external_scopes::Registry, project::hash};
-use std::{fs, sync::{Arc, Mutex}};
+use std::{
+    fs,
+    sync::{Arc, Mutex},
+};
 
 #[test]
 fn read_line_numbers_are_display_only_and_respect_the_selected_eof_line() {
@@ -10,7 +13,6 @@ fn read_line_numbers_are_display_only_and_respect_the_selected_eof_line() {
     let service = SourceQueryService::new(
         Project::new(dir.path()).unwrap(),
         Arc::new(Mutex::new(Registry::default())),
-        Arc::new(Mutex::new(())),
     );
     let context = OperationContext::default();
     let read_args = |line_numbers| ReadArgs {
@@ -32,4 +34,34 @@ fn read_line_numbers_are_display_only_and_respect_the_selected_eof_line() {
     assert_eq!(plain["text"], numbered["text"]);
     assert_eq!(plain["hash"], numbered["hash"]);
     assert!(plain.get("numberedText").is_none());
+}
+
+#[test]
+fn text_search_works_without_index_maintenance_state() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("example.txt"), "needle in source\n").unwrap();
+    let service = SourceQueryService::new(
+        Project::new(dir.path()).unwrap(),
+        Arc::new(Mutex::new(Registry::default())),
+    );
+
+    let result = service
+        .search(
+            &SearchArgs {
+                external_scope: None,
+                kind: harness_domain::contracts::Kind::Text,
+                query: "needle".into(),
+                min_lines: None,
+                globs: None,
+                scope: None,
+                limit: None,
+                context_lines: None,
+                session: None,
+            },
+            &OperationContext::default(),
+        )
+        .unwrap();
+
+    assert_eq!(result["matches"][0]["text"], "needle in source");
+    assert!(!dir.path().join(".codegraph").exists());
 }

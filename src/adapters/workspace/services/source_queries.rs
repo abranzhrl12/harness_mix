@@ -18,16 +18,7 @@ impl SourceQueries for SourceQueryService {
         args: &harness_domain::contracts::ExploreArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        if args.sync_index == Some(true) {
-            let _guard = self
-                .edit_lock
-                .lock()
-                .map_err(|_| ("INTERNAL", "Workspace mutation lock unavailable"))?;
-            context.check()?;
-            explore::synchronized(&self.project, args, context)
-        } else {
-            explore::explore(&self.project, args, context)
-        }
+        explore::explore(&self.project, args, context)
     }
     fn outline(
         &self,
@@ -65,7 +56,8 @@ impl SourceQueries for SourceQueryService {
             args.session.as_deref(),
             context,
             |project, _| {
-                let mut value = project.read_with_context(&args.path, args.start, args.end, context)?;
+                let mut value =
+                    project.read_with_context(&args.path, args.start, args.end, context)?;
                 if args.line_numbers {
                     let start = value["start"].as_u64().unwrap_or(args.start as u64) as usize;
                     let end = value["end"].as_u64().unwrap_or(start as u64) as usize;
@@ -99,4 +91,3 @@ impl SourceQueries for SourceQueryService {
         )
     }
 }
-

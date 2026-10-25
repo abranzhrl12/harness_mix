@@ -1,7 +1,10 @@
 use super::dependencies;
 use crate::adapters::NativeApplicationOptions;
-use harness_application::ports::workspace::SourceEditing;
-use harness_domain::{contracts::WriteArgs, execution::OperationContext};
+use harness_application::ports::workspace::{SourceEditing, SourceQueries};
+use harness_domain::{
+    contracts::{ExploreArgs, WriteArgs},
+    execution::OperationContext,
+};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -65,7 +68,7 @@ fn default_composition_disables_optional_persistent_adapters() {
         &workspace.external_scopes,
     ));
     assert!(Arc::ptr_eq(
-        &workspace.source_queries.edit_lock,
+        &workspace.index_maintenance.edit_lock,
         &workspace.source_editing.edit_lock,
     ));
 }
@@ -96,7 +99,7 @@ fn composition_injects_requested_log_store_and_watch_status() {
 }
 
 #[test]
-fn edit_and_synchronized_query_services_exclude_each_other() {
+fn edits_and_index_maintenance_exclude_each_other() {
     let root = tempfile::tempdir().expect("temporary project root");
     let (workspace, _sessions) = dependencies(root.path(), NativeApplicationOptions::default())
         .expect("compose the native application");
@@ -106,16 +109,16 @@ fn edit_and_synchronized_query_services_exclude_each_other() {
         .edit_lock
         .try_lock()
         .expect("edit service acquires the shared mutation lock");
-    assert!(workspace.source_queries.edit_lock.try_lock().is_err());
+    assert!(workspace.index_maintenance.edit_lock.try_lock().is_err());
     drop(edit_guard);
 
     let target = root.path().join("preserved.txt");
     std::fs::write(&target, "original").expect("seed existing workspace file");
-    let query_guard = workspace
-        .source_queries
+    let maintenance_guard = workspace
+        .index_maintenance
         .edit_lock
         .lock()
-        .expect("query sync owns the workspace mutation lock");
+        .expect("index maintenance owns the workspace mutation lock");
     let error = workspace
         .source_editing
         .write(
@@ -131,19 +134,59 @@ fn edit_and_synchronized_query_services_exclude_each_other() {
             },
             &OperationContext::default(),
         )
-        .expect_err("an edit is rejected while synchronized query owns the lock");
+        .expect_err("an edit is rejected while index maintenance owns the lock");
     assert_eq!(error.0, "EDIT_BUSY");
-    drop(query_guard);
+    drop(maintenance_guard);
     assert_eq!(
         std::fs::read_to_string(target).expect("read original file"),
         "original"
     );
 
-    let query_guard = workspace
-        .source_queries
+    let maintenance_guard = workspace
+        .index_maintenance
         .edit_lock
         .try_lock()
-        .expect("query service acquires the shared mutation lock");
+        .expect("index maintenance acquires the shared mutation lock");
     assert!(workspace.source_editing.edit_lock.try_lock().is_err());
-    drop(query_guard);
+    drop(maintenance_guard);
+}
+
+#[test]
+fn explore_only_uses_maintenance_lock_when_sync_is_explicit() {
+    let root = tempfile::tempdir().expect("temporary project root");
+    let (workspace, _) = dependencies(root.path(), NativeApplicationOptions::default())
+        .expect("compose the native application");
+    let lock = Arc::clone(&workspace.index_maintenance.edit_lock);
+    let _ = std::thread::spawn(move || {
+        let _guard = lock.lock().expect("acquire mutation lock");
+        panic!("poison mutation lock for dispatch regression");
+    })
+    .join();
+    let args = |sync_index| ExploreArgs {
+        query: "needle".to_owned(),
+        view: None,
+        file_path: None,
+        container: None,
+        symbol_id: None,
+        sync_index,
+        symbol: None,
+        max_files: None,
+        max_chars: None,
+        direction: None,
+        max_depth: None,
+        limit: None,
+        require_matching_files: None,
+        session: None,
+    };
+
+    let synchronized = workspace
+        .explore(&args(Some(true)), &OperationContext::default())
+        .expect_err("explicit sync dispatches to index maintenance");
+    assert_eq!(synchronized.0, "INTERNAL");
+
+    let read_only = workspace
+        .explore(&args(Some(false)), &OperationContext::default())
+        .expect("read-only explore returns its bounded index diagnostic");
+    assert_eq!(read_only["diagnostics"][0]["code"], "INDEX");
+    assert!(!root.path().join(".codegraph").exists());
 }

@@ -65,6 +65,8 @@ impl harness_application::ports::workspace::SourceQueries for Disk {
     }
 }
 impl harness_application::ports::workspace::SourceEditing for Disk {}
+impl harness_application::ports::workspace::SourcePreviews for Disk {}
+impl harness_application::ports::workspace::IgnoreManagement for Disk {}
 impl harness_application::ports::workspace::WorkspaceDiagnostics for Disk {
     fn observe_workspace(&self, _: &OperationContext) -> Result<Value, Failure> {
         self.started.send(()).unwrap();

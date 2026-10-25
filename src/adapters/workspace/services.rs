@@ -4,6 +4,8 @@ use harness_domain::{Failure, execution::OperationContext};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
+#[path = "services/index_maintenance.rs"]
+mod index_maintenance;
 #[path = "services/sessions.rs"]
 mod sessions;
 #[path = "services/source_editing.rs"]
@@ -14,20 +16,28 @@ mod source_queries;
 pub(in crate::adapters) struct SourceQueryService {
     pub(in crate::adapters) project: Project,
     pub(in crate::adapters) external_scopes: Arc<Mutex<external_scopes::Registry>>,
-    pub(in crate::adapters) edit_lock: Arc<Mutex<()>>,
 }
 
 impl SourceQueryService {
     pub(in crate::adapters) fn new(
         project: Project,
         external_scopes: Arc<Mutex<external_scopes::Registry>>,
-        edit_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             project,
             external_scopes,
-            edit_lock,
         }
+    }
+}
+
+pub(in crate::adapters) struct IndexMaintenanceService {
+    pub(in crate::adapters) project: Project,
+    pub(in crate::adapters) edit_lock: Arc<Mutex<()>>,
+}
+
+impl IndexMaintenanceService {
+    pub(in crate::adapters) fn new(project: Project, edit_lock: Arc<Mutex<()>>) -> Self {
+        Self { project, edit_lock }
     }
 }
 

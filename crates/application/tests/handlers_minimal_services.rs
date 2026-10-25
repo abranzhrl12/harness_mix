@@ -1,6 +1,8 @@
 use harness_application::{
     handlers::{edit, read, search, verify},
-    ports::workspace::{SourceEditing, SourceQueries, Verification},
+    ports::workspace::{
+        IgnoreManagement, SourceEditing, SourcePreviews, SourceQueries, Verification,
+    },
 };
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::{Value, json};
@@ -112,6 +114,43 @@ fn edit_handler_needs_only_the_editing_service_and_preserves_result() {
     assert_eq!(
         edit::replace(&service, &args, &context).unwrap(),
         json!({"changed": true})
+    );
+}
+
+struct PreviewService;
+
+impl SourcePreviews for PreviewService {
+    fn patch_preview(
+        &self,
+        _: &harness_domain::contracts::ReplaceArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Ok(json!({"preview": true}))
+    }
+}
+
+struct IgnoreService;
+
+impl IgnoreManagement for IgnoreService {
+    fn ignore(
+        &self,
+        _: &harness_domain::contracts::IgnoreArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Ok(json!({"ignored": true}))
+    }
+}
+
+#[test]
+fn preview_and_ignore_handlers_need_only_their_own_capabilities() {
+    let context = OperationContext::default();
+    assert_eq!(
+        edit::patch_preview(&PreviewService, &Default::default(), &context).unwrap(),
+        json!({"preview": true})
+    );
+    assert_eq!(
+        edit::ignore(&IgnoreService, &args!(json!({"action": "list"})), &context).unwrap(),
+        json!({"ignored": true})
     );
 }
 

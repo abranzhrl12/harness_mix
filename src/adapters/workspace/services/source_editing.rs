@@ -1,6 +1,6 @@
 use super::SourceEditingService;
 use crate::adapters::{edit, ignore, move_file, vue_extract};
-use harness_application::ports::workspace::SourceEditing;
+use harness_application::ports::workspace::{IgnoreManagement, SourceEditing, SourcePreviews};
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
@@ -78,6 +78,33 @@ impl SourceEditing for SourceEditingService {
         })?;
         move_file::move_file(&self.project, args, context)
     }
+    fn ignore(
+        &self,
+        args: &harness_domain::contracts::IgnoreArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        ignore::ignore(&self.project, args, context)
+    }
+}
+
+impl SourcePreviews for SourceEditingService {
+    fn vue_extract_preview(
+        &self,
+        args: &harness_domain::contracts::VueExtractPreviewArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        vue_extract::extract_preview(&self.project, args, context)
+    }
+    fn patch_preview(
+        &self,
+        args: &harness_domain::contracts::ReplaceArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        edit::preview(&self.project, args, context)
+    }
+}
+
+impl IgnoreManagement for SourceEditingService {
     fn ignore(
         &self,
         args: &harness_domain::contracts::IgnoreArgs,

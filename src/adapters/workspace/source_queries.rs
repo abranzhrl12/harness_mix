@@ -13,7 +13,11 @@ impl SourceQueries for NativeWorkspace {
         args: &harness_domain::contracts::ExploreArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        self.source_queries.explore(args, context)
+        if args.sync_index == Some(true) {
+            self.index_maintenance.explore_synchronized(args, context)
+        } else {
+            self.source_queries.explore(args, context)
+        }
     }
     fn outline(
         &self,

@@ -13,7 +13,7 @@ mod workspace_metadata;
 pub use artifact_queries::ArtifactQueries;
 pub use log_persistence::LogPersistence;
 pub use session_persistence::SessionPersistence;
-pub use source_editing::SourceEditing;
+pub use source_editing::{IgnoreManagement, SourceEditing, SourcePreviews};
 pub use source_queries::SourceQueries;
 pub use sql_access::SqlAccess;
 pub use verification::Verification;
@@ -27,6 +27,8 @@ pub trait Workspace:
     + super::browser::BrowserInspection
     + SourceQueries
     + SourceEditing
+    + SourcePreviews
+    + IgnoreManagement
     + WorkspaceDiagnostics
     + VersionControl
     + SqlAccess
@@ -42,6 +44,8 @@ impl<T: ?Sized> Workspace for T where
         + super::browser::BrowserInspection
         + SourceQueries
         + SourceEditing
+        + SourcePreviews
+        + IgnoreManagement
         + WorkspaceDiagnostics
         + VersionControl
         + SqlAccess

@@ -105,6 +105,7 @@ pub struct NativeWorkspace {
     log_store: Option<Result<disk_logs::DiskLogs, Failure>>,
     project: Project,
     source_queries: workspace::services::SourceQueryService,
+    index_maintenance: workspace::services::IndexMaintenanceService,
     source_editing: workspace::services::SourceEditingService,
     session_service: workspace::services::SessionService,
     browser: std::sync::Arc<dyn harness_application::ports::browser::BrowserInspection>,

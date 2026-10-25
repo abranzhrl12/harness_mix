@@ -1,5 +1,5 @@
 use crate::adapters::NativeWorkspace;
-use harness_application::ports::workspace::SourceEditing;
+use harness_application::ports::workspace::{IgnoreManagement, SourceEditing, SourcePreviews};
 use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
@@ -23,14 +23,14 @@ impl SourceEditing for NativeWorkspace {
         args: &harness_domain::contracts::VueExtractPreviewArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        self.source_editing.vue_extract_preview(args, context)
+        SourceEditing::vue_extract_preview(&self.source_editing, args, context)
     }
     fn patch_preview(
         &self,
         args: &harness_domain::contracts::ReplaceArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        self.source_editing.patch_preview(args, context)
+        SourceEditing::patch_preview(&self.source_editing, args, context)
     }
     fn replace(
         &self,
@@ -58,6 +58,33 @@ impl SourceEditing for NativeWorkspace {
         args: &harness_domain::contracts::IgnoreArgs,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        self.source_editing.ignore(args, context)
+        SourceEditing::ignore(&self.source_editing, args, context)
+    }
+}
+
+impl SourcePreviews for NativeWorkspace {
+    fn vue_extract_preview(
+        &self,
+        args: &harness_domain::contracts::VueExtractPreviewArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        SourcePreviews::vue_extract_preview(&self.source_editing, args, context)
+    }
+    fn patch_preview(
+        &self,
+        args: &harness_domain::contracts::ReplaceArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        SourcePreviews::patch_preview(&self.source_editing, args, context)
+    }
+}
+
+impl IgnoreManagement for NativeWorkspace {
+    fn ignore(
+        &self,
+        args: &harness_domain::contracts::IgnoreArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        IgnoreManagement::ignore(&self.source_editing, args, context)
     }
 }

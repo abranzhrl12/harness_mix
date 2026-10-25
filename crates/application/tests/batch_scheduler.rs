@@ -58,6 +58,8 @@ impl workspace::SourceQueries for SchedulerWorkspace {
 }
 
 impl workspace::SourceEditing for SchedulerWorkspace {}
+impl workspace::SourcePreviews for SchedulerWorkspace {}
+impl workspace::IgnoreManagement for SchedulerWorkspace {}
 impl workspace::WorkspaceDiagnostics for SchedulerWorkspace {}
 impl workspace::VersionControl for SchedulerWorkspace {}
 impl workspace::SqlAccess for SchedulerWorkspace {}

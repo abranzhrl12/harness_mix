@@ -7,8 +7,9 @@ use std::{
 use crate::adapters::NativeWorkspace;
 use harness_application::ports::browser::BrowserInspection;
 use harness_application::ports::workspace::{
-    ArtifactQueries, LogPersistence, SessionPersistence, SourceEditing, SourceQueries, SqlAccess,
-    Verification, VersionControl, WorkspaceDiagnostics, WorkspaceMetadata,
+    ArtifactQueries, IgnoreManagement, LogPersistence, SessionPersistence, SourceEditing,
+    SourcePreviews, SourceQueries, SqlAccess, Verification, VersionControl,
+    WorkspaceDiagnostics, WorkspaceMetadata,
 };
 use harness_domain::{Failure, execution::OperationContext};
 use serde::{Serialize, de::DeserializeOwned};
@@ -468,14 +469,14 @@ fn prefix_paths(value: &mut Value, project: &str, in_metadata_list: bool) {
     }
 }
 
-impl SourceEditing for MultiNativeWorkspace {
+impl SourcePreviews for MultiNativeWorkspace {
     fn vue_extract_preview(
         &self,
         a: &harness_domain::contracts::VueExtractPreviewArgs,
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["path", "targetPath"])?;
-        let mut v = self.projects[i].1.vue_extract_preview(&a, c)?;
+        let mut v = SourcePreviews::vue_extract_preview(&self.projects[i].1, &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
@@ -485,9 +486,26 @@ impl SourceEditing for MultiNativeWorkspace {
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["path"])?;
-        let mut v = self.projects[i].1.patch_preview(&a, c)?;
+        let mut v = SourcePreviews::patch_preview(&self.projects[i].1, &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
+    }
+}
+
+impl SourceEditing for MultiNativeWorkspace {
+    fn vue_extract_preview(
+        &self,
+        args: &harness_domain::contracts::VueExtractPreviewArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        <Self as SourcePreviews>::vue_extract_preview(self, args, context)
+    }
+    fn patch_preview(
+        &self,
+        args: &harness_domain::contracts::ReplaceArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        <Self as SourcePreviews>::patch_preview(self, args, context)
     }
     fn replace(
         &self,
@@ -541,11 +559,21 @@ impl SourceEditing for MultiNativeWorkspace {
     }
     fn ignore(
         &self,
+        args: &harness_domain::contracts::IgnoreArgs,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        <Self as IgnoreManagement>::ignore(self, args, context)
+    }
+}
+
+impl IgnoreManagement for MultiNativeWorkspace {
+    fn ignore(
+        &self,
         a: &harness_domain::contracts::IgnoreArgs,
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["scope"])?;
-        let mut v = self.projects[i].1.ignore(&a, c)?;
+        let mut v = IgnoreManagement::ignore(&self.projects[i].1, &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }

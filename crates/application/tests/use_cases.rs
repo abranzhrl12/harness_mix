@@ -47,14 +47,6 @@ impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
     }
 }
 impl harness_application::ports::workspace::SourceEditing for FakeWorkspace {
-    fn patch_preview(
-        &self,
-        _: &harness_domain::contracts::ReplaceArgs,
-        _: &OperationContext,
-    ) -> Result<Value, Failure> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(json!({"preview":true}))
-    }
     fn replace(
         &self,
         _: &harness_domain::contracts::ReplaceArgs,
@@ -64,6 +56,17 @@ impl harness_application::ports::workspace::SourceEditing for FakeWorkspace {
         Ok(json!({"changed":true}))
     }
 }
+impl harness_application::ports::workspace::SourcePreviews for FakeWorkspace {
+    fn patch_preview(
+        &self,
+        _: &harness_domain::contracts::ReplaceArgs,
+        _: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"preview":true}))
+    }
+}
+impl harness_application::ports::workspace::IgnoreManagement for FakeWorkspace {}
 impl harness_application::ports::workspace::WorkspaceDiagnostics for FakeWorkspace {}
 impl harness_application::ports::workspace::VersionControl for FakeWorkspace {}
 impl harness_application::ports::workspace::SqlAccess for FakeWorkspace {}
