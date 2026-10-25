@@ -47,11 +47,28 @@ pub(super) fn traverse(
             |r| r.get(0),
         )
         .map_err(failed)?;
-    let mut export_query = if has_metadata == 1 {
-        Some(db.prepare("SELECT CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.exportContributors') END FROM edges WHERE id=?1").map_err(failed)?)
-    } else {
-        None
+    let has_provenance: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('edges') WHERE name='provenance'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(failed)?;
+    let evidence_sql = match (has_metadata == 1, has_provenance == 1) {
+        (true, true) => Some(
+            "SELECT CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.exportContributors') END, CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata,'$.resolvedBy')='text' AND length(json_extract(metadata,'$.resolvedBy'))<=256 THEN json_extract(metadata,'$.resolvedBy') END END, CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata,'$.confidence') IN ('integer','real') THEN json_extract(metadata,'$.confidence') END END, CASE WHEN length(provenance)<=128 THEN provenance END FROM edges WHERE id=?1",
+        ),
+        (true, false) => Some(
+            "SELECT CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.exportContributors') END, CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata,'$.resolvedBy')='text' AND length(json_extract(metadata,'$.resolvedBy'))<=256 THEN json_extract(metadata,'$.resolvedBy') END END, CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata,'$.confidence') IN ('integer','real') THEN json_extract(metadata,'$.confidence') END END, NULL FROM edges WHERE id=?1",
+        ),
+        (false, true) => Some(
+            "SELECT NULL, NULL, NULL, CASE WHEN length(provenance)<=128 THEN provenance END FROM edges WHERE id=?1",
+        ),
+        (false, false) => None,
     };
+    let mut evidence_query = evidence_sql
+        .map(|query| db.prepare(query).map_err(failed))
+        .transpose()?;
     let directions: &[bool] = match direction {
         ExploreDirection::Inbound => &[true],
         ExploreDirection::Outbound => &[false],
@@ -131,17 +148,40 @@ pub(super) fn traverse(
             }
             nodes.insert(related.id.clone(), related);
             if edge_ids.insert(id) {
-                let provenance = export_query
+                let edge_evidence = evidence_query
                     .as_mut()
-                    .map(|query| query.query_row([id], |r| r.get::<_, Option<String>>(0)))
+                    .map(|query| {
+                        query.query_row([id], |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                                row.get::<_, Option<f64>>(2)?,
+                                row.get::<_, Option<String>>(3)?,
+                            ))
+                        })
+                    })
                     .transpose()
                     .map_err(failed)?
-                    .flatten();
+                    .unwrap_or((None, None, None, None));
                 super::super::index_freshness::export_contributors(
-                    provenance.as_deref(),
+                    edge_evidence.0.as_deref(),
                     &mut export_contributors,
                 )?;
-                edges.push(json!({"id":id,"source":source,"target":destination,"kind":kind}));
+                let mut resolution_evidence = serde_json::Map::new();
+                if let Some(provenance) = edge_evidence.3 {
+                    resolution_evidence.insert("provenance".into(), json!(provenance));
+                }
+                if let Some(resolved_by) = edge_evidence.1 {
+                    resolution_evidence.insert("resolvedBy".into(), json!(resolved_by));
+                }
+                if let Some(confidence) = edge_evidence.2.filter(|value| value.is_finite()) {
+                    resolution_evidence.insert("storedConfidence".into(), json!(confidence));
+                }
+                let mut edge = json!({"id":id,"source":source,"target":destination,"kind":kind});
+                if !resolution_evidence.is_empty() {
+                    edge["resolutionEvidence"] = serde_json::Value::Object(resolution_evidence);
+                }
+                edges.push(edge);
             }
         }
     }

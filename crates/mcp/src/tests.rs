@@ -201,6 +201,10 @@ async fn mutation_cancellation_waits_for_definitive_commit_outcome() {
         response.structured_content.as_ref().unwrap()["data"]["changed"],
         true
     );
+    // Batch metadata inspection must not add placeholders to a single result.
+    let data = &response.structured_content.as_ref().unwrap()["data"];
+    assert!(data.get("results").is_none());
+    assert!(data.get("_detail").is_none());
     assert_eq!(active.load(Ordering::SeqCst), 0);
 }
 

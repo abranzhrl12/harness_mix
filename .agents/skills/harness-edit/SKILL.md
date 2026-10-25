@@ -1,24 +1,40 @@
 ---
 name: harness-edit
-description: Aplicar cambios de código con Harness MCP, incluyendo reemplazos, archivos nuevos, movimientos y verificación. No se activa para revisiones de solo lectura.
+description: Modificar código y verificar cambios con Harness MCP. No para investigación de solo lectura.
 ---
 
-# Edición precisa y verificación
+# Editar y verificar
 
-Usa sesión y raíz verificadas mediante bootstrap. Inspecciona el estado Git y preserva cambios ajenos. Lee solo el contexto necesario con la skill de lectura del proyecto; no necesitas cargarla si ya dispones de esa evidencia.
+Reutiliza una sesión con raíz comprobada por bootstrap. Revisa el estado Git y
+preserva cambios ajenos. Obtén con Harness la fuente exacta que falta; no releas
+contexto vigente ni cargues otra skill si ya tienes la evidencia necesaria.
 
-## Aplicar
+## Aplicar el cambio
 
-- Usa las herramientas de edición anunciadas y autorizadas. Si instrucciones de mayor prioridad exigen `apply_patch`, úsalo después de obtener contexto vigente con Harness; no eludas un rechazo de permisos.
-- Para `harness_replace`, usa fuente original exacta (`oldText`). No uses firmas, resúmenes ni números de línea como `oldText`. Agrupa cambios independientes del mismo original en `chunks` únicos y no solapados. El parámetro `hash` es opcional; la edición se enlaza a la lectura en curso.
-- Ante rechazo por concurrencia (`STALE`), recupera el contexto afectado y replantea: nunca fuerces la versión anterior sobre cambios concurrentes.
-- `harness_write` solo si está anunciado; comprueba la semántica de creación/sobrescritura y `expectedHash` antes de reemplazar.
-- `harness_move` no actualiza imports ni sobrescribe destinos. Distingue movimiento aplicado de fallo posterior de indexación; no repitas una operación ya realizada.
+- `harness_replace`: usa `path`, `oldText` exacto y `newText`. `hash` es opcional;
+  si se omite, usa la lectura interna del archivo. No pidas otra lectura solo
+  para obtenerlo. Desambigua con `line` cuando corresponda; agrupa cambios del
+  mismo original en `chunks` únicos y no solapados.
+- No uses firmas, resúmenes ni números de línea como `oldText`. Ante `STALE`,
+  recupera el contexto afectado y adapta el cambio; no fuerces la versión anterior.
+- `harness_write`: distingue creación de reemplazo. Conserva `expectedHash`
+  cuando sea la precondición de sobrescritura.
+- `harness_move` no actualiza imports ni sobrescribe destinos. Si el movimiento
+  ocurrió y falló el mantenimiento posterior del índice, no repitas el movimiento.
+- Usa las herramientas anunciadas y autorizadas. Si instrucciones superiores
+  exigen `apply_patch`, úsalo con contexto vigente obtenido mediante Harness;
+  no eludas un rechazo de permisos.
 
-## Comprobar
+## Verificar y entregar
 
-Usa `harness_git` con `action=diff` y `path` para revisar el alcance. Ejecuta `harness_verify` con el build/test adecuado a los cambios; consulta su esquema antes de pedir filtros o perfiles. Usa jobs solo si está anunciado y operativo.
+Revisa el diff con `harness_git` y ejecuta la verificación proporcional al cambio
+con `harness_verify`; usa jobs cuando necesites seguimiento en segundo plano.
+Consulta el esquema antes de pedir filtros o perfiles. Sintaxis válida no demuestra
+compilación ni corrección; la evidencia debe corresponder a la última edición.
 
-Si falta una capacidad concreta, explica el límite antes de usar una alternativa autorizada. Un fallo de transporte/runtime no autoriza bypass. No amplíes permisos ni reconstruyas el índice para sortear errores.
+Si falta una capacidad, explica el límite antes de usar una alternativa autorizada.
+Ante fallo de transporte, timeout o runtime, diagnostica con `harness_doctor`;
+no lo eludas con shell, permisos más amplios ni reconstrucción del índice.
 
-La verificación corresponde al código posterior a la última edición: sintaxis válida no significa compilación ni corrección. Reporta qué cambió, pruebas ejecutadas y pendientes. No hagas commit, push ni sustituyas binarios instalados sin petición.
+Entrega el cambio, verificaciones realizadas y pendientes. No hagas commit,
+push ni sustituyas binarios instalados sin petición.

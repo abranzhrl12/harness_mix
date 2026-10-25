@@ -16,6 +16,8 @@ fn steps(tool: &str) -> &'static [Step] {
         // `anchors` repeat neighbouring lines nobody consumes.
         "harness_read" => &[drop_hash, drop_anchors, pair_range],
         "harness_search" => &[shape_search_matches],
+        "harness_symbols" => &[shape_symbols],
+        "harness_explore" => &[shape_explore],
         _ => &[],
     }
 }
@@ -39,14 +41,111 @@ pub(super) fn shape_for_model(envelope: &mut Value) {
             shape_for_model(child);
         }
     }
+
 }
 
 fn drop_hash(data: &mut Map<String, Value>) {
     data.remove("hash");
 }
 
+fn shape_explore(data: &mut Map<String, Value>) {
+    // Only successful graph payloads have this shape. Diagnostic-only responses
+    // (missing/invalid indexes, unresolved targets) must retain their evidence.
+    if !data.get("graph").is_some_and(Value::is_object) {
+        return;
+    }
+    let summary = data.get("definitionView").and_then(Value::as_str) == Some("signature");
+    if summary {
+        // sources::load renders only the same signatures and static guidance in
+        // summary text; structured definitions retain the complete signatures.
+        data.remove("text");
+    }
+    data.remove("reuseGuidance");
+    // Runtime policy and budget accounting are not evidence. Keep omission counts.
+    if let Some(selection) = data.get_mut("contextSelection").and_then(Value::as_object_mut) {
+        for key in ["policy", "requestedSymbols", "maxRelatedSymbols", "maxFiles"] {
+            selection.remove(key);
+        }
+    }
+    if let Some(selection) = data.get_mut("selection").and_then(Value::as_object_mut) {
+        selection.retain(|_, value| !value.is_null());
+    }
+    if let Some(definitions) = data.get_mut("definitions").and_then(Value::as_array_mut) {
+        for definition in definitions {
+            if let Some(symbol) = definition.get_mut("symbol").and_then(Value::as_object_mut) {
+                shape_symbol(symbol, false);
+            }
+        }
+    }
+    for key in ["unresolved", "candidates"] {
+        if data.get(key).and_then(Value::as_array).is_some_and(Vec::is_empty) {
+            data.remove(key);
+        }
+    }
+    if let Some(graph) = data.get_mut("graph").and_then(Value::as_object_mut) {
+        // Traversal bookkeeping is recoverable from the stored detail graph.
+        // Preserve direction, depth, hard limits and every truncation indicator.
+        if let Some(traversal) = graph.get_mut("traversal").and_then(Value::as_object_mut) {
+            for key in ["expandedNodes", "semantics"] {
+                traversal.remove(key);
+            }
+        }
+    }
+}
+
 fn drop_anchors(data: &mut Map<String, Value>) {
     data.remove("anchors");
+}
+
+fn shape_symbols(data: &mut Map<String, Value>) {
+    // Preview payloads have their own contract; only shape reads and outlines.
+    if !data.contains_key("symbol") && !data.contains_key("items") {
+        return;
+    }
+    // Vue extraction requires expectedHash from an outline (including template IDs).
+    let vue = data.get("language").and_then(Value::as_str) == Some("vue")
+        || data.get("path").and_then(Value::as_str).is_some_and(|p| {
+            p.rsplit('.').next().is_some_and(|ext| ext.eq_ignore_ascii_case("vue"))
+        });
+    if !vue {
+        drop_hash(data);
+    }
+    drop_anchors(data);
+    let full_source = data.get("text").is_some_and(Value::is_string);
+    if let Some(symbol) = data.get_mut("symbol").and_then(Value::as_object_mut) {
+        shape_symbol(symbol, full_source);
+    }
+    if let Some(items) = data.get_mut("items").and_then(Value::as_array_mut) {
+        for item in items {
+            if let Some(symbol) = item.as_object_mut() {
+                shape_symbol(symbol, false);
+            }
+        }
+    }
+    // Keep ranking policy, but omit budget accounting and duplicate counts.
+    if let Some(selection) = data.get_mut("selection").and_then(Value::as_object_mut) {
+        selection.remove("maxChars");
+        selection.remove("usedChars");
+        selection.remove("unit");
+    }
+    if data.get("selection") == Some(&serde_json::json!({"method":"source-order"})) {
+        data.remove("selection");
+    }
+    if data.get("filtered").is_some()
+        && data.get("filtered") == data.get("inventory").and_then(|v| v.get("filtered"))
+    {
+        data.remove("filtered");
+    }
+}
+
+fn shape_symbol(symbol: &mut Map<String, Value>, full_source: bool) {
+    pair_range(symbol);
+    if symbol.get("container").and_then(Value::as_str) == Some("") {
+        symbol.remove("container");
+    }
+    if full_source {
+        symbol.remove("signature");
+    }
 }
 
 /// `start` + `end` become one `range: [start, end]`; other shapes are untouched.
@@ -109,14 +208,14 @@ mod tests {
     #[test]
     fn other_tools_and_errors_pass_through_unchanged() {
         let mut unknown = json!({"scope":{"tool":"harness_unknown"},"data":{"hash":"h","start":1,"end":2}});
-        let expected = unknown.clone();
         shape_for_model(&mut unknown);
-        assert_eq!(unknown, expected);
+        assert_eq!(unknown["data"], json!({"hash":"h","start":1,"end":2}));
+        assert_eq!(unknown["scope"]["tool"], "harness_unknown");
 
         let mut error = json!({"state":"error","scope":{"tool":"harness_read"},"data":{}});
-        let expected = error.clone();
         shape_for_model(&mut error);
-        assert_eq!(error, expected);
+        assert_eq!(error["data"], json!({}));
+        assert_eq!(error["scope"]["tool"], "harness_read");
     }
 
     #[test]
@@ -151,6 +250,56 @@ mod tests {
             search["data"]["matches"][1]["context"]["range"],
             json!([3, 7])
         );
+    }
+
+    #[test]
+    fn symbols_full_read_is_compact() {
+        let mut envelope = json!({"scope":{"tool":"harness_symbols"},"data":{
+            "path":"a.rs","hash":"sha","syntaxOnly":true,
+            "symbol":{"name":"foo","kind":"function_item","container":"",
+                "start":10,"end":12,"signature":"fn foo() …","symbolId":"id"},
+            "anchors":{"before":null,"after":null},"text":"fn foo() {}"
+        }});
+        shape_for_model(&mut envelope);
+        assert_eq!(envelope["data"], json!({
+            "path":"a.rs","syntaxOnly":true,"text":"fn foo() {}",
+            "symbol":{"name":"foo","kind":"function_item","range":[10,12],"symbolId":"id"}
+        }));
+    }
+
+    #[test]
+    fn symbols_keep_extraction_hashes_signatures_and_omission_evidence() {
+        let mut envelope = json!({"scope":{"tool":"harness_symbols"},
+            "omitted":{"items":2},"detail":{"ref":"detail"},"data":{
+                "path":"Widget.vue","hash":"required-for-extraction","language":"vue",
+                "items":[{"name":"foo","container":"Widget","signature":"foo()",
+                    "start":1,"end":3,"symbolId":"id"}],
+                "inventory":{"filtered":0,"omitted":2},"filtered":0,
+                "selection":{"method":"lexical-ranking","maxChars":1000,"usedChars":100,"unit":"UTF-16"},
+                "coverage":"syntax only","structure":{"omitted":true}
+        }});
+        shape_for_model(&mut envelope);
+        assert_eq!(envelope["data"]["hash"], "required-for-extraction");
+        assert_eq!(envelope["data"]["items"][0], json!({
+            "name":"foo","container":"Widget","signature":"foo()","range":[1,3],"symbolId":"id"
+        }));
+        assert_eq!(envelope["data"]["selection"], json!({"method":"lexical-ranking"}));
+        assert!(envelope["data"].get("filtered").is_none());
+        assert_eq!(envelope["data"]["inventory"]["omitted"], 2);
+        assert_eq!(envelope["omitted"], json!({"items":2}));
+        assert_eq!(envelope["detail"], json!({"ref":"detail"}));
+        assert_eq!(envelope["data"]["structure"], json!({"omitted":true}));
+
+        let mut signature = json!({"scope":{"tool":"harness_symbols"},"data":{
+            "path":"a.rs","hash":"sha","text":null,"truncated":true,
+            "symbol":{"name":"foo","signature":"foo()","start":1,"end":3},
+            "notice":"request full","editReady":false
+        }});
+        shape_for_model(&mut signature);
+        assert_eq!(signature["data"]["symbol"]["signature"], "foo()");
+        assert_eq!(signature["data"]["truncated"], true);
+        assert_eq!(signature["data"]["notice"], "request full");
+        assert_eq!(signature["data"]["editReady"], false);
     }
 
     #[test]

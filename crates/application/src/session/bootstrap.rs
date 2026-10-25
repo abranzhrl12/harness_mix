@@ -5,8 +5,6 @@ use serde_json::{Value, json};
 pub(super) struct ResponseInput {
     pub(super) session: SessionContext,
     pub(super) args: BootstrapArgs,
-    pub(super) rules: String,
-    pub(super) unchanged: bool,
     pub(super) same_capabilities: bool,
     pub(super) compact_reuse: bool,
     pub(super) available: Value,
@@ -48,10 +46,7 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
     if let Some(warning) = input.session.persistence_warning {
         result["persistenceWarning"] = warning;
     }
-    if input.args.session.is_none()
-        || input.args.include_rules.unwrap_or(false)
-        || !input.same_capabilities
-    {
+    if input.args.session.is_none() || !input.same_capabilities {
         result["routing"] = json!(input.tool_profile.routing());
         result["workflow"] = input.tool_profile.workflows();
         result["usageRules"] =
@@ -62,17 +57,8 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
     } else {
         result["available"] = input.available;
     }
-    if input.unchanged {
-        result["rulesUnchanged"] = json!(true);
-    } else {
-        result["rules"] = json!(harness_domain::results::prefix(&input.rules, 12000));
-        if harness_domain::results::utf16_len(&input.rules) > 12000 {
-            result["truncated"] = json!(true);
-            result["_detail"] = json!({"rules":input.rules});
-        }
-    }
     if input.compact_reuse {
-        // The contract/rules hash was checked above; retain a retrievable
+        // The capabilities hash was checked above; retain a retrievable
         // catalog without resending the same tool lists and policy text.
         let catalog = json!({"toolContract":result["toolContract"],"limitations":result["limitations"],"routing":harness_domain::tool_contract::routing("rust"),"workflow":harness_domain::tool_contract::manifest()["llmPolicy"]["workflows"],"usageRules":harness_domain::tool_contract::manifest()["llmPolicy"]["rules"]});
         result["toolContract"] = json!({"backend":"rust","contractVersion":catalog["toolContract"]["contractVersion"],"unchanged":true});

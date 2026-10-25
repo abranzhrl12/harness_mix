@@ -22,7 +22,7 @@ impl harness_application::ports::workspace::WorkspaceMetadata for FakeWorkspace 
         json!({"root":"memory","languages":[],"manifestScope":"raíz del proyecto","indexed":false})
     }
     fn rules(&self, _: &OperationContext) -> Result<String, Failure> {
-        Ok("reglas".into())
+        panic!("bootstrap must not load legacy rules")
     }
     fn capabilities(&self) -> Value {
         json!({"node":false})
@@ -342,7 +342,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
 }
 
 #[test]
-fn cloned_application_shares_sessions_and_rule_capability_cache() {
+fn cloned_application_shares_sessions_and_capability_cache_without_legacy_rules() {
     let app = Application::new(
         FakeWorkspace {
             calls: Arc::default(),
@@ -354,14 +354,14 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
         session: None,
         include_rules: None,
     }));
-    assert_eq!(first["data"]["rules"], "reglas");
+    assert!(first["data"].get("rules").is_none());
     assert_eq!(first["data"]["tasks"]["total"], 4);
     let second = app.clone().execute(Request::Bootstrap(BootstrapArgs {
         compact: false,
         session: Some("memory-session".into()),
         include_rules: None,
     }));
-    assert_eq!(second["data"]["rulesUnchanged"], true);
+    assert!(second["data"].get("rulesUnchanged").is_none());
     assert_eq!(second["data"]["capabilitiesUnchanged"], true);
     assert!(second["data"].get("rules").is_none());
     let forced = app.execute(Request::Bootstrap(BootstrapArgs {
@@ -369,7 +369,7 @@ fn cloned_application_shares_sessions_and_rule_capability_cache() {
         session: Some("memory-session".into()),
         include_rules: Some(true),
     }));
-    assert_eq!(forced["data"]["rules"], "reglas");
+    assert!(forced["data"].get("rules").is_none());
 }
 
 #[test]
@@ -386,7 +386,7 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
         include_rules: None,
     }));
     assert_eq!(compact["data"]["catalogCompact"], true);
-    assert_eq!(compact["data"]["rules"], "reglas");
+    assert!(compact["data"].get("rules").is_none());
     let session = compact["data"]["session"].as_str().unwrap().to_owned();
     assert!(compact["data"].get("supportedTools").is_none());
     let detail_ref = compact["detail"]["ref"].as_str().unwrap().to_owned();
@@ -415,7 +415,7 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
         include_rules: None,
     }));
     assert_eq!(reused["data"]["catalogUnchanged"], true);
-    assert_eq!(reused["data"]["rulesUnchanged"], true);
+    assert!(reused["data"].get("rulesUnchanged").is_none());
     assert_eq!(reused["data"]["capabilitiesUnchanged"], true);
     assert!(reused["data"].get("rulesHash").is_none());
     assert!(reused["data"].get("capabilitiesHash").is_none());
@@ -428,8 +428,8 @@ fn compact_bootstrap_reuses_hashes_and_keeps_catalog_retrievable() {
         session: Some(session),
         include_rules: Some(true),
     }));
-    assert_eq!(forced["data"]["catalogCompact"], true);
-    assert_eq!(forced["data"]["rules"], "reglas");
+    assert_eq!(forced["data"]["catalogUnchanged"], true);
+    assert!(forced["data"].get("rules").is_none());
     assert!(forced["data"].get("rulesHash").is_none());
 }
 

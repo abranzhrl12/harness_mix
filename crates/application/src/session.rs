@@ -128,11 +128,6 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             session
         };
         context.check()?;
-        let rules = self.workspace.rules(context)?;
-        context.check()?;
-        let rules_hash = hash(rules.as_bytes());
-        let unchanged = session.rules_hash.as_ref() == Some(&rules_hash)
-            && !args.include_rules.unwrap_or(false);
         let available = self.workspace.capabilities();
         let contract = self.tool_profile.metadata();
         let capabilities_hash = hash(
@@ -141,20 +136,19 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 .as_bytes(),
         );
         let same_capabilities = session.capabilities_hash.as_ref() == Some(&capabilities_hash);
-        let compact_reuse = !is_new && !session.restored && same_capabilities && unchanged;
+        let compact_reuse = !is_new && !session.restored && same_capabilities;
         context.check()?;
         self.sessions
             .lock()
             .map_err(|_| ("INTERNAL", "sesiones no disponibles"))?
-            .update_hashes(&session.id, rules_hash.clone(), capabilities_hash.clone())?;
+            // Keep the persisted session format compatible; rules now live in skills.
+            .update_hashes(&session.id, String::new(), capabilities_hash.clone())?;
         let result = self.workspace.info();
         Ok(bootstrap::build_response(
             result,
             bootstrap::ResponseInput {
                 session,
                 args,
-                rules,
-                unchanged,
                 same_capabilities,
                 compact_reuse,
                 available,

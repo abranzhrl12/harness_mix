@@ -241,6 +241,50 @@ fn rust_writer_replay_tracks_target_and_module_lifecycle() {
 }
 
 #[test]
+fn rust_type_reference_keeps_homonymous_import_unresolved() {
+    let root = tempfile::tempdir().unwrap();
+    initialize(root.path(), &OperationContext::default()).unwrap();
+    for (path, source) in [
+        ("src/lib.rs", "pub mod area;\npub mod experiments;\n"),
+        (
+            "src/area/mod.rs",
+            "pub mod caller;\npub mod project;\n",
+        ),
+        (
+            "experiments/json-performance/src/main.rs",
+            "pub struct Project;\n",
+        ),
+        ("src/area/project.rs", "pub struct Project;\n"),
+        (
+            "src/area/caller.rs",
+            "use super::project::Project;\npub fn invoke(_: Project) {}\n",
+        ),
+    ] {
+        write(root.path(), path, source);
+        publish(root.path(), path);
+    }
+
+    let db = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    let false_edge: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE s.file_path='src/area/caller.rs' AND t.file_path='experiments/json-performance/src/main.rs' AND t.name='Project' AND e.kind='references'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(false_edge, 0, "a same-named type is not an import proof");
+
+    let unresolved: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM unresolved_refs WHERE file_path='src/area/caller.rs' AND reference_name='Project' AND reference_kind='references' AND status='pending')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(unresolved, "unsupported type-import resolution stays explicit");
+}
+
+#[test]
 fn rust_writer_replay_rolls_back_resolved_edges_on_cancel_and_timeout() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path(), "pub fn invoke() { super::api::alpha(); }\n");

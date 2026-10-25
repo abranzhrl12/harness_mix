@@ -13,6 +13,12 @@ struct Server {
     messages: mpsc::Receiver<String>,
 }
 
+fn direct_tool_payload(response: &Value) -> Value {
+    assert!(response["result"].get("structuredContent").is_none(), "{response}");
+    assert_eq!(response["result"]["content"].as_array().unwrap().len(), 1);
+    serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
 #[test]
 fn ergonomic_search_and_bootstrap_errors_work_over_mcp() {
     let root = tempfile::tempdir().unwrap();
@@ -362,8 +368,11 @@ fn real_project_command_timings() {
                 let response =
                     server.request(3, "tools/call", json!({"name":tool,"arguments":arguments}));
                 let elapsed = started.elapsed().as_secs_f64() * 1000.0;
-                let envelope = &response["result"]["structuredContent"];
-                assert_eq!(envelope["state"], "ok", "{tool}: {envelope}");
+                let payload = if response["result"].get("structuredContent").is_some() {
+                    response["result"]["structuredContent"].clone()
+                } else { direct_tool_payload(&response) };
+                let envelope = &payload;
+                assert_ne!(response["result"]["isError"], true, "{tool}: {envelope}");
                 println!(
                     "{}",
                     json!({"round":round,"repetition":repetition,"operation":tool,"milliseconds":elapsed,"responseBytes":serde_json::to_vec(envelope).unwrap().len(),"timings":envelope["data"]["timings"]})
@@ -392,8 +401,8 @@ fn real_project_payload_and_log_audit() {
     let mut previous_graph = None;
     for budget in [6000, 12000] {
         let result = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"main","filePath":"crates/api/src/main.rs","maxFiles":2,"maxChars":budget,"syncIndex":false,"session":session}}));
-        let envelope = &result["result"]["structuredContent"];
-        assert_eq!(envelope["state"], "ok", "{envelope}");
+        let envelope = direct_tool_payload(&result);
+        assert_ne!(result["result"]["isError"], true, "{envelope}");
         let request_id = envelope["requestId"].as_str().unwrap();
         let logs = server.request(4, "tools/call", json!({"name":"harness_doctor","arguments":{"action":"logs","requestId":request_id,"limit":10,"session":session}}));
         assert_eq!(logs["result"]["structuredContent"]["state"], "ok");
@@ -405,7 +414,7 @@ fn real_project_payload_and_log_audit() {
             .find(|e| e["requestId"] == request_id && e["kind"] == "completed")
             .expect("correlated terminal log");
         assert_eq!(completed["state"], "ok", "{completed}");
-        let data = &envelope["data"];
+        let data = &envelope;
         let graph = json!({"nodes":data["graph"]["nodes"],"edges":data["graph"]["edges"]});
         if let Some(previous) = &previous_graph {
             assert_eq!(previous, &graph);
@@ -417,7 +426,7 @@ fn real_project_payload_and_log_audit() {
             json!({
                 "maxChars":budget,"nativeLogMicros":completed["durationMicros"],"logState":completed["state"],
                 "wireBytes":serde_json::to_vec(&result).unwrap().len(),
-                "structuredBytes":serde_json::to_vec(envelope).unwrap().len(),
+                "modelJsonBytes":serde_json::to_vec(&envelope).unwrap().len(),
                 "textChannelBytes":serde_json::to_vec(&result["result"]["content"]).unwrap().len(),
                 "markdownBytes":data["text"].as_str().unwrap().len(),
                 "graphBytes":serde_json::to_vec(&data["graph"]).unwrap().len(),
@@ -451,33 +460,24 @@ fn real_project_context_presentation() {
             .as_str()
             .unwrap();
         let response = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"main","filePath":"crates/api/src/main.rs","maxFiles":2,"maxChars":12000,"syncIndex":false,"session":session}}));
-        let envelope = &response["result"]["structuredContent"];
-        assert_eq!(envelope["state"], "ok", "{envelope}");
-        let data = &envelope["data"];
+        let envelope = direct_tool_payload(&response);
+        assert_ne!(response["result"]["isError"], true, "{envelope}");
+        let data = &envelope;
         let graph = json!({"nodes":data["graph"]["nodes"],"edges":data["graph"]["edges"]});
         if let Some(original) = &original_graph {
             assert_eq!(original, &graph);
         }
         original_graph = Some(graph);
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        if context {
-            assert!(text.starts_with("## Graph context"));
-            assert!(text.find("sourceStatus").unwrap() < text.find("**Source Code**").unwrap());
-            assert!(
-                text.find("**Call paths / blast radius").unwrap()
-                    < text.find("**Source Code**").unwrap()
-            );
-            assert!(text.contains("not_certified"));
-            assert!(text.contains(envelope["requestId"].as_str().unwrap()));
-            assert!(text.contains("sourceStatus"));
-        } else {
-            assert_eq!(serde_json::from_str::<Value>(text).unwrap(), *envelope);
-        }
+        // Explore now has one representation regardless of the legacy flag.
+        assert_eq!(serde_json::from_str::<Value>(text).unwrap(), envelope);
+        assert!(text.contains("not_certified"));
+        assert!(text.contains("sourceStatus"));
         println!(
             "{}",
             json!({"presentation":if context {"context"} else {"legacy"},
             "wireBytes":serde_json::to_vec(&response).unwrap().len(),
-            "textChannelBytes":text.len(),"structuredBytes":serde_json::to_vec(envelope).unwrap().len(),
+            "textChannelBytes":text.len(),"modelJsonBytes":serde_json::to_vec(&envelope).unwrap().len(),
             "nodeCount":data["graph"]["nodes"].as_array().unwrap().len(),
             "edgeCount":data["graph"]["edges"].as_array().unwrap().len(),
             "completeBodies":data["definitions"].as_array().unwrap().iter().filter(|d| d["sourceStatus"]=="complete").count()})
@@ -544,7 +544,7 @@ fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
             json!({"name":"harness_explore","arguments":{"query":"main","syncIndex":true}}),
         );
         assert_eq!(
-            sync["result"]["structuredContent"]["diagnostics"][0]["code"],
+            direct_tool_payload(&sync)["diagnostics"][0]["code"],
             "TOOL_PROFILE"
         );
         let batch = server.request(
@@ -742,29 +742,37 @@ fn graph_exploration_reads_existing_index_with_empty_path() {
         "tools/call",
         json!({"name":"harness_explore","arguments":{"query":"target"}}),
     );
-    let result = &result["result"]["structuredContent"];
-    assert_eq!(result["state"], "ok", "{result}");
+    let result = direct_tool_payload(&result);
+    assert!(result.get("state").is_none(), "{result}");
     assert_eq!(
-        result["data"]["graph"]["edges"].as_array().unwrap().len(),
+        result["graph"]["edges"].as_array().unwrap().len(),
         2
     );
-    assert_eq!(result["data"]["focus"]["status"], "resolved");
+    assert_eq!(result["focus"]["status"], "resolved");
+    let summary = server.request(6, "tools/call", json!({"name":"harness_explore","arguments":{"filePath":"lib.rs","symbol":"target","view":"summary"}}));
+    let summary = direct_tool_payload(&summary);
+    assert!(summary.get("text").is_none());
+    assert_eq!(summary["focus"]["status"], "resolved");
+    assert!(summary["graph"]["relations"].as_array().is_some_and(|items| !items.is_empty()));
+    let recovered = server.request(7, "tools/call", json!({"name":"harness_detail","arguments":{"ref":summary["detail"]["ref"],"maxChars":16000}}));
+    let recovered: Value = serde_json::from_str(recovered["result"]["structuredContent"]["data"]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(recovered["graph"]["edges"], result["graph"]["edges"]);
     let deeper = server.request(3, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","direction":"outbound","maxDepth":2}}));
-    let deeper = &deeper["result"]["structuredContent"];
-    assert_eq!(deeper["state"], "ok", "{deeper}");
+    let deeper = direct_tool_payload(&deeper);
+    assert!(deeper.get("state").is_none(), "{deeper}");
     assert_eq!(
-        deeper["data"]["graph"]["traversal"]["nodeDepths"]["c"]["outbound"],
+        deeper["graph"]["traversal"]["nodeDepths"]["c"]["outbound"],
         2
     );
     let matching = server.request(4, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","requireMatchingFiles":true}}));
     assert_eq!(
-        matching["result"]["structuredContent"]["data"]["fileFreshness"]["status"],
+        direct_tool_payload(&matching)["fileFreshness"]["status"],
         "matches_observed_files"
     );
     std::fs::write(root.path().join("lib.rs"), "pub fn target() {}\n").unwrap();
     let stale = server.request(5, "tools/call", json!({"name":"harness_explore","arguments":{"query":"target","requireMatchingFiles":true}}));
     assert_eq!(
-        stale["result"]["structuredContent"]["diagnostics"][0]["code"],
+        direct_tool_payload(&stale)["diagnostics"][0]["code"],
         "INDEX_STALE"
     );
 }
@@ -1017,31 +1025,15 @@ fn search_details_and_session_restore_work_without_node_or_ripgrep() {
     assert_eq!(boot["result"]["isError"], false, "{boot}");
     let envelope = &boot["result"]["structuredContent"];
     let session = envelope["data"]["sessionId"].as_str().unwrap().to_owned();
-    let reference = envelope["detail"]["ref"].as_str().unwrap().to_owned();
-    assert_eq!(envelope["omitted"]["truncated"], true);
-    assert_eq!(envelope["detail"]["complete"], true);
-    let mut text = String::new();
-    let mut offset = 0;
-    loop {
-        let detail = server.request(3, "tools/call", json!({"name":"harness_detail","arguments":{"session":session,"ref":reference,"offset":offset,"maxChars":137}}));
-        assert_eq!(detail["result"]["isError"], false, "{detail}");
-        let data = &detail["result"]["structuredContent"]["data"];
-        text.push_str(data["text"].as_str().unwrap());
-        if data["nextOffset"].is_null() {
-            break;
-        }
-        offset = data["nextOffset"].as_u64().unwrap();
-    }
-    assert_eq!(
-        serde_json::from_str::<Value>(&text).unwrap()["rules"],
-        rules
-    );
+    assert!(envelope["data"].get("rules").is_none());
+    assert!(envelope["omitted"].get("truncated").is_none());
     let search = server.request(4, "tools/call", json!({"name":"harness_search","arguments":{"session":session,"kind":"text","query":"needle","limit":1}}));
     assert_eq!(search["result"]["isError"], false, "{search}");
     let search = &search["result"]["structuredContent"];
     assert_eq!(search["data"]["matches"].as_array().unwrap().len(), 1);
     assert_eq!(search["omitted"]["matches"], 1);
     assert!(search["data"].get("complete").is_none());
+    let reference = search["detail"]["ref"].as_str().unwrap().to_owned();
     let full = server.request(
         5,
         "tools/call",
@@ -1862,10 +1854,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         json!({"name":"harness_bootstrap","arguments":{}}),
     );
     assert_eq!(boot["result"]["isError"], false, "{boot}");
-    assert_eq!(
-        boot["result"]["structuredContent"]["data"]["rules"],
-        "Reglas de prueba"
-    );
+    assert!(boot["result"]["structuredContent"]["data"].get("rules").is_none());
     let session = boot["result"]["structuredContent"]["data"]["sessionId"]
         .as_str()
         .unwrap();
@@ -1891,7 +1880,7 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     // No index in this fixture: an application error, not a JSON-RPC argument rejection.
     assert!(alias_explore.get("error").is_none(), "{alias_explore}");
     assert_eq!(
-        alias_explore["result"]["structuredContent"]["state"],
+        direct_tool_payload(&alias_explore)["state"],
         "error"
     );
     let read = server.request(4, "tools/call", json!({"name":"harness_read","arguments":{"session":session,"path":"example.txt","start":1,"end":2}}));
@@ -1919,10 +1908,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         "tools/call",
         json!({"name":"harness_bootstrap","arguments":{"session":session}}),
     );
-    assert_eq!(
-        repeated["result"]["structuredContent"]["data"]["rulesUnchanged"],
-        true
-    );
+    assert!(repeated["result"]["structuredContent"]["data"].get("rulesUnchanged").is_none());
+    assert_eq!(repeated["result"]["structuredContent"]["data"]["capabilitiesUnchanged"], true);
     let denied = server.request(
         6,
         "tools/call",

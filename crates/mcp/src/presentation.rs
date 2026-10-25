@@ -16,12 +16,52 @@ pub(super) fn response_with_options(
 ) -> CallToolResult {
     clean_empty_metadata(&mut envelope);
     super::wire::shape_for_model(&mut envelope);
+    if matches!(envelope["scope"]["tool"].as_str(), Some("harness_symbols" | "harness_explore")) {
+        return direct_json_response(envelope);
+    }
     if compact {
         if let Some(object) = envelope.as_object_mut() {
             object.remove("requestId");
         }
     }
     response_with_context(envelope, context)
+}
+
+// Source and graph tools are consumed directly by agents. Send one JSON block, rather
+// than serializing the same payload in both content and structuredContent.
+fn direct_json_response(mut envelope: serde_json::Value) -> CallToolResult {
+    let failed = envelope["state"] != "ok";
+    let graph = envelope["scope"]["tool"] == "harness_explore";
+    let mut payload = envelope["data"].take();
+    let Some(object) = payload.as_object_mut() else {
+        envelope["data"] = payload;
+        return response_with_context(envelope, false);
+    };
+    if !object.contains_key("path") {
+        if let Some(path) = envelope["scope"]["path"].as_str() {
+            object.insert("path".into(), path.into());
+        }
+    }
+    if let Some(metadata) = envelope.as_object_mut() {
+        metadata.remove("data");
+        metadata.remove("scope");
+        if !failed {
+            metadata.remove("state");
+            // Graph audits can correlate this request with doctor logs without
+            // replaying an expensive exploration. Symbols keep their lean form.
+            if !graph {
+                metadata.remove("requestId");
+            }
+        }
+        // Preserve diagnostics, omissions, detail recovery and future metadata.
+        object.extend(std::mem::take(metadata));
+    }
+    let content = vec![rmcp::model::ContentBlock::text(payload.to_string())];
+    if failed {
+        CallToolResult::error(content)
+    } else {
+        CallToolResult::success(content)
+    }
 }
 
 #[cfg(test)]

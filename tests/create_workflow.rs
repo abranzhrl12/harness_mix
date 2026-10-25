@@ -156,7 +156,7 @@ fn junction_parents_are_rejected_without_external_writes() {
 }
 
 #[test]
-fn compact_initial_bootstrap_keeps_project_rules_and_safety_context() {
+fn compact_initial_bootstrap_ignores_legacy_rules_and_keeps_safety_context() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join(".agents/rules")).unwrap();
     std::fs::write(
@@ -174,13 +174,9 @@ fn compact_initial_bootstrap_keeps_project_rules_and_safety_context() {
     let compact = call(true);
     assert_eq!(compact["state"], "ok", "{compact}");
     assert_eq!(compact["data"]["catalogCompact"], true);
-    assert_eq!(compact["data"]["rules"], full["data"]["rules"]);
-    assert!(
-        compact["data"]["rules"]
-            .as_str()
-            .unwrap()
-            .contains("retain this rule")
-    );
+    assert!(compact["data"].get("rules").is_none());
+    assert!(full["data"].get("rules").is_none());
+    assert!(!compact.to_string().contains("retain this rule"));
     assert_eq!(compact["data"]["limitations"], full["data"]["limitations"]);
     assert!(
         compact["data"].get("executionPolicy").is_none()
@@ -252,7 +248,7 @@ fn expected_hash_turns_create_into_atomic_overwrite() {
 }
 
 #[test]
-fn compact_bootstrap_merges_long_rules_and_catalog_in_recoverable_detail() {
+fn compact_bootstrap_keeps_catalog_without_legacy_rules_in_detail() {
     use harness_domain::contracts::{DataQueryArgs, Request};
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join(".agents/rules")).unwrap();
@@ -274,6 +270,6 @@ fn compact_bootstrap_merges_long_rules_and_catalog_in_recoverable_detail() {
     assert_eq!(result["state"], "ok", "{result}");
     let text = result.to_string();
     assert!(text.contains("harness_explore"));
-    assert!(text.contains("retain-rule"));
-    assert_eq!(boot["omitted"]["truncated"], true);
+    assert!(!text.contains("retain-rule"));
+    assert!(boot["omitted"].get("truncated").is_none());
 }

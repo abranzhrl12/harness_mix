@@ -98,15 +98,11 @@ impl WorkspaceMetadata for NativeWorkspace {
         {
             languages.push("dotnet");
         }
-        json!({"root":root,"languages":languages,"implementationVersion":env!("CARGO_PKG_VERSION"),"manifestScope":"raíz del proyecto","indexed":self.project.root.join(".codegraph").is_dir()})
+        json!({"root":root,"languages":languages,"manifestScope":"raíz del proyecto","indexed":self.project.root.join(".codegraph").is_dir()})
     }
-    fn rules(&self, context: &OperationContext) -> Result<String, Failure> {
-        let relative = ".agents/rules/00-mandatory-tools.md";
-        if !self.project.root.join(relative).exists() {
-            return Ok(String::new());
-        }
-        String::from_utf8(self.project.bytes_with_context(relative, context)?)
-            .map_err(|_| ("ENCODING", "reglas no UTF-8"))
+    fn rules(&self, _context: &OperationContext) -> Result<String, Failure> {
+        // Legacy port kept for compatibility; bootstrap uses skills, not rule files.
+        Ok(String::new())
     }
     fn capabilities(&self) -> Value {
         capabilities::capabilities()

@@ -58,12 +58,19 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
             else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
         },
     };
-    if let Some(results) = envelope["data"]["results"].as_array_mut() {
+    if let Some(results) = envelope.get_mut("data")
+        .and_then(|data| data.get_mut("results"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for result in results {
             clean_empty_metadata(result);
         }
     }
-    if let Some(results) = envelope["data"]["_detail"]["results"].as_array_mut() {
+    if let Some(results) = envelope.get_mut("data")
+        .and_then(|data| data.get_mut("_detail"))
+        .and_then(|detail| detail.get_mut("results"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for item in results {
             if let Some(result) = item.get_mut("result") {
                 clean_empty_metadata(result);
@@ -71,10 +78,17 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
         }
     }
     for index in compact_batch_reads {
-        if let Some(result) = envelope["data"]["results"].as_array_mut().and_then(|items| items.get_mut(index)) {
+        if let Some(result) = envelope.get_mut("data")
+            .and_then(|data| data.get_mut("results"))
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|items| items.get_mut(index))
+        {
             compact_envelope_metadata(result);
         }
-        if let Some(result) = envelope["data"]["_detail"]["results"].as_array_mut()
+        if let Some(result) = envelope.get_mut("data")
+            .and_then(|data| data.get_mut("_detail"))
+            .and_then(|detail| detail.get_mut("results"))
+            .and_then(serde_json::Value::as_array_mut)
             .and_then(|items| items.get_mut(index))
             .and_then(|item| item.get_mut("result"))
         {

@@ -8,12 +8,14 @@ use serde_json::Value;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BootstrapArgs {
-    /// Opt in to a compact initial catalog; project rules and safety notices remain inline.
+    /// Opt in to a compact initial catalog; safety notices remain inline.
     #[serde(default)]
     pub compact: bool,
     /// Reuse data.session from bootstrap. sessionId is accepted for compatibility.
     #[serde(alias = "sessionId")]
     pub session: Option<String>,
+    /// Legacy input accepted but ignored; project instructions live in skills.
+    #[cfg_attr(feature = "schema", schemars(skip))]
     #[serde(rename = "includeRules")]
     pub include_rules: Option<bool>,
 }

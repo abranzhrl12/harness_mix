@@ -186,7 +186,7 @@ where
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(description = "Relaciones de un símbolo: view=impact|summary|full.")]
+    #[tool(description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. JSON único con frescura, límites y recuperación de omisiones.")]
     async fn harness_explore(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ExploreArgs>,
@@ -203,7 +203,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales: outline admite filterKind=method y view=compact; read admite view=signature|full. HTML usa el parser Rust tl: outline devuelve elementos/atributos/padres y read acepta symbol=html:#guardar, html:button.action o html:[data-testid=guardar]. Selectores CSS embebidos conservan su nombre sin html:. full devuelve texto original y hash para editar; no valida Angular."
+        description = "Símbolos locales. outline + path lista firmas; read + path + symbol devuelve fuente exacta. No requiere view ni límites. JSON directo; conserva avisos y detalle si hay omisiones. HTML: symbol=html:#id; CSS: nombre del selector."
     )]
     async fn harness_symbols(
         &self,

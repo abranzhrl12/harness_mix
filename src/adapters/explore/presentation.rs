@@ -149,7 +149,7 @@ pub(super) fn summary_graph(
     let mut relations = Vec::new();
     let mut shown = BTreeSet::new();
     for incoming in [true, false] {
-        for edge in edges
+        let mut candidates: Vec<_> = edges
             .iter()
             .filter(|edge| {
                 targets.iter().any(|n| {
@@ -160,20 +160,61 @@ pub(super) fn summary_graph(
                     }
                 })
             })
-            .take(4)
-        {
+            .collect();
+        for edge in &candidates {
+            let source = edge["source"].as_str().ok_or(super::CONTRACT)?;
+            let target = edge["target"].as_str().ok_or(super::CONTRACT)?;
+            if !nodes.contains_key(source) || !nodes.contains_key(target) {
+                return Err(super::CONTRACT);
+            }
+        }
+        // Graph storage order is not a useful presentation order. Put direct
+        // calls before type references so the bounded summary keeps the flow
+        // an LLM is most likely asking about; use stable source/target fields
+        // to break ties deterministically.
+        candidates.sort_by_key(|edge| {
+            let kind = edge["kind"].as_str().unwrap_or("unknown");
+            let rank = match kind {
+                "calls" => 0,
+                "imports" | "instantiates" | "navigates" => 1,
+                "references" => 2,
+                _ => 3,
+            };
+            let source = &nodes[edge["source"].as_str().unwrap_or("")];
+            let target = &nodes[edge["target"].as_str().unwrap_or("")];
+            (
+                rank,
+                source.file_path.as_str(),
+                source.start_line,
+                source.name.as_str(),
+                target.file_path.as_str(),
+                target.start_line,
+                target.name.as_str(),
+                edge["id"].as_i64().unwrap_or_default(),
+            )
+        });
+        for edge in candidates.into_iter().take(4) {
             if !shown.insert(edge["id"].as_i64().ok_or(super::CONTRACT)?) {
                 continue;
             }
             let source = &nodes[edge["source"].as_str().ok_or(super::CONTRACT)?];
             let target = &nodes[edge["target"].as_str().ok_or(super::CONTRACT)?];
-            relations.push(json!({"source":{"name":source.name,"filePath":source.file_path,"line":source.start_line},"target":{"name":target.name,"filePath":target.file_path,"line":target.start_line},"kind":edge["kind"]}));
+            let mut relation = json!({"source":{"name":source.name,"filePath":source.file_path,"line":source.start_line},"target":{"name":target.name,"filePath":target.file_path,"line":target.start_line},"kind":edge["kind"]});
+            if let Some(evidence) = edge.get("resolutionEvidence") {
+                relation["resolutionEvidence"] = evidence.clone();
+            }
+            relations.push(relation);
         }
     }
     let omitted_relations = edges.len().saturating_sub(relations.len());
+    let recorded_evidence = edges
+        .iter()
+        .filter(|edge| edge.get("resolutionEvidence").is_some())
+        .count();
     Ok(
         json!({"format":"codegraph-summary-v1","countsScope":"returned-subgraph-not-global", "nodeCount":nodes.len(),"edgeCount":edges.len(),"edgeKinds":kinds,
         "relations":relations,"relationsOmitted":omitted_relations,"relationsOmittedScope":"summary_display_only","summaryTruncated":omitted_relations>0,
+        "resolutionEvidence":{"recordedEdges":recorded_evidence,"unrecordedEdges":edges.len().saturating_sub(recorded_evidence),"validated":false},
         "targetIds":targets.iter().map(|n| &n.id).collect::<Vec<_>>(),"truncated":graph_limited,"truncation":truncation,
         "direction":direction,"maxDepth":max_depth,"fullGraph":"detail.ref -> graph; use data_query resultRef for projection"}),
     )

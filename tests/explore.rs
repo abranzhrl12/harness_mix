@@ -10,6 +10,87 @@ use rusqlite::params;
 use serde_json::{Value, json};
 
 #[test]
+fn resolution_evidence_supports_legacy_and_optional_edge_columns() {
+    for columns in 0..4 {
+        let root = tempfile::tempdir().unwrap();
+        let db = graph_fixture::fixture(root.path());
+        if columns & 1 != 0 {
+            db.execute("ALTER TABLE edges ADD COLUMN metadata TEXT", [])
+                .unwrap();
+            db.execute(
+                "UPDATE edges SET metadata=?1 WHERE id=1",
+                [r#"{"resolvedBy":"framework","confidence":0.7}"#],
+            )
+            .unwrap();
+        }
+        if columns & 2 != 0 {
+            db.execute("ALTER TABLE edges ADD COLUMN provenance TEXT", [])
+                .unwrap();
+            db.execute("UPDATE edges SET provenance='heuristic' WHERE id=1", [])
+                .unwrap();
+        }
+        drop(db);
+        let app = adapters::application(root.path()).unwrap();
+        let result = explore(&app, "target");
+        assert_eq!(result["state"], "ok", "{columns}: {result}");
+        let edges = result["data"]["graph"]["edges"].as_array().unwrap();
+        let edge = edges.iter().find(|edge| edge["id"] == 1).unwrap();
+        if columns == 0 {
+            assert!(edge.get("resolutionEvidence").is_none());
+        } else {
+            let evidence = &edge["resolutionEvidence"];
+            if columns & 1 != 0 {
+                assert_eq!(evidence["resolvedBy"], "framework");
+                assert_eq!(evidence["storedConfidence"], 0.7);
+                assert!(evidence.get("confidence").is_none());
+            }
+            if columns & 2 != 0 {
+                assert_eq!(evidence["provenance"], "heuristic");
+            }
+        }
+        let summary: ExploreArgs =
+            serde_json::from_value(json!({"symbol":"target","filePath":"lib.rs","view":"summary"}))
+                .unwrap();
+        let result = app.execute(Request::Explore(summary));
+        assert_eq!(result["state"], "ok", "{result}");
+        assert_eq!(
+            result["data"]["graph"]["resolutionEvidence"]["validated"],
+            false
+        );
+        assert_eq!(
+            result["data"]["graph"]["resolutionEvidence"]["recordedEdges"],
+            usize::from(columns != 0)
+        );
+    }
+}
+
+#[test]
+fn resolution_evidence_ignores_invalid_or_unbounded_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    db.execute("ALTER TABLE edges ADD COLUMN metadata TEXT", [])
+        .unwrap();
+    db.execute("ALTER TABLE edges ADD COLUMN provenance TEXT", [])
+        .unwrap();
+    db.execute("UPDATE edges SET metadata='invalid JSON' WHERE id=1", [])
+        .unwrap();
+    db.execute(
+        "UPDATE edges SET metadata=?1, provenance=?2 WHERE id=2",
+        params![
+            json!({"resolvedBy":"x".repeat(257),"confidence":"not a number"}).to_string(),
+            "x".repeat(129)
+        ],
+    )
+    .unwrap();
+    drop(db);
+    let result = explore(&adapters::application(root.path()).unwrap(), "target");
+    assert_eq!(result["state"], "ok", "{result}");
+    for edge in result["data"]["graph"]["edges"].as_array().unwrap() {
+        assert!(edge.get("resolutionEvidence").is_none(), "{edge}");
+    }
+}
+
+#[test]
 fn explicit_symbol_does_not_require_a_duplicate_query() {
     let root = tempfile::tempdir().unwrap();
     drop(graph_fixture::fixture(root.path()));

@@ -1,29 +1,62 @@
 ---
 name: harness-setup
-description: Instalar, inicializar o verificar el CLI y el servidor Harness en un proyecto. No para cambios normales de código ni mantenimiento del índice.
+description: Preparar el uso inicial de Harness con instalación, conexión MCP, sesión e índice inicial autorizado. No para lectura habitual ni mantenimiento rutinario del índice.
 ---
 
-# Primer uso de Harness
+# Preparar Harness
 
-Usa esta skill cuando la persona pida instalar Harness, conectar un proyecto o recuperar una conexión que aún no está configurada.
+Configura el proyecto y el cliente una vez; no repitas la preparación antes de
+cada lectura. Reutiliza una conexión operativa y la sesión vigente.
 
-## Instalar y comprobar el CLI
+## Ejecutable
 
-- Si `agent-harness --version` ya funciona, úsalo y confirma la versión.
-- Si la persona pide instalarlo, en Windows x64 usa el paquete `@abranzhrl1212/agent-harness` con la versión explícita que eligió o que figura en el registro actual: `npm install --global @abranzhrl1212/agent-harness@<version>`. Verifica después con `agent-harness --version`.
-- Si el comando no existe, localiza primero una instalación conocida. No descargues ni ejecutes binarios de fuentes desconocidas.
+Comprueba la instalación conocida con `agent-harness --version`. La versión sirve
+para diagnóstico; no es contexto que deba repetirse en cada respuesta.
+Si el comando falta, localiza el binario existente antes de instalar.
 
-## Preparar un proyecto
+Si se pidió instalar en Windows x64, usa
+`npm install --global @abranzhrl1212/agent-harness@<version>` con la versión elegida
+por el usuario o comprobada en el registro actual. No descargues binarios desconocidos.
 
-Desde una terminal, ejecuta `agent-harness init --root <ruta-absoluta-del-proyecto>`. El comando instala las skills incluidas, prepara `.agents/harness.config.json` si falta, guarda un ejemplo MCP del ejecutable que está corriendo y activa la sincronización local optativa de skills.
+## Configuración
 
-Revisa `.agents/harness-mcp.example.json` y copia sus valores a la configuración real del cliente elegido. El ejemplo no modifica ni registra ningún cliente. Conserva su configuración existente y añade el servidor sin sobrescribir otras entradas.
+Solo si se pidió inicializar el proyecto, ejecuta
+`agent-harness init --root <ruta-absoluta>`. Instala skills, prepara la configuración
+faltante y genera `.agents/harness-mcp.example.json`; no registra el cliente MCP.
+`init` conserva configs JSON válidos: resuelve conflictos sin sobrescribirlos a ciegas.
 
-Reinicia o reconecta el cliente. Después llama `harness_bootstrap`, confirma la raíz del proyecto y reutiliza `data.session` en las llamadas posteriores. No afirmes que la conexión funciona si el bootstrap no terminó correctamente.
+Para conectar, identifica el cliente y su archivo real. Usa el comando y argumentos
+del ejemplo generado; conserva otros servidores, credenciales y permisos.
+La entrada stdio usa el ejecutable con `args: ["--root", "RUTA_ABSOLUTA"]`.
+No abras stdio en una terminal como sustituto de registrarlo en el cliente.
 
-## Usar el servidor
+## Primera conexión y sesión
 
-- Usa Harness MCP para leer, buscar, editar y verificar código según las skills especializadas de este proyecto.
-- Shell sirve para instalar o comprobar el ejecutable y preparar la entrada del cliente. No la uses para saltar un fallo de Harness, releer código fuera del MCP ni inicializar o reconstruir `.codegraph/` por rutina.
-- Si un archivo local ya existe, no lo fuerces: `init` conserva configs JSON válidos y reporta conflicto para un ejemplo MCP distinto.
-- Una sesión activa puede no volver a cargar skills tras la instalación; inicia una sesión nueva si hace falta.
+Tras conectar, ejecuta `harness_bootstrap`: confirma `root` y reutiliza
+`data.session` en las llamadas posteriores. En la implementación actual, bootstrap
+abre o restaura la sesión; no inicializa el índice. No lo repitas por lectura:
+solo al necesitar una sesión nueva o restaurar una conocida con `session`.
+No declares la conexión operativa sin bootstrap correcto. Si no puedes reconectar
+desde aquí, informa ese paso pendiente. Reiniciar la sesión del cliente puede ser
+necesario para descubrir skills nuevas o cargar instrucciones actualizadas.
+
+## Índice inicial, solo para relaciones
+
+Leer y buscar código no requieren índice. Si se necesitan relaciones y el usuario
+autoriza crear uno en un proyecto sin índice, ejecuta primero
+`agent-harness --root <ruta-absoluta> --init-index` y después
+`agent-harness --root <ruta-absoluta> --reindex`.
+Si ya existe, comprueba compatibilidad antes de elegir mantenimiento admitido;
+no lo borres ni repitas la inicialización. `indexed=true` solo indica que existe
+`.codegraph/`, no que sea compatible, completo o vigente. La preparación inicial
+no garantiza frescura tras cambios posteriores; actualizarlo requiere autorización.
+
+## Uso posterior
+
+Las skills enseñan el flujo; las herramientas devuelven datos y avisos de la
+operación. Bootstrap no carga `AGENTS.md` ni el antiguo archivo de reglas.
+Para código, consulta `harness-read` o `harness-edit` según la tarea.
+
+Shell se usa aquí para instalación y configuración; no para eludir fallos de
+Harness. No inicialices ni reconstruyas `.codegraph/` por rutina: el índice
+no es requisito para leer o buscar código.

@@ -111,13 +111,9 @@ fn default_compact_response_cleans_empty_diagnostics_omitted_and_detail() {
         "diagnostics":[], "omitted":{}, "detail":null, "data":{"found":true}
     });
     let result = response_with_compact(envelope, false);
-    let structured = result.structured_content.unwrap();
-    assert_eq!(structured["state"], "ok");
-    assert_eq!(structured["scope"]["tool"], "harness_symbols");
-    assert_eq!(structured["data"]["found"], true);
-    assert_eq!(structured["requestId"], "r1");
-    assert!(structured.get("diagnostics").is_none());
-    assert!(structured.get("omitted").is_none());
-    assert!(structured.get("detail").is_none());
+    assert!(result.structured_content.is_none());
+    let wire = serde_json::to_value(result).unwrap();
+    let payload: Value = serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(payload, json!({"found":true}));
 }
 
