@@ -9,9 +9,9 @@ Usa sesión y raíz verificadas mediante bootstrap. Inspecciona el estado Git y 
 
 ## Aplicar
 
-- Usa las herramientas de edición anunciadas y autorizadas. Si instrucciones de mayor prioridad exigen `apply_patch`, úsalo después de obtener contexto vigente con Harness; no eludas un rechazo de hash o permisos.
-- Para `harness_replace`, usa fuente original exacta y hash vigente. No uses firmas, resúmenes ni números de línea como `oldText`. Agrupa cambios independientes del mismo original en `chunks` únicos y no solapados.
-- Ante hash obsoleto, recupera el contexto afectado y replantea: nunca fuerces la versión anterior sobre cambios concurrentes.
+- Usa las herramientas de edición anunciadas y autorizadas. Si instrucciones de mayor prioridad exigen `apply_patch`, úsalo después de obtener contexto vigente con Harness; no eludas un rechazo de permisos.
+- Para `harness_replace`, usa fuente original exacta (`oldText`). No uses firmas, resúmenes ni números de línea como `oldText`. Agrupa cambios independientes del mismo original en `chunks` únicos y no solapados. El parámetro `hash` es opcional; la edición se enlaza a la lectura en curso.
+- Ante rechazo por concurrencia (`STALE`), recupera el contexto afectado y replantea: nunca fuerces la versión anterior sobre cambios concurrentes.
 - `harness_write` solo si está anunciado; comprueba la semántica de creación/sobrescritura y `expectedHash` antes de reemplazar.
 - `harness_move` no actualiza imports ni sobrescribe destinos. Distingue movimiento aplicado de fallo posterior de indexación; no repitas una operación ya realizada.
 

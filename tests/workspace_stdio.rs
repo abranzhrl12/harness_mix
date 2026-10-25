@@ -151,7 +151,7 @@ fn workspace_stdio_reuses_session_for_both_roots_and_edits_search_paths() {
         server.call(
             "harness_replace",
             json!({
-                "path":path,"hash":read["data"]["hash"],
+                "path":path,
                 "oldText":format!("needle-{name}"),"newText":format!("updated-{name}"),
                 "allowUnvalidatedText":true,"session":session
             }),

@@ -15,6 +15,7 @@ pub(super) fn response_with_options(
     context: bool,
 ) -> CallToolResult {
     clean_empty_metadata(&mut envelope);
+    super::wire::shape_for_model(&mut envelope);
     if compact {
         if let Some(object) = envelope.as_object_mut() {
             object.remove("requestId");

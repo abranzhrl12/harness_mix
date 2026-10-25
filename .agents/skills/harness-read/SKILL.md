@@ -23,7 +23,7 @@ Usa los nombres y esquemas reales anunciados por la conexión. Si aún no hay se
 | Contenido omitido | `harness_detail`, con el `ref` recibido |
 | Campos concretos de un resultado grande | `harness_data_query`, proyección JMESPath |
 
-No conviertas la tabla en una secuencia: un símbolo conocido no necesita búsqueda, outline ni firma previos. Para editar, pide el cuerpo exacto directamente. Un match con contexto exacto, hash y cobertura suficiente puede evitar otra lectura.
+No conviertas la tabla en una secuencia: un símbolo conocido no necesita búsqueda, outline ni firma previos. Para editar, pide el cuerpo exacto directamente. Las lecturas devuelven el fragmento limpio con su `range: [inicio, fin]`.
 
 Ejemplo de lectura de implementación, sustituyendo archivo, símbolo y sesión:
 
@@ -59,7 +59,7 @@ Reutiliza hashes y comprobaciones ya obtenidos por archivo cuando sigan vigentes
 
 - Reserva `harness_read` para texto sin símbolo, formatos no soportados o rangos concretos necesarios. Evita leer 100 líneas y después el remanente por costumbre: pide el símbolo completo o un rango suficiente según el tamaño conocido y los límites anunciados.
 - Agrupa solo lecturas independientes con `harness_batch`, `maxConcurrent=2..4`, si el esquema las admite. No adivines un símbolo para evitar una dependencia real.
-- Conserva fuente, documentación, rutas, hashes, relaciones y límites. No releas evidencia vigente ya recibida; si hay indicios de cambios concurrentes, comprueba frescura con la capacidad anunciada o relee el fragmento afectado.
+- Conserva fuente, documentación, rutas, relaciones y límites. No releas evidencia vigente ya recibida; si hay indicios de cambios concurrentes, comprueba frescura con la capacidad anunciada o relee el fragmento afectado.
 - Recupera cuerpos o detalles omitidos que puedan cambiar la conclusión. Una salida vacía limitada no prueba ausencia; un índice no prueba cobertura completa.
 - No reindexes ni sincronices por rutina: lectura y búsqueda pueden funcionar sin índice; las relaciones necesitan uno compatible.
 - Ante transporte, timeout o runtime fallido, diagnostica con doctor y comunica el bloqueo. No repitas equivalentes ni saltes a shell para eludirlo.

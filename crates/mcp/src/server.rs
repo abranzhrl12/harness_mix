@@ -13,6 +13,8 @@ mod jobs;
 mod presentation;
 #[path = "profile.rs"]
 mod profile;
+#[path = "wire.rs"]
+mod wire;
 use execution::execute;
 use harness_domain::contracts::{
     BootstrapArgs, BrowserArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,

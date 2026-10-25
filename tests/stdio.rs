@@ -113,10 +113,8 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
         "tools/call",
         json!({"name":"harness_read","arguments":{"path":"a.txt","start":1,"lines":1}}),
     );
-    let hash = read["result"]["structuredContent"]["data"]["hash"]
-        .as_str()
-        .unwrap();
-    let replaced = server.request(4, "tools/call", json!({"name":"harness_replace","arguments":{"path":"a.txt","baseHash":hash,"oldText":"before","newText":"after"}}));
+    assert!(read["result"]["structuredContent"]["data"].get("hash").is_none());
+    let replaced = server.request(4, "tools/call", json!({"name":"harness_replace","arguments":{"path":"a.txt","oldText":"before","newText":"after"}}));
     assert_eq!(
         replaced["result"]["structuredContent"]["state"], "ok",
         "{replaced}"
@@ -1043,7 +1041,7 @@ fn search_details_and_session_restore_work_without_node_or_ripgrep() {
     let search = &search["result"]["structuredContent"];
     assert_eq!(search["data"]["matches"].as_array().unwrap().len(), 1);
     assert_eq!(search["omitted"]["matches"], 1);
-    assert_eq!(search["data"]["complete"], true);
+    assert!(search["data"].get("complete").is_none());
     let full = server.request(
         5,
         "tools/call",
@@ -1105,7 +1103,9 @@ fn mcp_replace_publishes_and_rejects_a_stale_retry_without_node() {
         "tools/call",
         json!({"name":"harness_read","arguments":{"path":"edit.json","start":1,"end":1}}),
     );
-    let hash = read["result"]["structuredContent"]["data"]["hash"].clone();
+    // The read result carries no hash; a caller that wants stale protection hashes the bytes it saw.
+    assert!(read["result"]["structuredContent"]["data"].get("hash").is_none());
+    let hash = json!(harness_domain::hash(b"{\"x\":1}\r\n"));
     let arguments = json!({"path":"edit.json","hash":hash,"oldText":"1","newText":"2"});
     let edit = server.request(
         3,
