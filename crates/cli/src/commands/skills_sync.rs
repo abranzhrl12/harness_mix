@@ -5,6 +5,7 @@ use std::{
 
 pub(super) use harness_skills::{Action, Options, Report};
 
+#[cfg(test)]
 const MANIFEST_PATH: &str = ".agents/skills/.harness-manifest.json";
 const PREFERENCES_PATH: &str = ".agents/harness-skills-sync.json";
 const DATABASE_CONFIG_PATH: &str = ".agents/harness.config.json";

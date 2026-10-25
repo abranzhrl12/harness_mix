@@ -33,6 +33,8 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
     let mut failures = Vec::new();
     let mut failed = 0usize;
     let mut stopped_early = false;
+    let mut warnings = Vec::new();
+    let mut warning_files = 0usize;
     for path in paths {
         let applied = context
             .check()
@@ -40,6 +42,15 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
         match applied {
             Ok(Some(result)) => {
                 processed += 1;
+                if let Some(file_warnings) = result["warnings"].as_array() {
+                    warning_files += result["warningFiles"].as_u64().unwrap_or(1) as usize;
+                    warnings.extend(
+                        file_warnings
+                            .iter()
+                            .take(32usize.saturating_sub(warnings.len()))
+                            .cloned(),
+                    );
+                }
                 changed += usize::from(result["changed"] == true);
                 if result["sqlRefreshComplete"] == false {
                     let entry = json!({
@@ -84,7 +95,8 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
         "failedFiles":failed,"failures":failures,"failureReportLimit":32,"failureReportsOmitted":failed.saturating_sub(32),
         "nativeFilesRemaining":paths.len().saturating_sub(processed+skipped),
         "unattemptedFiles":paths.len().saturating_sub(processed+skipped+failed),"stoppedEarly":stopped_early,
-        "selectedScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
+        "selectedScopeApplied":failure.is_none() && warning_files==0,"sourceScopeApplied":failure.is_none(),"workspaceScanPerformed":false,
+        "warnings":warnings,"warningFiles":warning_files,"warningReportLimit":32,"warningReportsOmitted":warning_files.saturating_sub(32),
         "globalFreshnessCertified":false,"workspaceTransactionAtomic":false}),
     )
 }
@@ -160,5 +172,27 @@ mod tests {
         assert_eq!(result["changedFilesCommitted"], 0);
         assert_eq!(result["failure"]["code"], "SYNC_SQL_PARTIAL");
         assert_eq!(result["failure"]["commitState"], "not_committed");
+    }
+
+    #[test]
+    fn incremental_publication_keeps_partial_graph_warnings_without_failing_sources() {
+        let mut port = MockChangedPaths {
+            result: Some(json!({"changed":true,
+            "warningFiles":1,"warnings":[{"code":"INDEX_DERIVED_RELATIONS_INVALIDATED"}]})),
+        };
+        let report = sync_changed_paths(
+            &mut port,
+            &BTreeSet::from(["a.rs".to_owned()]),
+            &OperationContext::default(),
+        )
+        .unwrap();
+        assert_eq!(report["sourceScopeApplied"], true);
+        assert_eq!(report["selectedScopeApplied"], false);
+        assert_eq!(report["warningFiles"], 1);
+        assert_eq!(
+            report["warnings"][0]["code"],
+            "INDEX_DERIVED_RELATIONS_INVALIDATED"
+        );
+        assert!(report["failure"].is_null());
     }
 }

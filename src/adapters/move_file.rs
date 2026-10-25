@@ -295,7 +295,7 @@ pub(super) fn update_index(project: &Project, changed: &[&str]) -> Value {
     };
     match synced {
         Ok(report) => {
-            json!({"status":if report["failure"].is_null() && report["selectedScopeApplied"] == true {
+            json!({"status":if report["failure"].is_null() && (report["selectedScopeApplied"] == true || report["sourceScopeApplied"] == true) {
             "updated"
         } else { "needs_sync" },"report":report})
         }

@@ -36,6 +36,7 @@ use self::repository::insert_ref;
 #[path = "index_store/publication.rs"]
 mod publication;
 use self::publication::publish;
+pub(crate) use self::publication::quarantine;
 
 #[path = "index_store/resolution.rs"]
 mod resolution;

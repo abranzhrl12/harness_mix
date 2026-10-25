@@ -30,6 +30,8 @@ mod plan;
 mod retry;
 #[path = "publication/storage.rs"]
 mod storage;
+#[path = "publication/quarantine.rs"]
+pub(crate) mod quarantine;
 
 #[path = "publication/sqlite.rs"]
 mod sqlite;

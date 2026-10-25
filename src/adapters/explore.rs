@@ -175,7 +175,7 @@ pub(super) fn synchronized(
         project.target(file)?;
     }
     let report = super::index_store::sync_workspace_all(&project.root, context)?;
-    if report["selectedScopeApplied"] != true
+    if (report["selectedScopeApplied"] != true && report["sourceScopeApplied"] != true)
         || report["discoveryComplete"] != true
         || report["uncheckedFiles"] != 0
         || report["unsupportedChangedFiles"] != 0
@@ -271,6 +271,7 @@ fn explore_inner(
     let db = opened.connection;
     let version = opened.version;
     let has_qualified = opened.has_qualified;
+    let invalidated_relations = super::index_store::quarantine::count(&db, None)?;
     if args.container.is_some() && !has_qualified {
         return Err((
             "ARGUMENT",
@@ -289,7 +290,9 @@ fn explore_inner(
         &failed,
     )? {
         selection::SelectionResult::NotResolved => {
-            return Ok(selection::not_resolved_value());
+            let mut result = selection::not_resolved_value();
+            super::index_store::quarantine::annotate(&mut result, invalidated_relations, true);
+            return Ok(result);
         }
         selection::SelectionResult::Selected(selection) => selection,
     };
@@ -339,7 +342,7 @@ fn explore_inner(
         summary,
         &symbol,
     )?;
-    response::respond(
+    let mut result = response::respond(
         project,
         args,
         context,
@@ -357,5 +360,7 @@ fn explore_inner(
             graph,
             sources: loaded,
         },
-    )
+    )?;
+    super::index_store::quarantine::annotate(&mut result, invalidated_relations, true);
+    Ok(result)
 }

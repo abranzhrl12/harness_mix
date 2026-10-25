@@ -33,9 +33,15 @@ fn count(root: &Path, query: &str) -> i64 {
 
 #[test]
 fn watcher_busy_means_windows_sharing_or_lock_violation() {
-    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(32)));
-    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(33)));
-    assert!(!super::lock_contended(&std::io::Error::from_raw_os_error(5)));
+    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(
+        32
+    )));
+    assert!(super::lock_contended(&std::io::Error::from_raw_os_error(
+        33
+    )));
+    assert!(!super::lock_contended(&std::io::Error::from_raw_os_error(
+        5
+    )));
 }
 
 #[test]
@@ -229,6 +235,23 @@ fn coverage_limitations_are_not_transient_failures() {
     let report = sync_report(&Ok(excluded), true);
     assert_eq!(report["complete"], true);
     assert_eq!(report["restrictedIndexedReasons"]["config_filename"], 3);
+    assert!(report["lastError"].is_null());
+    assert!(retry_delay(&report, 1).is_none());
+}
+
+#[test]
+fn archived_graph_warnings_do_not_schedule_identical_failed_retries() {
+    let report = sync_report(
+        &Ok(
+            json!({"sourceScopeApplied":true,"selectedScopeApplied":false,
+        "discoveryComplete":true,"uncheckedFiles":0,"unsupportedChangedFiles":0,
+        "warningFiles":1,"warnings":[{"code":"INDEX_DERIVED_RELATIONS_INVALIDATED"}]}),
+        ),
+        true,
+    );
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["graphStatus"], "partial");
+    assert_eq!(report["warningFiles"], 1);
     assert!(report["lastError"].is_null());
     assert!(retry_delay(&report, 1).is_none());
 }
