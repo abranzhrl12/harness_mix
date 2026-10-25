@@ -30,6 +30,7 @@ fn classic_aspnet_detection_and_solution_engine() {
         action: Some(VerifyAction::Build),
         engine: Some("auto".into()),
         warnings: None,
+        timeout_seconds: None,
         session: None,
     };
     let spec = plan(&project, &args).unwrap();
@@ -68,6 +69,7 @@ fn dotnet_warning_totals_deduplicate_and_preserve_unknown_baseline() {
         action: None,
         engine: None,
         warnings: None,
+        timeout_seconds: None,
         session: Some(uuid::Uuid::new_v4().to_string()),
     };
     let output = "File.cs(1,2): warning CS0001: old warning [fixture.csproj]\nFile.cs(1,2): warning CS0001: old warning [fixture.csproj]\n    742 Warning(s)\n    0 Error(s)";
@@ -118,6 +120,7 @@ fn dotnet_plan_requires_explicit_project_and_disables_restore_servers() {
                     configuration: None,
                     engine: None,
                     warnings: None,
+                    timeout_seconds: None,
                     language: "csharp".into(),
                     package: None,
                     scope: Some(scope.into()),
@@ -164,6 +167,7 @@ fn dotnet_rejects_implicit_directories_and_unapproved_project_types() {
             configuration: None,
             engine: None,
             warnings: None,
+            timeout_seconds: None,
             language: "dotnet".into(),
             package: None,
             scope: scope.map(String::from),
@@ -252,6 +256,7 @@ fn real_dotnet_build_and_test_dispatch() {
             configuration: None,
             engine: None,
             warnings: None,
+            timeout_seconds: None,
             language: "dotnet".into(),
             package: None,
             scope: Some(scope.into()),

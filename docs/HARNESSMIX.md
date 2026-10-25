@@ -75,7 +75,7 @@ En salida no interactiva, `TERM=dumb` o con `NO_COLOR`, se conserva Markdown
 plano sin estilos ANSI. El texto recibido se filtra para impedir que secuencias
 de control ajenas al renderizador muevan el cursor o modifiquen la terminal.
 
-`src/harnessmix/rendering.rs` define el puerto `MessageRenderer`, sus adaptadores
+`crates/cli/src/terminal/rendering.rs` define el puerto `MessageRenderer`, sus adaptadores
 Termimad y plano, y la detección del ancho. La consola recibe el renderizador
 por inyección; ni dominio, ni aplicación, ni transporte ACP dependen de Termimad.
 Cambiar el formateador no requiere cambiar esos componentes. Migrar a una TUI
@@ -189,10 +189,10 @@ la configuración global de Antigravity ni inicializa índices del proyecto.
 - `crates/application/src/ports/conversation.rs`: puerto inyectable del proveedor.
 - `crates/application/src/conversation.rs`: casos de uso de conversación.
 - `src/adapters/acp/`: traducción ACP, proceso oficial y transporte stdio.
-- `src/harnessmix/console.rs`: fachada pública del adaptador de terminal.
-- `src/harnessmix/config.rs`: composición de dependencias y opciones del comando.
+- `crates/cli/src/terminal/console/mod.rs`: fachada pública del adaptador de terminal.
+- `crates/cli/src/terminal/config.rs`: composición de dependencias y opciones del comando.
 
-La consola está dividida por responsabilidades en `src/harnessmix/console/`:
+La consola está dividida por responsabilidades en `crates/cli/src/terminal/console/`:
 
 - `ports.rs`: contratos de entrada, salida y adquisición del portapapeles.
 - `terminal.rs`, `output.rs`: adaptadores concretos y decorador de renderizado.

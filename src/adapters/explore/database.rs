@@ -10,6 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+#[path = "database_tests.rs"]
+mod lock_tests;
+
 pub(super) fn index_path(
     project: &Project,
     diagnostic: &RefCell<Value>,
@@ -47,9 +51,13 @@ pub(super) fn failure(
     started: Instant,
 ) -> Failure {
     let mut details = diagnostic.borrow_mut();
-    if let Error::SqliteFailure(code, _) = &error {
+    let busy = if let Error::SqliteFailure(code, _) = &error {
         details["sqliteCode"] = json!(format!("{:?}", code.code));
         details["sqliteExtendedCode"] = json!(code.extended_code);
+        let busy = matches!(
+            code.code,
+            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+        );
         details["cause"] = json!(match code.code {
             rusqlite::ErrorCode::DatabaseBusy => "database_busy",
             rusqlite::ErrorCode::DatabaseLocked => "database_locked",
@@ -60,11 +68,15 @@ pub(super) fn failure(
             }
             _ => "sqlite_operation_failed",
         });
+        busy
     } else {
         details["cause"] = json!("schema_or_value_contract_mismatch");
-    }
+        false
+    };
     context.check().err().unwrap_or_else(|| {
-        if started.elapsed() >= Duration::from_secs(5) {
+        if busy {
+            super::INDEX_BUSY
+        } else if started.elapsed() >= Duration::from_secs(5) {
             BUDGET
         } else {
             INDEX
@@ -155,39 +167,3 @@ pub(super) fn open(
     })
 }
 
-#[cfg(all(test, windows))]
-mod lock_tests {
-    use super::*;
-    use rusqlite::Connection;
-
-    #[test]
-    fn read_open_waits_for_an_exclusive_sqlite_transaction_to_release() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("codegraph.db");
-        let blocker = Connection::open(&path).unwrap();
-        blocker
-            .execute_batch(
-                "PRAGMA journal_mode=DELETE;
-                 CREATE TABLE schema_versions(version INTEGER);
-                 INSERT INTO schema_versions(version) VALUES(11);
-                 CREATE TABLE nodes(id INTEGER, qualified_name TEXT);
-                 CREATE TABLE edges(id INTEGER);
-                 BEGIN EXCLUSIVE;",
-            )
-            .unwrap();
-
-        let release = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(150));
-            blocker.execute_batch("ROLLBACK;").unwrap();
-        });
-        let diagnostic = RefCell::new(json!({}));
-        let context = OperationContext::default();
-        let started = Instant::now();
-        let opened = open(&path, &context, &diagnostic, started);
-        release.join().unwrap();
-
-        let opened = opened.unwrap();
-        assert_eq!(opened.version, 11);
-        assert!(started.elapsed() >= Duration::from_millis(100));
-    }
-}

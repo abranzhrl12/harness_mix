@@ -248,14 +248,14 @@ pub(super) async fn subscribe_events(
         while let Some(event) = requests.next().await {
             if let Ok(mut urls) = urls.lock() {
                 if urls.len() >= MAX_EVENTS * 2
-                    && !urls.contains_key(&request_key(&target, &event.request_id.to_string()))
+                    && !urls.contains_key(&request_key(&target, event.request_id.as_ref()))
                 {
                     if let Some(key) = urls.keys().next().cloned() {
                         urls.remove(&key);
                     }
                 }
                 urls.insert(
-                    request_key(&target, &event.request_id.to_string()),
+                    request_key(&target, event.request_id.as_ref()),
                     bounded_copy(&event.request.url, 2_048),
                 );
             }
@@ -268,7 +268,7 @@ pub(super) async fn subscribe_events(
     let target = target_id.to_owned();
     let failure_task = tokio::spawn(async move {
         while let Some(event) = failures.next().await {
-            let key = request_key(&target, &event.request_id.to_string());
+            let key = request_key(&target, event.request_id.as_ref());
             let url = urls
                 .lock()
                 .ok()
@@ -291,7 +291,7 @@ pub(super) async fn subscribe_events(
     let finished_task = tokio::spawn(async move {
         while let Some(event) = finished.next().await {
             if let Ok(mut urls) = urls.lock() {
-                urls.remove(&request_key(&target, &event.request_id.to_string()));
+                urls.remove(&request_key(&target, event.request_id.as_ref()));
             }
         }
     });
@@ -500,5 +500,16 @@ mod tests {
         assert_eq!(second[0].sequence, 3);
         assert_eq!(cursor, 3);
         assert_ne!(request_key("one", "42"), request_key("two", "42"));
+    }
+
+    #[test]
+    fn network_request_ids_keep_their_raw_value_in_correlation_keys() {
+        let request_id =
+            chromiumoxide::cdp::browser_protocol::network::RequestId::new("request:42/part");
+
+        assert_eq!(
+            request_key("target", request_id.as_ref()),
+            "target\0request:42/part"
+        );
     }
 }

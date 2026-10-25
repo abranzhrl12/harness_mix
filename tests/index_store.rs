@@ -329,7 +329,7 @@ fn semantic_block_shadowing_and_utf16_positions_are_used_in_publication() {
 }
 
 #[test]
-fn semantic_conflicting_binding_rolls_back_previous_publication() {
+fn semantic_conflicting_binding_commits_partial_without_a_false_import_edge() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
     fs::write(root.path().join("lib.ts"), "export function run() {}").unwrap();
@@ -347,13 +347,20 @@ fn semantic_conflicting_binding_rolls_back_previous_publication() {
             |r| r.get(0),
         )
         .unwrap();
-    fs::write(root.path().join("app.ts"), "import {run as execute} from './lib'; const execute = () => {}; export function caller() { execute(); }").unwrap();
-    assert_eq!(
-        sync_file(root.path(), "app.ts", &OperationContext::default())
-            .unwrap_err()
-            .0,
-        "SYNC_SEMANTIC"
-    );
+    let prior_import_edge = "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND s.name='caller' AND t.file_path='lib.ts'";
+    assert_eq!(count(root.path(), prior_import_edge), 1);
+
+    let changed_source = "import {run as execute} from './lib'; const execute = () => {}; export function caller() { execute(); }";
+    fs::write(root.path().join("app.ts"), changed_source).unwrap();
+    let report = sync_file(root.path(), "app.ts", &OperationContext::default()).unwrap();
+    assert_eq!(report["committed"], true, "{report}");
+    assert_eq!(report["graphStatus"], "partial", "{report}");
+    assert_eq!(report["warningFiles"], 1, "{report}");
+    assert_eq!(report["warnings"][0]["path"], "app.ts");
+    assert_eq!(report["warnings"][0]["code"], "SYNC_SEMANTIC");
+    assert_eq!(report["warnings"][0]["severity"], "warning");
+    assert_eq!(report["warnings"][0]["unresolvedReferencesRetained"], true);
+
     let after: String = db(root.path())
         .query_row(
             "SELECT content_hash FROM files WHERE path='app.ts'",
@@ -361,10 +368,20 @@ fn semantic_conflicting_binding_rolls_back_previous_publication() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(before, after);
+    assert_ne!(before, after);
+    assert_eq!(after, harness_domain::hash(changed_source.as_bytes()));
     assert_eq!(
-        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
-        1
+        count(root.path(), prior_import_edge),
+        0,
+        "an ambiguous import must not be published as a resolved call"
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM unresolved_refs r JOIN nodes s ON s.id=r.from_node_id WHERE r.reference_name='execute' AND r.reference_kind='calls' AND s.name='caller'"
+        ),
+        1,
+        "the ambiguous call should remain pending"
     );
 }
 

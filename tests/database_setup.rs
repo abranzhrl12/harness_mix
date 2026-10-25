@@ -1,8 +1,10 @@
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::Path,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex, mpsc::{self, Receiver}},
+    time::{Duration, Instant},
 };
 
 fn command(root: &Path) -> Command {
@@ -22,7 +24,8 @@ fn command(root: &Path) -> Command {
 }
 struct Mcp {
     child: Child,
-    reader: BufReader<ChildStdout>,
+    lines: Receiver<Result<String, String>>,
+    stderr: Arc<Mutex<Vec<u8>>>,
     seq: u64,
     session: String,
 }
@@ -31,13 +34,56 @@ impl Mcp {
         let mut child = command(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let reader = BufReader::new(child.stdout.take().unwrap());
+        let stdout = child.stdout.take().unwrap();
+        let stderr_reader = child.stderr.take().unwrap();
+        let (line_sender, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => {
+                        let _ = line_sender.send(Err("MCP stdout closed".into()));
+                        return;
+                    }
+                    Ok(_) => {
+                        if line_sender.send(Ok(line)).is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = line_sender.send(Err(format!("MCP stdout read failed: {error}")));
+                        return;
+                    }
+                }
+            }
+        });
+        let stderr = Arc::new(Mutex::new(Vec::new()));
+        let stderr_capture = stderr.clone();
+        std::thread::spawn(move || {
+            let mut reader = stderr_reader;
+            let mut chunk = [0; 4096];
+            loop {
+                match reader.read(&mut chunk) {
+                    Ok(0) | Err(_) => return,
+                    Ok(length) => {
+                        let mut captured = stderr_capture.lock().unwrap();
+                        captured.extend_from_slice(&chunk[..length]);
+                        if captured.len() > 64 * 1024 {
+                            let excess = captured.len() - 64 * 1024;
+                            captured.drain(..excess);
+                        }
+                    }
+                }
+            }
+        });
         let mut mcp = Self {
             child,
-            reader,
+            lines,
+            stderr,
             seq: 0,
             session: String::new(),
         };
@@ -54,6 +100,7 @@ impl Mcp {
     }
     fn rpc(&mut self, method: &str, params: Value) -> Value {
         self.seq += 1;
+        let deadline = Instant::now() + Duration::from_secs(20);
         let input = self.child.stdin.as_mut().unwrap();
         writeln!(
             input,
@@ -63,14 +110,26 @@ impl Mcp {
         .unwrap();
         input.flush().unwrap();
         loop {
-            let mut line = String::new();
-            assert!(self.reader.read_line(&mut line).unwrap() > 0, "MCP exited");
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let line = match self.lines.recv_timeout(remaining) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => panic!("{error}; stderr: {}", self.stderr_text()),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("MCP output reader stopped; stderr: {}", self.stderr_text())
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    panic!("MCP RPC {method} timed out after 20 seconds; stderr: {}", self.stderr_text())
+                }
+            };
             let result: Value = serde_json::from_str(&line).unwrap();
             if result["id"] == self.seq {
-                assert!(result.get("error").is_none(), "{result}");
+                assert!(result.get("error").is_none(), "{result}; stderr: {}", self.stderr_text());
                 return result["result"].clone();
             }
         }
+    }
+    fn stderr_text(&self) -> String {
+        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
     }
     fn tool(&mut self, name: &str, mut arguments: Value) -> Value {
         if !self.session.is_empty() {

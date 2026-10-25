@@ -7,7 +7,7 @@
 ~~~text
 src/main.rs / cli.rs / transport/runtime.rs   composición y ciclo de vida
                     |
-src/transport.rs                            MCP y adaptación de argumentos
+crates/mcp/src                               servidor MCP y traducción de protocolo
                     |
 crates/application                          casos de uso y puertos
                     |
@@ -21,13 +21,32 @@ src/adapters                                implementaciones nativas de puertos
 | `crates/domain` | Contratos, identidad, políticas de edición, frescura, resultados y estados de trabajos |
 | `crates/application` | Admisión, sesiones, coordinación y puertos; sin SDK MCP, Tokio ni drivers |
 | `src/adapters` | Filesystem seguro, parsers, SQLite, SQL, procesos y persistencia |
-| `src/transport` | SDK MCP, perfiles, respuesta y cancelación; composición concreta en runtime |
+| `crates/mcp` | SDK MCP, perfiles, respuesta, entrada acotada, jobs y cancelación |
+| `crates/config` | Opciones tipadas y validación del entorno de arranque; no construye servicios |
+| `crates/skills` | Catálogo, sincronización segura y preferencias de skills; sin CLI ni MCP |
+| `crates/jobs` | Scheduler, cancelación, eventos y persistencia durable; ejecutor de verificaciones inyectado |
+| `src/transport/runtime.rs` | Fachada de arranque; construcción en `runtime/single.rs` y `workspace.rs` |
+| `src/transport/runtime/coordinator.rs` | Limpieza ante fallos de inicio, espera del servidor, cancelación y drenaje |
 
-Los puertos viven en `application`; no hay crates vacíos paralelos. `Application<W,S>` recibe workspace y repositorio de sesiones. El dispatcher conserva un único match exhaustivo y la envoltura común; los módulos `dispatch/` reúnen políticas de consultas, edición, sesiones, SQL, artefactos y diagnósticos.
+Los puertos viven en `application`; `crates/mcp` depende de `application` y `domain`, mientras que los adaptadores nativos permanecen en el binario. `Application<W,S>` recibe workspace y repositorio de sesiones. El dispatcher conserva un único match exhaustivo y la envoltura común; los módulos `dispatch/` reúnen políticas de consultas, edición, sesiones, SQL, artefactos y diagnósticos.
+
+Los handlers de `application/handlers/` reciben únicamente la capacidad que utilizan: `SourceQueries`, `SourceEditing` o `Verification`, sin el workspace compuesto ni la aplicación completa. `dispatch/` les entrega las operaciones después de adquirir los leases y gates de sesión y conserva el registro de resultados. La indexación mantiene sus casos de uso genéricos existentes en `application/indexing`, sin un wrapper adicional.
+
+`application/policies.rs` concentra autorización por perfil, creación del contexto con el plazo de la petición y comprobación de resultados de lectura. Cancelación y progreso siguen en `OperationContext`, que llega sin reemplazos a los adaptadores; las validaciones específicas y la seguridad de rutas permanecen en su frontera correspondiente. Un resultado parcial explícito se conserva y una mutación confirmada no se reclasifica como cancelada al volver. Los transportes entran por `Application`: llamar directamente un handler no aplica autorización, admisión ni políticas de sesión.
 
 `NativeWorkspace` compone `SourceQueryService`, `SourceEditingService` y `SessionService`. Consultas sincronizadas y ediciones comparten un único bloqueo. Scopes externos comparten registro, propietario, TTL y pines durante la lectura. `sessions/repository.rs` implementa el repositorio de sesiones; persistir snapshots no sustituye el gate por sesión ni los leases de aplicación.
 
 `JobService` y `JobEventStream` desacoplan MCP del scheduler y de Tokio. El runtime inyecta el gestor concreto y drena los trabajos al cerrar.
+
+`harness-jobs` no conoce los verificadores de lenguajes ni el servidor MCP. El adaptador nativo prepara y ejecuta verificaciones mediante un contrato inyectado; el motor controla concurrencia, reintentos, cancelación y estados durables. La persistencia conserva su formato, exclusión de escritor y pines de archivos/directorios; la extracción no migra ni borra el historial existente.
+
+El coordinador de ciclo de vida drena los gestores incluso si falla la creación de la aplicación o el handshake. En modo workspace se cancela a todos los gestores antes de esperar, y se intenta drenar cada uno aunque otro exceda su plazo. Los propietarios de watchers permanecen vivos hasta terminar esa limpieza; los errores del servicio y del drenaje se conservan juntos cuando ambos fallan.
+
+La configuración de arranque se resuelve en `harness-config` y se entrega como valores al runtime. No es un contenedor global de servicios: MCP, jobs y adaptadores conservan contratos específicos. La configuración especializada de SQL, las políticas del índice y la inspección de archivos de configuración de proyectos siguen en sus adaptadores; no se cambia su precedencia ni su política de secretos.
+
+`harness-skills` posee el catálogo y el motor de sincronización, incluidos manifiesto, conflictos y preferencias. El CLI conserva la presentación y la inicialización del proyecto (ejemplos de configuración y MCP). Ninguno de esos crates depende del ejecutable, del CLI o del servidor MCP. Se separan por responsabilidad, sin imponer capas DDD artificiales a utilidades de infraestructura.
+
+En ambos crates, `lib.rs` declara módulos y expone la fachada pública, sin implementar servicios. Configuración separa la lectura del entorno de las opciones y su validación. Skills separa catálogo, sincronización, manifiesto, preferencias, almacenamiento seguro, bloqueo e informes; los detalles internos no se exportan por comodidad.
 
 ## Parsers y límites
 

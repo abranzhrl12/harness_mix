@@ -9,7 +9,7 @@ mod sql;
 use crate::Application;
 use crate::ports::{SessionRepository, Workspace};
 use harness_domain::{contracts::Request, execution::OperationContext};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 impl<W: Workspace, S: SessionRepository> Application<W, S> {
     pub(super) fn execute_admitted(&self, request: Request, context: &OperationContext) -> Value {
@@ -110,12 +110,20 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::DataQuery(args) => artifacts::data_query(self, args, context, &mut lease),
             Request::PatchPreview(args) => self
                 .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.patch_preview(&args, context)),
+                .and_then(|()| {
+                    crate::handlers::edit::patch_preview(self.workspace.as_ref(), &args, context)
+                }),
             Request::Outline(args) => queries::outline(self, args, context, &mut lease),
             Request::ReadSymbol(args) => queries::read_symbol(self, args, context, &mut lease),
             Request::VueExtractPreview(args) => self
                 .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.vue_extract_preview(&args, context)),
+                .and_then(|()| {
+                    crate::handlers::edit::vue_extract_preview(
+                        self.workspace.as_ref(),
+                        &args,
+                        context,
+                    )
+                }),
             Request::Replace(args) => {
                 editing::replace(self, args, context, name, &request_arguments, &mut lease)
             }
@@ -128,15 +136,27 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Delete(args) => {
                 editing::delete_file(self, args, context, name, &request_arguments, &mut lease)
             }
-            Request::Proposal(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.prepare_proposal(&args, context)),
+            Request::Proposal(args) => {
+                self.lease(args.session.as_deref(), &mut lease)
+                    .and_then(|()| {
+                        crate::handlers::edit::prepare_proposal(
+                            self.workspace.as_ref(),
+                            &args,
+                            context,
+                        )
+                    })
+            }
             Request::Read(args) => self
                 .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.read(&args, context)),
-            Request::Search(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.search(&args, context)),
+                .and_then(|()| {
+                    crate::handlers::read::read(self.workspace.as_ref(), &args, context)
+                }),
+            Request::Search(args) => {
+                self.lease(args.session.as_deref(), &mut lease)
+                    .and_then(|()| {
+                        crate::handlers::search::handle(self.workspace.as_ref(), &args, context)
+                    })
+            }
             Request::Ignore(args) => {
                 editing::ignore(self, args, context, name, &request_arguments, &mut lease)
             }
@@ -147,16 +167,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Checkpoint(args) => sessions::checkpoint(self, args, context, &mut lease),
             Request::Detail(args) => artifacts::detail(self, args, &mut lease),
         });
-        let result = result.and_then(|value| {
-            // Search can return an explicit partial result on cancellation/deadline.
-            if !mutating
-                && value.get("cancelled") != Some(&json!(true))
-                && value.get("timedOut") != Some(&json!(true))
-            {
-                context.check()?;
-            }
-            Ok(value)
-        });
+        let result = result.and_then(|value| crate::policies::finish(mutating, value, context));
         let result = result.map(|mut value| {
             if name == "harness_doctor" {
                 diagnostics::enrich_doctor(self, &mut value);

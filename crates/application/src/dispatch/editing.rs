@@ -40,7 +40,7 @@ pub(super) fn delete_file<W: Workspace, S: SessionRepository>(
         context,
         name,
         request_arguments,
-        || app.workspace.delete_file(&args, context),
+        || crate::handlers::edit::delete(app.workspace.as_ref(), &args, context),
     )
 }
 
@@ -53,8 +53,9 @@ pub(super) fn replace<W: Workspace, S: SessionRepository>(
     lease: &mut Option<SessionLease<S>>,
 ) -> Result<Value, Failure> {
     if args.preview {
-        app.lease(args.session.as_deref(), lease)
-            .and_then(|()| app.workspace.patch_preview(&args, context))
+        app.lease(args.session.as_deref(), lease).and_then(|()| {
+            crate::handlers::edit::patch_preview(app.workspace.as_ref(), &args, context)
+        })
     } else {
         recorded_session_write(
             app,
@@ -63,7 +64,7 @@ pub(super) fn replace<W: Workspace, S: SessionRepository>(
             context,
             name,
             request_arguments,
-            || app.workspace.replace(&args, context),
+            || crate::handlers::edit::replace(app.workspace.as_ref(), &args, context),
         )
     }
 }
@@ -83,7 +84,7 @@ pub(super) fn write<W: Workspace, S: SessionRepository>(
         context,
         name,
         request_arguments,
-        || app.workspace.write(&args, context),
+        || crate::handlers::edit::write(app.workspace.as_ref(), &args, context),
     )
 }
 
@@ -102,7 +103,7 @@ pub(super) fn move_file<W: Workspace, S: SessionRepository>(
         context,
         name,
         request_arguments,
-        || app.workspace.move_file(&args, context),
+        || crate::handlers::edit::move_file(app.workspace.as_ref(), &args, context),
     )
 }
 
@@ -116,7 +117,7 @@ pub(super) fn ignore<W: Workspace, S: SessionRepository>(
 ) -> Result<Value, Failure> {
     if args.action == harness_domain::contracts::IgnoreAction::List {
         app.lease(args.session.as_deref(), lease)
-            .and_then(|()| app.workspace.ignore(&args, context))
+            .and_then(|()| crate::handlers::edit::ignore(app.workspace.as_ref(), &args, context))
     } else {
         recorded_session_write(
             app,
@@ -125,7 +126,7 @@ pub(super) fn ignore<W: Workspace, S: SessionRepository>(
             context,
             name,
             request_arguments,
-            || app.workspace.ignore(&args, context),
+            || crate::handlers::edit::ignore(app.workspace.as_ref(), &args, context),
         )
     }
 }
@@ -145,6 +146,6 @@ pub(super) fn verify<W: Workspace, S: SessionRepository>(
         context,
         name,
         request_arguments,
-        || app.workspace.verify(&args, context),
+        || crate::handlers::verify::handle(app.workspace.as_ref(), &args, context),
     )
 }

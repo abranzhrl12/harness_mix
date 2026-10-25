@@ -1,12 +1,16 @@
 //! Use-case orchestration. Depends on domain and ports, never on MCP or OS adapters.
 mod admission;
 pub mod agent;
-pub mod conversation;
 mod batch;
+pub mod conversation;
 mod dispatch;
+pub mod handlers;
 pub mod indexing;
 mod logging;
 mod metrics;
+mod policies;
+#[cfg(test)]
+mod policies_tests;
 pub mod ports;
 mod reading_guidance;
 mod session;
@@ -116,7 +120,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
     }
     /// A single boundary for every transport: session admission, execution and envelope.
     pub fn execute(&self, request: Request) -> Value {
-        let context = OperationContext::with_timeout(request.execution_timeout());
+        let context = policies::context_for_request(&request);
         self.execute_with_context(request, context)
     }
     pub fn execute_with_context(&self, request: Request, context: OperationContext) -> Value {
@@ -131,30 +135,26 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         context: OperationContext,
     ) -> Result<Operation<W, S>, Value> {
         let request_id = harness_domain::execution::new_request_id();
-        if let Err(failure) = self.tool_profile.check(&request) {
+        if let Err(failure) = policies::authorize(self.tool_profile, &request, &context) {
             self.metrics
                 .rejected_with_id(request.name(), failure.0, &request_id);
             let mut output = self.failure(request.name(), &request.arguments(), failure);
             output["requestId"] = json!(request_id);
             return Err(output);
         }
-        let permit = context
-            .check()
-            .and_then(|()| {
-                if matches!(&request, Request::Batch(_)) {
-                    self.admission.acquire_batch()
-                } else {
-                    self.admission
-                        .acquire(matches!(&request, Request::Search(_)))
-                }
-            })
-            .map_err(|failure| {
-                self.metrics
-                    .rejected_with_id(request.name(), failure.0, &request_id);
-                let mut output = self.failure(request.name(), &request.arguments(), failure);
-                output["requestId"] = json!(request_id);
-                output
-            })?;
+        let permit = if matches!(&request, Request::Batch(_)) {
+            self.admission.acquire_batch()
+        } else {
+            self.admission
+                .acquire(matches!(&request, Request::Search(_)))
+        }
+        .map_err(|failure| {
+            self.metrics
+                .rejected_with_id(request.name(), failure.0, &request_id);
+            let mut output = self.failure(request.name(), &request.arguments(), failure);
+            output["requestId"] = json!(request_id);
+            output
+        })?;
         let measurement = self.metrics.admitted_with_id(request.name(), &request_id);
         Ok(Operation {
             application: self.clone(),

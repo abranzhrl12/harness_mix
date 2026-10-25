@@ -1,213 +1,105 @@
-use std::path::PathBuf;
+//! Executable host adapters for the reusable CLI crate.
 
-mod active;
-mod plan_summary;
-mod skills_sync;
-use harness_cli::{Command, Root};
+use std::path::{Path, PathBuf};
+
+use agent_harness::adapters::{
+    agent::AntigravityLauncher,
+    database_setup,
+    index_store,
+    index_sync,
+};
+use harness_application::{
+    agent::{ActiveAgent, AgentConfiguration},
+};
+use harness_cli::commands::{
+    AgentHost, DatabaseHost, ExecutableHost, IndexHost, IndexOperation, ServerHost,
+};
+use harness_domain::{agent::{ActiveAgentRequest, AgentProvider}, execution::OperationContext, Failure};
+use serde_json::Value;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AgentHarnessHost;
+
+impl DatabaseHost for AgentHarnessHost {
+    fn initialize_database(&self, root: &Path) -> Result<Value, String> {
+        database_setup::initialize(root).map_err(|(code, message)| format!("{code}: {message}"))
+    }
+
+}
+
+impl IndexHost for AgentHarnessHost {
+    fn index(
+        &self,
+        root: &Path,
+        operation: IndexOperation,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        match operation {
+            IndexOperation::Initialize => index_store::initialize(root, context),
+            IndexOperation::SyncWorkspace => index_store::sync_workspace_all(root, context),
+            IndexOperation::Rebuild => index_store::rebuild_workspace(root, context),
+            IndexOperation::Plan => index_sync::plan_workspace(root, context),
+            IndexOperation::SyncFile { relative, tsconfig, force } => match tsconfig {
+                Some(config) => index_store::sync_file_with_tsconfig(root, &relative, &config, context),
+                None if force => index_store::sync_file_forced(root, &relative, context),
+                None => index_store::sync_file(root, &relative, context),
+            },
+        }
+    }
+
+    fn take_sync_diagnostic(&self, code: &str, message: &str) -> Option<Value> {
+        index_store::take_sync_diagnostic(code, message)
+    }
+
+}
+
+impl AgentHost for AgentHarnessHost {
+    fn agent_executable(&self) -> Option<PathBuf> {
+        let statuses = AgentConfiguration::list(&AntigravityLauncher);
+        statuses
+            .iter()
+            .find(|status| status.provider == AgentProvider::Antigravity)
+            .and_then(|status| status.executable.clone())
+    }
+
+    fn launch_agent(&self, root: &Path, provider: &str) -> Result<i32, String> {
+        let provider = match provider {
+            "antigravity" => AgentProvider::Antigravity,
+            _ => return Err("proveedor no soportado".into()),
+        };
+        ActiveAgent::execute(
+            ActiveAgentRequest { provider, workspace: root.to_path_buf() },
+            &AntigravityLauncher,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+}
+
+impl ExecutableHost for AgentHarnessHost {
+    fn current_executable(&self) -> Result<PathBuf, String> {
+        std::env::current_exe().map_err(|error| error.to_string())
+    }
+}
+
+impl ServerHost for AgentHarnessHost {
+    async fn serve(
+        &self,
+        root: Option<&Path>,
+        workspace_config: Option<&Path>,
+        persist_logs: bool,
+    ) -> Result<(), String> {
+        match (root, workspace_config) {
+            (Some(root), None) => agent_harness::transport::serve_with_logging(root, persist_logs).await,
+            (None, Some(config)) => agent_harness::transport::serve_with_workspace_config(config, persist_logs).await,
+            _ => Err("exactly one serving configuration must be provided".into()),
+        }
+        .map_err(|error| error.to_string())
+    }
+}
 
 pub async fn run(
     args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let command = harness_cli::prepare_command(args)
-        .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-    match command {
-        Command::Help => print_help(),
-        Command::Version => println!("agent-harness {}", env!("CARGO_PKG_VERSION")),
-        Command::Config => active::config()?,
-        Command::Active { root, provider } => {
-            active::run(&resolve_root(root)?, provider.as_deref())?;
-        }
-        Command::InitConfig { root } => {
-            let result = agent_harness::adapters::database_setup::initialize(&resolve_root(root)?)
-                .map_err(|(code, message)| format!("{code}: {message}"))?;
-            println!("{}", result);
-        }
-        Command::InitIndex { root } => {
-            let root = resolve_root(root)?;
-            let result = run_index(30, |context| {
-                agent_harness::adapters::index_store::initialize(&root, context)
-            })?;
-            println!("{}", serde_json::to_string(&result)?);
-        }
-        Command::SyncWorkspace { root } => {
-            let root = resolve_root(root)?;
-            let result = run_index(300, |context| {
-                agent_harness::adapters::index_store::sync_workspace_all(&root, context)
-            })?;
-            println!("{}", serde_json::to_string(&result)?);
-            if result["selectedScopeApplied"] != true {
-                return Err("Native synchronization incomplete; see JSON report for committed files and remaining work".into());
-            }
-        }
-        Command::Rebuild { root } => {
-            let root = resolve_root(root)?;
-            let result = run_index(300, |context| {
-                agent_harness::adapters::index_store::rebuild_workspace(&root, context)
-            })?;
-            println!("{}", serde_json::to_string(&result)?);
-            if result["selectedScopeApplied"] != true {
-                return Err("Native rebuild incomplete; see JSON report".into());
-            }
-        }
-        Command::Plan { root, summary } => {
-            let root = resolve_root(root)?;
-            let result = run_index(30, |context| {
-                agent_harness::adapters::index_sync::plan_workspace(&root, context)
-            })?;
-            if summary {
-                let projected = plan_summary::summarize(&result)?;
-                println!("{}", serde_json::to_string(&projected)?);
-            } else {
-                println!("{}", serde_json::to_string(&result)?);
-            }
-        }
-        Command::SyncFile {
-            root,
-            relative,
-            config,
-            force,
-        } => {
-            let relative = relative.to_str().ok_or("source path must be UTF-8")?;
-            let config = config
-                .map(|config| {
-                    config
-                        .into_string()
-                        .map_err(|_| "config path must be UTF-8")
-                })
-                .transpose()?;
-            let root = resolve_root(root)?;
-            let result = run_index(30, |context| match config {
-                Some(config) => agent_harness::adapters::index_store::sync_file_with_tsconfig(
-                    &root, relative, &config, context,
-                ),
-                None if force => {
-                    agent_harness::adapters::index_store::sync_file_forced(&root, relative, context)
-                }
-                None => agent_harness::adapters::index_store::sync_file(&root, relative, context),
-            })?;
-            println!("{}", serde_json::to_string(&result)?);
-        }
-        Command::SkillsSync {
-            root,
-            check,
-            dry_run,
-            enable_auto,
-            disable_auto,
-        } => {
-            let root = resolve_root(root)?;
-            let report = skills_sync::run(
-                &root,
-                skills_sync::Options {
-                    check,
-                    dry_run,
-                    enable_auto,
-                    disable_auto,
-                },
-            )?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if (check && (report.changes > 0 || report.conflicts > 0))
-                || report.conflicts > 0
-                || report.errors > 0
-            {
-                return Err(
-                    "skill synchronization reported changes or conflicts; inspect the JSON report"
-                        .into(),
-                );
-            }
-        }
-        Command::InitProject { root } => {
-            let executable = std::env::current_exe()?;
-            let report = skills_sync::initialize_project(&root, &executable)?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if report.conflicts > 0 || report.errors > 0 {
-                return Err(
-                    "project initialization reported conflicts or errors; inspect the JSON report"
-                        .into(),
-                );
-            }
-        }
-        Command::Serve {
-            root,
-            workspace_config,
-            persist_logs,
-        } => match workspace_config {
-            Some(config) => {
-                agent_harness::transport::serve_with_workspace_config(&config, persist_logs).await?
-            }
-            None => {
-                let root = resolve_root(root)?;
-                match skills_sync::sync_on_startup(&root) {
-                    Ok(Some(report)) => {
-                        if report.conflicts > 0 || report.errors > 0 {
-                            eprintln!(
-                                "harness skills auto-sync: {}",
-                                serde_json::to_string(&report)?
-                            );
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => eprintln!("harness skills auto-sync skipped: {error}"),
-                }
-                agent_harness::transport::serve_with_logging(&root, persist_logs).await?
-            }
-        },
-    }
-    Ok(())
-}
-
-fn resolve_root(root: Root) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    harness_cli::resolve_root(root).map_err(|error| -> Box<dyn std::error::Error> { error.into() })
-}
-
-fn run_index(
-    timeout_seconds: u64,
-    run: impl FnOnce(
-        &harness_domain::execution::OperationContext,
-    ) -> Result<serde_json::Value, harness_domain::Failure>,
-) -> Result<serde_json::Value, String> {
-    let reporter = crate::index_progress::IndexProgressReporter::new();
-    let observer = reporter.clone();
-    let context = harness_domain::execution::OperationContext::with_timeout(
-        std::time::Duration::from_secs(timeout_seconds),
-    )
-    .with_progress(move |update| observer.report(update));
-    let started = std::time::Instant::now();
-    match run(&context) {
-        Ok(mut report) => {
-            report["durationMs"] = serde_json::json!(started.elapsed().as_millis());
-            reporter.finish(if report["selectedScopeApplied"] == false {
-                "partial"
-            } else {
-                "complete"
-            });
-            Ok(report)
-        }
-        Err((code, message)) => {
-            reporter.finish("failed");
-            let diagnostic =
-                agent_harness::adapters::index_store::take_sync_diagnostic(code, message);
-            match diagnostic {
-                Some(diagnostic) => Err(format!(
-                    "{code}: {message}; sqliteDiagnostic={}",
-                    serde_json::to_string(&diagnostic).unwrap_or_else(|_| "{}".into())
-                )),
-                None => Err(format!("{code}: {message}")),
-            }
-        }
-    }
-}
-
-fn print_help() {
-    println!(
-        "Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n"
-    );
-    println!(
-        "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init --root <proyecto> Preparar skills, config local y ejemplo MCP del proyecto\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
-    );
-    println!(
-        "\nConfiguración opcional: --init-config crea .agents/harness.config.json sin sobrescribir. SQL funciona sin JSON usando una cadena en .env o variables de entorno."
-    );
-    println!(
-        "Resumen de plan: --index plan --summary o --sync-plan --summary. Reduce la respuesta JSON; el cálculo del plan no cambia."
-    );
+    harness_cli::commands::run(args, &AgentHarnessHost, env!("CARGO_PKG_VERSION")).await
 }

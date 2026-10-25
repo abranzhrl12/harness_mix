@@ -87,7 +87,8 @@ pub mod svg;
 mod symbol_graph;
 mod symbols;
 pub mod tasks;
-mod tasks_store;
+mod task_execution;
+mod task_pinning;
 mod verify;
 pub mod xlsx;
 

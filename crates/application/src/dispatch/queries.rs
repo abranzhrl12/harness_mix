@@ -15,16 +15,8 @@ pub(super) fn explore<W: Workspace, S: SessionRepository>(
     context: &OperationContext,
     lease: &mut Option<SessionLease<S>>,
 ) -> Result<Value, Failure> {
-    app.lease(args.session.as_deref(), lease).and_then(|()| {
-        let impact = args.view == Some(harness_domain::contracts::ExploreView::Impact);
-        app.workspace.explore(&args, context).map(|result| {
-            if impact {
-                harness_domain::assistance::impact(&args, result)
-            } else {
-                result
-            }
-        })
-    })
+    app.lease(args.session.as_deref(), lease)
+        .and_then(|()| crate::handlers::read::explore(app.workspace.as_ref(), &args, context))
 }
 
 pub(super) fn git_status<W: Workspace, S: SessionRepository>(
@@ -61,7 +53,7 @@ pub(super) fn outline<W: Workspace, S: SessionRepository>(
     lease: &mut Option<SessionLease<S>>,
 ) -> Result<Value, Failure> {
     app.lease(args.session.as_deref(), lease)
-        .and_then(|()| app.workspace.outline(&args, context))
+        .and_then(|()| crate::handlers::read::outline(app.workspace.as_ref(), &args, context))
 }
 
 pub(super) fn read_symbol<W: Workspace, S: SessionRepository>(
@@ -71,5 +63,5 @@ pub(super) fn read_symbol<W: Workspace, S: SessionRepository>(
     lease: &mut Option<SessionLease<S>>,
 ) -> Result<Value, Failure> {
     app.lease(args.session.as_deref(), lease)
-        .and_then(|()| app.workspace.read_symbol(&args, context))
+        .and_then(|()| crate::handlers::read::read_symbol(app.workspace.as_ref(), &args, context))
 }

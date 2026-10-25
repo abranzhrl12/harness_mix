@@ -110,11 +110,11 @@ fn indexing_facade_delegates_lifecycles_instead_of_implementing_them() {
 }
 
 #[test]
-fn transport_keeps_test_bodies_external_and_diagnostic_policy_out_of_native_adapters() {
+fn mcp_keeps_test_bodies_external_and_diagnostic_policy_out_of_native_adapters() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let transport = root.join("src/transport.rs");
-    let mut files = vec![transport.clone()];
-    rust_files(&root.join("src/transport"), &mut files);
+    let mcp = root.join("crates/mcp/src");
+    let mut files = Vec::new();
+    rust_files(&mcp, &mut files);
     for path in files {
         let name = path.file_name().unwrap().to_string_lossy();
         if name == "tests.rs" || name.ends_with("_tests.rs") {
@@ -127,12 +127,11 @@ fn transport_keeps_test_bodies_external_and_diagnostic_policy_out_of_native_adap
             "{} has inline tests",
             path.display()
         );
+        assert!(
+            !source.contains("adapters::doctor::"),
+            "protocol diagnostics must share domain policy instead of calling a native adapter"
+        );
     }
-    let source = fs::read_to_string(transport).unwrap();
-    assert!(
-        !source.contains("adapters::doctor::"),
-        "protocol diagnostics must share domain policy instead of calling a native adapter"
-    );
 }
 
 #[test]
@@ -143,6 +142,8 @@ fn service_tests_stay_in_external_modules() {
         root.join("search.rs"),
         root.join("explore.rs"),
         root.join("tasks.rs"),
+        root.join("task_execution.rs"),
+        root.join("task_pinning.rs"),
         root.join("index_store.rs"),
         root.join("process.rs"),
         root.join("sql.rs"),
@@ -151,7 +152,6 @@ fn service_tests_stay_in_external_modules() {
         root.join("postgresql.rs"),
         root.join("index_extract.rs"),
         root.join("ignore.rs"),
-        root.join("tasks_store.rs"),
         root.join("process_status.rs"),
         root.join("sessions.rs"),
         root.join("symbol_graph.rs"),
@@ -162,7 +162,6 @@ fn service_tests_stay_in_external_modules() {
         "verification",
         "search",
         "explore",
-        "tasks",
         "index_store",
         "process",
         "sql",
@@ -171,7 +170,6 @@ fn service_tests_stay_in_external_modules() {
         "postgresql",
         "index_extract",
         "ignore",
-        "tasks_store",
         "process_status",
         "sessions",
         "symbol_graph",
@@ -280,7 +278,7 @@ fn logging_sanitization_and_job_snapshot_validation_stay_pure() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     for relative in [
         "crates/application/src/logging/sanitize.rs",
-        "src/adapters/tasks_store/snapshot.rs",
+        "crates/jobs/src/store/snapshot.rs",
     ] {
         let source = fs::read_to_string(root.join(relative)).unwrap();
         for forbidden in [
@@ -302,7 +300,7 @@ fn logging_sanitization_and_job_snapshot_validation_stay_pure() {
 #[test]
 fn job_store_retains_resource_ownership_and_drop_order() {
     let source = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/adapters/tasks_store.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/jobs/src/store.rs"),
     )
     .unwrap();
     let parsed = syn::parse_file(&source).unwrap();
@@ -434,7 +432,9 @@ fn portable_layers_cannot_gain_unreviewed_infrastructure_dependencies() {
     for (name, allowed) in [
         (
             "harness-domain",
-            &["serde", "serde_json", "sha2", "uuid", "schemars"][..],
+            // The domain owns the pure, deterministic UTF-8/Windows-1252
+            // source decoding policy; this codec is not an I/O dependency.
+            &["serde", "serde_json", "sha2", "uuid", "schemars", "encoding_rs"][..],
         ),
         ("harness-application", &["harness-domain", "serde_json"][..]),
     ] {
@@ -688,13 +688,11 @@ fn publication_planning_and_models_stay_independent_of_io() {
 #[test]
 fn mcp_job_handlers_depend_on_application_ports_instead_of_native_scheduler() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut files = vec![root.join("src/transport.rs")];
-    rust_files(&root.join("src/transport"), &mut files);
+    let mut files = Vec::new();
+    rust_files(&root.join("crates/mcp/src"), &mut files);
     for path in files {
         let file_name = path.file_name().unwrap().to_string_lossy();
-        // Native construction and shutdown belong to the composition boundary.
-        if file_name == "runtime.rs" || file_name == "tests.rs" || file_name.ends_with("_tests.rs")
-        {
+        if file_name == "tests.rs" || file_name.ends_with("_tests.rs") {
             continue;
         }
         let source = fs::read_to_string(&path).unwrap();
@@ -704,6 +702,8 @@ fn mcp_job_handlers_depend_on_application_ports_instead_of_native_scheduler() {
             "adapters::tasks",
             "broadcast::",
             "RecvError::",
+            "std::env",
+            "env::var",
         ] {
             assert!(
                 !source.contains(forbidden),

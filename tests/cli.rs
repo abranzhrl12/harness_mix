@@ -58,6 +58,7 @@ fn agent_configuration_and_noninteractive_errors_do_not_start_mcp_or_an_agent() 
 #[test]
 fn index_options_detect_the_project_without_root_argument() {
     let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".git")).unwrap();
     let implicit = command(root.path()).arg("--sync-plan").output().unwrap();
     let explicit = command(root.path())
         .arg("--root")

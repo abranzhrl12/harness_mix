@@ -55,7 +55,8 @@ fn native_inventory_drives_plan_without_writing_index_or_sources() {
     fs::remove_file(dir.path().join("gone.rs")).unwrap();
     fs::write(dir.path().join("new.rs"), "fn new() {}\r\n").unwrap();
     fs::write(dir.path().join("new.cs"), "class NotDiscoveredYet {}").unwrap();
-    fs::write(dir.path().join("bad.rs"), [0xff]).unwrap();
+    // 0xff is valid Windows-1252; 0x81 is undefined and must stay unchecked.
+    fs::write(dir.path().join("bad.rs"), [0x81]).unwrap();
     let before = fs::read(dir.path().join(".codegraph/codegraph.db")).unwrap();
     let result = plan_workspace(dir.path(), &OperationContext::default()).unwrap();
     assert_eq!(
@@ -69,7 +70,8 @@ fn native_inventory_drives_plan_without_writing_index_or_sources() {
             .as_array()
             .unwrap()
             .len(),
-        3
+        3,
+        "{result}"
     );
     assert!(
         result["extractionPreview"]["files"]

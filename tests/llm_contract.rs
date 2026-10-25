@@ -92,8 +92,24 @@ fn investigation_profile_filters_bootstrap_and_blocks_operations_before_executio
 fn edit_profile_adds_validated_edits_without_enabling_sql() {
     use harness_domain::tool_contract::ToolProfile;
     assert!(ToolProfile::parse("typo").is_err());
-    assert_eq!(ToolProfile::Full.tools().len(), 24);
-    assert_eq!(ToolProfile::Edit.tools().len(), 18);
+    let all_tools = harness_domain::tool_contract::tool_names("rust");
+    assert_eq!(ToolProfile::Full.tools(), all_tools);
+    let manifest = harness_domain::tool_contract::manifest();
+    let profile_tools: std::collections::HashSet<_> = ["investigate", "edit"]
+        .into_iter()
+        .flat_map(|profile| {
+            manifest["toolProfiles"][profile]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+        })
+        .collect();
+    let expected_edit: Vec<_> = all_tools
+        .into_iter()
+        .filter(|name| profile_tools.contains(name.as_str()))
+        .collect();
+    assert_eq!(ToolProfile::Edit.tools(), expected_edit);
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("example.txt"), "old").unwrap();
     let app = adapters::application(root.path())

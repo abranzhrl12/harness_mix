@@ -24,6 +24,10 @@ const INDEX: Failure = (
     "INDEX",
     "CodeGraph index access failed; inspect data.indexDiagnostic for the cause, path and schema",
 );
+const INDEX_BUSY: Failure = (
+    "INDEX_BUSY",
+    "CodeGraph index remained locked; wait for the other process and retry",
+);
 const CONTRACT: Failure = (
     "GRAPH_CONTRACT",
     "CodeGraph returned invalid or restricted graph metadata",
@@ -217,9 +221,9 @@ pub(super) fn explore(
         "globalFreshnessCertified": false
     }));
     match explore_inner(project, args, context, &diagnostic) {
-        Err(("INDEX", message)) => Ok(json!({
+        Err((code @ ("INDEX" | "INDEX_BUSY"), message)) => Ok(json!({
             "ok":false, "explorationPerformed":false,
-            "diagnostics":[{"code":"INDEX","message":message}],
+            "diagnostics":[{"code":code,"message":message}],
             "indexDiagnostic":diagnostic.into_inner()
         })),
         result => result,

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 /// One browser operation. `session` pins the browser connection to a Harness session.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrowserArgs {
     Connect {
@@ -201,6 +202,17 @@ pub struct BrowserEventRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn schema_is_an_object_with_a_discriminated_action_union() {
+        let schema = serde_json::to_value(schemars::schema_for!(BrowserArgs)).unwrap();
+        assert_eq!(schema["type"], "object", "{schema}");
+        assert!(schema["oneOf"].is_array(), "{schema}");
+        assert!(schema["oneOf"].as_array().unwrap().iter().all(|variant| {
+            variant["properties"]["action"]["type"] == "string"
+        }), "{schema}");
+    }
 
     #[test]
     fn actions_deserialize_with_camel_case_and_reject_unknown_fields() {

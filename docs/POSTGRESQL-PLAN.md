@@ -214,7 +214,7 @@ tipos no soportados en lugar de convertirlos silenciosamente a NULL.
 | `crates/application/src/ports.rs` y `lib.rs` | Mantener admisión y sesiones; despachar explícitamente por motor |
 | `src/adapters/sql.rs` | Conservar comportamiento de SQL Server y separar configuración/conectividad |
 | Nuevo adaptador PostgreSQL | Driver, TLS, catálogos, transacciones, cancelación y conversiones |
-| `src/transport.rs` y `contracts/tool-contract.json` | Publicar el contrato ampliado de `harness_sql` y batch |
+| `crates/mcp/src/profile.rs` y `contracts/tool-contract.json` | Publicar el contrato ampliado de `harness_sql` y batch |
 | Doctor y bootstrap | Estado configurado por motor; conexión real solo cuando se solicite; no exponer secretos |
 | Pruebas y documentación | Compatibilidad SQL Server, PostgreSQL, perfiles y MCP real |
 

@@ -48,11 +48,20 @@ members = [
     "crates/application",
     "crates/browser",
     "crates/cli",
+    "crates/mcp",
+    "crates/config",
+    "crates/skills",
+    "crates/jobs",
 ]
 default-members = [
     ".",
     "crates/domain",
     "crates/application",
+    "crates/cli",
+    "crates/mcp",
+    "crates/config",
+    "crates/skills",
+    "crates/jobs",
 ]
 resolver = "3"
 exclude = ["vendor/codegraph-native"]
@@ -65,8 +74,6 @@ browser-cdp = ["dep:harness-browser"]
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rustyline-async = { path = "vendor/rustyline-async" }
-termimad = "=0.35.4"
 base64 = "=0.22.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "net", "process", "signal"] }
 uuid = { version = "1", features = ["v4"] }
@@ -74,6 +81,9 @@ harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
 harness-browser = { path = "crates/browser", optional = true }
 harness-cli = { path = "crates/cli" }
+harness-mcp = { path = "crates/mcp" }
+harness-config = { path = "crates/config" }
+harness-jobs = { path = "crates/jobs" }
 tempfile = "3"
 ignore = "0.4"
 globset = "0.4"
@@ -102,7 +112,6 @@ jmespath = { version = "0.3", features = ["sync"] }
 mimalloc = { version = "0.1.52", default-features = false }
 raffia = "=0.13.0"
 tl = "=0.7.8"
-image = { version = "=0.25.8", default-features = false, features = ["bmp", "png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
