@@ -15,6 +15,35 @@ pub(super) enum BackgroundVerificationPlan {
     TypeScriptSyntax,
 }
 
+/// A verifier selected from the language-specific capabilities available in the workspace.
+/// Process-backed strategies carry their already validated invocation; TypeScript source
+/// checks remain in-process and never execute project code.
+enum VerificationStrategy {
+    TypeScriptSyntax,
+    AngularCompiler(ProcessSpec),
+    Process(ProcessSpec),
+}
+
+impl VerificationStrategy {
+    fn process_spec(&self) -> Option<&ProcessSpec> {
+        match self {
+            Self::TypeScriptSyntax => None,
+            Self::AngularCompiler(spec) | Self::Process(spec) => Some(spec),
+        }
+    }
+
+    fn is_angular(&self) -> bool {
+        matches!(self, Self::AngularCompiler(_))
+    }
+
+    fn into_process_spec(self) -> Option<ProcessSpec> {
+        match self {
+            Self::TypeScriptSyntax => None,
+            Self::AngularCompiler(spec) | Self::Process(spec) => Some(spec),
+        }
+    }
+}
+
 #[path = "verification/rust.rs"]
 mod rust;
 
@@ -108,8 +137,50 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     rust::plan(project, args)
 }
 
-fn verification_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+fn select_strategy(
+    project: &Project,
+    args: &VerifyArgs,
+) -> Result<VerificationStrategy, Failure> {
+    if typescript::typescript_scope(project, args)?.is_some() {
+        return Ok(VerificationStrategy::TypeScriptSyntax);
+    }
     let spec = plan(project, args)?;
+    if args.language.eq_ignore_ascii_case("angular") {
+        Ok(VerificationStrategy::AngularCompiler(spec))
+    } else {
+        Ok(VerificationStrategy::Process(spec))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VerificationStatus {
+    passed: bool,
+    limited: bool,
+    cancelled: bool,
+    timed_out: bool,
+}
+
+impl VerificationStatus {
+    fn interpret(outcome: &harness_domain::process::ProcessOutcome) -> Self {
+        Self {
+            passed: outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
+            limited: outcome.reason == StopReason::OutputLimit,
+            cancelled: outcome.reason == StopReason::Cancelled,
+            timed_out: outcome.reason == StopReason::TimedOut,
+        }
+    }
+
+    fn complete(self) -> bool {
+        !self.limited && !self.cancelled && !self.timed_out
+    }
+}
+
+#[cfg(test)]
+fn verification_plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
+    verification_plan_from(plan(project, args)?, args)
+}
+
+fn verification_plan_from(spec: ProcessSpec, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     let arguments = spec
         .arguments()
         .iter()
@@ -165,10 +236,10 @@ pub(super) fn background_plan(
         ));
     }
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-    if typescript::typescript_scope(&project, args)?.is_some() {
+    let strategy = select_strategy(&project, args)?;
+    let Some(spec) = strategy.process_spec() else {
         return Ok(BackgroundVerificationPlan::TypeScriptSyntax);
-    }
-    let spec = plan(&project, args)?;
+    };
     let arguments = spec
         .arguments()
         .iter()
@@ -211,13 +282,13 @@ pub(super) fn verify(
         ));
     }
     validate_verify_options(args)?;
-    let native_typescript = typescript::typescript_scope(project, args)?.is_some();
-    let angular = args.language.eq_ignore_ascii_case("angular");
-    let spec = if native_typescript {
-        None
-    } else {
-        Some(verification_plan(project, args)?)
-    };
+    let strategy = select_strategy(project, args)?;
+    let angular = strategy.is_angular();
+    let spec = strategy
+        .into_process_spec()
+        .map(|spec| verification_plan_from(spec, args))
+        .transpose()?;
+    let native_typescript = spec.is_none();
     let before = super::fingerprint::capture(project, context);
     context.check()?;
     let outcome = if native_typescript {
@@ -246,25 +317,26 @@ pub(super) fn verify(
         .unwrap_or_else(|| raw_stdout.clone());
     let stderr = String::from_utf8_lossy(&outcome.stderr);
     let output = format!("{stdout}\n{stderr}");
-    let limited = outcome.reason == StopReason::OutputLimit;
-    let cancelled = outcome.reason == StopReason::Cancelled;
-    let timed_out = outcome.reason == StopReason::TimedOut;
+    let status = VerificationStatus::interpret(&outcome);
+    let limited = status.limited;
+    let cancelled = status.cancelled;
+    let timed_out = status.timed_out;
     let mut result = json!({
         "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet | Program::Msbuild) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", None if program == Some(Program::Cargo) => "check", _ => "build" },
         "package":args.package,
         "command":spec.as_ref().map(|spec| json!({"program":format!("{:?}",spec.program()).to_ascii_lowercase(),"arguments":spec.arguments()})),
         "code":outcome.exit_code,
-        "passed":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
-        "ok":outcome.reason == StopReason::Exited && outcome.exit_code == Some(0),
+        "passed":status.passed,
+        "ok":status.passed,
         "milliseconds":outcome.elapsed.as_millis() as u64,
         "limited":limited, "cancelled":cancelled, "timedOut":timed_out,
         "treeTerminationConfirmed":outcome.tree_termination_confirmed,
         "output":prefix(&output, 12000),
         "stdoutTail":stdout.chars().rev().take(4000).collect::<String>().chars().rev().collect::<String>(),
         "stderrTail":stderr.chars().rev().take(4000).collect::<String>().chars().rev().collect::<String>(),
-        "complete":!limited && !cancelled && !timed_out,
-        "_complete":!limited && !cancelled && !timed_out,
+        "complete":status.complete(),
+        "_complete":status.complete(),
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });

@@ -4,6 +4,10 @@ fn angular_plan_uses_only_the_closed_official_compiler_driver() {
     let project = Project::new(root.path()).unwrap();
     let mut args: VerifyArgs = serde_json::from_value(json!({"language":"angular","scope":".","project":"web app; literal","configuration":"development"})).unwrap();
     let spec = plan(&project, &args).unwrap();
+    assert!(matches!(
+        select_strategy(&project, &args).unwrap(),
+        VerificationStrategy::AngularCompiler(_)
+    ));
     assert_eq!(spec.program(), Program::Node);
     assert_eq!(&spec.arguments()[..2], &["--input-type=module", "--eval"]);
     assert!(spec.arguments()[2].contains("compiler.performCompilation"));

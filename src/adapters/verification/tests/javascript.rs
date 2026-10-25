@@ -85,6 +85,10 @@ fn javascript_rejects_implicit_scope_and_path_injection() {
         };
         assert!(plan(&project, &args).is_err());
         assert!(matches!(
+            select_strategy(&project, &args).unwrap(),
+            VerificationStrategy::TypeScriptSyntax
+        ));
+        assert!(matches!(
             background_plan(root.path(), &args, None).unwrap(),
             BackgroundVerificationPlan::TypeScriptSyntax
         ));
