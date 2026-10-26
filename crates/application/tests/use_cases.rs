@@ -41,8 +41,21 @@ impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"path":args.path,"text":"memory"}))
     }
-    fn search(&self, _: &SearchArgs, _: &OperationContext) -> Result<Value, Failure> {
+    fn search(&self, args: &SearchArgs, _: &OperationContext) -> Result<Value, Failure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if args.limit.is_some() {
+            let rows = json!([
+                {"file":"a.rs","text":"needle one"},
+                {"file":"b.rs","text":"needle two"},
+                {"file":"c.rs","text":"needle three"}
+            ]);
+            return Ok(json!({
+                "matches":[rows[0].clone()],
+                "omitted":2,
+                "_complete":true,
+                "_detail":{"matches":rows}
+            }));
+        }
         Ok(json!({"matches":[]}))
     }
 }
@@ -316,6 +329,9 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
     assert_eq!(read["scope"], json!({"tool":"harness_read","path":"a.txt"}));
     let search = app.execute(Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         external_scope: None,
         min_lines: None,
@@ -325,6 +341,8 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
         scope: None,
         limit: None,
         session: Some("missing".into()),
+        cursor: None,
+        offset: None,
     }));
     assert_eq!(search["diagnostics"][0]["code"], "SESSION");
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -444,8 +462,55 @@ fn read_request() -> Request {
         session: None,
     })
 }
+
+#[test]
+fn search_snapshot_cursor_pages_without_rescanning_and_rejects_filters() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Application::new(
+        FakeWorkspace {
+            calls: calls.clone(),
+        },
+        MemorySessions::default(),
+    );
+    let first = app.execute(Request::Search(
+        serde_json::from_value(json!({
+            "kind":"text","query":"needle","limit":1
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(first["state"], "ok");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(first["data"]["matches"][0]["file"], "a.rs");
+    let next_call = first["data"]["nextCall"]["arguments"].clone();
+    let page = app.execute(Request::Search(serde_json::from_value(next_call).unwrap()));
+    assert_eq!(page["state"], "ok");
+    assert_eq!(page["data"]["matches"][0]["file"], "b.rs");
+    assert_eq!(page["data"]["detailRef"], first["detail"]["ref"]);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "cursor pages must not call the workspace search adapter"
+    );
+
+    let filtered = app.execute(Request::Search(
+        serde_json::from_value(json!({
+            "cursor":first["detail"]["ref"],"offset":2,"query":"different"
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(filtered["diagnostics"][0]["code"], "ARGUMENT");
+    let offset_only = app.execute(Request::Search(
+        serde_json::from_value(json!({"offset":1})).unwrap(),
+    ));
+    assert_eq!(offset_only["diagnostics"][0]["code"], "ARGUMENT");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
 fn search_request() -> Request {
     Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         external_scope: None,
         min_lines: None,
@@ -455,6 +520,8 @@ fn search_request() -> Request {
         scope: None,
         limit: None,
         session: None,
+        cursor: None,
+        offset: None,
     })
 }
 

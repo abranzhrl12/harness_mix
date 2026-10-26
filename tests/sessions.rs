@@ -90,6 +90,9 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
     assert_eq!(read_res["data"]["text"], "hello world");
 
     let search_res = app.execute(Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         external_scope: None,
         kind: Kind::Text,
@@ -99,6 +102,8 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
         scope: None,
         limit: None,
         session: Some("current".into()),
+            cursor: None,
+            offset: None,
     }));
     assert_eq!(search_res["state"], "ok", "{search_res}");
 

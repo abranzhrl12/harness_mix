@@ -178,6 +178,13 @@ pub struct SearchArgs {
     pub kind: Kind,
     #[serde(default, alias = "pattern")]
     pub query: String,
+    /// Interpret query as a Rust regex (text only). Defaults to false: literal search.
+    pub regex: Option<bool>,
+    /// Match letter case (text only). Defaults to true; false enables Unicode case folding.
+    #[serde(rename = "caseSensitive")]
+    pub case_sensitive: Option<bool>,
+    /// Set a language to search query as an ast-grep code pattern, e.g. ast="javascript", query="fetch($URL)". Text only; omit for normal text search. Supports rust, javascript, typescript, tsx, csharp, python, go, html, css, json. Matches multiline code and ignores formatting; no index needed. Cannot combine with regex or caseSensitive.
+    pub ast: Option<String>,
     #[serde(rename = "minLines")]
     pub min_lines: Option<usize>,
     /// File patterns; includes is accepted as an alias. Supply only one.
@@ -188,6 +195,13 @@ pub struct SearchArgs {
     #[serde(alias = "path")]
     pub scope: Option<String>,
     pub limit: Option<usize>,
+    /// Continue through a saved harness_search result snapshot. Use the cursor
+    /// and offset supplied by the preceding page's nextCall; this does not
+    /// rescan the working tree. When cursor is supplied, pass only cursor,
+    /// offset and optional session.
+    pub cursor: Option<String>,
+    /// Zero-based offset into a saved search snapshot. Supplied with cursor.
+    pub offset: Option<usize>,
     /// Surrounding lines per text match (0..20). Each match includes hash (full-file SHA-256) and context: {start, end, text}, with 1-based inclusive line bounds and exact source preserving original line endings. For a sufficient, untruncated context, pass matches[].file as harness_replace.path, matches[].context.text as oldText, and matches[].hash as hash without a redundant read; the hash detects concurrent changes.
     #[serde(rename = "contextLines", alias = "context_lines")]
     pub context_lines: Option<usize>,
@@ -205,6 +219,10 @@ impl<'de> Deserialize<'de> for SearchArgs {
             kind: Kind,
             #[serde(default, alias = "pattern")]
             query: String,
+            regex: Option<bool>,
+            #[serde(rename = "caseSensitive")]
+            case_sensitive: Option<bool>,
+            ast: Option<String>,
             #[serde(rename = "minLines")]
             min_lines: Option<usize>,
             #[serde(alias = "includes")]
@@ -212,6 +230,8 @@ impl<'de> Deserialize<'de> for SearchArgs {
             scope: Option<String>,
             path: Option<String>,
             limit: Option<usize>,
+            cursor: Option<String>,
+            offset: Option<usize>,
             #[serde(rename = "contextLines", alias = "context_lines")]
             context_lines: Option<usize>,
             session: Option<String>,
@@ -238,10 +258,15 @@ impl<'de> Deserialize<'de> for SearchArgs {
             external_scope: input.external_scope,
             kind: input.kind,
             query: input.query,
+            regex: input.regex,
+            case_sensitive: input.case_sensitive,
+            ast: input.ast,
             min_lines: input.min_lines,
             globs: input.globs,
             scope,
             limit: input.limit,
+            cursor: input.cursor,
+            offset: input.offset,
             context_lines: input.context_lines,
             session: input.session,
         })

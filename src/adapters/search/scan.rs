@@ -22,6 +22,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Leave room for presentation within the operation's default 30-second deadline.
+pub(super) const SCAN_TIMEOUT: Duration = Duration::from_secs(15);
+
 struct FolderTiming<'a> {
     stats: &'a RefCell<BTreeMap<String, (u64, usize, usize)>>,
     folder: String,
@@ -90,6 +93,9 @@ pub(super) fn execute<'a>(
         context_lines,
         selected,
         globs,
+        matcher,
+        term_retrieval,
+        structural,
         min_lines,
         limit,
         explicit_scope,
@@ -97,6 +103,10 @@ pub(super) fn execute<'a>(
         root,
     } = plan;
     let started = Instant::now();
+    let mut text_searcher = grep_searcher::SearcherBuilder::new()
+        .line_number(true)
+        .bom_sniffing(false)
+        .build();
     let folder_stats = RefCell::new(BTreeMap::new());
     let builder = walk::build(&root, file_size, explicit_scope)?;
     let mut match_results = MatchResults::default();
@@ -159,7 +169,7 @@ pub(super) fn execute<'a>(
             skipped_files.push(json!({"path":pending_path,"reason":if cancelled { "cancelled" } else { "time_budget" }}));
             break;
         }
-        if started.elapsed() >= Duration::from_secs(5) {
+        if started.elapsed() >= SCAN_TIMEOUT {
             timed_out = true;
             skipped_files.push(json!({"path":pending_path,"reason":"time_budget"}));
             break;
@@ -182,7 +192,7 @@ pub(super) fn execute<'a>(
         visited += 1;
         if visited > 10000 {
             bounded = true;
-            skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
+            skipped_files.push(json!({"path":pending_path,"reason":"file_count_budget"}));
             break;
         }
         let relative = match entry
@@ -204,6 +214,12 @@ pub(super) fn execute<'a>(
             continue;
         }
         let normalized = relative.replace('\\', "/");
+        if structural
+            .as_ref()
+            .is_some_and(|search| !search.accepts(entry.path()))
+        {
+            continue;
+        }
         if let Some(set) = &globs {
             if !set.is_match(&normalized) {
                 continue;
@@ -250,7 +266,8 @@ pub(super) fn execute<'a>(
                     }
                     if reserved_bytes + metadata.len() > 64 * 1024 * 1024 {
                         bounded = true;
-                        skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
+                        skipped_files
+                            .push(json!({"path":pending_path,"reason":"total_bytes_budget"}));
                         break 'scan;
                     }
                     reserved_bytes += metadata.len();
@@ -281,7 +298,7 @@ pub(super) fn execute<'a>(
                 file_timing.bytes = file.len();
                 if bytes > 64 * 1024 * 1024 {
                     bounded = true;
-                    skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
+                    skipped_files.push(json!({"path":pending_path,"reason":"total_bytes_budget"}));
                     break;
                 }
                 if file.contains(&0) {
@@ -388,8 +405,34 @@ pub(super) fn execute<'a>(
                     truncated: &mut truncated,
                     stable_files: &mut stable_files,
                 };
-                let evaluation =
-                    matches::text_matches(text, &file, args, context_lines, &mut state);
+                let evaluation = if let Some(search) = &structural {
+                    match matches::structural_matches(
+                        text,
+                        &file,
+                        search,
+                        context_lines,
+                        &mut state,
+                    ) {
+                        Ok(evaluation) => evaluation,
+                        Err(("PARSE", _)) => {
+                            skipped += 1;
+                            parse_errors += 1;
+                            skipped_files.push(json!({"path":pending_path,"reason":"parse_error"}));
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                } else {
+                    matches::text_matches(
+                        text,
+                        &file,
+                        args.context_lines.is_some() || term_retrieval,
+                        context_lines,
+                        matcher.as_ref().expect("text matcher is present"),
+                        &mut text_searcher,
+                        &mut state,
+                    )?
+                };
                 if evaluation == Evaluation::Stop {
                     break 'scan;
                 }
@@ -397,7 +440,7 @@ pub(super) fn execute<'a>(
         }
         if match_results.rows.len() >= 10000 {
             bounded = true;
-            skipped_files.push(json!({"path":pending_path,"reason":"result_budget"}));
+            skipped_files.push(json!({"path":pending_path,"reason":"match_count_budget"}));
             break;
         }
     }
@@ -443,7 +486,7 @@ pub(super) fn finalize<'a>(
     project: &Project,
     context: &OperationContext,
 ) -> ScanOutcome<'a> {
-    if outcome.file_size && outcome.started.elapsed() >= Duration::from_secs(5) {
+    if outcome.file_size && outcome.started.elapsed() >= SCAN_TIMEOUT {
         outcome.timed_out = true;
     }
     if let Err((code, _)) = context.check() {

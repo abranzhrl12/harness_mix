@@ -1,0 +1,13 @@
+[package]
+name = "harness-bm25-eval"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+bm25 = { version = "=2.3.2", default-features = false }
+serde_json = "1"
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }

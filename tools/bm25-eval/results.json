@@ -1,0 +1,1378 @@
+{
+  "cases": 19,
+  "chunks": 62344,
+  "files": 435,
+  "hitAt5": {
+    "baseline": 6,
+    "rerankExact": 7,
+    "termRetrieval": 10
+  },
+  "limitations": [
+    "file-level labels; small hand-selected exploratory set; broad single words are ambiguous",
+    "scope src/crates tracked Rust only; test files and inline test modules/functions excluded",
+    "five-line contexts; overlapping results retained",
+    "path/line baseline approximates scan ordering; not a live MCP benchmark",
+    "single run; concurrent compilation can affect timings",
+    "termRetrieval changes candidate semantics, unlike rerankExact",
+    "no production integration or persistent index"
+  ],
+  "loadAndParseMs": 2735.9936000000002,
+  "rerankNonemptyMedianMs": 5.6183,
+  "results": [
+    {
+      "baseline": {
+        "firstRelevantRank": 1635,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/batch.rs",
+            "line": 14
+          },
+          {
+            "file": "crates/application/src/batch.rs",
+            "line": 79
+          },
+          {
+            "file": "crates/application/src/batch.rs",
+            "line": 144
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 15
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 27
+          }
+        ]
+      },
+      "exactCandidates": 1903,
+      "exactFilterMs": 16.215500000000002,
+      "expectedFile": "src/adapters/search/scan/matches.rs",
+      "query": "context",
+      "rerankExact": {
+        "firstRelevantRank": 219,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 12
+          },
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 16
+          },
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 14
+          },
+          {
+            "file": "crates/application/src/indexing/file.rs",
+            "line": 10
+          },
+          {
+            "file": "crates/application/src/indexing/file.rs",
+            "line": 12
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 178.1296,
+      "termFilterMs": 465.82849999999996,
+      "termFitAndScoreMs": 251.39899999999997,
+      "termRetrieval": {
+        "firstRelevantRank": 219,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 12
+          },
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 16
+          },
+          {
+            "file": "crates/application/src/indexing/transaction.rs",
+            "line": 14
+          },
+          {
+            "file": "crates/application/src/indexing/file.rs",
+            "line": 10
+          },
+          {
+            "file": "crates/application/src/indexing/file.rs",
+            "line": 12
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 387,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/indexing.rs",
+            "line": 38
+          },
+          {
+            "file": "crates/application/src/indexing.rs",
+            "line": 79
+          },
+          {
+            "file": "crates/application/src/indexing/inventory.rs",
+            "line": 124
+          },
+          {
+            "file": "crates/application/src/logging.rs",
+            "line": 1
+          },
+          {
+            "file": "crates/application/src/logging/state.rs",
+            "line": 351
+          }
+        ]
+      },
+      "exactCandidates": 421,
+      "exactFilterMs": 8.822099999999999,
+      "expectedFile": "src/adapters/search/scan/results.rs",
+      "query": "metadata",
+      "rerankExact": {
+        "firstRelevantRank": 141,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/symbol_graph/freshness.rs",
+            "line": 36
+          },
+          {
+            "file": "src/adapters/index_extract/angular/metadata.rs",
+            "line": 278
+          },
+          {
+            "file": "src/adapters/index_extract/angular/metadata.rs",
+            "line": 279
+          },
+          {
+            "file": "src/adapters/project.rs",
+            "line": 386
+          },
+          {
+            "file": "src/adapters/symbol_graph/freshness.rs",
+            "line": 37
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 56.1139,
+      "termFilterMs": 337.7541,
+      "termFitAndScoreMs": 41.308,
+      "termRetrieval": {
+        "firstRelevantRank": 158,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/symbol_graph/freshness.rs",
+            "line": 36
+          },
+          {
+            "file": "src/adapters/index_extract/angular/metadata.rs",
+            "line": 278
+          },
+          {
+            "file": "src/adapters/index_extract/angular/metadata.rs",
+            "line": 279
+          },
+          {
+            "file": "src/adapters/project.rs",
+            "line": 386
+          },
+          {
+            "file": "src/adapters/symbol_graph/freshness.rs",
+            "line": 37
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 23,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 157
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 172
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 179
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 184
+          },
+          {
+            "file": "crates/application/src/logging/state.rs",
+            "line": 348
+          }
+        ]
+      },
+      "exactCandidates": 243,
+      "exactFilterMs": 6.8805000000000005,
+      "expectedFile": "crates/domain/src/results.rs",
+      "query": "cursor",
+      "rerankExact": {
+        "firstRelevantRank": 43,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 313
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 314
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 312
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 310
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 315
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 18.9051,
+      "termFilterMs": 292.1694,
+      "termFitAndScoreMs": 18.0639,
+      "termRetrieval": {
+        "firstRelevantRank": 43,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 313
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 314
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 312
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 310
+          },
+          {
+            "file": "src/adapters/parsers/vue/syntax.rs",
+            "line": 315
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 32,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/indexing/workspace.rs",
+            "line": 125
+          },
+          {
+            "file": "crates/application/src/logging/state.rs",
+            "line": 237
+          },
+          {
+            "file": "crates/application/src/logging/state.rs",
+            "line": 245
+          },
+          {
+            "file": "crates/application/src/metrics.rs",
+            "line": 21
+          },
+          {
+            "file": "crates/application/src/metrics.rs",
+            "line": 24
+          }
+        ]
+      },
+      "exactCandidates": 167,
+      "exactFilterMs": 6.349900000000001,
+      "expectedFile": "crates/domain/src/execution.rs",
+      "query": "timeout",
+      "rerankExact": {
+        "firstRelevantRank": 49,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/acp/mod.rs",
+            "line": 691
+          },
+          {
+            "file": "src/adapters/process_status/http_probe.rs",
+            "line": 68
+          },
+          {
+            "file": "crates/domain/src/process.rs",
+            "line": 75
+          },
+          {
+            "file": "src/adapters/verify.rs",
+            "line": 265
+          },
+          {
+            "file": "src/adapters/process_status/validation.rs",
+            "line": 141
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 14.8386,
+      "termFilterMs": 425.0781,
+      "termFitAndScoreMs": 41.908500000000004,
+      "termRetrieval": {
+        "firstRelevantRank": 59,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/acp/mod.rs",
+            "line": 691
+          },
+          {
+            "file": "src/adapters/sql_policy.rs",
+            "line": 99
+          },
+          {
+            "file": "src/adapters/process_status/http_probe.rs",
+            "line": 68
+          },
+          {
+            "file": "crates/domain/src/process.rs",
+            "line": 75
+          },
+          {
+            "file": "src/adapters/verify.rs",
+            "line": 265
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 12,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/batch.rs",
+            "line": 28
+          },
+          {
+            "file": "crates/application/src/conversation.rs",
+            "line": 33
+          },
+          {
+            "file": "crates/application/src/conversation.rs",
+            "line": 38
+          },
+          {
+            "file": "crates/application/src/conversation.rs",
+            "line": 43
+          },
+          {
+            "file": "crates/application/src/conversation.rs",
+            "line": 49
+          }
+        ]
+      },
+      "exactCandidates": 653,
+      "exactFilterMs": 17.7374,
+      "expectedFile": "crates/application/src/dispatch.rs",
+      "query": "session",
+      "rerankExact": {
+        "firstRelevantRank": 30,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 70
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 71
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 72
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 82
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 68
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 62.62819999999999,
+      "termFilterMs": 305.8044,
+      "termFitAndScoreMs": 68.2627,
+      "termRetrieval": {
+        "firstRelevantRank": 31,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 70
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 71
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 72
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 82
+          },
+          {
+            "file": "crates/domain/src/browser.rs",
+            "line": 68
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 37,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 161
+          },
+          {
+            "file": "crates/domain/src/assistance.rs",
+            "line": 83
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 181
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 182
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 186
+          }
+        ]
+      },
+      "exactCandidates": 46,
+      "exactFilterMs": 12.6237,
+      "expectedFile": "src/adapters/search/plan.rs",
+      "query": "regex",
+      "rerankExact": {
+        "firstRelevantRank": 6,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/parsers/razor/mvc.rs",
+            "line": 18
+          },
+          {
+            "file": "src/adapters/index_extract/orchestration.rs",
+            "line": 89
+          },
+          {
+            "file": "src/adapters/index_extract/orchestration.rs",
+            "line": 90
+          },
+          {
+            "file": "src/adapters/index_extract/orchestration.rs",
+            "line": 91
+          },
+          {
+            "file": "src/adapters/index_razor_mvc.rs",
+            "line": 9
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 4.8542000000000005,
+      "termFilterMs": 296.1634,
+      "termFitAndScoreMs": 3.4974,
+      "termRetrieval": {
+        "firstRelevantRank": 9,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/index_razor_mvc.rs",
+            "line": 10
+          },
+          {
+            "file": "src/adapters/parsers/razor/mvc.rs",
+            "line": 18
+          },
+          {
+            "file": "src/adapters/parsers/razor/mvc.rs",
+            "line": 19
+          },
+          {
+            "file": "src/adapters/index_extract/orchestration.rs",
+            "line": 89
+          },
+          {
+            "file": "src/adapters/index_extract/orchestration.rs",
+            "line": 90
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 345,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/indexing.rs",
+            "line": 29
+          },
+          {
+            "file": "crates/application/src/indexing/inventory.rs",
+            "line": 2
+          },
+          {
+            "file": "crates/application/src/indexing/inventory.rs",
+            "line": 166
+          },
+          {
+            "file": "crates/application/src/indexing/planning.rs",
+            "line": 6
+          },
+          {
+            "file": "crates/application/src/indexing/planning.rs",
+            "line": 45
+          }
+        ]
+      },
+      "exactCandidates": 415,
+      "exactFilterMs": 13.923599999999999,
+      "expectedFile": "src/adapters/search/scan/matches.rs",
+      "query": "hash",
+      "rerankExact": {
+        "firstRelevantRank": 291,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/xlsx.rs",
+            "line": 63
+          },
+          {
+            "file": "src/adapters/xlsx.rs",
+            "line": 119
+          },
+          {
+            "file": "src/adapters/index_freshness.rs",
+            "line": 331
+          },
+          {
+            "file": "src/adapters/index_store/resolution.rs",
+            "line": 202
+          },
+          {
+            "file": "src/adapters/index_store/framework.rs",
+            "line": 161
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 46.2134,
+      "termFilterMs": 329.3071,
+      "termFitAndScoreMs": 43.359,
+      "termRetrieval": {
+        "firstRelevantRank": 352,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/xlsx.rs",
+            "line": 63
+          },
+          {
+            "file": "src/adapters/xlsx.rs",
+            "line": 119
+          },
+          {
+            "file": "src/adapters/index_freshness.rs",
+            "line": 331
+          },
+          {
+            "file": "src/adapters/index_store/resolution.rs",
+            "line": 202
+          },
+          {
+            "file": "src/adapters/index_store/framework.rs",
+            "line": 161
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 12,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 165
+          },
+          {
+            "file": "crates/domain/src/contracts/compat.rs",
+            "line": 48
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 192
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 229
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 265
+          }
+        ]
+      },
+      "exactCandidates": 26,
+      "exactFilterMs": 13.3308,
+      "expectedFile": "src/adapters/search/plan.rs",
+      "query": "globs",
+      "rerankExact": {
+        "firstRelevantRank": 4,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 128
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 265
+          },
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 127
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 171
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 44
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 2.7416,
+      "termFilterMs": 313.5379,
+      "termFitAndScoreMs": 1.0511,
+      "termRetrieval": {
+        "firstRelevantRank": 4,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 128
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 265
+          },
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 127
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 44
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 137
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 197
+          }
+        ]
+      },
+      "exactCandidates": 1,
+      "exactFilterMs": 6.079000000000001,
+      "expectedFile": "src/adapters/search/presentation.rs",
+      "query": "SEARCH_INCOMPLETE",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 197
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 5.6183,
+      "termFilterMs": 381.9729,
+      "termFitAndScoreMs": 22.749499999999998,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 197
+          },
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 57
+          },
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 71
+          },
+          {
+            "file": "src/adapters/diagnostics.rs",
+            "line": 341
+          },
+          {
+            "file": "src/adapters/search/presentation.rs",
+            "line": 84
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "exactCandidates": 0,
+      "exactFilterMs": 13.8958,
+      "expectedFile": "src/adapters/search/scan/matches.rs",
+      "query": "context lines hash",
+      "rerankExact": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "rerankFitAndScoreMs": 0.0003,
+      "termFilterMs": 413.19820000000004,
+      "termFitAndScoreMs": 273.3717,
+      "termRetrieval": {
+        "firstRelevantRank": 7,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "src/adapters/project.rs",
+            "line": 566
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 207
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 206
+          },
+          {
+            "file": "src/adapters/create_file.rs",
+            "line": 152
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 205
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "exactCandidates": 0,
+      "exactFilterMs": 15.667899999999998,
+      "expectedFile": "crates/domain/src/results.rs",
+      "query": "search cursor pagination",
+      "rerankExact": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "rerankFitAndScoreMs": 0.0005,
+      "termFilterMs": 415.356,
+      "termFitAndScoreMs": 36.5935,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 606
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 270
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 269
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 268
+          },
+          {
+            "file": "crates/domain/src/workflow.rs",
+            "line": 125
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "exactCandidates": 0,
+      "exactFilterMs": 13.039399999999999,
+      "expectedFile": "src/adapters/search/plan.rs",
+      "query": "regex case sensitive",
+      "rerankExact": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "rerankFitAndScoreMs": 0.00039999999999999996,
+      "termFilterMs": 354.8349,
+      "termFitAndScoreMs": 38.8052,
+      "termRetrieval": {
+        "firstRelevantRank": 3,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 261
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 262
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 55
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 223
+          },
+          {
+            "file": "crates/domain/src/contracts/source.rs",
+            "line": 222
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "exactCandidates": 0,
+      "exactFilterMs": 7.7269,
+      "expectedFile": "src/adapters/search/scan/results.rs",
+      "query": "metadata bytes budget",
+      "rerankExact": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "rerankFitAndScoreMs": 0.00039999999999999996,
+      "termFilterMs": 326.92359999999996,
+      "termFitAndScoreMs": 163.9068,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 35
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 33
+          },
+          {
+            "file": "src/adapters/verification/dotnet.rs",
+            "line": 35
+          },
+          {
+            "file": "src/adapters/explore.rs",
+            "line": 35
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 32
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "exactCandidates": 0,
+      "exactFilterMs": 8.2039,
+      "expectedFile": "crates/domain/src/execution.rs",
+      "query": "cancel execution timeout",
+      "rerankExact": {
+        "firstRelevantRank": null,
+        "hitAt5": false,
+        "top5": []
+      },
+      "rerankFitAndScoreMs": 0.0007,
+      "termFilterMs": 317.4189,
+      "termFitAndScoreMs": 58.1977,
+      "termRetrieval": {
+        "firstRelevantRank": 56,
+        "hitAt5": false,
+        "top5": [
+          {
+            "file": "crates/mcp/src/execution.rs",
+            "line": 39
+          },
+          {
+            "file": "src/adapters/index_watch/worker.rs",
+            "line": 68
+          },
+          {
+            "file": "crates/browser/src/infrastructure/actor.rs",
+            "line": 95
+          },
+          {
+            "file": "crates/browser/src/infrastructure/actor.rs",
+            "line": 97
+          },
+          {
+            "file": "crates/browser/src/infrastructure/actor.rs",
+            "line": 96
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 2,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 178
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 19
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 247
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 271
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 309
+          }
+        ]
+      },
+      "exactCandidates": 12,
+      "exactFilterMs": 11.3322,
+      "expectedFile": "crates/domain/src/results.rs",
+      "query": "search_page",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 338
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 178
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 309
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 247
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 595
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 0.40259999999999996,
+      "termFilterMs": 328.9553,
+      "termFitAndScoreMs": 28.9556,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 337
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 338
+          },
+          {
+            "file": "crates/application/src/dispatch.rs",
+            "line": 178
+          },
+          {
+            "file": "crates/domain/src/results.rs",
+            "line": 249
+          },
+          {
+            "file": "crates/browser/src/infrastructure/inspect.rs",
+            "line": 30
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 3,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/application/src/policies.rs",
+            "line": 10
+          },
+          {
+            "file": "crates/cli/src/commands/mod.rs",
+            "line": 191
+          },
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 60
+          },
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 64
+          },
+          {
+            "file": "crates/mcp/src/execution.rs",
+            "line": 39
+          }
+        ]
+      },
+      "exactCandidates": 6,
+      "exactFilterMs": 8.542900000000001,
+      "expectedFile": "crates/domain/src/execution.rs",
+      "query": "with_timeout",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 60
+          },
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 64
+          },
+          {
+            "file": "src/adapters/process/executable.rs",
+            "line": 108
+          },
+          {
+            "file": "crates/cli/src/commands/mod.rs",
+            "line": 191
+          },
+          {
+            "file": "crates/mcp/src/execution.rs",
+            "line": 39
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 0.3186,
+      "termFilterMs": 343.05740000000003,
+      "termFitAndScoreMs": 69.2291,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 60
+          },
+          {
+            "file": "src/adapters/process/executable.rs",
+            "line": 108
+          },
+          {
+            "file": "crates/domain/src/execution.rs",
+            "line": 64
+          },
+          {
+            "file": "crates/mcp/src/execution.rs",
+            "line": 37
+          },
+          {
+            "file": "crates/application/src/policies.rs",
+            "line": 10
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 100
+          }
+        ]
+      },
+      "exactCandidates": 1,
+      "exactFilterMs": 8.7645,
+      "expectedFile": "src/adapters/search/plan.rs",
+      "query": "RegexMatcherBuilder",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 100
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 0.1036,
+      "termFilterMs": 371.7189,
+      "termFitAndScoreMs": 13.4694,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 98
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 100
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 101
+          },
+          {
+            "file": "src/adapters/search/scan/matches.rs",
+            "line": 88
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 17
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 4,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 63
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 64
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 73
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 27
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 32
+          }
+        ]
+      },
+      "exactCandidates": 7,
+      "exactFilterMs": 13.279499999999999,
+      "expectedFile": "src/adapters/search/scan/results.rs",
+      "query": "metadata_bytes",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 43
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 42
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 63
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 27
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 64
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 0.4231,
+      "termFilterMs": 366.4842,
+      "termFitAndScoreMs": 198.66039999999998,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 43
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 42
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 62
+          },
+          {
+            "file": "src/adapters/search/scan/results.rs",
+            "line": 27
+          },
+          {
+            "file": "src/adapters/index_imports/verified_sources.rs",
+            "line": 63
+          }
+        ]
+      }
+    },
+    {
+      "baseline": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 44
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 168
+          }
+        ]
+      },
+      "exactCandidates": 2,
+      "exactFilterMs": 16.7378,
+      "expectedFile": "src/adapters/search/plan.rs",
+      "query": "glob_matcher",
+      "rerankExact": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 168
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 44
+          }
+        ]
+      },
+      "rerankFitAndScoreMs": 0.0932,
+      "termFilterMs": 420.3748,
+      "termFitAndScoreMs": 2.0043,
+      "termRetrieval": {
+        "firstRelevantRank": 1,
+        "hitAt5": true,
+        "top5": [
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 168
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 44
+          },
+          {
+            "file": "src/adapters/csproj.rs",
+            "line": 22
+          },
+          {
+            "file": "src/adapters/index_semantic_policy.rs",
+            "line": 15
+          },
+          {
+            "file": "src/adapters/search/plan.rs",
+            "line": 16
+          }
+        ]
+      }
+    }
+  ]
+}

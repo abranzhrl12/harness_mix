@@ -112,6 +112,12 @@ jmespath = { version = "0.3", features = ["sync"] }
 mimalloc = { version = "0.1.52", default-features = false }
 raffia = "=0.13.0"
 tl = "=0.7.8"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+bm25 = { version = "=2.3.2", default-features = false }
+# Keep the native Tree-sitter runtime shared with codegraph-native (0.25).
+ast-grep-core = "=0.39.9"
+ast-grep-language = "=0.39.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

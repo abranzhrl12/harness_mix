@@ -4,6 +4,9 @@ use serde_json::{Value, json};
 
 fn search(app: &NativeApplication, query: &str, limit: usize) -> Value {
     app.execute(Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         kind: Kind::Syntax,
         query: query.into(),
@@ -12,6 +15,8 @@ fn search(app: &NativeApplication, query: &str, limit: usize) -> Value {
         scope: Some(".".into()),
         limit: Some(limit),
         session: None,
+            cursor: None,
+            offset: None,
         external_scope: None,
     }))
 }

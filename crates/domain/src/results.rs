@@ -2,6 +2,9 @@ use crate::Failure;
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
+    io::{self, Write},
+    mem::size_of,
+    ops::Range,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -11,6 +14,101 @@ struct Entry {
     created: Instant,
     session: Option<String>,
     expires_at: Option<u64>,
+    complete: bool,
+    search_collection: Option<String>,
+    search_page_size: usize,
+    search_row_ranges: Option<Vec<Range<usize>>>,
+    search_metadata_range: Option<Range<usize>>,
+    memory_bytes: usize,
+}
+
+/// Verifies serializer output against the retained JSON while recording its
+/// byte span. It indexes one known search array without parsing/copying it.
+struct RangeWriter<'a> {
+    source: &'a [u8],
+    offset: usize,
+}
+
+impl Write for RangeWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let Some(end) = self.offset.checked_add(bytes.len()) else {
+            return Err(io::Error::other("JSON range overflow"));
+        };
+        if self.source.get(self.offset..end) != Some(bytes) {
+            return Err(io::Error::other(
+                "JSON value differs from retained snapshot",
+            ));
+        }
+        self.offset = end;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialized_range(text: &str, start: usize, value: &Value) -> Option<Range<usize>> {
+    let mut writer = RangeWriter {
+        source: text.as_bytes(),
+        offset: start,
+    };
+    serde_json::to_writer(&mut writer, value).ok()?;
+    (writer.offset > start).then_some(start..writer.offset)
+}
+
+fn top_level_value_range(text: &str, value: &Value, target: &str) -> Option<Range<usize>> {
+    let object = value.as_object()?;
+    let mut writer = RangeWriter {
+        source: text.as_bytes(),
+        offset: 0,
+    };
+    writer.write_all(b"{").ok()?;
+    let mut found = None;
+    for (index, (key, field)) in object.iter().enumerate() {
+        if index > 0 {
+            writer.write_all(b",").ok()?;
+        }
+        serde_json::to_writer(&mut writer, key).ok()?;
+        writer.write_all(b":").ok()?;
+        let start = writer.offset;
+        serde_json::to_writer(&mut writer, field).ok()?;
+        if key == target {
+            found = Some(start..writer.offset);
+        }
+    }
+    writer.write_all(b"}").ok()?;
+    if writer.offset == text.len() {
+        found
+    } else {
+        None
+    }
+}
+
+fn index_array(text: &str, value: &Value, key: &str) -> Option<Vec<Range<usize>>> {
+    let rows = value.get(key)?.as_array()?;
+    let mut cursor = top_level_value_range(text, value, key)?.start;
+    if text.as_bytes().get(cursor) != Some(&b'[') {
+        return None;
+    }
+    cursor += 1;
+    let mut ranges = Vec::with_capacity(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        if index > 0 {
+            if text.as_bytes().get(cursor) != Some(&b',') {
+                return None;
+            }
+            cursor += 1;
+        }
+        let range = serialized_range(text, cursor, row)?;
+        cursor = range.end;
+        ranges.push(range);
+    }
+    (text.as_bytes().get(cursor) == Some(&b']')).then_some(ranges)
+}
+
+fn index_metadata(text: &str, value: &Value) -> Option<Range<usize>> {
+    top_level_value_range(text, value, "_searchSnapshot")
 }
 
 pub struct Results {
@@ -84,14 +182,14 @@ impl Results {
             return false;
         };
         let entry = self.entries.remove(index).expect("existing entry");
-        self.bytes -= entry.text.len();
+        self.bytes -= entry.memory_bytes;
         true
     }
     fn prune(&mut self) {
         self.entries.retain(|entry| {
             let keep = entry.session.is_some() || entry.created.elapsed() < self.ttl;
             if !keep {
-                self.bytes -= entry.text.len();
+                self.bytes -= entry.memory_bytes;
             }
             keep
         });
@@ -105,17 +203,86 @@ impl Results {
         complete: bool,
         session: Option<&str>,
     ) -> Option<Value> {
+        self.save_internal(value, complete, session, None)
+    }
+
+    pub fn save_search_for_session(
+        &mut self,
+        value: &Value,
+        complete: bool,
+        session: Option<&str>,
+        collection: &str,
+        page_size: usize,
+    ) -> Option<Value> {
+        self.save_internal(
+            value,
+            complete,
+            session,
+            Some((collection, page_size.max(1))),
+        )
+    }
+
+    fn save_internal(
+        &mut self,
+        value: &Value,
+        complete: bool,
+        session: Option<&str>,
+        search: Option<(&str, usize)>,
+    ) -> Option<Value> {
         self.prune();
         let text = value.to_string();
         if text.len() > self.max_bytes {
             return None;
         }
-        while self.entries.len() >= self.max_entries || self.bytes + text.len() > self.max_bytes {
+        let indexed = search.and_then(|(collection, page_size)| {
+            Some((
+                collection.to_owned(),
+                page_size,
+                index_array(&text, value, collection)?,
+                index_metadata(&text, value)?,
+            ))
+        });
+        let (
+            mut search_collection,
+            mut search_page_size,
+            mut search_row_ranges,
+            mut search_metadata_range,
+        ) = match indexed {
+            Some((collection, page_size, ranges, metadata)) => {
+                (Some(collection), page_size, Some(ranges), Some(metadata))
+            }
+            None => (None, 0, None, None),
+        };
+        let index_bytes = search_row_ranges.as_ref().map_or(0, |ranges| {
+            ranges.capacity().saturating_mul(size_of::<Range<usize>>())
+        });
+        let id = uuid::Uuid::new_v4().to_string();
+        let base_memory_bytes = size_of::<Entry>()
+            .saturating_add(text.capacity())
+            .saturating_add(id.capacity())
+            .saturating_add(session.map_or(0, str::len));
+        let mut memory_bytes = base_memory_bytes
+            .saturating_add(search_collection.as_ref().map_or(0, String::capacity))
+            .saturating_add(index_bytes);
+        // Keep the detail payload available even when its optional row index
+        // would exceed capacity; pagination then reports unavailable.
+        if memory_bytes > self.max_bytes && search_row_ranges.is_some() {
+            search_collection = None;
+            search_page_size = 0;
+            search_row_ranges = None;
+            search_metadata_range = None;
+            memory_bytes = base_memory_bytes;
+        }
+        if memory_bytes > self.max_bytes {
+            return None;
+        }
+        while self.entries.len() >= self.max_entries
+            || self.bytes.saturating_add(memory_bytes) > self.max_bytes
+        {
             if !self.remove_oldest() {
                 return None;
             }
         }
-        let id = uuid::Uuid::new_v4().to_string();
         let expires_at = if session.is_some() {
             None
         } else {
@@ -130,15 +297,153 @@ impl Results {
         let detail = json!({"ref":id,"characters":utf16_len(&text),"complete":complete,
             "expiresAt":expires_at,"expirationFormat":"unix-seconds","retention":if session.is_some() {"server-session"} else {"ttl-or-capacity"},
             "nextCall":{"tool":"harness_detail","arguments":{"ref":id,"offset":0,"maxChars":16000,"session":session}}});
-        self.bytes += text.len();
+        self.bytes += memory_bytes;
         self.entries.push_back(Entry {
             id,
             text,
             created: Instant::now(),
             session: session.map(str::to_owned),
             expires_at,
+            complete,
+            search_collection,
+            search_page_size,
+            search_row_ranges,
+            search_metadata_range,
+            memory_bytes,
         });
         Some(detail)
+    }
+
+    fn search_reference(&mut self, id: &str) -> Option<Value> {
+        self.prune();
+        let entry = self.entries.iter().find(|entry| entry.id == id)?;
+        Some(json!({
+            "ref":entry.id,
+            "characters":utf16_len(&entry.text),
+            "complete":entry.complete,
+            "expiresAt":entry.expires_at,
+            "expirationFormat":"unix-seconds",
+            "retention":if entry.session.is_some() { "server-session" } else { "ttl-or-capacity" },
+            "nextCall":{"tool":"harness_detail","arguments":{"ref":entry.id,"offset":0,"maxChars":16000,"session":entry.session}}
+        }))
+    }
+
+    fn has_search_index(&self, id: &str) -> bool {
+        self.entries.iter().any(|entry| {
+            entry.id == id && entry.search_collection.is_some() && entry.search_row_ranges.is_some()
+        })
+    }
+
+    /// Return one page from a previously saved search detail snapshot.
+    pub fn search_page(
+        &mut self,
+        id: &str,
+        offset: usize,
+        session: Option<&str>,
+    ) -> Result<Value, Failure> {
+        self.prune();
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or(("DETAIL", "cursor vencido, descartado o inexistente"))?;
+        let collection = entry.search_collection.as_deref().ok_or((
+            "DETAIL",
+            "la referencia no contiene un snapshot de harness_search",
+        ))?;
+        let complete = entry.complete;
+        let page_size = entry.search_page_size;
+        let stored_session = entry.session.clone();
+        if stored_session
+            .as_deref()
+            .is_some_and(|owner| Some(owner) != session)
+        {
+            return Err(("DETAIL", "cursor pertenece a otra sesión"));
+        }
+        let expires_at = entry.expires_at;
+        let retention = if stored_session.is_some() {
+            "server-session"
+        } else {
+            "ttl-or-capacity"
+        };
+        let ranges = entry.search_row_ranges.as_ref().ok_or((
+            "DETAIL",
+            "el snapshot de búsqueda no contiene un índice de filas",
+        ))?;
+        if offset > ranges.len() {
+            return Err(("RANGE", "offset fuera del snapshot de búsqueda"));
+        }
+        let end = offset.saturating_add(page_size).min(ranges.len());
+        let mut page: Vec<Value> = ranges[offset..end]
+            .iter()
+            .map(|range| serde_json::from_str(&entry.text[range.clone()]))
+            .collect::<Result<_, _>>()
+            .map_err(|_| ("DETAIL", "fila de búsqueda dañada en snapshot"))?;
+        let metadata: Value = entry
+            .search_metadata_range
+            .as_ref()
+            .map(|range| serde_json::from_str(&entry.text[range.clone()]))
+            .transpose()
+            .map_err(|_| ("DETAIL", "metadatos de búsqueda dañados en snapshot"))?
+            .unwrap_or_else(|| json!({}));
+        let mut content_truncated = false;
+        if collection == "matches" {
+            for row in &mut page {
+                if let Some(text) = row.get("text").and_then(Value::as_str) {
+                    let row_truncated = utf16_len(text) > 500;
+                    content_truncated |= row_truncated;
+                    if row_truncated {
+                        row["text"] = json!(prefix(text, 500).trim_end());
+                    }
+                }
+            }
+        }
+        let has_more = end < ranges.len();
+        let next_offset = has_more.then_some(end);
+        let cursor = json!({"tool":"harness_search","arguments":{
+            "cursor":id,"offset":end,"session":session
+        }});
+        let mut result = json!({
+            "offset":offset,
+            "nextOffset":next_offset,
+            "hasMore":has_more,
+            "complete":complete,
+            "scanComplete":complete,
+            "snapshotOnly":!complete,
+            "_complete":complete,
+            "contentTruncated":content_truncated,
+            "presentationTruncated":has_more,
+            "truncated":has_more || content_truncated || !complete,
+            "omitted":ranges.len().saturating_sub(page.len()),
+            "scanIncompleteReasons":metadata.get("scanIncompleteReasons").cloned().unwrap_or_else(|| json!([])),
+            "cursorExpiresAt":expires_at,
+            "cursorRetention":retention,
+            "detailRef":id,
+            "nextCall":if has_more { cursor } else { Value::Null }
+        });
+        result[collection] = json!(page);
+        if let Some(metadata) = metadata.as_object() {
+            for key in [
+                "kind",
+                "coverage",
+                "discovery",
+                "language",
+                "syntaxOnly",
+                "indexFreshness",
+                "limits",
+                "selector",
+                "contextLines",
+                "retrieval",
+                "ast",
+                "limited",
+                "timedOut",
+            ] {
+                if let Some(value) = metadata.get(key) {
+                    result[key] = value.clone();
+                }
+            }
+        }
+        Ok(result)
     }
     pub fn get(&mut self, id: &str, offset: usize, max_chars: usize) -> Result<Value, Failure> {
         self.prune();
@@ -217,6 +522,24 @@ impl Results {
                     .remove("_complete")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
+                let search_collection = if tool == "harness_search" {
+                    ["matches", "paths", "files"]
+                        .into_iter()
+                        .find(|key| map.get(*key).is_some_and(Value::is_array))
+                        .map(str::to_owned)
+                } else {
+                    None
+                };
+                let search_page_count = search_collection
+                    .as_deref()
+                    .and_then(|key| map.get(key))
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                let search_total = search_collection
+                    .as_deref()
+                    .and_then(|key| map.get("_detail").and_then(|detail| detail.get(key)))
+                    .and_then(Value::as_array)
+                    .map_or(search_page_count, Vec::len);
                 let mut omitted = json!({});
                 if let Some(count) = map
                     .remove("omitted")
@@ -229,18 +552,72 @@ impl Results {
                 }
                 let detail = map
                     .remove("_detail")
-                    .map(|value| {
-                        self.save_for_session(
-                            &value,
-                            complete,
-                            args.get("session")
-                                .and_then(Value::as_str)
-                                .or_else(|| map.get("session").and_then(Value::as_str)),
-                        )
+                    .map(|mut value| {
+                        if let Some(collection) = search_collection.as_deref() {
+                            let mut metadata = json!({"collection":collection});
+                            for key in ["kind", "coverage", "discovery", "language", "syntaxOnly", "indexFreshness", "limits", "selector", "contextLines", "retrieval", "ast", "limited", "timedOut", "scanIncompleteReasons"] {
+                                if let Some(item) = map.get(key) {
+                                    metadata[key] = item.clone();
+                                }
+                            }
+                            value["_searchSnapshot"] = metadata;
+                        }
+                        let session = args
+                            .get("session")
+                            .and_then(Value::as_str)
+                            .or_else(|| map.get("session").and_then(Value::as_str));
+                        let default_limit = if map.get("kind") == Some(&json!("file_size")) {
+                            30
+                        } else {
+                            40
+                        };
+                        let page_size = args
+                            .get("limit")
+                            .and_then(Value::as_u64)
+                            .map_or(default_limit, |limit| limit as usize);
+                        let saved = if let Some(collection) = search_collection.as_deref() {
+                            self.save_search_for_session(
+                                &value,
+                                complete,
+                                session,
+                                collection,
+                                page_size,
+                            )
+                        } else {
+                            self.save_for_session(&value, complete, session)
+                        };
+                        saved
+                        .map(|detail| {
+                            if let (Some(_), Some(id)) = (
+                                search_collection.as_deref(),
+                                detail.get("ref").and_then(Value::as_str),
+                            ) {
+                                if self.has_search_index(id) {
+                                    let has_more = search_total > search_page_count;
+                                    map.insert("offset".into(), json!(0));
+                                    map.insert("nextOffset".into(), if has_more { json!(search_page_count) } else { Value::Null });
+                                    map.insert("hasMore".into(), json!(has_more));
+                                    map.insert("scanComplete".into(), json!(complete));
+                                    map.insert("snapshotOnly".into(), json!(!complete));
+                                    map.insert("nextCall".into(), if has_more { json!({
+                                        "tool":"harness_search",
+                                        "arguments":{"cursor":id,"offset":search_page_count,"session":args.get("session")}
+                                    }) } else { Value::Null });
+                                } else {
+                                    map.insert("paginationUnavailable".into(), json!(true));
+                                }
+                            }
+                            detail
+                        })
                         .unwrap_or_else(|| {
                             omitted["detailUnavailable"] = json!(true);
                             Value::Null
                         })
+                    })
+                    .or_else(|| {
+                        args.get("cursor")
+                            .and_then(Value::as_str)
+                            .and_then(|id| self.search_reference(id))
                     })
                     .unwrap_or(Value::Null);
                 let diagnostics = map.remove("diagnostics").unwrap_or_else(|| json!([]));
@@ -319,6 +696,148 @@ mod tests {
         assert!(store.get(id, 1000, 1).is_err());
         assert!(store.get(id, 0, 0).is_err());
     }
+
+    #[test]
+    fn search_snapshot_pages_without_rescanning_and_preserves_detail_reference() {
+        let mut store = Results::default();
+        let rows = json!([
+            {"file":"a.rs","text":"row 1"},
+            {"file":"b.rs","text":"row 2"},
+            {"file":"c.rs","text":"row 3"},
+            {"file":"d.rs","text":"row 4"}
+        ]);
+        let first = store.envelope(
+            "harness_search",
+            &json!({"limit":2}),
+            Ok(json!({
+                "matches":[rows[0].clone(), rows[1].clone()],
+                "omitted":2,
+                "retrieval":{"mode":"terms","ranking":"bm25","exactMatches":0},
+                "_complete":true,
+                "_detail":{"matches":rows}
+            })),
+        );
+        let cursor = first["data"]["nextCall"]["arguments"]["cursor"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(first["data"]["hasMore"], true);
+        assert_eq!(first["data"]["nextOffset"], 2);
+
+        let page = store.search_page(&cursor, 2, None).unwrap();
+        assert_eq!(page["matches"].as_array().unwrap().len(), 2);
+        assert_eq!(page["matches"][0]["file"], "c.rs");
+        assert_eq!(page["retrieval"]["ranking"], "bm25");
+        assert_eq!(page["scanComplete"], true);
+        assert_eq!(page["hasMore"], false);
+        assert!(page["nextCall"].is_null());
+
+        let second = store.envelope(
+            "harness_search",
+            &json!({"cursor":cursor,"offset":2}),
+            Ok(page),
+        );
+        assert_eq!(second["detail"]["ref"], cursor);
+        assert_eq!(second["data"]["matches"][0]["file"], "c.rs");
+    }
+
+    #[test]
+    fn partial_search_snapshot_is_pageable_but_reports_scan_incomplete() {
+        let mut store = Results::default();
+        let rows = json!([
+            {"file":"a.rs","text":"row 1"},
+            {"file":"b.rs","text":"row 2"},
+            {"file":"c.rs","text":"row 3"}
+        ]);
+        let first = store.envelope(
+            "harness_search",
+            &json!({"limit":1}),
+            Ok(json!({
+                "matches":[rows[0].clone()],
+                "_complete":false,
+                "scanIncompleteReasons":["time_budget"],
+                "_detail":{"matches":rows,"scanIncompleteReasons":["time_budget"]}
+            })),
+        );
+        let cursor = first["data"]["nextCall"]["arguments"]["cursor"]
+            .as_str()
+            .unwrap();
+        assert_eq!(first["data"]["snapshotOnly"], true);
+        let next = store.search_page(cursor, 1, None).unwrap();
+        assert_eq!(next["scanComplete"], false);
+        assert_eq!(next["snapshotOnly"], true);
+        assert_eq!(next["scanIncompleteReasons"][0], "time_budget");
+        assert_eq!(next["nextOffset"], 2);
+    }
+
+    #[test]
+    fn file_size_snapshot_indexes_top_level_rows_with_nested_keys_and_escaped_text() {
+        let mut store = Results::default();
+        let rows = json!([
+            {"path":"a[1].rs","text":"literal \\\"files\\\":[x] 😀","nested":{"files":[{"x":[1,2]}]}},
+            {"path":"b.rs","nested":{"files":[{"files":"same key"}]}}
+        ]);
+        let first = store.envelope(
+            "harness_search",
+            &json!({"kind":"file_size","limit":1}),
+            Ok(json!({
+                "kind":"file_size",
+                "files":[rows[0].clone()],
+                "omitted":1,
+                "_complete":true,
+                "limits":{"files":10000},
+                "_detail":{"files":rows,"limits":{"files":10000}}
+            })),
+        );
+        let cursor = first["data"]["nextCall"]["arguments"]["cursor"]
+            .as_str()
+            .unwrap();
+        let second = store.search_page(cursor, 1, None).unwrap();
+        assert_eq!(second["files"][0]["path"], "b.rs");
+        assert_eq!(
+            second["files"][0]["nested"]["files"][0]["files"],
+            "same key"
+        );
+        assert_eq!(second["limits"]["files"], 10000);
+    }
+
+    #[test]
+    fn pagination_index_memory_is_counted_and_detail_survives_when_it_does_not_fit() {
+        let mut store = Results::default();
+        let snapshot = json!({"matches":[{"file":"a.rs","text":"needle"}],"_searchSnapshot":{}});
+        let serialized = snapshot.to_string();
+        store.max_bytes = size_of::<Entry>() + serialized.capacity() + 36 + 8;
+        let detail = store
+            .save_search_for_session(&snapshot, true, None, "matches", 1)
+            .expect("the unindexed detail should still fit");
+        let id = detail["ref"].as_str().unwrap();
+        assert!(store.bytes <= store.max_bytes);
+        assert!(store.value(id).is_ok());
+        assert_eq!(store.search_page(id, 0, None).unwrap_err().0, "DETAIL");
+    }
+
+    #[test]
+    fn search_snapshot_cursor_is_bound_to_its_session() {
+        let mut store = Results::default();
+        let detail = store
+            .save_search_for_session(
+                &json!({"matches":[{"file":"a.rs"}],"_searchSnapshot":{}}),
+                false,
+                Some("session-a"),
+                "matches",
+                1,
+            )
+            .unwrap();
+        let id = detail["ref"].as_str().unwrap();
+        assert_eq!(
+            store.search_page(id, 0, Some("session-b")).unwrap_err().0,
+            "DETAIL"
+        );
+        assert_eq!(
+            store.search_page(id, 0, Some("session-a")).unwrap()["matches"][0]["file"],
+            "a.rs"
+        );
+    }
     #[test]
     fn session_references_survive_ttl_capacity_and_repeated_paging() {
         let mut store = Results {
@@ -368,7 +887,7 @@ mod tests {
     fn eviction_ttl_and_byte_limits() {
         let mut store = Results {
             max_entries: 1,
-            max_bytes: 100,
+            max_bytes: size_of::<Entry>() + 36 + 100,
             ..Results::default()
         };
         let old = store.save(&json!({"a":1}), true).unwrap();

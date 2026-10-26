@@ -48,6 +48,9 @@ fn text_search_works_without_index_maintenance_state() {
     let result = service
         .search(
             &SearchArgs {
+                ast: None,
+                regex: None,
+                case_sensitive: None,
                 external_scope: None,
                 kind: harness_domain::contracts::Kind::Text,
                 query: "needle".into(),
@@ -57,6 +60,8 @@ fn text_search_works_without_index_maintenance_state() {
                 limit: None,
                 context_lines: None,
                 session: None,
+            cursor: None,
+            offset: None,
             },
             &OperationContext::default(),
         )

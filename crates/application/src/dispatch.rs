@@ -154,7 +154,37 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Search(args) => {
                 self.lease(args.session.as_deref(), &mut lease)
                     .and_then(|()| {
-                        crate::handlers::search::handle(self.workspace.as_ref(), &args, context)
+                        if let Some(cursor) = args.cursor.as_deref() {
+                            if args.external_scope.is_some()
+                                || !matches!(&args.kind, harness_domain::contracts::Kind::Text)
+                                || !args.query.is_empty()
+                                || args.regex.is_some()
+                                || args.case_sensitive.is_some()
+                                || args.ast.is_some()
+                                || args.min_lines.is_some()
+                                || args.globs.is_some()
+                                || args.scope.is_some()
+                                || args.limit.is_some()
+                                || args.context_lines.is_some()
+                            {
+                                return Err((
+                                    "ARGUMENT",
+                                    "cursor no admite filtros; usa solo cursor, offset y session",
+                                ));
+                            }
+                            self.results
+                                .lock()
+                                .map_err(|_| ("INTERNAL", "almacén de resultados no disponible"))?
+                                .search_page(
+                                    cursor,
+                                    args.offset.unwrap_or(0),
+                                    args.session.as_deref(),
+                                )
+                        } else if args.offset.is_some() {
+                            Err(("ARGUMENT", "offset requiere cursor de una página anterior"))
+                        } else {
+                            crate::handlers::search::handle(self.workspace.as_ref(), &args, context)
+                        }
                     })
             }
             Request::Ignore(args) => {

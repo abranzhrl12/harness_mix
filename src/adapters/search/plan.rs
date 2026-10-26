@@ -14,6 +14,9 @@ pub(super) struct SearchPlan<'a> {
     pub(super) context_lines: usize,
     pub(super) selected: Option<(&'static str, Option<&'a str>)>,
     pub(super) globs: Option<globset::GlobSet>,
+    pub(super) matcher: Option<grep_regex::RegexMatcher>,
+    pub(super) term_retrieval: bool,
+    pub(super) structural: Option<super::structural::StructuralSearch>,
     pub(super) min_lines: usize,
     pub(super) limit: usize,
     pub(super) explicit_scope: bool,
@@ -40,6 +43,19 @@ pub(super) fn build<'a>(
         None
     };
     let globs = glob_matcher(&args.globs, &args.kind)?;
+    if args.ast.is_some()
+        && (!matches!(args.kind, Kind::Text)
+            || args.regex.is_some()
+            || args.case_sensitive.is_some())
+    {
+        return Err((
+            "ARGUMENT",
+            "ast requires kind text and cannot combine with regex or caseSensitive",
+        ));
+    }
+    if !matches!(args.kind, Kind::Text) && (args.regex.is_some() || args.case_sensitive.is_some()) {
+        return Err(("ARGUMENT", "regex and caseSensitive require kind text"));
+    }
     let min_lines = args.min_lines.unwrap_or(500);
     if min_lines > 10000000
         || (!file_size && args.min_lines.is_some())
@@ -54,11 +70,12 @@ pub(super) fn build<'a>(
         && !(matches!(args.kind, Kind::Files) && args.globs.is_some() && args.query.is_empty())
         && (args.query.is_empty()
             || utf16_len(&args.query) > 16000
-            || args.query.contains(['\n', '\r', '\0']))
+            || args.query.contains('\0')
+            || (args.ast.is_none() && args.query.contains(['\n', '\r'])))
     {
         return Err((
             "ARGUMENT",
-            "query literal no vacía, sin saltos de línea ni NUL, máximo 16000 caracteres",
+            "query no vacía, sin NUL, máximo 16000 caracteres; saltos de línea solo con ast",
         ));
     }
     let limit = args.limit.unwrap_or(if file_size { 30 } else { 40 });
@@ -72,6 +89,31 @@ pub(super) fn build<'a>(
             },
         ));
     }
+    // Compile once per request and reuse across files. A line terminator lets
+    // ripgrep optimize the matcher and rejects regexes requiring multiline input.
+    let structural = args
+        .ast
+        .as_deref()
+        .map(|language| super::structural::StructuralSearch::new(language, &args.query))
+        .transpose()?;
+    let matcher = if matches!(args.kind, Kind::Text) && structural.is_none() {
+        Some(
+            grep_regex::RegexMatcherBuilder::new()
+                .fixed_strings(!args.regex.unwrap_or(false))
+                .case_insensitive(!args.case_sensitive.unwrap_or(true))
+                .multi_line(true)
+                .line_terminator(Some(b'\n'))
+                .build(&args.query)
+                .map_err(|_| {
+                    (
+                        "ARGUMENT",
+                        "invalid or unsupported text regex; use single-line Rust regex syntax",
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
     let explicit_scope = args
         .scope
         .as_deref()
@@ -94,6 +136,9 @@ pub(super) fn build<'a>(
         context_lines,
         selected,
         globs,
+        matcher,
+        term_retrieval: false,
+        structural,
         min_lines,
         limit,
         explicit_scope,

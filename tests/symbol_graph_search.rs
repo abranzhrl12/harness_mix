@@ -7,6 +7,9 @@ use std::path::Path;
 
 fn search(app: &NativeApplication, query: &str) -> Value {
     app.execute(Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         kind: Kind::Syntax,
         query: query.into(),
@@ -15,6 +18,8 @@ fn search(app: &NativeApplication, query: &str) -> Value {
         scope: Some(".".into()),
         limit: Some(40),
         session: None,
+            cursor: None,
+            offset: None,
         external_scope: None,
     }))
 }
@@ -205,6 +210,9 @@ fn an_index_that_does_not_cover_the_scope_leaves_the_live_path_in_charge() {
     );
     let app = adapters::application(root.path()).unwrap();
     let scoped = app.execute(Request::Search(SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         context_lines: None,
         kind: Kind::Syntax,
         query: "function_item:real".into(),
@@ -213,6 +221,8 @@ fn an_index_that_does_not_cover_the_scope_leaves_the_live_path_in_charge() {
         scope: Some("other".into()),
         limit: Some(40),
         session: None,
+            cursor: None,
+            offset: None,
         external_scope: None,
     }));
     // The index does not cover "other", so the live path answers.

@@ -220,6 +220,9 @@ mod compatibility_contract_tests {
         assert!(search["properties"].get("path").is_some());
         assert!(search["properties"].get("includes").is_some());
         assert!(search["properties"].get("contextLines").is_some());
+        assert!(search["properties"].get("regex").is_some());
+        assert!(search["properties"].get("ast").is_some());
+        assert!(search["properties"].get("caseSensitive").is_some());
         assert!(search["properties"].get("context_lines").is_some());
         let context_description = search["properties"]["contextLines"]["description"]
             .as_str()

@@ -45,6 +45,33 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
     } else {
         "matches"
     };
+    let presentation_truncated = all.len() > compact.len();
+    let content_truncated = matches!(args.kind, Kind::Text)
+        && all.iter().take(compact.len()).any(|row| {
+            row["text"]
+                .as_str()
+                .is_some_and(|text| harness_domain::results::utf16_len(text) > 500)
+        });
+    let mut incomplete_reasons = Vec::new();
+    if timed_out {
+        incomplete_reasons.push("time_budget");
+    }
+    if cancelled {
+        incomplete_reasons.push("cancelled");
+    }
+    if bounded {
+        incomplete_reasons.push("scan_budget");
+    }
+    if skipped > 0 {
+        incomplete_reasons.push("skipped_files");
+    }
+    for row in &skipped_files {
+        if let Some(reason) = row["reason"].as_str() {
+            if !incomplete_reasons.contains(&reason) {
+                incomplete_reasons.push(reason);
+            }
+        }
+    }
     let mut result = json!({
         "omitted": all.len().saturating_sub(compact.len()),
         "truncated": truncated || !complete,
@@ -52,6 +79,9 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         "cancelled": cancelled,
         "timedOut": timed_out,
         "complete": complete,
+        "presentationTruncated": presentation_truncated,
+        "contentTruncated": content_truncated,
+        "scanIncompleteReasons": incomplete_reasons,
         "scanned": visited,
         "bytesRead": bytes,
         "skipped": skipped,
@@ -86,12 +116,25 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
     });
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
+    // Snapshot pages must retain the scan's coverage, not imply a new scan ran.
+    result["_detail"]["complete"] = json!(complete);
+    result["_detail"]["scanIncompleteReasons"] = result["scanIncompleteReasons"].clone();
+    result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":super::scan::SCAN_TIMEOUT.as_millis()});
     if args.context_lines.is_some() {
         result["contextLines"] = json!(context_lines);
-        result["limits"] = json!({"contextLines":20,"metadataBytes":4*1024*1024});
+        result["limits"]["contextLines"] = json!(20);
     }
     if let Some(patterns) = &args.globs {
         result["globs"] = json!(patterns);
+    }
+    if let Some(language) = &args.ast {
+        result["ast"] = json!(language);
+        result["discovery"] = json!("live");
+        result["parsedFiles"] = json!(stable_files);
+        result["parseErrors"] = json!(parse_errors);
+        result["coverage"] = json!(
+            "ast-grep structural patterns in files of the selected language; embedded languages and Razor/Vue/Svelte injections are not searched; files with syntax errors are reported as skipped"
+        );
     }
     if syntax {
         let coverage = "Rust declarations and Razor directives/C# members; no local items, macro expansion, reference resolution, Razor compilation or AST patterns";
@@ -131,7 +174,6 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
                 result["parseErrors"] = json!(parse_errors);
             }
         }
-        result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":5000});
         result["_detail"]["coverage"] = json!(result["coverage"].clone());
         result["_detail"]["syntaxOnly"] = json!(true);
         result["_detail"]["language"] = json!(result["language"].clone());
@@ -147,13 +189,12 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         result["counting"] = json!(
             "LF/CRLF totals including comments/tests; empty=0; trailing LF adds no extra line"
         );
-        result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":5000});
         result["binaryPolicy"] =
             json!("Skip NUL and invalid UTF-8 files without marking those skips incomplete");
         result["reservedBytes"] = json!(reserved_bytes);
     }
     if !complete {
-        result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":"búsqueda parcial por presupuesto, plazo o archivos no accesibles; revisar complete/skipped/limited"}]);
+        result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":"La exploración quedó incompleta; scanIncompleteReasons indica el límite o error. Las páginas solo recorren los resultados ya capturados.","reasons":result["scanIncompleteReasons"]}]);
     }
     if !index_diagnostics.is_empty() {
         let mut diagnostics = result["diagnostics"]

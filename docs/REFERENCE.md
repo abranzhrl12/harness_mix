@@ -51,12 +51,26 @@ Las operaciones de índice muestran progreso en stderr y JSON en stdout. `durati
 
 ## Catálogo MCP
 
+La búsqueda de texto intenta primero la coincidencia literal. Si completa el
+recorrido sin coincidencias, una consulta de 2 o más palabras (hasta 16 términos
+distintos, solo letras, números y guiones bajos) activa recuperación por términos
+y ranking con la biblioteca `bm25`, sin flags, embeddings ni índice persistente.
+`retrieval: {mode:"terms", ranking:"bm25", exactMatches:0}` identifica ese resultado;
+`score` ordena las filas por relevancia léxica. La recuperación incluye por defecto
+dos líneas de contexto con hash; `contextLines` permite cambiar esa ventana.
+No infiere sinónimos o intenciones.
+Regex, AST, consultas con puntuación y opciones explícitas `regex`/`caseSensitive`
+conservan su comportamiento. Se mantienen scopes, globs y contexto; ambas pasadas
+comparten el plazo de 15 segundos. Los límites de archivos/bytes son por pasada y
+`scanned`/`bytesRead` suman el trabajo de ambas. Un recorrido incompleto no activa
+la segunda pasada. La paginación conserva el orden calculado en el snapshot.
+
 Los ejemplos son argumentos JSON de una llamada a la herramienta de la primera columna. Sustituye rutas, hashes y referencias por valores reales. Añade `"session":"ID"` donde el schema lo admita; jobs no acepta ese campo.
 
 | Herramienta | Acción o ejemplo mínimo | Resultado |
 | --- | --- | --- |
 | `harness_bootstrap` | `{"compact":true}` | Raíz, sesión, catálogo y límites; reutilizar la sesión |
-| `harness_search` | `{"kind":"text","query":"answer","scope":"src"}` | Coincidencias; también `files`, `file_size`, `syntax` |
+| `harness_search` | `{"kind":"text","query":"answer","scope":"src"}` | Páginas con `limit`; continúa con el `nextCall`/`cursor` del snapshot |
 | `harness_read` | `{"path":"src/main.ts","start":1,"end":40}` | Texto UTF-8 y hash; `lines` puede sustituir a `end` |
 | `harness_symbols` | `{"action":"outline","path":"src/main.ts"}` | Estructura local sin requerir índice |
 | `harness_explore` | `{"query":"answer","filePath":"src/main.ts","symbol":"answer","view":"impact"}` | Relaciones indexadas y límites de cobertura |

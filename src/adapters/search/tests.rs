@@ -4,6 +4,283 @@ use serde_json::json;
 use std::fs;
 
 #[test]
+fn bm25_returns_default_context_and_honors_scope_and_ignore() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    let source = "fn cursorHandler() {\n    paginate();\n}\n";
+    fs::write(dir.path().join("src/a.rs"), source).unwrap();
+    fs::write(dir.path().join("outside.rs"), "cursor paginate\n").unwrap();
+    fs::write(dir.path().join("src/secret.rs"), "cursor paginate\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs =
+        serde_json::from_value(json!({"query":"cursor paginate", "scope":"src"})).unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["retrieval"]["ranking"], "bm25");
+    assert_eq!(result["contextLines"], 2);
+    for row in result["matches"].as_array().unwrap() {
+        assert_eq!(row["file"].as_str().unwrap().replace('\\', "/"), "src/a.rs");
+        assert_eq!(row["context"]["text"], source);
+    }
+    assert!(!dir.path().join(".codegraph").exists());
+}
+
+#[test]
+fn bm25_automatically_recovers_terms_and_preserves_source_context() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn pagination() {}\r\n").unwrap();
+    let source = "fn cursorPagination() {}\r\n";
+    fs::write(dir.path().join("b.rs"), source).unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs =
+        serde_json::from_value(json!({"query":"cursor pagination","contextLines":0,"limit":1}))
+            .unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["retrieval"]["ranking"], "bm25");
+    assert_eq!(result["matches"][0]["file"], "b.rs", "{result}");
+    assert_eq!(result["matches"][0]["context"]["text"], source);
+    assert_eq!(
+        result["matches"][0]["hash"],
+        harness_domain::hash(source.as_bytes())
+    );
+    assert_eq!(result["_detail"]["matches"].as_array().unwrap().len(), 2);
+    assert_eq!(result["complete"], true);
+    assert_eq!(result["omitted"], 1);
+}
+
+#[test]
+fn bm25_preserves_exact_regex_case_and_single_identifier_searches() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("a.rs"),
+        "cursor pagination\nfn cursorPagination() {}\n",
+    )
+    .unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    for input in [
+        json!({"query":"cursor pagination"}),
+        json!({"query":"pagination cursor","regex":true}),
+        json!({"query":"pagination cursor","caseSensitive":false}),
+        json!({"query":"missingIdentifier"}),
+        json!({"query":"cursor(pagination)"}),
+    ] {
+        let args: SearchArgs = serde_json::from_value(input).unwrap();
+        let result = search(&project, &args).unwrap();
+        assert!(result.get("retrieval").is_none(), "{result}");
+    }
+}
+
+#[test]
+fn bm25_respects_globs_and_rejects_substring_false_positives() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn concatenate() {}\n").unwrap();
+    fs::write(dir.path().join("b.js"), "cat dog\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs =
+        serde_json::from_value(json!({"query":"cat dog","globs":["*.rs"]})).unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["retrieval"]["ranking"], "bm25");
+    assert_eq!(result["matches"].as_array().unwrap().len(), 0);
+    assert_eq!(result["complete"], true);
+}
+
+#[test]
+fn ast_search_matches_multiline_calls_but_not_strings_comments_or_other_languages() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = "// fetch(fake)\r\nconst label = 'fetch(fake)';\r\nfetch(\r\n  url\r\n);\r\nfetch(other);\r\n";
+    fs::write(dir.path().join("a.js"), source).unwrap();
+    fs::write(dir.path().join("wrong.py"), "fetch(other)").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({
+        "query":"fetch($URL)","ast":"javascript","contextLines":1,"limit":1
+    }))
+    .unwrap();
+    let result = search(&project, &args).unwrap();
+    let matches = result["_detail"]["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 2, "{result}");
+    assert_eq!(matches[0]["line"], 3);
+    assert_eq!(matches[0]["endLine"], 5);
+    assert_eq!(matches[0]["text"], "fetch(\r\n  url\r\n)");
+    assert_eq!(matches[0]["context"]["start"], 2);
+    assert_eq!(matches[0]["context"]["end"], 6);
+    assert_eq!(
+        matches[0]["context"]["text"],
+        &source[source.find("const").unwrap()..]
+    );
+    assert_eq!(matches[0]["hash"], harness_domain::hash(source.as_bytes()));
+    let start = matches[0]["startByte"].as_u64().unwrap() as usize;
+    let end = matches[0]["endByte"].as_u64().unwrap() as usize;
+    assert_eq!(&source[start..end], matches[0]["text"].as_str().unwrap());
+    assert_eq!(result["omitted"], 1);
+    assert_eq!(result["parsedFiles"], 1);
+    assert_eq!(result["complete"], true);
+}
+
+#[test]
+fn ast_search_supports_languages_and_library_metavariables_without_an_index() {
+    for (language, file, source, query) in [
+        ("rust", "a.rs", "fn f() { send(1, 2); }", "send($$$ARGS)"),
+        (
+            "typescript",
+            "a.ts",
+            "const x: number = send(1);",
+            "send($ARG)",
+        ),
+        (
+            "tsx",
+            "a.tsx",
+            "const x = <Button onClick={send(1)} />;",
+            "send($ARG)",
+        ),
+        ("python", "a.py", "send(1)\n", "send($ARG)"),
+        (
+            "csharp",
+            "a.cs",
+            "class C { void M() { Send(1); } }",
+            "Send($ARG)",
+        ),
+        (
+            "go",
+            "a.go",
+            "package main\nfunc f() { send(1) }",
+            "send($ARG)",
+        ),
+        (
+            "html",
+            "a.html",
+            "<div><span>Hello</span></div>",
+            "<span>$TEXT</span>",
+        ),
+        ("css", "a.css", "a { color: red; }", "a { color: $VALUE; }"),
+        ("json", "a.json", "{\"ok\": true}", "{\"ok\": $VALUE}"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(file), source).unwrap();
+        let project = Project::new(dir.path()).unwrap();
+        let args: SearchArgs =
+            serde_json::from_value(json!({"ast":language,"query":query})).unwrap();
+        let result =
+            search(&project, &args).unwrap_or_else(|error| panic!("{language}: {error:?}"));
+        assert_eq!(
+            result["matches"].as_array().unwrap().len(),
+            1,
+            "{language}: {result}"
+        );
+        assert_eq!(result["complete"], true);
+        assert!(result["matches"][0]["context"]["text"].is_string());
+        assert!(!dir.path().join(".codegraph").exists());
+    }
+}
+
+#[test]
+fn ast_search_rejects_bad_patterns_and_conflicting_options_before_scanning() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    for input in [
+        json!({"ast":"not-a-language","query":"foo($X)"}),
+        json!({"ast":"javascript","query":"???"}),
+        json!({"ast":"javascript","query":"foo($X)","regex":false}),
+        json!({"ast":"javascript","query":"foo($X)","caseSensitive":true}),
+        json!({"kind":"syntax","ast":"javascript","query":"foo($X)"}),
+        json!({"kind":"files","ast":"javascript","query":"foo($X)"}),
+    ] {
+        let args: SearchArgs = serde_json::from_value(input).unwrap();
+        assert_eq!(search(&project, &args).unwrap_err().0, "ARGUMENT");
+    }
+}
+
+#[test]
+fn ast_search_reports_parse_errors_and_preserves_ignore_policy_and_globs() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.js"), "send(1);").unwrap();
+    fs::write(dir.path().join("bad.js"), "function { send(2);").unwrap();
+    fs::write(dir.path().join("ignored.js"), "send(3);").unwrap();
+    fs::write(dir.path().join("filtered.js"), "send(4);").unwrap();
+    fs::write(dir.path().join("secret.js"), "send(5);").unwrap();
+    fs::write(dir.path().join(".gitignore"), "ignored.js\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({
+        "ast":"javascript","query":"send(\n$ARG\n)","globs":["a.js","bad.js","ignored.js","secret.js"]
+    })).unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["matches"].as_array().unwrap().len(), 1, "{result}");
+    assert_eq!(result["matches"][0]["file"], "a.js");
+    assert_eq!(result["parseErrors"], 1);
+    assert_eq!(result["skippedFiles"][0]["reason"], "parse_error");
+    assert_eq!(result["complete"], false);
+}
+
+#[test]
+fn ripgrep_keeps_literal_default_and_supports_regex_and_unicode_case_folding() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("a.txt"),
+        "foo.bar\nfooXbar\nÉXITO\nfoo42 foo43",
+    )
+    .unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    for (query, regex, case_sensitive, lines) in [
+        ("foo.bar", None, None, vec![1]),
+        ("foo.bar", Some(true), None, vec![1, 2]),
+        ("éxito", None, None, vec![]),
+        ("éxito", None, Some(false), vec![3]),
+        (r"^foo\d+", Some(true), None, vec![4]),
+        (r"(?i)^éxito$", Some(true), None, vec![3]),
+        (r"^missing$", Some(true), None, vec![]),
+    ] {
+        let args: SearchArgs = serde_json::from_value(json!({
+            "query":query, "regex":regex, "caseSensitive":case_sensitive
+        }))
+        .unwrap();
+        let result = search(&project, &args).unwrap();
+        let found: Vec<u64> = result["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["line"].as_u64().unwrap())
+            .collect();
+        assert_eq!(found, lines, "query={query}, regex={regex:?}");
+        assert_eq!(result["complete"], true);
+    }
+}
+
+#[test]
+fn ripgrep_regex_context_preserves_bom_crlf_and_final_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = "\u{feff}start\r\nCall(42);  \r\nCall(7);";
+    fs::write(dir.path().join("a.txt"), source).unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({
+        "query":r"Call\(\d+\)", "regex":true, "contextLines":1
+    }))
+    .unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["matches"][0]["line"], 2);
+    assert_eq!(result["matches"][0]["context"]["text"], source);
+    assert_eq!(
+        result["matches"][0]["hash"],
+        harness_domain::hash(source.as_bytes())
+    );
+    assert_eq!(result["_detail"]["matches"][1]["text"], "Call(7);");
+    assert_eq!(result["matches"][1]["context"]["start"], 2);
+    assert_eq!(result["matches"][1]["context"]["end"], 3);
+}
+
+#[test]
+fn ripgrep_rejects_invalid_regex_and_text_options_on_other_kinds() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    for input in [
+        json!({"query":"[", "regex":true}),
+        json!({"query":r"(?<=foo)bar", "regex":true}),
+        json!({"kind":"files", "query":"foo", "regex":false}),
+        json!({"kind":"syntax", "query":"function", "caseSensitive":true}),
+    ] {
+        let args: SearchArgs = serde_json::from_value(input).unwrap();
+        assert_eq!(search(&project, &args).unwrap_err().0, "ARGUMENT");
+    }
+}
+
+#[test]
 fn configured_ignore_filename_is_reported_even_without_a_policy_file() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("visible.txt"), "needle").unwrap();
@@ -13,7 +290,10 @@ fn configured_ignore_filename_is_reported_even_without_a_policy_file() {
     }))
     .unwrap();
     let result = search(&project, &args).unwrap();
-    assert_eq!(result["_detail"]["exclusionPolicy"]["customFile"], ".harnessignore");
+    assert_eq!(
+        result["_detail"]["exclusionPolicy"]["customFile"],
+        ".harnessignore"
+    );
     assert!(result["_detail"]["exclusionPolicy"]["customPatterns"].is_null());
     args.scope = Some("visible.txt".into());
     let scoped = search(&project, &args).unwrap();
@@ -98,6 +378,9 @@ fn honors_ignore_secrets_and_compacts_without_losing_detail() {
     }
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         external_scope: None,
         context_lines: None,
         min_lines: None,
@@ -107,6 +390,8 @@ fn honors_ignore_secrets_and_compacts_without_losing_detail() {
         scope: None,
         limit: Some(1),
         session: None,
+        cursor: None,
+        offset: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
@@ -120,6 +405,9 @@ fn files_are_literal_and_unsafe_scope_is_rejected() {
     fs::write(dir.path().join("a[1].txt"), "text").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let mut args = SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         external_scope: None,
         context_lines: None,
         min_lines: None,
@@ -129,6 +417,8 @@ fn files_are_literal_and_unsafe_scope_is_rejected() {
         scope: None,
         limit: None,
         session: None,
+        cursor: None,
+        offset: None,
     };
     assert_eq!(
         search(&p, &args).unwrap()["paths"]
@@ -168,6 +458,9 @@ fn large_files_make_results_explicitly_incomplete() {
     fs::write(dir.path().join("small.txt"), "needle\n").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         external_scope: None,
         context_lines: None,
         min_lines: None,
@@ -177,6 +470,8 @@ fn large_files_make_results_explicitly_incomplete() {
         scope: None,
         limit: None,
         session: None,
+        cursor: None,
+        offset: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
@@ -207,6 +502,9 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let files = search(
         &p,
         &SearchArgs {
+            ast: None,
+            regex: None,
+            case_sensitive: None,
             external_scope: None,
             context_lines: None,
             min_lines: None,
@@ -216,6 +514,8 @@ fn globs_filter_files_and_file_size_without_skipping() {
             scope: None,
             limit: None,
             session: None,
+            cursor: None,
+            offset: None,
         },
     )
     .unwrap();
@@ -228,6 +528,9 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let sizes = search(
         &p,
         &SearchArgs {
+            ast: None,
+            regex: None,
+            case_sensitive: None,
             external_scope: None,
             context_lines: None,
             min_lines: Some(0),
@@ -237,6 +540,8 @@ fn globs_filter_files_and_file_size_without_skipping() {
             scope: None,
             limit: None,
             session: None,
+            cursor: None,
+            offset: None,
         },
     )
     .unwrap();
@@ -244,6 +549,9 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let text = search(
         &p,
         &SearchArgs {
+            ast: None,
+            regex: None,
+            case_sensitive: None,
             external_scope: None,
             context_lines: None,
             min_lines: None,
@@ -253,6 +561,8 @@ fn globs_filter_files_and_file_size_without_skipping() {
             scope: None,
             limit: None,
             session: None,
+            cursor: None,
+            offset: None,
         },
     )
     .unwrap();
@@ -274,6 +584,9 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
     fs::write(dir.path().join("node_modules/vendor.cshtml"), "needle\n").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         external_scope: None,
         context_lines: None,
         min_lines: None,
@@ -283,6 +596,8 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
         scope: None,
         limit: None,
         session: None,
+        cursor: None,
+        offset: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 2);
@@ -304,6 +619,9 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
 
 fn text_args(scope: Option<&str>) -> SearchArgs {
     SearchArgs {
+        ast: None,
+        regex: None,
+        case_sensitive: None,
         external_scope: None,
         context_lines: None,
         min_lines: None,
@@ -313,6 +631,8 @@ fn text_args(scope: Option<&str>) -> SearchArgs {
         scope: scope.map(str::to_owned),
         limit: None,
         session: None,
+        cursor: None,
+        offset: None,
     }
 }
 
@@ -355,7 +675,10 @@ fn explicit_scope_overrides_harnessignore_with_warning() {
     let result = search(&project, &text_args(Some("generated"))).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
     assert_eq!(result["warnings"][0]["code"], "SCOPE_OVERRIDES_EXCLUSIONS");
-    assert_eq!(result["_detail"]["exclusionPolicy"]["customFile"], Value::Null);
+    assert_eq!(
+        result["_detail"]["exclusionPolicy"]["customFile"],
+        Value::Null
+    );
     assert_eq!(result["complete"], true);
 }
 
@@ -444,5 +767,5 @@ fn match_metadata_budget_rejects_an_oversized_row_without_cutting_saved_source()
     assert_eq!(detail_matches[0]["file"], "a.txt");
     assert_eq!(detail_matches[0]["text"], quote_heavy_line);
     assert_eq!(result["skippedFiles"][0]["path"], "b.txt");
-    assert_eq!(result["skippedFiles"][0]["reason"], "result_budget");
+    assert_eq!(result["skippedFiles"][0]["reason"], "metadata_budget");
 }
