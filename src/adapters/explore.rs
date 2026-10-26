@@ -271,7 +271,6 @@ fn explore_inner(
     let db = opened.connection;
     let version = opened.version;
     let has_qualified = opened.has_qualified;
-    let invalidated_relations = super::index_store::quarantine::count(&db, None)?;
     if args.container.is_some() && !has_qualified {
         return Err((
             "ARGUMENT",
@@ -291,7 +290,12 @@ fn explore_inner(
     )? {
         selection::SelectionResult::NotResolved => {
             let mut result = selection::not_resolved_value();
-            super::index_store::quarantine::annotate(&mut result, invalidated_relations, true);
+            let archive = if let Some(path) = args.file_path.as_deref() {
+                super::index_store::quarantine::coverage(&db, Some(path), None)?
+            } else {
+                super::index_store::quarantine::Coverage::default()
+            };
+            super::index_store::quarantine::annotate(&mut result, &archive, true);
             return Ok(result);
         }
         selection::SelectionResult::Selected(selection) => selection,
@@ -315,6 +319,9 @@ fn explore_inner(
         .map(|node| node.file_path.clone())
         .collect::<BTreeSet<_>>();
     contributing_files.extend(graph.export_contributors.keys().cloned());
+    let archive = super::index_store::quarantine::coverage(
+        &db, None, Some(&graph.nodes.keys().cloned().collect()),
+    )?;
     let mut indexed_files =
         super::index_freshness::indexed_files(&db, contributing_files, context)?;
     for (path, digest) in std::mem::take(&mut graph.export_contributors) {
@@ -361,6 +368,6 @@ fn explore_inner(
             sources: loaded,
         },
     )?;
-    super::index_store::quarantine::annotate(&mut result, invalidated_relations, true);
+    super::index_store::quarantine::annotate(&mut result, &archive, true);
     Ok(result)
 }

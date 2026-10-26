@@ -102,11 +102,13 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional())?;
-        if plan::is_unchanged(record.as_ref(), bytes, config_changed, force, hash) {
+        let proof_current = self.language != "rust" || super::super::versioning::current(db, path)?;
+        if proof_current && plan::is_unchanged(record.as_ref(), bytes, config_changed, force, hash)
+        {
             let mut report = model::PublicationReport::unchanged(path);
             super::quarantine::annotate(
                 &mut report,
-                super::quarantine::count(db, Some(path))?,
+                &super::quarantine::coverage(db, Some(path), None)?,
                 false,
             );
             return Ok(Some((
@@ -437,6 +439,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         _: &OperationContext,
     ) -> Result<(), Failure> {
         let (db, now, import_sources) = (self.db, captured.now, &resolution.import_sources);
+        if self.language == "rust" {
+            super::super::versioning::record(db, self.path, self.bytes.is_some(), now)?;
+        }
         if import_sources.config.digest.is_some()
             || import_sources
                 .config
@@ -530,7 +535,7 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         }
         super::quarantine::annotate(
             &mut report,
-            super::quarantine::count(self.db, Some(path))?,
+            &super::quarantine::coverage(self.db, Some(path), None)?,
             false,
         );
         if std::env::var("HARNESS_INDEX_PROFILE").as_deref() == Ok("1") {

@@ -85,7 +85,7 @@ pub(super) fn parse_init_command(
     let mut index = 0;
     while index < args.len() {
         if args[index] != "--root" || index + 1 >= args.len() || resolved_root.is_some() {
-            return Err("usage: agent-harness init --root <workspace>".into());
+            return Err("usage: agent-harness init [--root <workspace>]".into());
         }
         let path = PathBuf::from(args[index + 1].clone());
         if path.as_os_str().is_empty() {
@@ -94,9 +94,24 @@ pub(super) fn parse_init_command(
         resolved_root = Some(path);
         index += 2;
     }
-    let root = resolved_root.ok_or("usage: agent-harness init --root <workspace>")?;
-    if root.as_os_str().is_empty() {
+    if resolved_root
+        .as_ref()
+        .is_some_and(|root| root.as_os_str().is_empty())
+    {
         return Err("init requires a non-empty --root path".into());
     }
-    Ok(Command::InitProject { root })
+    Ok(Command::InitProject {
+        root: resolved_root.map_or(Root::DetectOrCurrent, Root::Explicit),
+    })
+}
+
+pub(super) fn parse_uninstall_command(
+    args: &[OsString],
+    root: Option<PathBuf>,
+) -> Result<Command, String> {
+    match parse_init_command(args, root) {
+        Ok(Command::InitProject { root }) => Ok(Command::UninstallProject { root }),
+        Err(error) => Err(error.replace("init", "uninstall")),
+        _ => unreachable!(),
+    }
 }

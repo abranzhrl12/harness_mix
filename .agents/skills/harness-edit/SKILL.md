@@ -32,6 +32,11 @@ con `harness_verify`; usa jobs cuando necesites seguimiento en segundo plano.
 Consulta el esquema antes de pedir filtros o perfiles. Sintaxis válida no demuestra
 compilación ni corrección; la evidencia debe corresponder a la última edición.
 
+Para corregir fallos web de interfaz, interacción o hidratación, usa también
+`../harness-browser/SKILL.md`: reproduce con captura activa y comprueba consola,
+red y comportamiento después del cambio. Si falta navegador conectado o no
+puedes reproducir, declara pendiente la verificación runtime, aunque compile.
+
 Si falta una capacidad, explica el límite antes de usar una alternativa autorizada.
 Ante fallo de transporte, timeout o runtime, diagnostica con `harness_doctor`;
 no lo eludas con shell, permisos más amplios ni reconstrucción del índice.

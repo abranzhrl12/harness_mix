@@ -18,6 +18,11 @@ pub(crate) const SKILLS: &[SkillSource] = &[
         content: include_str!("../../../.agents/skills/harness-edit/SKILL.md"),
     },
     SkillSource {
+        id: "harness-browser",
+        relative_path: ".agents/skills/harness-browser/SKILL.md",
+        content: include_str!("../../../.agents/skills/harness-browser/SKILL.md"),
+    },
+    SkillSource {
         id: "harness-sql",
         relative_path: ".agents/skills/harness-sql/SKILL.md",
         content: include_str!("../../../.agents/skills/harness-sql/SKILL.md"),

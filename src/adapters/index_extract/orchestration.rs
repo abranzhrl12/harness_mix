@@ -69,6 +69,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     })?;
     context.check()?;
     let mut graph = super::decode::decode(&raw, path, lang, context)?;
+    if lang == "rust" {
+        super::rust::enrich(path, source, &mut graph, context)?;
+    }
     if lang == "csharp" {
         collect_sql_command_refs(source, &mut graph, context)?;
     }

@@ -1,6 +1,6 @@
 ---
 name: harness-setup
-description: Preparar el uso inicial de Harness con instalación, conexión MCP, sesión e índice inicial autorizado. No para lectura habitual ni mantenimiento rutinario del índice.
+description: Instalar o retirar Harness del proyecto, conectar MCP y preparar su uso inicial. No para lectura habitual ni mantenimiento rutinario del índice.
 ---
 
 # Preparar Harness
@@ -20,13 +20,20 @@ por el usuario o comprobada en el registro actual. No descargues binarios descon
 
 ## Configuración
 
-Solo si se pidió inicializar el proyecto, ejecuta
-`agent-harness init --root <ruta-absoluta>`. Instala skills, prepara la configuración
-faltante y genera `.agents/harness-mcp.example.json`; no registra el cliente MCP.
-`init` conserva configs JSON válidos: resuelve conflictos sin sobrescribirlos a ciegas.
+Solo si se pidió instalar en el proyecto, ejecuta `agent-harness init` desde su
+raíz, o `agent-harness init --root <ruta-absoluta>`. Instala las skills, configura
+los MCP locales de Codex y Antigravity y prepara el índice. Si ya existe, lo
+sincroniza sin borrarlo. Repetir `init` reanuda la instalación; no requiere flags
+adicionales. Conserva servidores ajenos, permisos, credenciales y archivos editados.
+
+`agent-harness uninstall` retira lo registrado en
+`.agents/harness-installation.json`, restaura archivos anteriores y elimina solo
+el índice creado por esa instalación. Conserva índices anteriores y archivos
+modificados; informa los conflictos. No elimina el binario compartido. Si el
+índice está en uso, cierra las conexiones MCP de ese proyecto antes de reintentar.
 
 Para conectar, identifica el cliente y su archivo real. Usa el comando y argumentos
-del ejemplo generado; conserva otros servidores, credenciales y permisos.
+registrada por `init`; conserva otros servidores, credenciales y permisos.
 La entrada stdio usa el ejecutable con `args: ["--root", "RUTA_ABSOLUTA"]`.
 No abras stdio en una terminal como sustituto de registrarlo en el cliente.
 

@@ -96,6 +96,18 @@ pub(crate) fn write_new_json(
     write_safe_file(root, Path::new(relative), &bytes, None)
 }
 
+/// Remove an unchanged, regular managed file; never a directory or linked entry.
+pub(crate) fn remove_safe_file(root: &Path, relative: &Path, expected: &str) -> Result<(), String> {
+    let Some(bytes) = read_safe_file(root, relative)? else {
+        return Ok(());
+    };
+    if harness_domain::hash(&bytes) != expected {
+        return Err(format!("modified file preserved: {}", relative.display()));
+    }
+    fs::remove_file(root.join(relative))
+        .map_err(|e| format!("cannot remove {}: {e}", relative.display()))
+}
+
 pub(crate) fn validate_relative(path: &Path) -> Result<(), String> {
     if path.as_os_str().is_empty()
         || path

@@ -12,6 +12,7 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
                 "selectedScopeApplied",
                 "sourceScopeApplied",
                 "warningFiles",
+                "indexArchive",
                 "discoveryComplete",
                 "uncheckedFiles",
                 "unsupportedChangedFiles",

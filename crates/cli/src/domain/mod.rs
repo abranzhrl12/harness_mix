@@ -51,6 +51,9 @@ pub enum Command {
         disable_auto: bool,
     },
     InitProject {
-        root: PathBuf,
+        root: Root,
+    },
+    UninstallProject {
+        root: Root,
     },
 }

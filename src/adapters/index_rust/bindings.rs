@@ -78,59 +78,96 @@ fn token_text(node: &SyntaxNode) -> String {
 
 pub(super) fn bindings(root: &SyntaxNode, context: &OperationContext) -> Result<Bindings, Failure> {
     let mut result = Bindings::default();
-    collect_bindings(root, true, context, &mut result)?;
+    collect_bindings(root, context, &mut result)?;
     Ok(result)
 }
 
 #[derive(Default)]
 pub(super) struct Bindings {
-    pub(super) names: BTreeSet<String>,
-    pub(super) imports: bool,
+    pub(super) imported_names: BTreeSet<String>,
+    pub(super) glob_import: bool,
+    pub(super) ambiguous_module_macro: bool,
 }
 
 fn collect_bindings(
     node: &SyntaxNode,
-    _root: bool,
     context: &OperationContext,
     out: &mut Bindings,
 ) -> Result<(), Failure> {
     context.check()?;
     for child in node.children() {
         context.check()?;
-        if child.kind() == SyntaxKind::MODULE {
+        if child.kind() == SyntaxKind::MODULE || child.kind() == SyntaxKind::FN {
             continue;
         }
         match child.kind() {
-            SyntaxKind::IDENT_PAT => {
-                if let Some(name) = ast::IdentPat::cast(child.clone()).and_then(|p| p.name()) {
-                    out.names.insert(name.text().to_string());
+            SyntaxKind::USE => {
+                for element in child.descendants_with_tokens() {
+                    let Some(token) = element.as_token() else {
+                        continue;
+                    };
+                    if token.text() == "*" {
+                        out.glob_import = true;
+                    } else if token.kind() == SyntaxKind::IDENT {
+                        out.imported_names.insert(token.text().to_string());
+                    }
                 }
             }
-            SyntaxKind::USE | SyntaxKind::MACRO_CALL | SyntaxKind::MACRO_RULES => {
-                out.imports = true
-            }
-            SyntaxKind::FN | SyntaxKind::CONST | SyntaxKind::STATIC
-                if child
-                    .parent()
-                    .is_some_and(|p| p.kind() == SyntaxKind::STMT_LIST) =>
-            {
-                let name = match child.kind() {
-                    SyntaxKind::FN => ast::Fn::cast(child.clone()).and_then(|item| item.name()),
-                    SyntaxKind::CONST => {
-                        ast::Const::cast(child.clone()).and_then(|item| item.name())
-                    }
-                    SyntaxKind::STATIC => {
-                        ast::Static::cast(child.clone()).and_then(|item| item.name())
-                    }
-                    _ => None,
-                };
-                if let Some(name) = name {
-                    out.names.insert(name.text().to_string());
+            SyntaxKind::MACRO_CALL => {
+                if !macro_is_expression_context(&child) {
+                    out.ambiguous_module_macro = true;
                 }
             }
             _ => {}
         }
-        collect_bindings(&child, false, context, out)?;
+        collect_bindings(&child, context, out)?;
     }
     Ok(())
+}
+
+pub(super) fn macro_is_expression_context(node: &SyntaxNode) -> bool {
+    for ancestor in node.ancestors().skip(1) {
+        match ancestor.kind() {
+            SyntaxKind::CALL_EXPR | SyntaxKind::METHOD_CALL_EXPR => return true,
+            SyntaxKind::LET_STMT => {
+                let in_initializer = ast::LetStmt::cast(ancestor.clone())
+                    .and_then(|statement| statement.initializer())
+                    .is_some_and(|initializer| {
+                        let range = initializer.syntax().text_range();
+                        range.start() <= node.text_range().start()
+                            && range.end() >= node.text_range().end()
+                    });
+                if in_initializer {
+                    return true;
+                }
+            }
+            SyntaxKind::RETURN_EXPR => {
+                let in_return_value = ast::ReturnExpr::cast(ancestor.clone())
+                    .and_then(|expression| expression.expr())
+                    .is_some_and(|value| {
+                        let range = value.syntax().text_range();
+                        range.start() <= node.text_range().start()
+                            && range.end() >= node.text_range().end()
+                    });
+                if in_return_value {
+                    return true;
+                }
+            }
+            SyntaxKind::MATCH_ARM => {
+                let in_arm_expression = ast::MatchArm::cast(ancestor.clone())
+                    .and_then(|arm| arm.expr())
+                    .is_some_and(|expression| {
+                        let range = expression.syntax().text_range();
+                        range.start() <= node.text_range().start()
+                            && range.end() >= node.text_range().end()
+                    });
+                if in_arm_expression {
+                    return true;
+                }
+            }
+            SyntaxKind::FN | SyntaxKind::STMT_LIST | SyntaxKind::MODULE => break,
+            _ => {}
+        }
+    }
+    false
 }

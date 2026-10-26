@@ -244,10 +244,15 @@ fn parses_project_init_with_an_explicit_root_in_either_position() {
     ] {
         assert!(matches!(
             parse_args(&args),
-            Ok(Command::InitProject { root }) if root == PathBuf::from("workspace")
+            Ok(Command::InitProject { root:Root::Explicit(root) }) if root == PathBuf::from("workspace")
         ));
     }
-    assert!(parse_args(&["init"]).is_err());
+    assert!(matches!(
+        parse_args(&["init"]),
+        Ok(Command::InitProject {
+            root: Root::DetectOrCurrent
+        })
+    ));
     assert!(parse_args(&["init", "--root", ""]).is_err());
     assert!(parse_args(&["--root", "", "init"]).is_err());
     assert!(parse_args(&["init", "--root", "w", "--root", "other"]).is_err());
@@ -332,4 +337,30 @@ fn preserves_help_version_and_parse_errors() {
             .unwrap(),
         "too many command-line arguments"
     );
+}
+
+#[test]
+fn uninstall_accepts_current_project_and_explicit_root_without_extra_flags() {
+    assert!(matches!(
+        parse_args(&["uninstall"]),
+        Ok(Command::UninstallProject {
+            root: Root::DetectOrCurrent
+        })
+    ));
+    for args in [
+        vec!["uninstall", "--root", "workspace"],
+        vec!["--root", "workspace", "uninstall"],
+    ] {
+        assert!(
+            matches!(parse_args(&args),Ok(Command::UninstallProject {root:Root::Explicit(path)}) if path==PathBuf::from("workspace"))
+        );
+    }
+    for args in [
+        vec!["uninstall", "--root"],
+        vec!["uninstall", "--root", ""],
+        vec!["uninstall", "--force"],
+        vec!["uninstall", "--root", "one", "--root", "two"],
+    ] {
+        assert!(parse_args(&args).is_err(), "{args:?}");
+    }
 }

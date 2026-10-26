@@ -24,6 +24,9 @@ use crate::{Command, index_progress::IndexProgressReporter, prepare_command, res
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IndexOperation {
     Initialize,
+    InitializeOwned {
+        owner: String,
+    },
     SyncWorkspace,
     Rebuild,
     Plan,
@@ -191,12 +194,46 @@ pub async fn run(
             }
         }
         Command::InitProject { root } => {
+            let root = installation_root(root)?;
             let executable = host.current_executable()?;
-            let report = skills_sync::initialize_project(&root, &executable)?;
+            let mut installation =
+                harness_skills::installation::Installation::begin(&root, &executable)?;
+            let fresh = installation.prepare_index()?;
+            if fresh {
+                let operation = match installation.index_owner() {
+                    Some(owner) => IndexOperation::InitializeOwned {
+                        owner: owner.to_owned(),
+                    },
+                    None => IndexOperation::Initialize,
+                };
+                run_index(host, operation, &root, 30)?;
+            }
+            let index = run_index(
+                host,
+                if fresh {
+                    IndexOperation::Rebuild
+                } else {
+                    IndexOperation::SyncWorkspace
+                },
+                &root,
+                900,
+            )?;
+            let mut report = installation.report();
+            report["index"] = index;
+            report["setupComplete"] =
+                serde_json::json!(workspace_sources_applied(&report["index"]));
             println!("{}", serde_json::to_string_pretty(&report)?);
-            if report.conflicts > 0 || report.errors > 0 {
+            if report["setupComplete"] != true {
+                return Err("project files installed; index incomplete, rerun init to resume (do not delete the index)".into());
+            }
+        }
+        Command::UninstallProject { root } => {
+            let root = installation_root(root)?;
+            let report = harness_skills::installation::uninstall(&root)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if report["complete"] != true {
                 return Err(
-                    "project initialization reported conflicts or errors; inspect the JSON report"
+                    "modified files were preserved; inspect preservedModified before continuing"
                         .into(),
                 );
             }
@@ -229,6 +266,15 @@ pub async fn run(
 
 // Successful source publication may still have honest partial-graph warnings.
 // Do not turn those warnings into a request to repeat the same rebuild.
+fn installation_root(root: crate::Root) -> Result<PathBuf, String> {
+    // Installing/removing a project must never be redirected by a stale
+    // editor workspace environment variable. Bare commands mean this directory.
+    match root {
+        crate::Root::Explicit(path) => Ok(path),
+        _ => std::env::current_dir().map_err(|e| e.to_string()),
+    }
+}
+
 fn workspace_sources_applied(report: &Value) -> bool {
     report["sourceScopeApplied"] == true || report["selectedScopeApplied"] == true
 }
@@ -272,7 +318,7 @@ fn print_help() {
         "Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n"
     );
     println!(
-        "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init --root <proyecto> Preparar skills, config local y ejemplo MCP del proyecto\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
+        "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init [--root <proyecto>] Instalar skills, MCP locales e índice del proyecto\n  uninstall [--root <proyecto>] Retirar la instalación registrada, preservando archivos ajenos\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
     );
     println!(
         "\nConfiguración opcional: --init-config crea .agents/harness.config.json sin sobrescribir. SQL funciona sin JSON usando una cadena en .env o variables de entorno."

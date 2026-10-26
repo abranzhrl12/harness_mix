@@ -12,6 +12,36 @@ pub(super) struct NativeWorkspace<'a> {
 }
 
 impl<'a> NativeWorkspace<'a> {
+    pub(super) fn assess_archive(&mut self, report: &mut Value, context: &OperationContext) {
+        #[cfg(windows)]
+        {
+            let assessment = (|| {
+                context.check()?;
+                if self.writer.is_none() {
+                    self.writer = Some(writer::Writer::open(&self.project, context)?);
+                }
+                quarantine::coverage(&self.writer.as_ref().ok_or(INDEX)?.db, None, None)
+            })();
+            match assessment {
+                Ok(coverage) => {
+                    quarantine::annotate(report, &coverage, false);
+                    if coverage.pending > 0 {
+                        report["selectedScopeApplied"] = json!(false);
+                    }
+                }
+                Err((code, message)) => {
+                    // Preserve confirmed per-file commits even if the final
+                    // read fails. Unknown coverage must not become success.
+                    report["selectedScopeApplied"] = json!(false);
+                    report["graphStatus"] = json!("unknown");
+                    report["archiveAssessment"] = json!({"code":code,"message":message});
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = (report, context);
+    }
+
     pub(super) fn new(root: &'a Path) -> Result<Self, Failure> {
         Ok(Self {
             root,
@@ -40,7 +70,32 @@ impl WorkspacePort for NativeWorkspace<'_> {
     }
     fn plan(&mut self, context: &OperationContext) -> Result<Value, Failure> {
         sync_diagnostic::stage("plan_workspace");
-        index_sync::plan_workspace_for_sync(self.root, context)
+        let mut plan = index_sync::plan_workspace_for_sync(self.root, context)?;
+        #[cfg(windows)]
+        {
+            context.check()?;
+            if self.writer.is_none() {
+                self.writer = Some(writer::Writer::open(&self.project, context)?);
+            }
+            let db = &self.writer.as_ref().ok_or(INDEX)?.db;
+            validate_schema(db)?;
+            let outdated = versioning::outdated(db)?;
+            let unchanged = plan["plan"]["unchanged"].as_array_mut().ok_or(INDEX)?;
+            let mut refresh = Vec::new();
+            unchanged.retain(|path| {
+                if path.as_str().is_some_and(|path| outdated.contains(path)) {
+                    refresh.push(path.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            plan["plan"]["retryExtraction"]
+                .as_array_mut()
+                .ok_or(INDEX)?
+                .extend(refresh);
+        }
+        Ok(plan)
     }
     fn language(&self, path: &str) -> Option<&'static str> {
         index_extract::language(path)
