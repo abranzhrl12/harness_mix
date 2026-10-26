@@ -3,18 +3,17 @@
 use std::path::{Path, PathBuf};
 
 use agent_harness::adapters::{
-    agent::AntigravityLauncher,
-    database_setup,
-    index_store,
-    index_sync,
+    agent::AntigravityLauncher, database_setup, index_store, index_sync,
 };
-use harness_application::{
-    agent::{ActiveAgent, AgentConfiguration},
-};
+use harness_application::agent::{ActiveAgent, AgentConfiguration};
 use harness_cli::commands::{
     AgentHost, DatabaseHost, ExecutableHost, IndexHost, IndexOperation, ServerHost,
 };
-use harness_domain::{agent::{ActiveAgentRequest, AgentProvider}, execution::OperationContext, Failure};
+use harness_domain::{
+    Failure,
+    agent::{ActiveAgentRequest, AgentProvider},
+    execution::OperationContext,
+};
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -24,7 +23,6 @@ impl DatabaseHost for AgentHarnessHost {
     fn initialize_database(&self, root: &Path) -> Result<Value, String> {
         database_setup::initialize(root).map_err(|(code, message)| format!("{code}: {message}"))
     }
-
 }
 
 impl IndexHost for AgentHarnessHost {
@@ -36,11 +34,20 @@ impl IndexHost for AgentHarnessHost {
     ) -> Result<Value, Failure> {
         match operation {
             IndexOperation::Initialize => index_store::initialize(root, context),
+            IndexOperation::InitializeOwned { owner } => {
+                index_store::initialize_owned(root, &owner, context)
+            }
             IndexOperation::SyncWorkspace => index_store::sync_workspace_all(root, context),
             IndexOperation::Rebuild => index_store::rebuild_workspace(root, context),
             IndexOperation::Plan => index_sync::plan_workspace(root, context),
-            IndexOperation::SyncFile { relative, tsconfig, force } => match tsconfig {
-                Some(config) => index_store::sync_file_with_tsconfig(root, &relative, &config, context),
+            IndexOperation::SyncFile {
+                relative,
+                tsconfig,
+                force,
+            } => match tsconfig {
+                Some(config) => {
+                    index_store::sync_file_with_tsconfig(root, &relative, &config, context)
+                }
                 None if force => index_store::sync_file_forced(root, &relative, context),
                 None => index_store::sync_file(root, &relative, context),
             },
@@ -50,7 +57,6 @@ impl IndexHost for AgentHarnessHost {
     fn take_sync_diagnostic(&self, code: &str, message: &str) -> Option<Value> {
         index_store::take_sync_diagnostic(code, message)
     }
-
 }
 
 impl AgentHost for AgentHarnessHost {
@@ -68,12 +74,14 @@ impl AgentHost for AgentHarnessHost {
             _ => return Err("proveedor no soportado".into()),
         };
         ActiveAgent::execute(
-            ActiveAgentRequest { provider, workspace: root.to_path_buf() },
+            ActiveAgentRequest {
+                provider,
+                workspace: root.to_path_buf(),
+            },
             &AntigravityLauncher,
         )
         .map_err(|error| error.to_string())
     }
-
 }
 
 impl ExecutableHost for AgentHarnessHost {
@@ -90,8 +98,12 @@ impl ServerHost for AgentHarnessHost {
         persist_logs: bool,
     ) -> Result<(), String> {
         match (root, workspace_config) {
-            (Some(root), None) => agent_harness::transport::serve_with_logging(root, persist_logs).await,
-            (None, Some(config)) => agent_harness::transport::serve_with_workspace_config(config, persist_logs).await,
+            (Some(root), None) => {
+                agent_harness::transport::serve_with_logging(root, persist_logs).await
+            }
+            (None, Some(config)) => {
+                agent_harness::transport::serve_with_workspace_config(config, persist_logs).await
+            }
             _ => Err("exactly one serving configuration must be provided".into()),
         }
         .map_err(|error| error.to_string())

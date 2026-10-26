@@ -194,7 +194,9 @@ fn full_sync_processes_more_than_32_files_with_bounded_report() {
     assert_eq!(report["nativeFilesRemaining"], 0);
     assert_eq!(report["fileReportsOmitted"], 3);
     assert_eq!(report["files"].as_array().unwrap().len(), 32);
-    assert_eq!(report["files"][0]["writerConnectionReused"], false);
+    // The planner now opens/pins the writer to inspect resolver versions, so
+    // the very first publication reuses that connection too.
+    assert_eq!(report["files"][0]["writerConnectionReused"], true);
     assert!(
         report["files"].as_array().unwrap()[1..]
             .iter()

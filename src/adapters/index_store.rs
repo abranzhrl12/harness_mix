@@ -35,7 +35,10 @@ use self::repository::insert_ref;
 
 #[path = "index_store/publication.rs"]
 mod publication;
+#[path = "index_store/versioning.rs"]
+mod versioning;
 use self::publication::publish;
+pub(crate) use self::publication::quarantine;
 
 #[path = "index_store/resolution.rs"]
 mod resolution;
@@ -65,7 +68,7 @@ mod batches;
 
 #[path = "index_init.rs"]
 mod initialization;
-pub use initialization::initialize;
+pub use initialization::{initialize,initialize_owned};
 
 #[path = "index_scope.rs"]
 pub(crate) mod scope;
@@ -201,7 +204,9 @@ fn sync_workspace_with_limit(
     rebuild: bool,
 ) -> Result<Value, Failure> {
     let mut port = workspace::NativeWorkspace::new(root)?;
-    harness_application::indexing::workspace::sync_workspace(&mut port, context, max_files, rebuild)
+    let mut report = harness_application::indexing::workspace::sync_workspace(&mut port, context, max_files, rebuild)?;
+    port.assess_archive(&mut report, context);
+    Ok(report)
 }
 
 /// Consume contextual SQLite/index diagnostics for CLI and workspace reports.

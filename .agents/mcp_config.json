@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "harness": {
+      "command": "E:/harness_mix/target/release/agent-harness.exe",
+      "args": ["--root", "E:/harness_mix"]
+    }
+  }
+}

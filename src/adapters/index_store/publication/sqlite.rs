@@ -102,9 +102,17 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional())?;
-        if plan::is_unchanged(record.as_ref(), bytes, config_changed, force, hash) {
+        let proof_current = self.language != "rust" || super::super::versioning::current(db, path)?;
+        if proof_current && plan::is_unchanged(record.as_ref(), bytes, config_changed, force, hash)
+        {
+            let mut report = model::PublicationReport::unchanged(path);
+            super::quarantine::annotate(
+                &mut report,
+                &super::quarantine::coverage(db, Some(path), None)?,
+                false,
+            );
             return Ok(Some((
-                model::PublicationReport::unchanged(path),
+                report,
                 imports::Sources::configured(self.configuration.take().ok_or(INDEX)?),
             )));
         }
@@ -119,8 +127,12 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
                 if let Some(result) = prepared.take().and_then(|value| value.consume(bytes)) {
                     return result;
                 }
-                let text = harness_domain::encoding::decode_source(bytes)
-                    .map_err(|_| ("ENCODING", "Source cannot be decoded as UTF-8 or Windows-1252"))?;
+                let text = harness_domain::encoding::decode_source(bytes).map_err(|_| {
+                    (
+                        "ENCODING",
+                        "Source cannot be decoded as UTF-8 or Windows-1252",
+                    )
+                })?;
                 index_extract::extract(path, text.as_ref(), context)
             })
             .transpose()?;
@@ -145,34 +157,12 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         } else {
             None
         };
-        // Provider-owned framework nodes (routes, components) and the edges the
-        // provider synthesized around them cannot be reproduced by the native
-        // extractor. The publication keeps them and writes the native nodes of
-        // this file next to them. Only provider data that the native publisher
-        // cannot reproduce at all still blocks the transaction.
+        // Archive incompatible derived edges before capturing incoming/provider
+        // edges, so restore cannot accidentally republish stale synthesis.
+        // This runs inside the publication transaction: later failures roll back
+        // both the invalidation and all source changes.
+        super::quarantine::invalidate(db, path, context)?;
         let provider_ids: BTreeSet<String> = provider_node_ids(db, path)?;
-        let synthesized:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE (source IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%')) OR target IN(SELECT id FROM nodes WHERE file_path=?1 AND (kind NOT IN('route','component') OR id LIKE 'native:framework:%'))) AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') IS NOT NULL ELSE 0 END)",[path],|r|r.get(0)))?;
-        let third_file:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM edges WHERE CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.synthesizedBy') END IS NOT NULL AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END >= ?1 AND CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.registeredAt') END < ?2)",params![format!("{path}:"),format!("{path};")],|r|r.get(0)))?;
-        let synthesis_table:bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synthesis_inputs' AND upper(sql) LIKE 'CREATE TABLE%')",[],|r|r.get(0)))?;
-        let _prior_synthesis_input = if synthesis_table {
-            sql(db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM synthesis_inputs WHERE file_path=?1)",
-                [path],
-                |r| r.get::<_, bool>(0),
-            ))?
-        } else {
-            false
-        };
-        // A file the provider listed as a synthesis input can still be published
-        // natively: its provider nodes and edges are preserved and the recorded
-        // input stays, so the provider can synthesize again. Only a provider
-        // relation that points at the native nodes of this file blocks it.
-        if synthesized || third_file {
-            return Err((
-                "SYNC_UNSUPPORTED_RELATION",
-                "Affected framework/synthesized graph data requires the provider resolver; index unchanged",
-            ));
-        }
         // Provider nodes and their edges survive the publication.
         let provider_edges: Vec<ProviderEdge> = provider_edges(db, path)?;
         let prior = identities(db, path)?;
@@ -253,7 +243,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         )?;
         Ok(WrittenGraph {
             node_count: graph_write.node_count,
-            duplicate_nodes: prepared_graph.as_ref().map_or(0, |graph| graph.duplicate_nodes),
+            duplicate_nodes: prepared_graph
+                .as_ref()
+                .map_or(0, |graph| graph.duplicate_nodes),
             refs: graph_write.refs,
             provider_kept: 0,
             provider_dropped: 0,
@@ -447,6 +439,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         _: &OperationContext,
     ) -> Result<(), Failure> {
         let (db, now, import_sources) = (self.db, captured.now, &resolution.import_sources);
+        if self.language == "rust" {
+            super::super::versioning::record(db, self.path, self.bytes.is_some(), now)?;
+        }
         if import_sources.config.digest.is_some()
             || import_sources
                 .config
@@ -538,6 +533,11 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         if duplicate_nodes > 0 {
             report["duplicateNodesMerged"] = json!(duplicate_nodes);
         }
+        super::quarantine::annotate(
+            &mut report,
+            &super::quarantine::coverage(self.db, Some(path), None)?,
+            false,
+        );
         if std::env::var("HARNESS_INDEX_PROFILE").as_deref() == Ok("1") {
             report["retryMemoNames"] = json!(retry_memo.retained_names());
             report["retryMemoDataVersion"] = json!(retry_memo.data_version());

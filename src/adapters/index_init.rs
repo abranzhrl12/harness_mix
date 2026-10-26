@@ -7,7 +7,7 @@ pub fn initialize(root: &Path, context: &OperationContext) -> Result<Value, Fail
     context.check()?;
     #[cfg(windows)]
     {
-        initialize_windows(root, context)
+        initialize_windows(root, context, None)
     }
     #[cfg(not(windows))]
     {
@@ -19,8 +19,37 @@ pub fn initialize(root: &Path, context: &OperationContext) -> Result<Value, Fail
     }
 }
 
+/// Continue the exclusive namespace claim made by the project installer.
+/// Only its unchanged marker may exist: never overwrite an existing database.
+pub fn initialize_owned(
+    root: &Path,
+    owner: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    context.check()?;
+    if uuid::Uuid::parse_str(owner).is_err() {
+        return Err(("INIT_OWNER", "Invalid installation index owner"));
+    }
+    #[cfg(windows)]
+    {
+        initialize_windows(root, context, Some(owner))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (root, owner);
+        Err((
+            "SYNC_PLATFORM",
+            "Native index initialization currently requires Windows",
+        ))
+    }
+}
+
 #[cfg(windows)]
-fn initialize_windows(root: &Path, context: &OperationContext) -> Result<Value, Failure> {
+fn initialize_windows(
+    root: &Path,
+    context: &OperationContext,
+    owner: Option<&str>,
+) -> Result<Value, Failure> {
     use std::{fs::File, os::windows::fs::OpenOptionsExt};
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
     sync_diagnostic::begin(
@@ -32,16 +61,35 @@ fn initialize_windows(root: &Path, context: &OperationContext) -> Result<Value, 
     let directory = project.target_optional(".codegraph")?;
     // create_dir (not create_dir_all) is our exclusive claim. Refuse even an
     // empty existing directory, dangling link, old index, or interrupted init.
-    std::fs::create_dir(&directory).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            (
-                "INIT_EXISTS",
-                "Index directory already exists; initialization never overwrites it",
-            )
-        } else {
-            ("INIT_IO", "Cannot create index directory")
+    if let Some(owner) = owner {
+        let _pins = super::super::edit_commit::pin_directory(&project, &directory)?;
+        let marker = project.bytes_with_limit(".codegraph/.harness-owner", context, 128)?;
+        if marker != owner.as_bytes() {
+            return Err((
+                "INIT_OWNER",
+                "Installation index owner changed; directory preserved",
+            ));
         }
-    })?;
+        let mut entries = std::fs::read_dir(&directory).map_err(|_| INDEX)?;
+        let first = entries.next().transpose().map_err(|_| INDEX)?;
+        if first.is_none_or(|e| e.file_name() != ".harness-owner") || entries.next().is_some() {
+            return Err((
+                "INIT_EXISTS",
+                "Owned index namespace is not empty; existing files preserved",
+            ));
+        }
+    } else {
+        std::fs::create_dir(&directory).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                (
+                    "INIT_EXISTS",
+                    "Index directory already exists; initialization never overwrites it",
+                )
+            } else {
+                ("INIT_IO", "Cannot create index directory")
+            }
+        })?;
+    }
     let initialize = || {
         let _pins = super::super::edit_commit::pin_directory(&project, &directory)?;
         let path = project.target_optional(".codegraph/codegraph.db")?;

@@ -1011,7 +1011,7 @@ fn unchanged_sources_do_not_clear_provider_stamps_or_rebuild_graphs() {
 }
 
 #[test]
-fn synthesized_graph_edges_block_unsupported_rewrites() {
+fn synthesized_graph_edges_are_archived_without_blocking_source_updates() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
     fs::write(
@@ -1022,20 +1022,268 @@ fn synthesized_graph_edges_block_unsupported_rewrites() {
     sync(root.path(), "a.rs");
     db(root.path()).execute_batch("INSERT INTO edges(source,target,kind,metadata) SELECT a.id,b.id,'calls','{\"synthesizedBy\":\"framework\"}' FROM nodes a,nodes b WHERE a.name='first' AND b.name='second'").unwrap();
     fs::write(root.path().join("a.rs"), "pub fn renamed() {}\n").unwrap();
-    assert_eq!(
-        sync_file(root.path(), "a.rs", &OperationContext::default())
-            .unwrap_err()
-            .0,
-        "SYNC_UNSUPPORTED_RELATION"
-    );
+    let published = sync(root.path(), "a.rs");
+    assert_eq!(published["committed"], true, "{published}");
+    assert!(published.get("graphStatus").is_none(), "{published}");
+    assert_eq!(published["indexArchive"]["obsolete"], 1);
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM nodes WHERE name='first'"),
+        0
+    );
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+        0
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE name='renamed'"
+        ),
         1
     );
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM native_invalidated_edges"),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM native_invalidated_edges WHERE json_extract(snapshot,'$.metadata') LIKE '%framework%' AND json_extract(snapshot,'$.sourceHash') IS NOT NULL"
+        ),
+        1
+    );
+    let unchanged = sync(root.path(), "a.rs");
+    assert_eq!(unchanged["changed"], false);
+    assert!(unchanged.get("graphStatus").is_none());
+    assert_eq!(unchanged["indexArchive"]["obsolete"], 1);
+    for _ in 0..2 {
+        let rebuilt = agent_harness::adapters::index_store::rebuild_workspace(
+            root.path(),
+            &OperationContext::default(),
+        )
+        .unwrap();
+        assert_eq!(rebuilt["providerDependentFiles"], 0, "{rebuilt}");
+        assert_eq!(rebuilt["failedFiles"], 0, "{rebuilt}");
+        assert_eq!(rebuilt["sourceScopeApplied"], true, "{rebuilt}");
+        assert_eq!(rebuilt["selectedScopeApplied"], true, "{rebuilt}");
+    }
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM native_invalidated_edges"),
+        1
+    );
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    let result = app.execute(harness_domain::contracts::Request::Explore(serde_json::from_value(
+        serde_json::json!({"symbol":"renamed","filePath":"a.rs","view":"summary","syncIndex":false})
+    ).unwrap()));
+    assert!(result["data"].get("graphStatus").is_none(), "{result}");
+    let synchronized = app.execute(harness_domain::contracts::Request::Explore(serde_json::from_value(
+        serde_json::json!({"symbol":"renamed","filePath":"a.rs","view":"summary","syncIndex":true})
+    ).unwrap()));
+    assert_eq!(
+        synchronized["data"]["focus"]["status"], "resolved",
+        "{synchronized}"
+    );
+    assert!(synchronized["data"].get("graphStatus").is_none());
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-harness"))
+        .arg("--root")
+        .arg(root.path())
+        .args(["--index", "rebuild"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["sourceScopeApplied"], true);
+    assert_eq!(report["selectedScopeApplied"], true);
+    assert_eq!(report["warningFiles"], 0);
+    // A cleaned-up legacy index and a new index must agree on the active graph;
+    // keeping audit history must not create perpetual coverage debt.
+    let clean = tempfile::tempdir().unwrap();
+    fixture(clean.path());
+    fs::write(clean.path().join("a.rs"), "pub fn renamed() {}\n").unwrap();
+    sync(clean.path(), "a.rs");
+    fn canonical(root: &Path) -> Vec<(String, String, String)> {
+        let db = db(root);
+        let mut statement = db.prepare("SELECT file_path,kind,qualified_name FROM nodes
+            UNION ALL SELECT s.file_path || ':' || s.qualified_name,e.kind,t.file_path || ':' || t.qualified_name
+            FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target
+            ORDER BY 1,2,3").unwrap();
+        statement
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+    assert_eq!(canonical(root.path()), canonical(clean.path()));
+}
+
+#[test]
+fn pending_archive_is_scoped_and_survives_a_no_change_workspace_sync() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(
+        root.path().join("a.rs"),
+        "pub fn first() {}\npub fn second() {}\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("other.rs"), "pub fn unrelated() {}\n").unwrap();
+    sync(root.path(), "a.rs");
+    sync(root.path(), "other.rs");
+    db(root.path()).execute_batch("INSERT INTO edges(source,target,kind,metadata) SELECT a.id,b.id,'calls','{\"synthesizedBy\":\"framework\"}' FROM nodes a,nodes b WHERE a.name='first' AND b.name='second'").unwrap();
+    let published = agent_harness::adapters::index_store::sync_file_forced(
+        root.path(),
+        "a.rs",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(published["indexArchive"]["pending"], 1);
+    let no_change = agent_harness::adapters::index_store::sync_workspace_all(
+        root.path(),
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(no_change["sourceScopeApplied"], true);
+    assert_eq!(no_change["selectedScopeApplied"], false, "{no_change}");
+    assert_eq!(no_change["indexArchive"]["pending"], 1);
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    for (file, name, partial) in [("a.rs", "first", true), ("other.rs", "unrelated", false)] {
+        let result = app.execute(harness_domain::contracts::Request::Explore(serde_json::from_value(
+            serde_json::json!({"symbol":name,"filePath":file,"view":"summary","syncIndex":false})
+        ).unwrap()));
+        assert_eq!(
+            result["data"]["graphStatus"] == "partial",
+            partial,
+            "{result}"
+        );
+    }
+}
+
+#[test]
+fn resolver_upgrade_refreshes_unchanged_sources_once_without_rebuild() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(
+        root.path().join("a.rs"),
+        "pub fn first() {}\npub fn caller() { first(); }\n",
+    )
+    .unwrap();
+    sync(root.path(), "a.rs");
+    // Simulate an index produced by the previous native resolver. The source
+    // hash remains identical; a normal authorized sync must refresh its proofs.
+    db(root.path())
+        .execute_batch(
+            "DELETE FROM project_metadata WHERE key LIKE 'native_rust_proof:%';
+        DELETE FROM edges WHERE kind='calls';",
+        )
+        .unwrap();
+    let upgraded = agent_harness::adapters::index_store::sync_workspace_all(
+        root.path(),
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(upgraded["changedFilesCommitted"], 1, "{upgraded}");
     assert_eq!(
         count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
         1
     );
+    let unchanged = agent_harness::adapters::index_store::sync_workspace_all(
+        root.path(),
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(unchanged["changedFilesCommitted"], 0, "{unchanged}");
+    assert_eq!(unchanged["failedFiles"], 0);
+}
+
+#[test]
+fn local_trait_implementation_replaces_legacy_calls_without_losing_audit_history() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    let source = "trait Render { fn draw(&self); }\nstruct Card;\nimpl Render for Card { fn draw(&self) {} }\n";
+    fs::write(root.path().join("a.rs"), source).unwrap();
+    sync(root.path(), "a.rs");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges WHERE kind='implements' AND json_extract(metadata,'$.resolvedBy')='rust-local-trait-impl-v1'"
+        ),
+        1
+    );
+    db(root.path()).execute_batch("UPDATE edges SET kind='calls',metadata='{\"synthesizedBy\":\"interface-impl\"}' WHERE kind='implements' AND json_extract(metadata,'$.resolvedBy')='rust-local-trait-impl-v1'").unwrap();
+    let restored = agent_harness::adapters::index_store::sync_file_forced(
+        root.path(),
+        "a.rs",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(restored["indexArchive"]["superseded"], 1, "{restored}");
+    assert_eq!(restored["indexArchive"]["pending"], 0);
+    assert!(restored.get("graphStatus").is_none());
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+        0
+    );
+    for _ in 0..2 {
+        let report = agent_harness::adapters::index_store::rebuild_workspace(
+            root.path(),
+            &OperationContext::default(),
+        )
+        .unwrap();
+        assert_eq!(report["selectedScopeApplied"], true, "{report}");
+        assert_eq!(
+            count(
+                root.path(),
+                "SELECT count(*) FROM edges WHERE kind='implements' AND json_extract(metadata,'$.resolvedBy')='rust-local-trait-impl-v1'"
+            ),
+            1
+        );
+    }
+    assert_eq!(
+        count(root.path(), "SELECT count(*) FROM native_invalidated_edges"),
+        1
+    );
+    let clean = tempfile::tempdir().unwrap();
+    fixture(clean.path());
+    fs::write(clean.path().join("a.rs"), source).unwrap();
+    sync(clean.path(), "a.rs");
+    let query = "SELECT s.qualified_name,e.kind,t.qualified_name FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target ORDER BY 1,2,3";
+    let relationships = |path: &Path| {
+        let connection = db(path);
+        let mut statement = connection.prepare(query).unwrap();
+        statement
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    assert_eq!(relationships(root.path()), relationships(clean.path()));
+}
+
+#[test]
+fn unrelated_import_and_expression_macro_do_not_hide_a_local_call() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("a.rs"), "use std::collections::BTreeMap;\nfn explore_inner() {}\nfn explore() { let _payload = serde_json::json!({\"ok\":true}); explore_inner(); }\n").unwrap();
+    sync(root.path(), "a.rs");
+    let query = "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND s.name='explore' AND t.name='explore_inner'";
+    assert_eq!(count(root.path(), query), 1);
+    for _ in 0..2 {
+        agent_harness::adapters::index_store::rebuild_workspace(
+            root.path(),
+            &OperationContext::default(),
+        )
+        .unwrap();
+        assert_eq!(count(root.path(), query), 1);
+    }
 }
 
 #[test]
@@ -1068,11 +1316,12 @@ fn third_file_wiring_and_recorded_synthesis_inputs_are_preserved() {
     }
     db(root.path()).execute_batch("INSERT INTO edges(source,target,kind,metadata) SELECT a.id,b.id,'calls','{\"synthesizedBy\":\"callback\",\"registeredAt\":\"wiring.rs:1\"}' FROM nodes a,nodes b WHERE a.name='first' AND b.name='second'").unwrap();
     fs::write(root.path().join("wiring.rs"), "pub fn changed() {}\n").unwrap();
+    let updated = sync(root.path(), "wiring.rs");
+    assert_eq!(updated["committed"], true, "{updated}");
+    assert_eq!(updated["warnings"][0]["pendingRelations"], 1);
     assert_eq!(
-        sync_file(root.path(), "wiring.rs", &OperationContext::default())
-            .unwrap_err()
-            .0,
-        "SYNC_UNSUPPORTED_RELATION"
+        count(root.path(), "SELECT count(*) FROM edges WHERE kind='calls'"),
+        0
     );
     let connection = db(root.path());
     connection
@@ -1082,6 +1331,7 @@ fn third_file_wiring_and_recorded_synthesis_inputs_are_preserved() {
         .execute("INSERT INTO synthesis_inputs VALUES('wiring.rs')", [])
         .unwrap();
     drop(connection);
+    fs::write(root.path().join("wiring.rs"), "pub fn changed_again() {}\n").unwrap();
     // A recorded synthesis input can be published natively: the recorded input
     // and the provider data survive the publication.
     let published = sync_file(root.path(), "wiring.rs", &OperationContext::default()).unwrap();
@@ -1089,7 +1339,7 @@ fn third_file_wiring_and_recorded_synthesis_inputs_are_preserved() {
     assert_eq!(
         count(
             root.path(),
-            "SELECT count(*) FROM nodes WHERE name='changed'"
+            "SELECT count(*) FROM nodes WHERE name='changed_again'"
         ),
         1
     );

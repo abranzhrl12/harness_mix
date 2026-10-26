@@ -10,6 +10,9 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
         Ok(value) => {
             for key in [
                 "selectedScopeApplied",
+                "sourceScopeApplied",
+                "warningFiles",
+                "indexArchive",
                 "discoveryComplete",
                 "uncheckedFiles",
                 "unsupportedChangedFiles",
@@ -26,6 +29,9 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
             if let Some(failure) = value.get("failure").filter(|v| !v.is_null()) {
                 report["failure"] = failure.clone();
             }
+            if let Some(warnings) = value["warnings"].as_array() {
+                report["warnings"] = json!(warnings.iter().take(32).collect::<Vec<_>>());
+            }
             report["complete"] = json!(
                 value["selectedScopeApplied"] == true
                     && report["failure"].is_null()
@@ -39,7 +45,13 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
             report["failure"] = json!({"code":code,"message":message});
         }
     }
-    if report["complete"] != true {
+    let sources_applied = report["sourceScopeApplied"] == true
+        && report["failure"].is_null()
+        && (!full
+            || (report["discoveryComplete"] == true
+                && report["uncheckedFiles"] == 0
+                && report["unsupportedChangedFiles"] == 0));
+    if report["complete"] != true && !sources_applied {
         let code = report["failure"]["code"]
             .as_str()
             .unwrap_or("SYNC_INCOMPLETE");
@@ -65,6 +77,9 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
         report["retryable"] = json!(retryable);
     } else {
         report["lastError"] = Value::Null;
+        if report["complete"] != true {
+            report["graphStatus"] = json!("partial");
+        }
     }
     report
 }

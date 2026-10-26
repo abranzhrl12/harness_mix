@@ -1,12 +1,12 @@
 //! Call candidates preserve the existing no-receiver/type-guessing policy.
 use super::{
-    bindings::{Bindings, only_doc_attrs},
+    bindings::{Bindings, macro_is_expression_context, only_doc_attrs},
     position,
 };
 use harness_domain::{Failure, execution::OperationContext};
 use ra_ap_syntax::{
     SyntaxKind, SyntaxNode,
-    ast::{self, AstNode},
+    ast::{self, AstNode, HasName},
 };
 use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn visit_calls(
@@ -55,9 +55,20 @@ pub(super) fn visit_calls(
                                 if !path_text.starts_with("::") {
                                     let parts = path_parts(path);
                                     if let Some(first) = parts.first() {
-                                        if !bindings.names.contains(first)
-                                            && (parts.len() > 1
-                                                || (!bindings.imports && functions.contains(first)))
+                                        let fallback_is_unshadowed = if parts.len() > 1 {
+                                            true
+                                        } else {
+                                            let (local_name, local_glob, local_macro) =
+                                                local_scope_state(&path_expr.syntax(), first);
+                                            !bindings.imported_names.contains(first)
+                                                && !bindings.glob_import
+                                                && !bindings.ambiguous_module_macro
+                                                && !local_name
+                                                && !local_glob
+                                                && !local_macro
+                                        };
+                                        if fallback_is_unshadowed
+                                            && (parts.len() > 1 || functions.contains(first))
                                         {
                                             let at = usize::from(
                                                 path_expr.syntax().text_range().start(),
@@ -80,6 +91,75 @@ pub(super) fn visit_calls(
         )?;
     }
     Ok(())
+}
+
+fn local_scope_state(node: &SyntaxNode, name: &str) -> (bool, bool, bool) {
+    let Some(function) = node
+        .ancestors()
+        .find(|ancestor| ancestor.kind() == SyntaxKind::FN)
+    else {
+        return (false, false, false);
+    };
+
+    let mut shadowed = false;
+    let mut glob_import = false;
+    let mut ambiguous_macro = false;
+    // This union is intentionally broader than lexical Rust scopes. It can
+    // suppress a sibling-block fallback, but never treats an uncertain local
+    // binding as proof of a project target.
+    for descendant in function.descendants() {
+        match descendant.kind() {
+            SyntaxKind::FN => {
+                if ast::Fn::cast(descendant.clone())
+                    .and_then(|item| item.name())
+                    .is_some_and(|binding| binding.text() == name)
+                {
+                    shadowed = true;
+                }
+            }
+            SyntaxKind::CONST => {
+                if ast::Const::cast(descendant.clone())
+                    .and_then(|item| item.name())
+                    .is_some_and(|binding| binding.text() == name)
+                {
+                    shadowed = true;
+                }
+            }
+            SyntaxKind::STATIC => {
+                if ast::Static::cast(descendant.clone())
+                    .and_then(|item| item.name())
+                    .is_some_and(|binding| binding.text() == name)
+                {
+                    shadowed = true;
+                }
+            }
+            SyntaxKind::IDENT_PAT => {
+                if ast::IdentPat::cast(descendant.clone())
+                    .and_then(|pattern| pattern.name())
+                    .is_some_and(|binding| binding.text() == name)
+                {
+                    shadowed = true;
+                }
+            }
+            SyntaxKind::USE => {
+                for element in descendant.descendants_with_tokens() {
+                    let Some(token) = element.as_token() else {
+                        continue;
+                    };
+                    if token.text() == "*" {
+                        glob_import = true;
+                    } else if token.kind() == SyntaxKind::IDENT && token.text() == name {
+                        shadowed = true;
+                    }
+                }
+            }
+            SyntaxKind::MACRO_CALL if !macro_is_expression_context(&descendant) => {
+                ambiguous_macro = true;
+            }
+            _ => {}
+        }
+    }
+    (shadowed, glob_import, ambiguous_macro)
 }
 
 fn has_qualified_self(node: &SyntaxNode) -> bool {

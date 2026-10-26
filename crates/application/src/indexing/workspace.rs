@@ -132,8 +132,12 @@ pub fn sync_workspace<P: WorkspacePort>(
                 if let Some(file_warnings) = result["warnings"].as_array() {
                     warning_files += result["warningFiles"]
                         .as_u64()
-                        .unwrap_or(file_warnings.len() as u64) as usize;
-                    for warning in file_warnings.iter().take(32usize.saturating_sub(warnings.len())) {
+                        .unwrap_or(file_warnings.len() as u64)
+                        as usize;
+                    for warning in file_warnings
+                        .iter()
+                        .take(32usize.saturating_sub(warnings.len()))
+                    {
                         warnings.push(warning.clone());
                     }
                 }
@@ -239,7 +243,8 @@ pub fn sync_workspace<P: WorkspacePort>(
             failure = Some(entry);
         }
     }
-    let native_complete = failure.is_none() && processed == total && warning_files == 0;
+    let source_scope_applied = failure.is_none() && processed == total;
+    let native_complete = source_scope_applied && warning_files == 0;
     let finalization_micros = finalization_started.elapsed().as_micros();
     let mut report = json!({"mode":"sync_native_subset","rebuild":rebuild,"files":results,"failure":failure,"warnings":warnings,"scope":scope,
         "changedFilesCommitted":changed,"nativeCandidates":total,"nativeFilesRemaining":total.saturating_sub(processed).saturating_sub(provider_dependent),
@@ -248,7 +253,7 @@ pub fn sync_workspace<P: WorkspacePort>(
         "indexingDurationMs":started.elapsed().as_millis(),
         "durationMs":operation_started.elapsed().as_millis(),
         "filesProcessed":processed,"fileReportsOmitted":(processed+failed+provider_dependent).saturating_sub(results.len()),"fileReportLimit":32,
-        "maxFiles":max_files,"selectedScopeApplied":native_complete,"workspaceTransactionAtomic":false,
+        "maxFiles":max_files,"selectedScopeApplied":native_complete,"sourceScopeApplied":source_scope_applied,"workspaceTransactionAtomic":false,
         "unsupportedChangedFiles":unsupported,"uncheckedFiles":unchecked,"providerDependentFiles":provider_dependent,"skippedFiles":provider_dependent,"failedFiles":failed,"warningFiles":warning_files,"nativeFilesWithWarnings":warning_files,
         "restrictedIndexedFiles":planned["inventory"]["restrictedIndexedFiles"],
         "restrictedIndexedReasons":planned["inventory"]["restrictedIndexedReasons"],
@@ -265,9 +270,8 @@ pub fn sync_workspace<P: WorkspacePort>(
             .saturating_sub(report["failures"].as_array().map_or(0, Vec::len))
     );
     report["warningReportLimit"] = json!(32);
-    report["warningReportsOmitted"] = json!(
-        warning_files.saturating_sub(report["warnings"].as_array().map_or(0, Vec::len))
-    );
+    report["warningReportsOmitted"] =
+        json!(warning_files.saturating_sub(report["warnings"].as_array().map_or(0, Vec::len)));
     report["skippedReportsOmitted"] = json!(
         provider_dependent
             .saturating_sub(report["skippedFileReports"].as_array().map_or(0, Vec::len))

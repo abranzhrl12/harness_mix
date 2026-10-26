@@ -175,7 +175,7 @@ pub(super) fn synchronized(
         project.target(file)?;
     }
     let report = super::index_store::sync_workspace_all(&project.root, context)?;
-    if report["selectedScopeApplied"] != true
+    if (report["selectedScopeApplied"] != true && report["sourceScopeApplied"] != true)
         || report["discoveryComplete"] != true
         || report["uncheckedFiles"] != 0
         || report["unsupportedChangedFiles"] != 0
@@ -289,7 +289,14 @@ fn explore_inner(
         &failed,
     )? {
         selection::SelectionResult::NotResolved => {
-            return Ok(selection::not_resolved_value());
+            let mut result = selection::not_resolved_value();
+            let archive = if let Some(path) = args.file_path.as_deref() {
+                super::index_store::quarantine::coverage(&db, Some(path), None)?
+            } else {
+                super::index_store::quarantine::Coverage::default()
+            };
+            super::index_store::quarantine::annotate(&mut result, &archive, true);
+            return Ok(result);
         }
         selection::SelectionResult::Selected(selection) => selection,
     };
@@ -312,6 +319,9 @@ fn explore_inner(
         .map(|node| node.file_path.clone())
         .collect::<BTreeSet<_>>();
     contributing_files.extend(graph.export_contributors.keys().cloned());
+    let archive = super::index_store::quarantine::coverage(
+        &db, None, Some(&graph.nodes.keys().cloned().collect()),
+    )?;
     let mut indexed_files =
         super::index_freshness::indexed_files(&db, contributing_files, context)?;
     for (path, digest) in std::mem::take(&mut graph.export_contributors) {
@@ -339,7 +349,7 @@ fn explore_inner(
         summary,
         &symbol,
     )?;
-    response::respond(
+    let mut result = response::respond(
         project,
         args,
         context,
@@ -357,5 +367,7 @@ fn explore_inner(
             graph,
             sources: loaded,
         },
-    )
+    )?;
+    super::index_store::quarantine::annotate(&mut result, &archive, true);
+    Ok(result)
 }

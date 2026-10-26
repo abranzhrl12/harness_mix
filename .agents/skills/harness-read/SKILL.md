@@ -7,8 +7,16 @@ description: Investigar código, leer símbolos y consultar dependencias con Har
 
 Usa los nombres y esquemas anunciados por la conexión; no inventes parámetros.
 Esta guía cubre lectura e investigación, no instalación ni preparación inicial.
+Si el problema ocurre en una aplicación web (visual, interacción, consola o
+hidratación), carga también `../harness-browser/SKILL.md` para obtener evidencia
+del navegador; la lectura de código sola no verifica lo que ocurre en la pestaña.
 
 ## Elige por la información que falta
+
+Prioriza `harness_explore` para investigar cómo funciona código y seguir sus
+relaciones; evita cadenas de búsquedas y lecturas archivo por archivo. Para
+localizar texto literal o una ruta desconocida, usa `harness_search`; para leer
+un símbolo ya conocido sin necesitar relaciones, usa `harness_symbols` directamente.
 
 | Necesidad | Herramienta |
 | --- | --- |
@@ -32,6 +40,14 @@ de compactación. Los rangos son inclusivos, base 1. Si hay ambigüedad, selecci
 un `container` o `symbolId` devuelto; no los adivines. Una firma no es fuente para
 editar. Conserva los hashes que la herramienta requiera, como `expectedHash`
 para extracción Vue; no busques un hash solo para usar `replace`, donde es opcional.
+
+### Lectura por bloques
+
+`harness_read` usa `path`, `start` y `end`: líneas inclusivas, base 1, máximo
+420 líneas por llamada (`end - start + 1 <= 420`). Pide solo el rango necesario,
+no 420 por defecto. Por ejemplo: `{"path":"src/modulo.rs","start":80,"end":160}`.
+Si necesitas más, continúa desde el último `end + 1`, sin releer bloques ni
+recorrer todo el archivo si un símbolo o `explore` responde la pregunta.
 
 ## Relaciones y límites
 

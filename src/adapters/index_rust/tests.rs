@@ -256,3 +256,96 @@ fn rust_ra_call_bindings_keep_exact_attrs_and_ignore_trivia() {
     let (line, col) = position(source, at).unwrap();
     assert!(facts.call("okay", line, col).is_some());
 }
+
+#[test]
+fn rust_unqualified_call_fallback_uses_import_and_function_scope() {
+    let unrelated_use = analyze(
+        "use other::run; fn explore_inner() {} fn caller() { explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        unrelated_use
+            .calls
+            .values()
+            .map(|path| path.join("::"))
+            .collect::<Vec<_>>(),
+        ["explore_inner"]
+    );
+
+    for source in [
+        "use other::run as explore_inner; fn explore_inner() {} fn caller() { explore_inner(); }",
+        "use other::*; fn explore_inner() {} fn caller() { explore_inner(); }",
+    ] {
+        let facts = analyze(source, &OperationContext::default()).unwrap();
+        assert!(
+            facts.calls.is_empty(),
+            "ambiguous import must suppress fallback"
+        );
+    }
+
+    let local_parameter = analyze(
+        "fn explore_inner() {} fn shadowed(explore_inner: fn()) { explore_inner(); } fn caller() { explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        local_parameter
+            .calls
+            .values()
+            .map(|path| path.join("::"))
+            .collect::<Vec<_>>(),
+        ["explore_inner"],
+        "a parameter in one function must not shadow a sibling function call"
+    );
+}
+
+#[test]
+fn rust_unqualified_call_fallback_bounds_macro_uncertainty() {
+    let safe = analyze(
+        "fn explore_inner() {} fn caller() { let values = std::vec![1]; explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(safe.calls.len(), 1);
+
+    let regression = analyze(
+        "use std::cell::RefCell; fn explore_inner() {} fn explore() { let value = RefCell::new(Ok(json!({}))); explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        regression
+            .calls
+            .values()
+            .filter(|path| path.as_slice() == ["explore_inner"])
+            .count(),
+        1,
+        "expression macros cannot add an outer binding; qualified candidates are assessed separately"
+    );
+
+    let local_ambiguous = analyze(
+        "fn explore_inner() {} fn caller() { json!({}); explore_inner(); } fn other() { explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        local_ambiguous.calls.len(),
+        1,
+        "an arbitrary function-local macro suppresses only its function's fallback"
+    );
+
+    let module_ambiguous = analyze(
+        "json!({}); fn explore_inner() {} fn caller() { explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert!(module_ambiguous.calls.is_empty());
+
+    let shadowed_standard_name = analyze(
+        "mod std {} fn explore_inner() {} fn caller() { std::vec!(); explore_inner(); }",
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert!(shadowed_standard_name.calls.is_empty());
+}
