@@ -103,6 +103,10 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
         if !tracked && path.split('/').any(index_inventory::excluded) {
             return Ok(None);
         }
+        // New exclusions are skips; indexed files still need graph cleanup.
+        if !tracked && scope.excluded(path) {
+            return Ok(None);
+        }
         if !tracked && !scope.included(path) && ignored_new_source(&self.project, path, context)? {
             return Ok(None);
         }
