@@ -25,6 +25,7 @@ pub(in crate::adapters::index_store) struct TemplateTarget {
 
 #[derive(Default)]
 pub(in crate::adapters::index_store) struct Snapshot {
+    pub(in crate::adapters::index_store) http_routes: Option<super::super::http_routes::Catalog>,
     files: BTreeMap<String, String>,
     reserved: usize,
 }

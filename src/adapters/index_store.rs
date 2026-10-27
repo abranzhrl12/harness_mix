@@ -42,6 +42,8 @@ pub(crate) use self::publication::quarantine;
 
 #[path = "index_store/resolution.rs"]
 mod resolution;
+#[path = "index_store/http_routes.rs"]
+mod http_routes;
 
 #[path = "index_store/sql_objects.rs"]
 pub(super) mod sql_objects;

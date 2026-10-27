@@ -69,6 +69,19 @@ pub(super) fn traverse(
     let mut evidence_query = evidence_sql
         .map(|query| db.prepare(query).map_err(failed))
         .transpose()?;
+    let has_location: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('edges') WHERE name IN ('line','col')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
+    let http_sql = "SELECT CASE WHEN json_valid(metadata) THEN json_extract(metadata,'$.transport')='http' ELSE 0 END, CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata,'$.httpMethod')='text' AND length(json_extract(metadata,'$.httpMethod'))<=16 THEN json_extract(metadata,'$.httpMethod') END END, line,col FROM edges WHERE id=?1";
+    let mut http_query = if has_metadata == 1 && has_location == 2 {
+        Some(db.prepare(http_sql).map_err(failed)?)
+    } else {
+        None
+    };
     let directions: &[bool] = match direction {
         ExploreDirection::Inbound => &[true],
         ExploreDirection::Outbound => &[false],
@@ -180,6 +193,30 @@ pub(super) fn traverse(
                 let mut edge = json!({"id":id,"source":source,"target":destination,"kind":kind});
                 if !resolution_evidence.is_empty() {
                     edge["resolutionEvidence"] = serde_json::Value::Object(resolution_evidence);
+                }
+                if let Some(query) = http_query.as_mut() {
+                    let (http, method, line, column) = query
+                        .query_row([id], |row| {
+                            Ok((
+                                row.get::<_, Option<bool>>(0)?.unwrap_or(false),
+                                row.get::<_, Option<String>>(1)?,
+                                row.get::<_, Option<i64>>(2)?,
+                                row.get::<_, Option<i64>>(3)?,
+                            ))
+                        })
+                        .map_err(failed)?;
+                    if http {
+                        edge["transport"] = json!("http");
+                        if let Some(method) = method {
+                            edge["httpMethod"] = json!(method);
+                        }
+                        if let Some(line) = line.filter(|line| *line > 0) {
+                            edge["line"] = json!(line);
+                        }
+                        if let Some(column) = column.filter(|column| *column >= 0) {
+                            edge["column"] = json!(column);
+                        }
+                    }
                 }
                 edges.push(edge);
             }
