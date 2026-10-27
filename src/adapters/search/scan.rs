@@ -89,6 +89,7 @@ pub(super) fn execute<'a>(
 ) -> Result<ScanOutcome<'a>, Failure> {
     let SearchPlan {
         file_size,
+        exclude_minified,
         syntax,
         context_lines,
         selected,
@@ -108,7 +109,7 @@ pub(super) fn execute<'a>(
         .bom_sniffing(false)
         .build();
     let folder_stats = RefCell::new(BTreeMap::new());
-    let builder = walk::build(&root, file_size, explicit_scope)?;
+    let builder = walk::build(&root, exclude_minified, explicit_scope)?;
     let mut match_results = MatchResults::default();
     let mut visited = 0;
     let mut bytes = 0;

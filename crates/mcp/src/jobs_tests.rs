@@ -28,7 +28,7 @@ async fn jobs_transport_dispatches_through_application_port() {
     let seen = Arc::new(Mutex::new(None));
     let fake = FakeJobs(seen.clone());
     let args = TaskArgs {
-        action: "list".into(),
+        action: harness_domain::tasks::TaskAction::List,
         task_id: None,
         after: None,
         verify: None,
@@ -43,7 +43,7 @@ async fn jobs_transport_dispatches_through_application_port() {
     };
 
     let result = handle(Some(&fake), args, false).await;
-    assert_eq!(seen.lock().unwrap().as_ref().unwrap().action, "list");
+    assert_eq!(seen.lock().unwrap().as_ref().unwrap().action, harness_domain::tasks::TaskAction::List);
     assert_eq!(result.structured_content.as_ref().unwrap()["state"], "ok");
 }
 
@@ -79,7 +79,7 @@ fn event_mapping_preserves_progress_and_lag_recovery() {
 
 fn task_args() -> TaskArgs {
     TaskArgs {
-        action: "list".into(),
+        action: harness_domain::tasks::TaskAction::List,
         task_id: None,
         after: None,
         verify: None,

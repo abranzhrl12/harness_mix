@@ -3,6 +3,8 @@ pub(in crate::adapters) mod angular;
 mod csharp;
 mod http_backend;
 mod http_frontend;
+mod http_angular;
+mod http_razor;
 mod decode;
 pub(in crate::adapters) mod framework;
 mod orchestration;
@@ -35,3 +37,6 @@ const CONTRACT: harness_domain::Failure = (
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod http_template_position_tests;

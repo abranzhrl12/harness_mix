@@ -18,7 +18,13 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
     result["sessionId"] = json!(input.session.id);
     // Keep examples out of session reuse; they only help the first discovery.
     if input.args.session.is_none() {
-        result["exampleCall"] = json!({"tool":"harness_explore","arguments":{"query":"main","session":input.session.id},"note":"Replace main with the exact symbol you want; other arguments have read-only context defaults."});
+        result["exampleCall"] = json!({"tool":"harness_search","arguments":{"kind":"files","query":"Cargo","session":input.session.id},"note":"Read-only discovery without an index. Replace Cargo with a file name."});
+        result["examples"] = initial_examples(&input.session.id, input.tool_profile);
+        result["responseContract"] = json!({
+            "canonical":"structuredContent",
+            "fields":["state","scope","data","diagnostics","detail","omitted"],
+            "note":"Read state before data; preserve diagnostics, freshness and omissions. content is a compatible text view and may have a different shape. detail references recover complete stored results."
+        });
         result["batchExample"] = json!({"tool":"harness_batch","arguments":{"jobs":[{"tool":"harness_search","arguments":{"kind":"files","query":"Cargo","scope":"."}},{"tool":"harness_git","arguments":{"action":"status"}}],"maxConcurrent":4,"session":input.session.id},"aliases":{"args":"arguments"}});
     }
     result["limitations"] = json!([
@@ -95,3 +101,24 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
     }
     result
 }
+
+/// First-call examples use canonical parameter names and do not require an index.
+fn initial_examples(session: &str, profile: ToolProfile) -> Value {
+    let mut examples = json!([
+        {"tool":"harness_read","arguments":{"path":"Cargo.toml","start":1,"end":80,"session":session}},
+        {"tool":"harness_search","arguments":{"kind":"text","query":"fn main","scope":"src","contextLines":2,"session":session}},
+        {"tool":"harness_symbols","arguments":{"action":"outline","path":"src/main.rs","session":session}},
+        {"tool":"harness_symbols","arguments":{"action":"read","path":"src/main.rs","symbol":"main","session":session}},
+        {"tool":"harness_verify","arguments":{"language":"dotnet","scope":"src/App/App.csproj","action":"build","engine":"auto","session":session},"note":"Runs project code; explicit authorization, SDK and prior restore required. Replace scope with an existing .csproj or .sln file."},
+        {"tool":"harness_jobs","arguments":{"action":"list"}},
+        {"tool":"harness_jobs","arguments":{"action":"start","verify":{"language":"rust","action":"test"}},"note":"Runs tests; requires authorization."}
+    ]);
+    examples.as_array_mut().expect("example array").retain(|example| {
+        example["tool"].as_str().is_some_and(|tool| profile.allows(tool))
+    });
+    examples
+}
+
+#[cfg(test)]
+#[path = "bootstrap_tests.rs"]
+mod tests;

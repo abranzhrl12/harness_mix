@@ -32,7 +32,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
         "Source language has no native CodeGraph extractor",
     ))?;
     if lang == "razor" {
-        return super::razor::extract_razor(path, source, context);
+        let mut graph = super::razor::extract_razor(path, source, context)?;
+        super::http_razor::enrich(path, source, &mut graph, context)?;
+        return Ok(graph);
     }
     if lang == "vue" {
         let mut graph = super::vue::extract(path, source, context)?;
@@ -40,7 +42,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
         return Ok(graph);
     }
     if lang == "html" {
-        return super::angular::html(path, source, context);
+        let mut graph = super::angular::html(path, source, context)?;
+        super::http_razor::enrich(path, source, &mut graph, context)?;
+        return Ok(graph);
     }
     if lang == "scss" {
         return super::scss::extract(path, source, context);

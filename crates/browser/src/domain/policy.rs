@@ -69,6 +69,7 @@ pub(crate) fn validate_request(args: &BrowserArgs) -> Result<(), Failure> {
                 MAX_ENDPOINT_BYTES,
                 "El endpoint excede 4096 bytes",
             )?;
+            validate_connect_endpoint(endpoint)?;
         }
         BrowserArgs::Targets {
             connection_id,
@@ -172,11 +173,46 @@ pub(crate) fn validate_endpoint(endpoint: &str) -> Result<(), Failure> {
     }
 }
 
+/// Validates a user-supplied connection endpoint without performing network IO.
+pub(crate) fn validate_connect_endpoint(endpoint: &str) -> Result<(), Failure> {
+    let url = Url::parse(endpoint)
+        .map_err(|_| ("BROWSER_ENDPOINT", "El endpoint CDP no es una URL válida"))?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.query().is_some()
+    {
+        return Err((
+            "BROWSER_ENDPOINT",
+            "El endpoint CDP no puede incluir credenciales, fragmentos ni query",
+        ));
+    }
+
+    match url.scheme() {
+        "ws" => validate_endpoint(endpoint),
+        "http" => {
+            let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+            if matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "[::1]")
+                && url.port().is_some_and(|port| port != 0)
+                && matches!(url.path(), "" | "/" | "/json/version")
+            {
+                Ok(())
+            } else {
+                Err(("BROWSER_ENDPOINT", "Solo se permiten endpoints CDP HTTP loopback"))
+            }
+        }
+        _ => Err((
+            "BROWSER_ENDPOINT",
+            "Use un endpoint ws:// directo o un HTTP loopback para descubrir CDP",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_ARGUMENT_BYTES, MAX_EVENTS, MAX_HTML_CHARS, required_session, validate_endpoint,
-        validate_request, validate_session_owner,
+        MAX_ARGUMENT_BYTES, MAX_EVENTS, MAX_HTML_CHARS, required_session,
+        validate_connect_endpoint, validate_endpoint, validate_request, validate_session_owner,
     };
     use harness_domain::browser::BrowserArgs;
 
@@ -200,6 +236,23 @@ mod tests {
     }
 
     #[test]
+    fn connect_endpoint_accepts_local_http_discovery_but_rejects_other_http() {
+        assert!(validate_connect_endpoint("http://localhost:9222").is_ok());
+        assert!(validate_connect_endpoint("http://127.0.0.1:9222/json/version").is_ok());
+        assert!(validate_connect_endpoint("http://[::1]:9222/").is_ok());
+        assert!(validate_connect_endpoint("ws://localhost:9222/devtools/browser/id").is_ok());
+        for endpoint in [
+            "http://example.com:9222/json/version",
+            "http://localhost:9222/json/list",
+            "http://user:pass@localhost:9222/",
+            "http://localhost:9222/?token=x",
+            "https://localhost:9222/json/version",
+        ] {
+            assert!(validate_connect_endpoint(endpoint).is_err(), "{endpoint}");
+        }
+    }
+
+    #[test]
     fn session_identity_is_required_bounded_and_preserved() {
         assert!(required_session(None).is_err());
         assert!(required_session(Some("  \t".into())).is_err());
@@ -216,8 +269,9 @@ mod tests {
 
     #[test]
     fn request_limits_keep_existing_boundaries() {
+        let prefix = "ws://localhost:9222/devtools/browser/";
         let valid = BrowserArgs::Connect {
-            endpoint: "x".repeat(4_096),
+            endpoint: format!("{prefix}{}", "x".repeat(4_096 - prefix.len())),
             session: session(),
         };
         assert!(validate_request(&valid).is_ok());

@@ -1,15 +1,21 @@
 #[test]
 fn numbers_current_source_without_changing_line_content() {
     let rendered = super::source("a.rs", 7, "fn a() {\r\n    b();\r\n}", false);
-    assert!(rendered.contains("7\tfn a() {\n8\t    b();\n9\t}"));
+    assert!(rendered.contains("```rust\n7 | fn a() {\n8 |     b();\n9 | }"));
     assert!(!rendered.contains("truncated"));
 }
 
 #[test]
 fn source_cannot_close_its_fence_and_truncation_is_explicit() {
     let rendered = super::source("a.rs", 1, "```\nhello", true);
-    assert!(rendered.contains("\n````\n1\t```"));
+    assert!(rendered.contains("\n````rust\n1 | ```"));
     assert!(rendered.contains("Source fragment truncated"));
+}
+
+#[test]
+fn unknown_extensions_keep_a_bare_fence() {
+    let rendered = super::source("notes.txt", 1, "yes", false);
+    assert!(rendered.contains("```\n1 | yes"));
 }
 
 #[test]

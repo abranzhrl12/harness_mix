@@ -41,9 +41,11 @@ outline ni firma previos.
 
 ## Si falta la conexión
 
-El ejecutable conocido es `E:/harness_mix/target/release/agent-harness.exe`.
-Comprueba existencia y `--version`; no descargues binarios desconocidos. La entrada
-MCP usa ese comando con `args: ["--root", "RUTA_ABSOLUTA_DEL_PROYECTO"]`.
+El ejecutable conocido es el binario global npm de la instalación actual:
+`C:/Users/AbrahamRodriguez/AppData/Roaming/npm/node_modules/@abranzhrl1212/agent-harness/bin/agent-harness.exe`
+o el build local del repo (`<raíz>/target/release/agent-harness.exe`). Comprueba
+existencia y `--version`; no descargues binarios desconocidos. La entrada MCP usa
+ese comando con `args: ["--root", "RUTA_ABSOLUTA_DEL_PROYECTO"]`.
 
 Configura solo si el usuario lo pidió: identifica cliente y archivo real,
 preserva otros servidores y no cambies credenciales o permisos. Si falta el

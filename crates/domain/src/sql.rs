@@ -66,6 +66,9 @@ pub enum SqlDescribeKind {
 pub struct SqlDescribeArgs {
     pub engine: Option<SqlEngine>,
     pub name: String,
+    /// Optional schema prefix when `name` is unqualified; the qualified
+    /// resolver for each engine handles folding both into one name.
+    pub schema: Option<String>,
     #[serde(alias = "objectType")]
     pub kind: Option<SqlDescribeKind>,
     pub sections: Option<Vec<String>>,
@@ -92,6 +95,8 @@ pub struct SqlMapArgs {
 pub struct SqlQueryArgs {
     #[serde(default = "default_query_engine")]
     pub engine: Option<SqlEngine>,
+    /// SQL text to run; `query` is accepted as an alias under action=query.
+    #[serde(alias = "query")]
     pub sql: String,
     pub parameters: Option<serde_json::Map<String, serde_json::Value>>,
     pub session: Option<String>,
@@ -134,11 +139,11 @@ impl<'de> Deserialize<'de> for SqlArgs {
         let value = serde_json::Value::Object(object);
         // Never include serde's raw error: it can echo SQL, credentials or user values.
         match action.as_str() {
-            "query" => serde_json::from_value(value).map(Self::Query).map_err(|_| D::Error::custom("Invalid harness_sql query. Required: sql: string. Optional: action=query, engine=sqlserver|postgresql (default sqlserver), parameters: object, session: string. Example: {\"sql\":\"SELECT 1\"}")),
+            "query" => serde_json::from_value(value).map(Self::Query).map_err(|_| D::Error::custom("Invalid harness_sql query. Required: sql: string (query accepted as an alias under action=query). Optional: action=query, engine=sqlserver|postgresql (default sqlserver), parameters: object, session: string. Read-only policy: SELECT/WITH only; CREATE and ALTER scripts are not executed here — apply them through SSMS. Example: {\"action\":\"query\",\"query\":\"SELECT 1\"}")),
             "status" => serde_json::from_value(value).map(Self::Status).map_err(|_| D::Error::custom("Invalid harness_sql status. Required: action=status. Optional: engine=sqlserver|postgresql, connect: boolean, session: string. Example: {\"action\":\"status\"}")),
             "search" => serde_json::from_value(value).map(Self::Search).map_err(|_| D::Error::custom("Invalid harness_sql search. Required: action=search, query: string. Optional: engine=sqlserver|postgresql, objectType=table|view|column|procedure|function, schema: string, limit: integer, session: string. Example: {\"action\":\"search\",\"query\":\"Customer\"}")),
             "map" => serde_json::from_value(value).map(Self::Map).map_err(|_| D::Error::custom("Invalid harness_sql map. Required: action=map. Optional: engine=sqlserver|postgresql, schema: string, limit: integer, session: string. Example: {\"action\":\"map\",\"schema\":\"public\"}")),
-            "describe" => serde_json::from_value(value).map(Self::Describe).map_err(|_| D::Error::custom("Invalid harness_sql describe. Required: action=describe, name: string. Optional: engine=sqlserver|postgresql, kind=relation|routine (objectType alias; table/view/procedure/function accepted), sections: string[], refresh: boolean, session: string. Do not supply both kind and objectType. Example: {\"action\":\"describe\",\"name\":\"dbo.Customer\",\"objectType\":\"table\"}")),
+            "describe" => serde_json::from_value(value).map(Self::Describe).map_err(|_| D::Error::custom("Invalid harness_sql describe. Required: action=describe, name: string. Optional: engine=sqlserver|postgresql, schema: string (prefixes an unqualified name), kind=relation|routine (objectType alias; table/view/procedure/function accepted), sections: string[], refresh: boolean, session: string. Do not supply both kind and objectType. Example: {\"action\":\"describe\",\"name\":\"Customer\",\"schema\":\"dbo\",\"objectType\":\"table\"}")),
             _ => Err(D::Error::custom(OVERVIEW)),
         }
     }

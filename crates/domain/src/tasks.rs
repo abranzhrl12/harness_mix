@@ -2,12 +2,37 @@
 use crate::contracts::VerifyArgs;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskAction {
+    Start,
+    Status,
+    List,
+    Events,
+    Cancel,
+    Observe,
+}
+
+impl TaskAction {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Status => "status",
+            Self::List => "list",
+            Self::Events => "events",
+            Self::Cancel => "cancel",
+            Self::Observe => "observe",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskArgs {
-    /// start, status, list, events, cancel or observe.
-    pub action: String,
+    /// Action to perform: start, status, list, events, cancel or observe.
+    pub action: TaskAction,
     /// Required by start. Uses the same bounded verification commands as harness_verify.
     pub verify: Option<VerifyArgs>,
     /// Required by status, cancel and observe; optional filter for events.
@@ -99,6 +124,23 @@ mod tests {
     }
 
     #[test]
+    fn task_action_is_a_closed_snake_case_enum() {
+        for (wire, action) in [
+            ("start", TaskAction::Start),
+            ("status", TaskAction::Status),
+            ("list", TaskAction::List),
+            ("events", TaskAction::Events),
+            ("cancel", TaskAction::Cancel),
+            ("observe", TaskAction::Observe),
+        ] {
+            let args: TaskArgs = serde_json::from_value(json!({"action":wire})).unwrap();
+            assert_eq!(args.action, action);
+            assert_eq!(serde_json::to_value(args.action).unwrap(), wire);
+        }
+        assert!(serde_json::from_value::<TaskArgs>(json!({"action":"bogus"})).is_err());
+    }
+
+    #[test]
     fn accepts_observe_action_and_converts_cleanly() {
         let args: TaskArgs = serde_json::from_value(json!({
             "action": "observe",
@@ -112,8 +154,7 @@ mod tests {
             "maxChars": 8000
         }))
         .unwrap();
-        assert_eq!(args.action, "observe");
-        assert_eq!(args.task_id.as_deref(), Some("task-42"));
+        assert_eq!(args.action, TaskAction::Observe);
         let obs = args.into_observe().unwrap();
         assert_eq!(obs.task_id, "task-42");
         assert_eq!(obs.filter.as_deref(), Some("error: .*"));

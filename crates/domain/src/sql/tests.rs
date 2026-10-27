@@ -221,3 +221,43 @@ fn schema_is_an_object_with_one_branch_per_action() {
     }
     assert!(schema.get("oneOf").is_some() || schema.get("anyOf").is_some());
 }
+
+#[test]
+fn query_accepts_the_query_alias_under_explicit_action() {
+    let SqlArgs::Query(args) = parse(json!({"action":"query","query":"SELECT 1"})).unwrap()
+    else {
+        panic!("expected query")
+    };
+    assert_eq!(args.sql, "SELECT 1");
+    // Action-less calls keep requiring the canonical sql field.
+    assert!(parse(json!({"query":"SELECT 1"})).is_err());
+}
+
+#[test]
+fn describe_folds_optional_schema_into_qualified_name() {
+    let SqlArgs::Describe(args) =
+        parse(json!({"action":"describe","name":"Customer","schema":"dbo"})).unwrap()
+    else {
+        panic!("expected describe")
+    };
+    assert_eq!(args.schema.as_deref(), Some("dbo"));
+
+    let SqlArgs::Describe(_) = parse(json!({
+        "action":"describe","name":"dbo.Customer","schema":"dbo"
+    })).unwrap() else {
+        panic!("expected describe")
+    };
+    // Unknown fields are still rejected.
+    assert!(parse(json!({"action":"describe","name":"dbo.Customer","sql":"SELECT 1"})).is_err());
+}
+
+#[test]
+fn sql_stays_read_only_with_no_ddl_channel() {
+    // Read-only policy: SELECT/WITH only. CREATE/ALTER/DROP and other write
+    // paths are rejected by the execution preflight; applying schema changes
+    // happens outside the harness (SSMS or release), never from a tool call.
+    assert!(assert_sql_read_only("SELECT 1").is_ok());
+    assert!(assert_sql_read_only("CREATE PROCEDURE dbo.x AS BEGIN END").is_err());
+    assert!(assert_sql_read_only("ALTER TABLE dbo.x DROP COLUMN c").is_err());
+    assert!(assert_sql_read_only("DROP PROCEDURE dbo.x").is_err());
+}

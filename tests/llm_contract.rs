@@ -17,7 +17,14 @@ fn llm_session_name_and_copyable_example_work_without_translation() {
     let mut example = boot["data"]["exampleCall"]["arguments"].clone();
     assert_eq!(example["session"], session);
     assert!(example.get("sessionId").is_none());
-    example["query"] = json!("target");
+    assert_eq!(boot["data"]["exampleCall"]["tool"], "harness_search");
+    let search: harness_domain::contracts::SearchArgs =
+        serde_json::from_value(example.clone()).unwrap();
+    let searched = app.execute(Request::Search(search));
+    assert_eq!(searched["state"], "ok", "{searched}");
+
+    // Exploration aliases remain supported independently of the initial search example.
+    example = json!({"query":"target","session":session});
     let args: harness_domain::contracts::ExploreArgs =
         serde_json::from_value(example.clone()).unwrap();
     let response = app.execute(Request::Explore(args));
@@ -37,7 +44,8 @@ fn llm_session_name_and_copyable_example_work_without_translation() {
         serde_json::from_value(json!({"sessionId":session})).unwrap(),
     ));
     assert_eq!(reused["data"]["session"], session);
-    assert_eq!(reused["data"]["rulesUnchanged"], true);
+    assert!(reused["data"].get("rulesUnchanged").is_none());
+    assert_eq!(reused["data"]["capabilitiesUnchanged"], true);
 }
 
 #[test]

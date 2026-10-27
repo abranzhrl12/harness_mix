@@ -308,11 +308,12 @@ pub(in crate::adapters) fn describe(
             "This PostgreSQL version supports the columns section only",
         ));
     }
-    let (selected_schema, name) = args
+    let (implicit_schema, name) = args
         .name
         .split_once('.')
         .unwrap_or((&config.default_schema, &args.name));
-    let selected_schema = schema(&config, Some(selected_schema))?;
+    // An explicit schema argument overrides the schema from a qualified name.
+    let selected_schema = schema(&config, args.schema.as_deref().filter(|s| !s.trim().is_empty()).or(Some(implicit_schema)))?;
     if name.is_empty() || name.contains('.') || selected_schema.is_empty() {
         return Err((
             "ARGUMENT",

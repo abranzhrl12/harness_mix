@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrowserArgs {
     Connect {
+        /// Local CDP discovery URL, e.g. http://localhost:9222, or a direct
+        /// ws://loopback:port/devtools/browser/id URL. Chromium must already
+        /// expose remote debugging; HTTP discovery permits only /json/version.
         endpoint: String,
         session: Option<String>,
     },

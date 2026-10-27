@@ -32,12 +32,18 @@ struct Calls<'a> {
     count: usize,
 }
 impl<'a> Calls<'a> {
-    fn add(&mut self, call: &CallExpression<'_>) {
+    fn add(
+        &mut self,
+        call: &CallExpression<'_>,
+        angular_clients: &super::http_angular::Clients,
+    ) {
         self.count += 1;
         if self.count > 20_000 {
             return;
         }
-        let Some((url, mut method)) = request(self.source, call) else {
+        let Some((url, mut method)) = request(self.source, call)
+            .or_else(|| super::http_angular::request(self.source, call, angular_clients))
+        else {
             return;
         };
         if url.is_empty() || url.contains(['\\', '\0']) {
@@ -266,6 +272,7 @@ pub(super) fn enrich(
             .with_build_nodes(true)
             .build(&parsed.program);
         let semantic = built.semantic;
+        let angular_clients = super::http_angular::Clients::new(&parsed.program, &semantic);
         let mut calls = Calls {
             source: body,
             requests: Vec::new(),
@@ -274,7 +281,7 @@ pub(super) fn enrich(
         for node in semantic.nodes().iter() {
             context.check()?;
             if let AstKind::CallExpression(call) = node.kind() {
-                calls.add(call);
+                calls.add(call, &angular_clients);
             }
         }
         if calls.count > 20_000 {

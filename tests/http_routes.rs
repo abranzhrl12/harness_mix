@@ -396,3 +396,195 @@ public class TallerController : ControllerBase
     assert_eq!(reference["url"], "/Taller/NumeroOrden_Listar");
     assert_eq!(reference["method"], "GET");
 }
+
+#[test]
+fn angular_httpclient_requests_resolve_and_ignore_dynamic_or_unproven_clients() {
+    let (root, db) = project();
+    publish(root.path(), "Controllers/OrdersController.cs", CONTROLLER);
+    publish(
+        root.path(),
+        "src/orders.service.ts",
+        r#"
+import { HttpClient } from '@angular/common/http';
+import { inject } from '@angular/core';
+export class OrdersService {
+    constructor(private api: HttpClient) {}
+    load() { return this.api.get<string[]>('/api/orders/list'); }
+    save() { return this.api.post('/api/orders/save', {}); }
+    dynamic(id: string) { return this.api.get('/api/orders/' + id); }
+}
+export class RecentService {
+    private client = inject(HttpClient);
+    recent() { return this.client.get('/api/orders/Recent'); }
+}
+export class Unrelated {
+    constructor(private api: Map<string, string>) {}
+    load() { return this.api.get('/api/orders/list'); }
+}
+"#,
+    );
+    let edges = http_edges(&db);
+    for action in ["List", "Save", "Recent"] {
+        assert_eq!(
+            edges
+                .iter()
+                .filter(|(path, name, _, _)| { path == "src/orders.service.ts" && name == action })
+                .count(),
+            1,
+            "unexpected Angular callers for {action}: {edges:?}"
+        );
+    }
+    let inbound = explore_symbol(
+        root.path(),
+        "Controllers/OrdersController.cs",
+        Some("List"),
+        "inbound",
+    );
+    assert_eq!(inbound["state"], "ok", "{inbound}");
+    assert!(
+        inbound["data"]["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| { node["name"] == "load" && node["filePath"] == "src/orders.service.ts" }),
+        "missing Angular method caller: {inbound}"
+    );
+}
+
+#[test]
+fn razor_and_html_inline_requests_link_with_original_lines_and_callers() {
+    let (root, db) = project();
+    publish(root.path(), "Controllers/OrdersController.cs", CONTROLLER);
+    let razor = "<h1>Orders</h1>\n<script>\nfunction saveOrder() {\n    $.ajax({ url: '/api/orders/save', type: 'POST' });\n}\n</script>\n";
+    publish(root.path(), "Views/Orders/Index.cshtml", razor);
+    publish(
+        root.path(),
+        "wwwroot/orders.html",
+        "<html><body>\n<script>\nfunction loadOrders() {\n    fetch('/api/orders/list');\n}\n</script>\n</body></html>",
+    );
+    let edges = http_edges(&db);
+    for (file, action) in [
+        ("Views/Orders/Index.cshtml", "Save"),
+        ("wwwroot/orders.html", "List"),
+    ] {
+        assert!(
+            edges
+                .iter()
+                .any(|(path, name, _, _)| { path == file && name == action }),
+            "missing template request with original line: {edges:?}"
+        );
+        let outbound = explore_symbol(
+            root.path(),
+            file,
+            Some(if action == "Save" {
+                "saveOrder"
+            } else {
+                "loadOrders"
+            }),
+            "outbound",
+        );
+        assert_eq!(outbound["state"], "ok", "{outbound}");
+        assert!(
+            outbound["data"]["graph"]["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|edge| { edge["transport"] == "http" && edge["line"] == 4 }),
+            "missing outbound template edge: {outbound}"
+        );
+    }
+    let impact = application(root.path()).unwrap().execute(Request::Explore(
+        serde_json::from_value(json!({"filePath":"Controllers/OrdersController.cs",
+            "symbol":"Save","view":"impact","direction":"inbound"}))
+        .unwrap(),
+    ));
+    assert_eq!(impact["state"], "ok", "{impact}");
+    assert!(
+        impact["data"]["callers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|caller| {
+                caller["symbol"] == "saveOrder"
+                    && caller["file"] == "Views/Orders/Index.cshtml"
+                    && caller["declarationLine"] == 3
+            }),
+        "impact lost Razor script caller: {impact}"
+    );
+
+    publish(
+        root.path(),
+        "Views/Orders/Index.cshtml",
+        "<p>Request removed</p>",
+    );
+    assert!(
+        !http_edges(&db)
+            .iter()
+            .any(|(path, _, _, _)| path == "Views/Orders/Index.cshtml")
+    );
+}
+
+#[test]
+fn razor_url_action_resolves_conventional_routes_without_dynamic_evaluation() {
+    let (root, db) = project();
+    publish(
+        root.path(),
+        "Controllers/TallerController.cs",
+        r#"
+using Microsoft.AspNetCore.Mvc;
+public class TallerController : ControllerBase {
+    [HttpGet] public IActionResult Listar() => Ok();
+    [HttpPost] public IActionResult Guardar() => Ok();
+}
+"#,
+    );
+    publish(
+        root.path(),
+        "Views/Taller/Index.cshtml",
+        r#"<h1>Taller</h1>
+<a href="@Url.Action("Listar", "Taller")">List</a>
+<script>
+function save() {
+    $.ajax({ url: '@Url.Action("Guardar", "Taller")', type: 'POST' });
+}
+function dynamic(action) {
+    fetch('@Url.Action(action, "Taller")');
+}
+</script>"#,
+    );
+    let edges = http_edges(&db);
+    let navigations: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source
+         JOIN nodes t ON t.id=e.target WHERE s.file_path='Views/Taller/Index.cshtml'
+         AND t.name='Listar' AND e.kind='calls'
+         AND json_extract(e.metadata,'$.refKind')='mvc_route'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        navigations, 1,
+        "Razor navigation must retain its MVC route link"
+    );
+    assert!(
+        edges.iter().any(|(path, name, _, metadata)| {
+            path == "Views/Taller/Index.cshtml"
+                && name == "Guardar"
+                && metadata["httpMethod"] == "POST"
+        }),
+        "missing Razor helper POST route: {edges:?}"
+    );
+    let pending: i64 = db
+        .query_row(
+            "SELECT count(*) FROM unresolved_refs WHERE reference_kind='http_route'
+         AND reference_name LIKE '%@Url.Action%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        pending, 0,
+        "dynamic helpers must not become literal HTTP paths"
+    );
+}

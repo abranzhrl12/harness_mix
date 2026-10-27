@@ -383,6 +383,43 @@ También se actualizaron los mensajes de disponibilidad del indexador nativo
 y de navegación local Rust/JavaScript/TypeScript. Estos cambios no activan
 sincronización ni conceden permiso para escribir.
 
+## Presentación de lectura para explore view=full
+
+El `harness_explore` con `view=full` entrega el canal de texto en un bloque lean
+`## Graph context`: una meta-línea compacta (estado, frescura, cobertura de
+símbolos, conteo del grafo, unresolved y `detail.ref`, más el aviso
+`TRUNCATED` cuando algo se recortó — nunca un bloque JSON) seguida del cuerpo
+en orden natural de lectura: título `Exploration`, `Source Code` con código
+numerado `N | ` en un fence etiquetado con el lenguaje de la extensión
+(` ```csharp `, ` ```javascript `, ` ```rust `…) y las relaciones al final.
+La etiqueta del fence proviene del mapa de formatos del parser; extensiones
+desconocidas quedan con fence sin etiqueta. El sobre canónico íntegro sigue vía
+`structuredContent` para los clientes que lo consumen; el canal de texto
+anterior (la data completa serializada como JSON) duplicaba el coste. El sobre
+ya no incluye metadatos constantes vacíos: `reuseGuidance`,
+`relationshipSource` y `synchronization` desaparecieron, y `contextTruncation`
+solo viaja cuando alguna parte fue truncada.
+
+## Canales lean para read, symbols, sql, git y search
+
+El mismo contrato de lectura se extendió a las herramientas restantes. El
+canal de texto exito es Markdown y `structuredContent` conserva el sobre
+canónico; los estados de fallo mantienen el JSON estructurado con sus
+diagnósticos:
+
+| Herramienta | Canal lean exito |
+| --- | --- |
+| `harness_read` | Título con ruta y línea inicial; fragmento numerado `N | ` en fence con lenguaje de la extensión. `numberedText` ya no requiere `lineNumbers`. |
+| `harness_symbols` | `action=read`: el mismo bloque de fuente con `Symbol name · path`; `action=outline`: tabla `Line | Kind | Name | Signature`. El `hash` del archivo se conserva para el binding antirretraso del reemplazo; `anchors` ya no viaja (ruido de presentación). |
+| `harness_sql` | `action=query`: tabla Markdown de filas (+ aviso de recorte); `action=describe` de relaciones: tabla `Column | Type | MaxLength | Nullable`; rutinas: tabla de parámetros + `Definition` en fence `sql`. `status`, `search` y `map` siguen JSON directo. |
+| `harness_git` | `action=diff`: parche en fence `diff` (+ aviso cuando recortado); `action=status`: sección por estados (tracked / conflicts / untracked) con cwd de `xy`. |
+| `harness_search` | `kind=text`: agrupa por archivo con líneas `N | `; los demás kinds (files, symbols, syntax, file_size) siguen JSON directo. |
+
+Diseño y nota de seguridad: nada de esto añade escritura ni afloja límites;
+la vista decorada es solo presentación y `data.text`/`rows` exactos siguen
+disponibles en `structuredContent` para operaciones que requieren el valor
+literal (reemplazos, hash binding, datos SQL).
+
 
 
 

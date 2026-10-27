@@ -3,6 +3,6 @@
 mod policy;
 
 pub(crate) use policy::{
-    MAX_EVENT_MESSAGE, MAX_EVENTS, MAX_HTML_CHARS, required_session, validate_endpoint,
-    validate_request, validate_session_owner,
+    MAX_EVENT_MESSAGE, MAX_EVENTS, MAX_HTML_CHARS, required_session,
+    validate_connect_endpoint, validate_endpoint, validate_request, validate_session_owner,
 };

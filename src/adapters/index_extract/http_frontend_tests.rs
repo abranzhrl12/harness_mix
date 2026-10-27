@@ -86,6 +86,82 @@ fn literal_must_not_contain_escapes_and_plain_templates_are_supported() {
     assert_eq!(second["url"], "/template");
 }
 #[test]
+fn angular_httpclient_requires_proven_client_and_literal_urls() {
+    let source = r#"
+import { HttpClient as Client } from '@angular/common/http';
+import { inject } from '@angular/core';
+class Injected {
+  constructor(private api: Client) {}
+  load() {
+    this.api.get<string[]>('/items');
+    this.api.post('/items', {});
+    this.api.request('delete', '/items/1');
+    this.api.get('/dynamic/' + id);
+    function nested() { this.api.get('/nested-function'); }
+    const inheritedThis = () => this.api.get('/arrow');
+    class Nested { load() { this.api.get('/nested-class'); } }
+  }
+  static load() { this.api.get('/static'); }
+}
+class PlainParameter {
+  constructor(api: Client) {}
+  load() { this.api.get('/not-a-property'); }
+}
+class FieldInjected {
+  private client = inject(Client);
+  load() { this.client.put('/items/1', {}); }
+}
+class Unrelated {
+  private api: unknown;
+  load() { this.api.get('/not-http'); }
+}
+const obj = { get: (url: string) => url, request: (method: string, url: string) => url };
+obj.get('/plain-object');
+obj.request('GET', '/plain-request');
+"#;
+    let mut output = graph();
+    enrich("x.ts", source, &mut output, &OperationContext::default()).unwrap();
+    let refs = output["unresolvedReferences"].as_array().unwrap();
+    assert_eq!(refs.len(), 5, "{refs:?}");
+    let names = refs
+        .iter()
+        .map(|reference| {
+            serde_json::from_str::<serde_json::Value>(reference["referenceName"].as_str().unwrap())
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            json!({"url":"/items","method":"GET"}),
+            json!({"url":"/items","method":"POST"}),
+            json!({"url":"/items/1","method":"DELETE"}),
+            json!({"url":"/arrow","method":"GET"}),
+            json!({"url":"/items/1","method":"PUT"}),
+        ]
+    );
+}
+
+#[test]
+fn angular_httpclient_rejects_type_only_or_unrelated_imports() {
+    let source = r#"
+import type { HttpClient } from '@angular/common/http';
+class LooksLikeAngular {
+  constructor(private api: HttpClient) {}
+  load() { this.api.get('/type-only'); }
+}
+"#;
+    let mut output = graph();
+    enrich("x.ts", source, &mut output, &OperationContext::default()).unwrap();
+    assert!(
+        output["unresolvedReferences"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn chooses_the_smallest_same_line_caller() {
     let source = "function outer(){ function inner(){fetch('/inner')} fetch('/outer') }";
     let inner_start = source.find("function inner").unwrap();

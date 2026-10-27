@@ -8,7 +8,7 @@ mod structural;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_budget;
+mod budget_tests;
 use harness_domain::{contracts::SearchArgs, execution::OperationContext};
 use serde_json::Value;
 

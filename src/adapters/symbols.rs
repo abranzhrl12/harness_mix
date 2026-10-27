@@ -39,7 +39,7 @@ fn snapshot_selected(
         .language();
     let lang = language.protocol_name();
 
-    let bytes = project.bytes_with_context(path, context)?;
+    let bytes = project.symbol_bytes_with_context(path, context)?;
     let digest = hash(&bytes);
     let text = harness_domain::encoding::decode_source(&bytes)
         .map_err(|_| ("ENCODING", "Source cannot be decoded as UTF-8 or Windows-1252"))?
@@ -83,7 +83,13 @@ fn snapshot_selected(
             super::astro_syntax::collect_symbols(path, &text, &digest, context)?
         }
         SourceLanguage::JavaScript | SourceLanguage::TypeScript => {
-            super::ts_symbols::collect(path, &text, &digest, context)?
+            super::ts_symbols::collect_with_limit(
+                path,
+                &text,
+                &digest,
+                context,
+                super::project::MAX_SYMBOL_FILE as usize,
+            )?
         }
     };
     Ok((text, digest, symbols, lang, structure))

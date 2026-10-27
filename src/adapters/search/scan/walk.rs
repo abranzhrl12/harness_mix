@@ -4,7 +4,7 @@ use std::path::Path;
 
 pub(super) fn build(
     root: &Path,
-    file_size: bool,
+    exclude_minified: bool,
     explicit_scope: bool,
 ) -> Result<ignore::WalkBuilder, Failure> {
     let mut builder = ignore::WalkBuilder::new(root);
@@ -20,10 +20,13 @@ pub(super) fn build(
         .filter_entry(move |entry| {
             !entry.file_name().to_str().is_none_or(|name| {
                 excluded(name)
-                    || (file_size
+                    || (exclude_minified
                         && (["vendor", "dist", "build", "coverage"]
                             .contains(&name.to_ascii_lowercase().as_str())
                             || name.ends_with(".min.js")
+                            || name.ends_with(".min.css")
+                            || name.ends_with(".bundle.js")
+                            || name.ends_with(".bundle.min.js")
                             || name.ends_with(".map")))
             })
         });

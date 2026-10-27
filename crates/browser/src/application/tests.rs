@@ -107,6 +107,39 @@ fn service_delegates_valid_requests_and_returns_backend_result() {
 }
 
 #[test]
+fn local_http_discovery_endpoint_reaches_backend() {
+    let backend = Arc::new(FakeBackend::succeeding());
+    let service = BrowserUseCase::with_backend(backend.clone());
+
+    let result = service
+        .browser(
+            &connect("http://localhost:9222/json/version"),
+            &OperationContext::without_deadline(),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        result,
+        BrowserResult::Connected { connection_id } if connection_id == "injected"
+    ));
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn invalid_http_discovery_endpoint_is_rejected_before_backend_io() {
+    let backend = Arc::new(FakeBackend::succeeding());
+    let service = BrowserUseCase::with_backend(backend.clone());
+
+    let result = service.browser(
+        &connect("http://example.com:9222/json/version"),
+        &OperationContext::without_deadline(),
+    );
+
+    assert_eq!(result.unwrap_err().0, "BROWSER_ENDPOINT");
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn service_preserves_backend_failures() {
     let backend = Arc::new(FakeBackend::failing());
     let service = BrowserUseCase::with_backend(backend.clone());

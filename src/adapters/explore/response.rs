@@ -125,7 +125,13 @@ pub(super) fn respond(
                 }
             ));
         }
-        text.push_str("\n**Relationships (calls first)**\n");
+        if !visible_edges.is_empty() {
+            text.push_str("\n**Relationships (calls first)**\n");
+        } else {
+            text.push_str(
+                "\nNo direct calls indexed in the returned graph; absence is not certified.\n",
+            );
+        }
     }
     for edge in visible_edges.iter().take(if summary { 0 } else { 20 }) {
         let source = &nodes[edge["source"].as_str().ok_or(super::CONTRACT)?];
@@ -215,6 +221,12 @@ pub(super) fn respond(
     };
     let context_truncation = json!({"definitionBodies":definitions_limited,"textPreview":utf16_len(&text)>max_chars,
         "relatedBodies":context_omitted>0,"summaryRelations":displayed_graph["summaryTruncated"]==true});
+    // Nothing truncated is the healthy case: emit it in detail only, not on
+    // every response (one boolean would say the same).
+    let context_clear = !definitions_limited
+        && utf16_len(&text) <= max_chars
+        && context_omitted == 0
+        && displayed_graph["summaryTruncated"] != true;
     let displayed_candidates: Vec<_> = candidates
         .iter()
         .take(if summary { 5 } else { 20 })
@@ -247,17 +259,21 @@ pub(super) fn respond(
         }
     }
     let requested = super::query_symbols(args);
-    Ok(
-        json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") || (super::razor_file_selector(args) && !targets.is_empty()) {"resolved"} else {"unresolved"}},
+    let mut result = json!({"text":preview,"focus":{"symbol":symbol,"status":if definitions.iter().any(|d| d["role"] == "target") || (super::razor_file_selector(args) && !targets.is_empty()) {"resolved"} else {"unresolved"}},
         "view":if impact {"impact"} else if summary {"summary"} else {"full"},"definitionView":if summary {"signature"} else {"full"},"editReady":false,"contextTruncation":context_truncation,
-        "reuseGuidance":"Reuse definitions already in context; call nextCall only for missing bodies. Numbered Markdown is not replacement text.",
         "contextSelection":{"requestedSymbols":requested,"relatedReturned":definitions.iter().filter(|d| d["role"] == "related").count(),"relatedOmitted":context_omitted,"maxRelatedSymbols":4,"maxFiles":max_files,"policy":"direct calls and local SQL table dependencies; production before tests; ambiguous local bodies are not guessed"},
-        "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,"relationshipSource":"codegraph-index",
-        "indexFreshness":"not_certified","synchronized":false,"absenceProven":false,"fileFreshness":freshness,"diagnostics":diagnostics,
-        "synchronization":{"performed":false,"nativeIndexerAvailable":true},
+        "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,
+        "indexFreshness":"not_certified","absenceProven":false,"synchronized":false,"fileFreshness":freshness,"diagnostics":diagnostics,
         "notice":"Bounded indexed relationships, not execution traces; full notices in _detail.notice.",
         "truncated":truncated || utf16_len(&text)>max_chars || context_omitted>0 || displayed_graph["summaryTruncated"]==true,"_complete":!partial,
         "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":full_graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness_full,
-        "notice":"Not execution traces or exhaustive impact; matching content does not prove index completeness, relation validity, unindexed changes or a coherent whole-workspace snapshot. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. Indexer availability does not grant write authorization. Preview is not replacement text.","indexFreshness":"not_certified","synchronized":false}}),
-    )
+        "notice":"Not execution traces or exhaustive impact; matching content does not prove index completeness, relation validity, unindexed changes or a coherent whole-workspace snapshot. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. Indexer availability does not grant write authorization. Preview is not replacement text.","indexFreshness":"not_certified","synchronized":false}});
+    if result["truncated"] == json!(false) && context_clear
+        && result["unresolved"].as_array().is_none_or(Vec::is_empty)
+    {
+        // Truncation bookkeeping only earns tokens when something was cut.
+        let map = result.as_object_mut().expect("explore result object");
+        map.remove("contextTruncation");
+    }
+    Ok(result)
 }

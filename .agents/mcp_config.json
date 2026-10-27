@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "harness": {
-      "command": "E:/harness_mix/target/release/agent-harness.exe",
-      "args": ["--root", "E:/harness_mix"]
+      "command": "C:/Users/AbrahamRodriguez/AppData/Roaming/npm/node_modules/@abranzhrl1212/agent-harness/bin/agent-harness.exe",
+      "args": ["--root", "D:/Nueva carpeta/harness_mix"]
     }
   }
 }

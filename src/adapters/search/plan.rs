@@ -10,6 +10,11 @@ use std::path::PathBuf;
 
 pub(super) struct SearchPlan<'a> {
     pub(super) file_size: bool,
+    /// Minified/bundled artifacts and package-output directories stay out of
+    /// text scans by default: they exhaust the scan budget without informing
+    /// source queries. kind=file_size keeps its dedicated size ranking and
+    /// kind=files can still enumerate them by name.
+    pub(super) exclude_minified: bool,
     pub(super) syntax: bool,
     pub(super) context_lines: usize,
     pub(super) selected: Option<(&'static str, Option<&'a str>)>,
@@ -29,6 +34,7 @@ pub(super) fn build<'a>(
     args: &'a SearchArgs,
 ) -> Result<SearchPlan<'a>, Failure> {
     let file_size = matches!(args.kind, Kind::FileSize);
+    let exclude_minified = file_size || matches!(args.kind, Kind::Text);
     let syntax = matches!(args.kind, Kind::Syntax);
     let context_lines = args.context_lines.unwrap_or(0);
     if context_lines > 20 || (args.context_lines.is_some() && !matches!(args.kind, Kind::Text)) {
@@ -132,6 +138,7 @@ pub(super) fn build<'a>(
     }
     Ok(SearchPlan {
         file_size,
+        exclude_minified,
         syntax,
         context_lines,
         selected,

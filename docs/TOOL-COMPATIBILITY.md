@@ -1,5 +1,49 @@
 # Parámetros compatibles y búsquedas acotadas
 
+## Contrato inicial y respuestas
+
+El primer `harness_bootstrap` devuelve ejemplos con nombres canónicos en
+`data.examples`. Reutiliza `data.session` y confirma `data.root` antes de editar.
+La llamada inicial sugerida usa búsqueda de archivos y no necesita índice.
+
+Usa `structuredContent` como contrato de lectura: contiene `state`, `scope`,
+`data` y los diagnósticos, límites y referencias que correspondan. Símbolos y
+exploración conservan además su JSON textual anterior en `content`; esa vista
+puede tener una forma diferente. Los errores de deserialización de parámetros
+mantienen el texto original y añaden diagnóstico estructurado `ARGUMENT`.
+Los errores del protocolo, como una herramienta inexistente, siguen siendo
+respuestas del protocolo. Recupera los resultados completos mediante `detail`
+y conserva sus avisos de omisiones y frescura.
+
+`harness_jobs.action` enumera `start`, `status`, `list`, `events`, `observe`
+y `cancel`. `start` requiere `verify`; `status`, `observe` y `cancel`
+requieren `taskId`.
+
+## Límites de entrada y verificación
+
+`harness_symbols` dispone de un presupuesto de lectura de 16 MiB, tanto para
+`outline` como para `read`. La navegación JS/TS admite ese tamaño; los demás
+analizadores conservan sus límites propios. La validación sintáctica JS/TS y el
+análisis de frontmatter Astro conservan su límite de 512 KiB. Sobre ese límite devuelve `SIZE` sin presentar
+un análisis parcial como completo. Esto no eleva el techo de 2 MiB de las
+lecturas generales: `harness_read` admite rangos inclusivos de hasta 420 líneas.
+`end` y `lines` son alternativas y no se envían juntos. Los límites de salida
+y `detail` son independientes del presupuesto de entrada del analizador.
+
+Para compilar .NET, indica el archivo de proyecto o solución en `scope`:
+
+```json
+{"language":"dotnet","scope":"src/App/App.csproj","action":"build","engine":"auto"}
+```
+
+La ruta debe existir dentro del workspace. Requiere SDK y restore previo;
+no restaura paquetes durante la verificación. `engine` admite `auto`, `dotnet`
+o `msbuild`; MSBuild solo admite `build`. `project` y `configuration`
+seleccionan proyectos Angular, no el archivo .NET. `timeoutSeconds` permite
+1..3600 segundos, con 900 por defecto.
+
+## Alias compatibles
+
 `harness_replace` usa `hash` como nombre canónico del SHA-256 y acepta `baseHash`
 como alias. Usa solo uno; conserva la validación de frescura y los conflictos.
 El `baseHash` devuelto por `preview:true` se puede pasar como `hash` al aplicar.

@@ -5,15 +5,16 @@ description: Consultar bases SQL Server o PostgreSQL mediante Harness MCP, descu
 
 # SQL con contexto mínimo suficiente
 
-Bootstrap si falta sesión; confirma raíz y consulta el esquema real de `harness_sql`. La conexión actual es de solo lectura. No supongas motores, credenciales ni autorización de escritura.
+Bootstrap si falta sesión; confirma raíz y consulta el esquema real de `harness_sql`. La conexión es de solo lectura: solo SELECT/WITH; el harness no ejecuta CREATE/ALTER/DROP ni escrituras — los scripts de esquema se aplican fuera (SSMS o release). No supongas motores, credenciales ni autorización de escritura.
 
 | Necesidad | Acción |
 | --- | --- |
 | Estado o motores desconocidos | `status` |
 | Objeto desconocido | `search` con nombre concreto |
-| Estructura de objeto conocido | `describe`, `name` y secciones necesarias |
+| Estructura de objeto conocido | `describe` (`name="dbo.Objeto"` o `name` unqualified + `schema="dbo"`) |
 | Relaciones de un esquema | `map`, esquema y límite acotados |
-| Datos | `query`, columnas y filtros concretos |
+| Datos | `query` con `sql` (bajo `action=query`, `query` es alias aceptado) |
+| Script de SP/View/Función | Redáctalo y explícalo; entrégalo para SSMS o release — nunca lo ejecutes aquí |
 
 Evita status/search/describe si ya tienes conexión y esquema vigentes suficientes. Si hay dos motores, especifica `engine`. En PostgreSQL, omitir schema en búsqueda incluye los permitidos por política; no presupongas `public`.
 

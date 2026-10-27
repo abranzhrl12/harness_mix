@@ -24,6 +24,7 @@ pub(super) fn select<F>(
     db: &Connection,
     project: &Project,
     args: &ExploreArgs,
+    file_path: Option<&str>,
     context: &OperationContext,
     symbol: &str,
     max_files: usize,
@@ -41,22 +42,36 @@ where
     let mut search = db.prepare(query).map_err(&failed)?;
     let symbol_names =
         serde_json::to_string(&super::query_symbols(args)).map_err(|_| super::CONTRACT)?;
-    let mut hits = search
-        .query_map(
-            rusqlite::params![
-                symbol_names,
-                args.file_path,
-                args.symbol_id,
-                args.container,
-                super::razor_file_selector(args)
-            ],
-            |r| super::node(r, 0),
-        )
-        .map_err(&failed)?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(failed)?;
+    let read = |statement: &mut rusqlite::Statement<'_>| -> rusqlite::Result<Vec<Node>> {
+        let params = rusqlite::params![
+            symbol_names.as_str(),
+            file_path,
+            args.symbol_id,
+            args.container,
+            super::razor_file_selector(args)
+        ];
+        statement
+            .query_map(params, |r| super::node(r, 0))?
+            .collect()
+    };
+    let mut hits = read(&mut search).map_err(&failed)?;
+    if hits.is_empty() && file_path.is_some() {
+        // Selector drift (case differences): retry the file selector
+        // case-insensitively before reporting the target unresolved. Native
+        // separators arrive already normalized from the caller.
+        let file_condition = if has_qualified {
+            "AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND (?4 IS NULL OR qualified_name=?4||'::'||name COLLATE BINARY OR qualified_name=?4||'.'||name COLLATE BINARY)"
+        } else {
+            "AND (?3 IS NULL OR id=?3 COLLATE BINARY) AND ?4 IS NULL"
+        };
+        let fallback = format!(
+            "SELECT id,name,kind,file_path,start_line FROM nodes WHERE (name IN (SELECT value FROM json_each(?1)) COLLATE BINARY OR (?1='[]' AND ?3 IS NOT NULL) OR (?5 AND kind='file')) AND lower(file_path)=lower(?2) {file_condition} ORDER BY file_path,start_line,id LIMIT 101"
+        );
+        let mut retry = db.prepare(&fallback).map_err(&failed)?;
+        hits = read(&mut retry).map_err(&failed)?;
+    }
     if hits.is_empty()
-        && (args.file_path.is_some() || args.container.is_some() || args.symbol_id.is_some())
+        && (file_path.is_some() || args.container.is_some() || args.symbol_id.is_some())
     {
         return Ok(SelectionResult::NotResolved);
     }

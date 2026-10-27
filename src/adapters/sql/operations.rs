@@ -1,4 +1,4 @@
-#[cfg(test)]
+﻿#[cfg(test)]
 pub(super) use super::presentation::routine_definition_diagnostic;
 pub(super) use super::presentation::{
     ResolvedSqlObject, RoutineCatalog, quote_sql_identifier, routine_response,
@@ -63,7 +63,7 @@ pub(super) fn status(
                 if row.is_some() {
                     Ok::<(), Failure>(())
                 } else {
-                    Err(("SQL_QUERY", "SELECT 1 no devolvió filas"))
+                    Err(("SQL_QUERY", "SELECT 1 no devolviÃ³ filas"))
                 }
             },
             &timed,
@@ -110,13 +110,13 @@ pub(super) fn search(
     if !config.enabled {
         return Err((
             "SQL_CONFIG",
-            "SQL Server no está habilitado en harness.config.json",
+            "SQL Server no estÃ¡ habilitado en harness.config.json",
         ));
     }
 
     let query = args.query.trim();
     if query.is_empty() || query.len() > 128 {
-        return Err(("ARGUMENT", "Buscar esquema con 1–128 caracteres"));
+        return Err(("ARGUMENT", "Buscar esquema con 1â€“128 caracteres"));
     }
 
     let limit = args.limit.unwrap_or(20).clamp(1, 50).min(config.max_rows);
@@ -262,7 +262,7 @@ pub(super) fn map(
     if !config.enabled {
         return Err((
             "SQL_CONFIG",
-            "SQL Server no está habilitado en harness.config.json",
+            "SQL Server no estÃ¡ habilitado en harness.config.json",
         ));
     }
     let schema = args.schema.as_deref().unwrap_or("*");
@@ -534,7 +534,7 @@ pub(super) fn describe(
     if !config.enabled {
         return Err((
             "SQL_CONFIG",
-            "SQL Server no está habilitado en harness.config.json",
+            "SQL Server no estÃ¡ habilitado en harness.config.json",
         ));
     }
 
@@ -564,10 +564,22 @@ pub(super) fn describe(
             "SQL Server relation describe supports columns only",
         ));
     }
-    let parsed_name = match parse_sql_object_name(&args.name) {
+    let mut parsed_name = match parse_sql_object_name(&args.name) {
         Ok(parsed) => parsed,
         Err(message) => return Ok(operation_failed(("SQL_OBJECT_NAME_INVALID", message))),
     };
+    // Optional schema argument folds in front of an unqualified name and
+    // overrides the schema part of a qualified one.
+    if let Some(schema) = args.schema.as_deref().filter(|schema| !schema.trim().is_empty()) {
+        parsed_name = match parsed_name {
+            ParsedSqlObjectName::Qualified(_, name) => {
+                ParsedSqlObjectName::Qualified(schema.to_string(), name)
+            }
+            ParsedSqlObjectName::Unqualified(name) => {
+                ParsedSqlObjectName::Qualified(schema.to_string(), name)
+            }
+        };
+    }
     let name_str = args.name.clone();
     let project_clone = project.clone();
     let config_clone = config.clone();
@@ -866,7 +878,7 @@ pub(super) fn query(
     if !config.enabled {
         return Err((
             "SQL_CONFIG",
-            "SQL Server no está habilitado en harness.config.json",
+            "SQL Server no estÃ¡ habilitado en harness.config.json",
         ));
     }
 
@@ -1001,6 +1013,7 @@ pub(super) fn query(
         "serverCancellationConfirmed": false
     }))
 }
+
 
 pub(super) fn escape_like(query: &str) -> String {
     let mut output = String::with_capacity(query.len());

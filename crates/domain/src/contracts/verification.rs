@@ -31,7 +31,11 @@ pub enum VerifyAction {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct VerifyArgs {
+    /// Verification language, e.g. rust, dotnet, angular, javascript or typescript.
     pub language: String,
+    /// .NET requires an explicit workspace-relative .csproj or .sln file, not a directory.
+    /// Example: src/App/App.csproj. Dependencies must already be restored.
+    /// Rust uses an optional workspace directory; Angular selects angular.json.
     pub scope: Option<String>,
     /// Rust package name, passed as a single cargo -p argument.
     pub package: Option<String>,

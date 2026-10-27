@@ -418,11 +418,11 @@ fn source_and_summary_omissions_do_not_truncate_the_graph() {
             .get("definitions")
             .is_none()
     );
-    assert_eq!(
-        full["data"]["synchronization"]["nativeIndexerAvailable"],
-        true
+    assert!(
+        full["data"].get("synchronization").is_none(),
+        "{}",
+        full
     );
-    assert_eq!(full["data"]["synchronization"]["performed"], false);
     let mut summary_args = args("target");
     summary_args.view = Some(harness_domain::contracts::ExploreView::Summary);
     let summary = app.execute(Request::Explore(summary_args));
@@ -571,7 +571,7 @@ fn freshness_covers_related_files_and_never_certifies_unindexed_changes() {
     let recovered = &detail["data"]["result"];
     assert_eq!(recovered["unindexed"], false);
     assert_eq!(recovered["whole"], false);
-    assert_eq!(shallow["data"]["synchronization"]["performed"], false);
+    assert!(shallow["data"].get("synchronization").is_none(), "{}", shallow);
 }
 
 #[test]
@@ -808,7 +808,8 @@ fn exact_symbol_relations_local_definitions_and_database_remain_read_only() {
     assert!(markdown.starts_with("**Exploration: target**"));
     assert!(markdown.contains("**Source Code**"));
     assert!(markdown.contains("### lib.rs:"));
-    assert!(markdown.contains("\tpub fn target()"));
+    assert!(markdown.contains("```rust"));
+    assert!(markdown.contains(" | pub fn target()"));
     assert!(markdown.contains("**Call paths / blast radius"));
     assert_eq!(result["data"]["focus"]["status"], "resolved");
     assert_eq!(
@@ -1038,4 +1039,44 @@ fn real_codegraph_index_can_be_read_without_running_node() {
     assert_eq!(deeper["state"], "ok", "{deeper}");
     assert_eq!(deeper["data"]["graph"]["traversal"]["maxDepth"], 2);
     assert_eq!(deeper["data"]["indexFreshness"], "not_certified");
+}
+
+#[test]
+fn native_separator_and_case_drift_file_selectors_resolve() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    std::fs::create_dir_all(root.path().join("Controls")).unwrap();
+    std::fs::write(root.path().join("Controls/inners.rs"), "pub fn solo() {}\n").unwrap();
+    db.execute(
+        "INSERT INTO files VALUES('Controls/inners.rs',?1,NULL)",
+        [harness_domain::hash(
+            &std::fs::read(root.path().join("Controls/inners.rs")).unwrap(),
+        )],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO nodes VALUES('s1','solo','function','Controls/inners.rs',1)",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let app = adapters::application(root.path()).unwrap();
+    for selector in [
+        "Controls\\inners.rs",
+        "./Controls/inners.rs",
+        "./Controls\\inners.rs",
+        "controls/INNERS.rs",
+    ] {
+        let summary: ExploreArgs = serde_json::from_value(
+            json!({"symbol":"solo","filePath":selector,"view":"summary"}),
+        )
+        .unwrap();
+        let result = app.execute(Request::Explore(summary));
+        assert_eq!(result["state"], "ok", "{selector}: {result}");
+        assert_eq!(
+            result["data"]["focus"]["status"],
+            "resolved",
+            "{selector}: {result}"
+        );
+    }
 }

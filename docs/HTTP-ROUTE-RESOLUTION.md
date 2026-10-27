@@ -9,6 +9,9 @@ The native indexer connects literal frontend HTTP requests to indexed C# control
 - Conventional `/ControllerWithoutSuffix/Action` routes when no attribute template applies.
 - Literal class/action `Route` attributes and `HttpGet`, `HttpPost`, `HttpPut`, `HttpPatch`, `HttpDelete`, `HttpHead`, and `HttpOptions` attributes, including their `Attribute` suffix forms. A class prefix combines with an action template; a bare HTTP attribute uses the class template when present.
 - JS/TS/JSX/TSX `fetch`, axios verb methods, and jQuery `get`, `post`, `getJSON`, and `ajax`. Inline Vue scripts use the same extraction.
+- Angular `HttpClient` verb methods and `request(method, url)` on instance properties supplied by constructor parameter properties or `inject(HttpClient)`. The client token must resolve to a value import from `@angular/common/http`; `inject` must come from `@angular/core`. Aliased imports and literal generic calls are supported; ordinary objects and dynamic URLs remain unlinked.
+- Inline JavaScript in `.cshtml`, `.html`, and `.htm`, including named function callers and original request locations. External scripts and non-JavaScript script types are excluded.
+- Two-literal-argument Razor `@Url.Action("Action", "Controller")` inside an HTTP request string uses the conventional `/Controller/Action` path and the actual request method. Outside scripts, existing MVC helper resolution remains in place.
 - Literal strings and template strings without substitutions. Known HTTP methods distinguish otherwise identical paths.
 
 Matching lowercases paths, trims surrounding slashes, and strips query strings and fragments. External URLs, dynamic expressions, route parameters, token replacement, and path traversal segments remain unresolved. Ambiguous destinations remain pending instead of choosing an arbitrary action.
@@ -23,4 +26,4 @@ The catalog and retries use existing bounded publication limits. This is a liter
 
 ## Deferred work
 
-Route-path selectors and route display in `harness_symbols`, Razor/HTML request extraction, Angular-specific client detection, parameterized routes, and Node/Python backends are outside this minimal delivery. Existing indexes acquire the new route metadata when their files are explicitly re-extracted using the supported index maintenance workflow; building the executable alone does not update an index.
+Route-path selectors and route display in `harness_symbols`, parameterized routes, and Node/Python backends remain deferred. Angular constructor assignments, aliases, inherited clients, computed properties, and arbitrary dependency-injection wrappers are not evaluated. Razor helper URL synthesis does not model ambient areas, `PathBase`, custom route tables, or additional route values; it is a conventional-route heuristic. Existing indexes acquire the new route metadata when their files are explicitly re-extracted using the supported index maintenance workflow; building the executable alone does not update an index.

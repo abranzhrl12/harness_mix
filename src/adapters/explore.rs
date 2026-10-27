@@ -238,6 +238,18 @@ fn explore_inner(
 ) -> Result<Value, Failure> {
     context.check()?;
     validate_args(args)?;
+    let file_selector = args
+        .file_path
+        .as_deref()
+        .map(|file| {
+            // Windows callers pass native separators; the graph stores
+            // POSIX-style paths. Normalize the selector before the graph query.
+            let forward = file.replace('\\', "/");
+            forward
+                .trim_start_matches("./")
+                .trim_end_matches('/')
+                .to_string()
+        });
     if let Some(file) = &args.file_path {
         project.target(file)?;
     }
@@ -282,6 +294,7 @@ fn explore_inner(
         &db,
         project,
         args,
+        file_selector.as_deref(),
         context,
         symbol,
         max_files,
@@ -290,7 +303,7 @@ fn explore_inner(
     )? {
         selection::SelectionResult::NotResolved => {
             let mut result = selection::not_resolved_value();
-            let archive = if let Some(path) = args.file_path.as_deref() {
+            let archive = if let Some(path) = file_selector.as_deref() {
                 super::index_store::quarantine::coverage(&db, Some(path), None)?
             } else {
                 super::index_store::quarantine::Coverage::default()

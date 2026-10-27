@@ -14,7 +14,22 @@ struct Server {
 }
 
 fn direct_tool_payload(response: &Value) -> Value {
-    assert!(response["result"].get("structuredContent").is_none(), "{response}");
+    // Successful source payloads now render a lean markdown text channel; the
+    // canonical envelope lives in structuredContent. Flatten it the same way
+    // the legacy direct text channel did (data fields plus envelope metadata).
+    if let Some(envelope) = response["result"].get("structuredContent") {
+        let mut payload = envelope["data"].clone();
+        if let Some(map) = payload.as_object_mut() {
+            let ok = envelope["state"] == json!("ok");
+            for (key, value) in envelope.as_object().cloned().unwrap_or_default() {
+                if key == "data" || key == "scope" || (ok && key == "state") {
+                    continue;
+                }
+                map.insert(key, value);
+            }
+        }
+        return payload;
+    }
     assert_eq!(response["result"]["content"].as_array().unwrap().len(), 1);
     serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
 }
@@ -469,8 +484,11 @@ fn real_project_context_presentation() {
         }
         original_graph = Some(graph);
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        // Explore now has one representation regardless of the legacy flag.
-        assert_eq!(serde_json::from_str::<Value>(text).unwrap(), envelope);
+        // The full view renders the lean reading channel; the structured
+        // envelope is canonical and identical for both presentation flags.
+        assert!(text.starts_with("## Graph context"), "{text}");
+        let envelope_obj = &response["result"]["structuredContent"];
+        assert_eq!(envelope["graph"], envelope_obj["data"]["graph"]);
         assert!(text.contains("not_certified"));
         assert!(text.contains("sourceStatus"));
         println!(
@@ -1414,7 +1432,6 @@ fn mcp_html_parser_reads_elements_and_preserves_embedded_css_selectors() {
     assert_eq!(result["result"]["isError"], false, "{result}");
     let data = &result["result"]["structuredContent"]["data"];
     assert_eq!(data["text"], button);
-    assert_eq!(data["hash"], harness_domain::hash(source.as_bytes()));
     assert!(
         data["symbol"]["attributes"]
             .as_array()
@@ -1543,10 +1560,8 @@ fn rust_symbol_navigation_works_over_stdio_without_node() {
         full["result"]["structuredContent"]["data"]["text"],
         "pub fn hello() -> i32 { 1 }"
     );
-    assert_eq!(
-        full["result"]["structuredContent"]["data"]["anchors"]["before"]["text"],
-        "// 🙂"
-    );
+    // Anchors and full-file hash are display noise for the model now; the
+    // lean text channel carries the source numbered instead.
     let signature = server.request(4,"tools/call",json!({"name":"harness_symbols","arguments":{"action":"read","path":"sample.rs","symbol":"hello","symbolId":id,"view":"signature"}}));
     assert_eq!(
         signature["result"]["structuredContent"]["data"]["editReady"],
@@ -1888,8 +1903,6 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         read["result"]["structuredContent"]["data"]["text"],
         "hola\r\nRust"
     );
-    let envelope: Value =
-        serde_json::from_str(read["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     let id = read["result"]["structuredContent"]["requestId"]
         .as_str()
         .unwrap();
@@ -1902,7 +1915,8 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         traced["result"]["structuredContent"]["data"]["events"][0]["requestId"],
         id
     );
-    assert_eq!(envelope, read["result"]["structuredContent"]);
+    // The reading channel is now lean markdown; the canonical envelope lives
+    // only in structuredContent (its requestId matched the trace above).
     let repeated = server.request(
         5,
         "tools/call",

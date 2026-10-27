@@ -1,5 +1,5 @@
 use harness_application::ports::{JobEvent, JobEventFuture, JobEventStream, JobFuture, JobService};
-use harness_domain::tasks::TaskArgs;
+use harness_domain::tasks::{TaskAction, TaskArgs};
 use serde_json::{Value, json};
 
 pub(super) struct MultiJobService {
@@ -10,7 +10,7 @@ pub(super) struct MultiJobService {
 impl JobService for MultiJobService {
     fn handle(&self, args: TaskArgs) -> JobFuture<'_> {
         Box::pin(async move {
-            if args.action == "start" {
+            if args.action == TaskAction::Start {
                 let mut value = serde_json::to_value(&args)
                     .map_err(|_| ("ARGUMENT", "Invalid task arguments"))?;
                 let (index, project, relative) = match args
@@ -53,7 +53,7 @@ impl JobService for MultiJobService {
                 return Ok(result);
             }
 
-            if matches!(args.action.as_str(), "list" | "events") {
+            if matches!(args.action, TaskAction::List | TaskAction::Events) {
                 let mut per_project = Vec::new();
                 for (index, manager) in self.managers.iter().enumerate() {
                     let value = serde_json::to_value(&args)
@@ -61,7 +61,7 @@ impl JobService for MultiJobService {
                     let mapped: TaskArgs = serde_json::from_value(value)
                         .map_err(|_| ("ARGUMENT", "Invalid task arguments"))?;
                     let mut result = manager.handle(mapped).await?;
-                    let key = if args.action == "list" {
+                    let key = if args.action == TaskAction::List {
                         "tasks"
                     } else {
                         "events"

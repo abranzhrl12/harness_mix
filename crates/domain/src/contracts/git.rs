@@ -17,6 +17,7 @@ pub struct GitStatusArgs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct GitDiffArgs {
+    #[serde(default = "workspace_path")]
     pub path: String,
     pub staged: Option<bool>,
     /// auto returns HEAD:index, index:worktree and HEAD:worktree separately.
@@ -46,4 +47,9 @@ impl GitArgs {
             Self::Diff(args) => Request::GitDiff(args),
         }
     }
+}
+
+/// Omitted path diffs the whole workspace, same as an explicit ".".
+fn workspace_path() -> String {
+    ".".into()
 }

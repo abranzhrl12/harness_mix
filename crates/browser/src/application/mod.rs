@@ -7,7 +7,7 @@ use harness_domain::{
     execution::OperationContext,
 };
 
-use crate::domain::{validate_endpoint, validate_request};
+use crate::domain::{validate_connect_endpoint, validate_request};
 
 /// Outbound port implemented by a concrete browser adapter.
 pub trait BrowserBackend: Send + Sync {
@@ -38,7 +38,7 @@ impl BrowserInspection for BrowserUseCase {
         context.check()?;
         validate_request(args)?;
         if let BrowserArgs::Connect { endpoint, .. } = args {
-            validate_endpoint(endpoint)?;
+            validate_connect_endpoint(endpoint)?;
         }
         self.backend.execute(args, context)
     }

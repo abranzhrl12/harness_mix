@@ -101,7 +101,7 @@ where
     W: Workspace + 'static,
     S: SessionRepository + 'static,
 {
-    #[tool(description = "Verificación en segundo plano: action=start|status|observe|cancel.")]
+    #[tool(description = "Verificación en segundo plano: action=start|status|list|events|observe|cancel. Ejemplos: {\"action\":\"start\",\"verify\":{\"language\":\"rust\",\"action\":\"test\"}}, {\"action\":\"list\"}, {\"action\":\"observe\",\"taskId\":\"<id devuelto>\"}. status, observe y cancel requieren taskId; start requiere verify.")]
     async fn harness_jobs(
         &self,
         Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
@@ -126,7 +126,7 @@ where
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "Conecta o inspecciona un navegador Chromium: action=connect|targets|attach|inspect|errors|screenshot|disconnect. Devuelve errores de consola/red, DOM y medidas del elemento seleccionado."
+        description = "Conecta o inspecciona un navegador Chromium: action=connect|targets|attach|inspect|errors|screenshot|disconnect. connect acepta http://localhost:9222 (descubre /json/version) o WebSocket CDP directo ws://loopback:puerto/devtools/browser/.... Ejemplo: {\"action\":\"connect\",\"endpoint\":\"http://localhost:9222\",\"session\":\"<data.session>\"}. El navegador debe estar ejecutándose con depuración remota; solo loopback, sin redirects. Devuelve errores de consola/red, DOM y medidas del elemento seleccionado."
     )]
     async fn harness_browser(
         &self,
@@ -178,7 +178,7 @@ where
         }
         result
     }
-    #[tool(description = "Git de solo lectura: action=status|diff.")]
+    #[tool(description = "Git de solo lectura: action=status|diff. diff tomará path=. (workspace completo) si lo omites; usa path para un archivo o carpeta.")]
     async fn harness_git(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::GitArgs>,
@@ -186,7 +186,7 @@ where
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. JSON único con frescura, límites y recuperación de omisiones.")]
+    #[tool(description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. structuredContent contiene el sobre canónico con data, frescura, límites y detalle; content conserva el JSON textual compatible. Ejemplo: {\"filePath\":\"src/main.rs\",\"symbol\":\"main\",\"view\":\"summary\"}. Requiere un índice compatible; no lo crea.")]
     async fn harness_explore(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ExploreArgs>,
@@ -203,7 +203,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales. outline + path lista firmas; read + path + symbol devuelve fuente exacta. No requiere view ni límites. JSON directo; conserva avisos y detalle si hay omisiones. HTML: symbol=html:#id; CSS: nombre del selector."
+        description = "Símbolos locales con presupuesto de lectura de 16 MiB; la navegación JS/TS admite ese tamaño y otros analizadores conservan sus límites propios. Exceder el presupuesto de lectura devuelve SIZE sin análisis parcial. outline + path lista firmas; read + path + symbol devuelve fuente exacta. No requiere view ni límites. structuredContent contiene el sobre canónico; content conserva el JSON textual compatible. Conserva avisos y detalle si hay omisiones. Ejemplos: {\"action\":\"outline\",\"path\":\"src/main.rs\"}, {\"action\":\"read\",\"path\":\"src/main.rs\",\"symbol\":\"main\"}. HTML: symbol=html:#id; CSS: nombre del selector."
     )]
     async fn harness_symbols(
         &self,
@@ -261,7 +261,7 @@ where
         self.call(Request::Delete(args), context).await
     }
     #[tool(
-        description = "Compila o prueba con herramientas locales, sin shell. language=angular invoca @angular/compiler-cli local sin emitir archivos; project/configuration seleccionan angular.json."
+        description = "Compila o prueba con herramientas locales, sin shell. .NET: language=dotnet, scope obligatorio a un archivo .csproj o .sln del workspace, engine=auto|dotnet|msbuild, action=build|test. Requiere SDK y restore previo; usa --no-restore; MSBuild solo admite build. Ejemplo: {\"language\":\"dotnet\",\"scope\":\"src/App/App.csproj\",\"action\":\"build\",\"engine\":\"auto\"}. Rust: {\"language\":\"rust\",\"action\":\"test\",\"package\":\"nombre-del-paquete\"}. language=angular invoca @angular/compiler-cli local sin emitir archivos; project/configuration seleccionan angular.json. timeoutSeconds: 1..3600, predeterminado 900."
     )]
     async fn harness_verify(
         &self,
@@ -272,7 +272,7 @@ where
     }
 
     #[tool(
-        description = "SQL de solo lectura: action=map|query|status|search|describe. map=esquema completo con PK, FK y parámetros en una llamada."
+        description = "SQL de solo lectura: action=map|query|status|search|describe. Solo SELECT/WITH (query con alias sql); no ejecuta DDL ni escrituras: CREATE/ALTER/DROP se aplican fuera del harness (SSMS o release). describe acepta name=\"dbo.Objeto\" o name unqualified + schema=\"dbo\". map=esquema completo con PK, FK y parámetros en una llamada."
     )]
     async fn harness_sql(
         &self,
@@ -292,7 +292,7 @@ where
     }
 
     #[tool(
-        description = "Lee hasta 420 líneas UTF-8 con hash y contexto. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text."
+        description = "Lee hasta 420 líneas UTF-8 de archivos de hasta 2 MiB, con hash y contexto; start/end son inclusivos, base 1. Ejemplo: {\"path\":\"src/main.rs\",\"start\":1,\"end\":80}. Alternativa: lines en lugar de end; no combinarlos. Por defecto lee desde start=1 hasta 120 líneas. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text."
     )]
     async fn harness_read(
         &self,
@@ -367,6 +367,19 @@ where
     W: Workspace + 'static,
     S: SessionRepository + 'static,
 {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
+        let tool = request.name.to_string();
+        let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.profile_router()
+            .call(call)
+            .await
+            .map(|response| presentation::normalize_text_only_error(response, &tool))
+    }
+
     #[allow(deprecated)]
     async fn set_level(
         &self,
@@ -420,7 +433,7 @@ where
     #[allow(deprecated)]
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_logging().build())
-            .with_instructions(format!("Rust harness; fixed tool profile: {}. Start with harness_bootstrap, reuse data.session, then harness_explore for relationships. Only advertised tools/operations are allowed; a profile is not permission to edit, run code or reindex without user authorization.", self.application.tool_profile().name()))
+            .with_instructions(format!("Rust harness; fixed tool profile: {}. Start with harness_bootstrap, confirm data.root and reuse data.session. Bootstrap includes valid parameter examples; use structuredContent as the canonical response envelope and preserve diagnostics/detail. Use harness_explore for indexed relationships. Only advertised tools/operations are allowed; a profile is not permission to edit, run code or reindex without user authorization.", self.application.tool_profile().name()))
     }
 }
 

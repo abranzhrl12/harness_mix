@@ -1,12 +1,12 @@
 # Browser inspection
 
-`harness_browser` connects to a Chromium browser that exposes the Chrome DevTools Protocol (CDP). It lets an MCP client inspect the rendered page, collect browser errors, and view a screenshot without adding browser-specific types to the application layer. This version accepts a direct `ws://localhost:PORT/devtools/browser/ID` endpoint, including IPv4 and IPv6 loopback equivalents. HTTP discovery endpoints, remote hosts, credentials, query strings, fragments, and unrelated URL paths are rejected. Obtain the direct address from the browser's `webSocketDebuggerUrl` in its local `/json/version` response.
+`harness_browser` connects to a Chromium browser that exposes the Chrome DevTools Protocol (CDP). It lets an MCP client inspect the rendered page, collect browser errors, and view a screenshot without adding browser-specific types to the application layer. Connect with either the direct `ws://localhost:PORT/devtools/browser/ID` endpoint or a local `http://localhost:PORT` discovery URL. Discovery requests only `/json/version` and accepts only `localhost`, `127.0.0.1`, or `[::1]`, with an explicit port and no credentials, query, or fragment. Redirects are rejected, the response is size and time limited, and the returned `webSocketDebuggerUrl` must be a loopback endpoint on the same port. Remote hosts, HTTPS, and unrelated URL paths are rejected.
 
 The `harness-browser` crate implements the application `BrowserInspection` port and owns CDP/runtime details. Its default `BrowserService` connects lazily; `BrowserService::with_backend` accepts an injected `BrowserBackend` for alternate implementations and isolated tests. The domain and application contracts do not depend on Chromiumoxide or Tokio.
 
 Start a separate Chrome profile with remote debugging enabled, then use the browser tool in this order:
 
-1. `connect` with the browser's DevTools endpoint; keep the returned `connectionId`.
+1. `connect` with either the direct DevTools WebSocket URL or the local HTTP debugging address shown by Chrome; for HTTP, Harness discovers the WebSocket from `/json/version`. Keep the returned `connectionId`.
 2. `targets` with that ID to list open pages and their `targetId` values.
 3. `attach` to the page before reproducing a problem so console, exception, and network events can be collected.
 4. `inspect` with a `targetId` and optional CSS `selector` to read the rendered HTML, text, element bounds, and computed styles. `maxChars` limits returned HTML.

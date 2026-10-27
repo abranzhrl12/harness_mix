@@ -11,6 +11,8 @@ use oxc_ast::ast::{
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType, Span};
 
+const DEFAULT_SOURCE_LIMIT_BYTES: usize = 512 * 1024;
+
 struct TsCollector<'a> {
     source: &'a str,
     digest: &'a str,
@@ -438,9 +440,26 @@ pub(in crate::adapters) fn collect(
     digest: &str,
     context: &OperationContext,
 ) -> Result<Vec<Symbol>, Failure> {
+    collect_with_limit(path, source, digest, context, DEFAULT_SOURCE_LIMIT_BYTES)
+}
+
+pub(in crate::adapters) fn collect_with_limit(
+    path: &str,
+    source: &str,
+    digest: &str,
+    context: &OperationContext,
+    max_source_bytes: usize,
+) -> Result<Vec<Symbol>, Failure> {
     context.check()?;
-    if source.len() > 512 * 1024 {
-        return Err(("PARSER_LIMIT", "JS/TS source exceeds 512 KiB limit"));
+    if source.len() > max_source_bytes {
+        return Err((
+            "PARSER_LIMIT",
+            if max_source_bytes == DEFAULT_SOURCE_LIMIT_BYTES {
+                "JS/TS source exceeds 512 KiB limit"
+            } else {
+                "JS/TS source exceeds the configured symbol parsing limit"
+            },
+        ));
     }
 
     // Match syntax validation for extensions with non-canonical casing while
@@ -462,3 +481,7 @@ pub(in crate::adapters) fn collect(
 
     Ok(collector.symbols)
 }
+
+#[cfg(test)]
+#[path = "symbols_tests.rs"]
+mod tests;

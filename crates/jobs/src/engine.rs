@@ -9,7 +9,7 @@ use harness_domain::{
     execution::OperationContext,
     jobs::{JobLifecycle, JobStatus},
     process::ProcessOutcome,
-    tasks::TaskArgs,
+    tasks::{TaskAction, TaskArgs},
 };
 use serde_json::{Value, json};
 use std::{
@@ -442,7 +442,7 @@ impl TaskManager {
         .is_ok()
     }
     pub async fn handle(&self, args: TaskArgs) -> Result<Value, Failure> {
-        if args.action != "start"
+        if args.action != TaskAction::Start
             && (args.verify.is_some()
                 || args.timeout_seconds.is_some()
                 || args.max_attempts.is_some())
@@ -452,13 +452,13 @@ impl TaskManager {
                 "verify, timeoutSeconds and maxAttempts require start",
             ));
         }
-        if args.action != "events" && args.action != "observe" && args.after.is_some() {
+        if args.action != TaskAction::Events && args.action != TaskAction::Observe && args.after.is_some() {
             return Err(("ARGUMENT", "after requires events or observe"));
         }
-        if matches!(args.action.as_str(), "start" | "list") && args.task_id.is_some() {
+        if matches!(args.action, TaskAction::Start | TaskAction::List) && args.task_id.is_some() {
             return Err(("ARGUMENT", "taskId is not valid for start or list"));
         }
-        if args.action != "observe"
+        if args.action != TaskAction::Observe
             && (args.filter.is_some()
                 || args.lines.is_some()
                 || args.before.is_some()
@@ -471,9 +471,9 @@ impl TaskManager {
                 "filter, lines, before, stream, cursor and maxChars require observe",
             ));
         }
-        match args.action.as_str() {
-            "start" => self.start(args),
-            "list" => {
+        match args.action {
+            TaskAction::Start => self.start(args),
+            TaskAction::List => {
                 let state = self
                     .inner
                     .state
@@ -483,7 +483,7 @@ impl TaskManager {
                     json!({"tasks":state.tasks.iter().map(|t| json!({"taskId":t.id,"status":t.lifecycle.status().as_str(),"attempt":t.lifecycle.attempt()})).collect::<Vec<_>>(),"cursor":state.sequence,"concurrency":2,"persistenceError":persistence_error(&state)}),
                 )
             }
-            "events" => {
+            TaskAction::Events => {
                 let state = self
                     .inner
                     .state
@@ -512,7 +512,7 @@ impl TaskManager {
                     json!({"events":events,"cursor":cursor,"latestCursor":state.sequence,"hasMore":state.journal.iter().any(|e| e["cursor"].as_u64().unwrap_or(0)>cursor && args.task_id.as_ref().is_none_or(|id| e["taskId"] == *id)),"oldestCursor":oldest,"gap":after.saturating_add(1) < oldest,"persistenceError":persistence_error(&state)}),
                 )
             }
-            "status" | "cancel" => {
+            TaskAction::Status | TaskAction::Cancel => {
                 let id = args
                     .task_id
                     .as_deref()
@@ -527,7 +527,7 @@ impl TaskManager {
                     .iter_mut()
                     .find(|t| t.id == id)
                     .ok_or(("TASK_NOT_FOUND", "Task not found or expired"))?;
-                if args.action == "cancel" && !terminal(task.lifecycle.status()) {
+                if args.action == TaskAction::Cancel && !terminal(task.lifecycle.status()) {
                     task.context.cancel();
                     task.wake.notify_one();
                     let value = task.value();
@@ -539,11 +539,11 @@ impl TaskManager {
                 value["persistenceError"] = persistence_error(&state);
                 Ok(value)
             }
-            "observe" => {
+            TaskAction::Observe => {
                 let observe_args = args.into_observe()?;
                 self.observe(&observe_args)
             }
-            _ => Err(("ARGUMENT", "Unknown background task action")),
+
         }
     }
     fn start(&self, args: TaskArgs) -> Result<Value, Failure> {

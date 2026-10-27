@@ -20,7 +20,7 @@ un símbolo ya conocido sin necesitar relaciones, usa `harness_symbols` directam
 
 | Necesidad | Herramienta |
 | --- | --- |
-| Encontrar un archivo o texto | `harness_search`, `kind=files` o `text` |
+| Encontrar un archivo o texto | `harness_search`, `kind=files` o `text` (`kind=files` coincide con substring del nombre, no con globs: `*.cs` no encuentra nada; usa `Almacen` o filtra con `globs`) |
 | Leer una implementación conocida | `harness_symbols`, `action=read`, `path`, `symbol` |
 | Elegir un símbolo del archivo | `harness_symbols`, `action=outline`, `path` |
 | Obtener solo la firma | `harness_symbols`, `action=read`, `view=signature` |
@@ -59,13 +59,37 @@ conocidos, llámalo directamente: no necesita búsqueda ni outline previos.
 {"filePath":"src/modulo.rs","symbol":"validar","view":"summary"}
 ```
 
+Los selectores de archivo aceptan separadores nativos (`src\\modulo.rs` en Windows)
+y rutas relativas con `./`; el servidor normaliza antes de consultar el índice, y
+si no hay coincidencia exacta reintenta con minúsculas antes de reportar
+`TARGET_NOT_RESOLVED`.
+
 `summary` devuelve relaciones y firmas, sin cuerpos por diseño; no recuperes
 cuerpos si no cambian la respuesta. `full` (por defecto si omites `view`) añade
-cuerpos; `impact` consulta impacto entrante. Si falta ubicación, usa `search`
-para encontrar un candidato; si hay homónimos, acota con `filePath` y los
-selectores devueltos. Una búsqueda literal sigue siendo apropiada para texto.
-Añade presupuestos solo si hacen falta y la vista los admite. `maxFiles` limita
-archivos objetivo y fuentes relacionadas cargadas, no el número de nodos.
+cuerpos: su texto llega en un bloque lean cuyo código numerado (`N | `) usa un
+fence con el lenguaje de la extensión (` ```csharp `, ` ```javascript `…), en
+orden natural de lectura (título, código, relaciones al final); una meta-línea
+compacta lleva estado, frescura, cobertura y `detail.ref` — nunca busques JSON
+en ese texto: el sobre íntegro entra por `structuredContent` y `detail.ref`
+recupera el resultado completo sin repetir el análisis. `impact` consulta
+impacto entrante. Si falta ubicación, usa `search` para encontrar un candidato;
+si hay homónimos, acota con `filePath` y los selectores devueltos. Una búsqueda
+literal sigue siendo apropiada para texto. Añade presupuestos solo si hacen
+falta y la vista los admite. `maxFiles` limita archivos objetivo y fuentes
+relacionadas cargadas, no el número de nodos.
+
+La misma lectura lean aplica a las demás herramientas de solo lectura: 
+`harness_read` renderiza el fragmento con fence de lenguaje y líneas
+absolutas `N | ` (el título lleva la línea inicial); `harness_symbols`
+action=read reutiliza ese formato y action=outline devuelve una tabla
+`Line | Kind | Name | Signature`; `harness_sql` action=query/`describe`
+entregan tablas Markdown (con QUERY/SCHEMA en readonly siempre) y las
+definiciones de rutinas llegan en un fence `sql`; `harness_git` action=diff
+envuelve el parche en un fence `diff` y action=status agrupa tracked/
+conflicts/untracked; `harness_search` kind=text agrupa coincidencias por
+archivo con líneas numeradas. En todos los casos el sobre canónico
+(rectángulos completos, hashes, filas crudas) sigue en `structuredContent`.
+Los errores mantienen el JSON estructurado con diagnósticos intactos.
 
 Revisa cobertura, frescura y omisiones antes de concluir. Un hash de fuente o
 `syntaxOnly=true` no certifica el grafo; un resultado vacío limitado no prueba

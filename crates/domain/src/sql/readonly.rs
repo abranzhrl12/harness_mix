@@ -1,8 +1,14 @@
 //! Conservative preflight policy for read-only T-SQL queries.
 
 /// Conservative preflight read-only validator for T-SQL queries.
-/// Replicates the strict rules of sql-readonly.cjs.
+/// Replicates the strict rules of sql-readonly.cjs. LLM callers execute SELECT
+/// production only; schema changes (CREATE/ALTER/DROP) are applied outside the
+/// harness (SSMS or release), never from a tool call.
 pub fn assert_sql_read_only(sql: &str) -> Result<(), (&'static str, &'static str)> {
+    scan_connection_policy(sql)
+}
+
+fn scan_connection_policy(sql: &str) -> Result<(), (&'static str, &'static str)> {
     let trimmed = sql.trim();
     if trimmed.is_empty() || trimmed.len() > 16_000 {
         return Err(("SQL_READONLY", "Consulta vacía o excede 16000 caracteres"));

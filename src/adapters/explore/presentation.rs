@@ -1,6 +1,6 @@
 //! Pure source formatting, context selection and graph summaries.
 use super::model::Node;
-use harness_domain::{Failure, contracts::ExploreDirection};
+use harness_domain::{Failure, parsing::SourceFormat, contracts::ExploreDirection};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,10 +21,16 @@ pub(super) fn source(path: &str, start: u64, body: &str, truncated: bool) -> Str
             .max(2)
             + 1,
     );
+    // Tag the fence so markdown viewers get free syntax highlighting; unknown
+    // extensions keep a bare fence. The tag follows the untrusted path, so it
+    // only holds a lower-case identifier after the backtick run.
+    let language = SourceFormat::from_path(std::path::Path::new(path))
+        .map(|format| format.language().protocol_name())
+        .unwrap_or("");
     let numbered = body
         .lines()
         .enumerate()
-        .map(|(offset, line)| format!("{}\t{line}", start + offset as u64))
+        .map(|(offset, line)| format!("{} | {line}", start + offset as u64))
         .collect::<Vec<_>>()
         .join("\n");
     let path = path.replace(['\r', '\n', '`'], "_");
@@ -33,7 +39,7 @@ pub(super) fn source(path: &str, start: u64, body: &str, truncated: bool) -> Str
     } else {
         ""
     };
-    format!("\n### {path}:{start}\n\n{fence}\n{numbered}\n{fence}\n{notice}")
+    format!("\n### {path}:{start}\n\n{fence}{language}\n{numbered}\n{fence}\n{notice}")
 }
 
 // Selection only: deterministic, bounded, and independent of source rendering.

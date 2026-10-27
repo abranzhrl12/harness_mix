@@ -8,6 +8,7 @@ use std::{
 };
 
 const MAX_FILE: u64 = 2 * 1024 * 1024;
+pub(super) const MAX_SYMBOL_FILE: u64 = 16 * 1024 * 1024;
 
 pub(crate) fn numbered_text(text: &str, start: usize, end: usize) -> String {
     if end < start {
@@ -267,11 +268,43 @@ impl Project {
         }
         self.read_input_path(path, context, 64 * 1024).map(Some)
     }
+    pub(crate) fn symbol_bytes_with_context(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+    ) -> Result<Vec<u8>, Failure> {
+        self.input_bytes_with_ceiling(
+            relative,
+            context,
+            MAX_SYMBOL_FILE,
+            MAX_SYMBOL_FILE,
+            "archivo supera el límite de 16 MiB para análisis de símbolos",
+            false,
+        )
+    }
     fn input_bytes(
         &self,
         relative: &str,
         context: &OperationContext,
         limit: u64,
+        redacted: bool,
+    ) -> Result<Vec<u8>, Failure> {
+        self.input_bytes_with_ceiling(
+            relative,
+            context,
+            limit,
+            MAX_FILE,
+            "archivo supera el límite de lectura configurado",
+            redacted,
+        )
+    }
+    fn input_bytes_with_ceiling(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: u64,
+        ceiling: u64,
+        size_message: &'static str,
         redacted: bool,
     ) -> Result<Vec<u8>, Failure> {
         if self.external && !redacted && external_sensitive(relative) {
@@ -280,13 +313,13 @@ impl Project {
                 "External configuration/credential content requires the redacted config tool",
             ));
         }
-        let limit = limit.min(MAX_FILE);
+        let limit = limit.min(ceiling);
         context.check()?;
         let path = {
             let _timer = crate::adapters::index_profile::operation("io_path_validation");
             self.target(relative)?
         };
-        self.read_input_path(path, context, limit)
+        self.read_input_path_with_message(path, context, limit, size_message, |_| Ok(()))
     }
 
     /// Index-source read: validate once, then keep Windows ancestors pinned until
@@ -444,6 +477,23 @@ impl Project {
         limit: u64,
         verify: impl FnOnce(&File) -> Result<(), Failure>,
     ) -> Result<Vec<u8>, Failure> {
+        self.read_input_path_with_message(
+            path,
+            context,
+            limit,
+            "archivo no admitido o supera límite de lectura",
+            verify,
+        )
+    }
+
+    fn read_input_path_with_message(
+        &self,
+        path: PathBuf,
+        context: &OperationContext,
+        limit: u64,
+        size_message: &'static str,
+        verify: impl FnOnce(&File) -> Result<(), Failure>,
+    ) -> Result<Vec<u8>, Failure> {
         let _profile = crate::adapters::index_profile::operation("io_project_read");
         context.check()?;
         #[cfg(windows)]
@@ -493,8 +543,11 @@ impl Project {
                 return Err(("PATH", "External hard-linked files are not accepted"));
             }
         }
-        if !before.is_file() || before.len() > limit {
-            return Err(("SIZE", "archivo no admitido o supera límite de lectura"));
+        if !before.is_file() {
+            return Err(("SIZE", "el destino no es un archivo regular"));
+        }
+        if before.len() > limit {
+            return Err(("SIZE", size_message));
         }
         #[cfg(windows)]
         {

@@ -18,9 +18,10 @@ use harness_domain::{
 };
 
 use crate::{
-    domain::{MAX_EVENT_MESSAGE, required_session, validate_endpoint},
+    domain::{MAX_EVENT_MESSAGE, required_session, validate_connect_endpoint},
     infrastructure::{
         cdp::{MAX_ATTACHED_PAGES, MAX_CONNECTIONS, MAX_TARGETS},
+        discovery,
         connection::{BrowserConnection, owned_connection, owned_connection_mut, owned_page},
         events, inspect,
     },
@@ -36,7 +37,7 @@ pub(super) async fn dispatch(
     match args {
         BrowserArgs::Connect { endpoint, session } => {
             let owner = required_session(session)?;
-            validate_endpoint(&endpoint)?;
+            validate_connect_endpoint(&endpoint)?;
             if sessions.contains_key(&owner) {
                 return Err((
                     "BROWSER_SESSION_EXISTS",
@@ -49,6 +50,7 @@ pub(super) async fn dispatch(
                     "Se alcanzó el límite de conexiones de navegador",
                 ));
             }
+            let endpoint = discovery::resolve_endpoint(&endpoint).await?;
             let (browser, mut handler) = Browser::connect(endpoint).await.map_err(|_| {
                 (
                     "BROWSER_CONNECT",

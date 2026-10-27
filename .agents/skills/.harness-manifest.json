@@ -3,11 +3,12 @@
   "package_version": "0.1.0",
   "contract_version": "3.3.0",
   "files": {
-    ".agents/skills/harness-edit/SKILL.md": "c83c4353ac263c8cc12025f8b99579dd6b176952f2f3cb258f88136e8ab43a6c",
-    ".agents/skills/harness-read/SKILL.md": "eddb683762e217c27c313a37ff876ff6df65c7291a0f26ae555bad031bea504f",
-    ".agents/skills/harness-setup/SKILL.md": "80bab593c994e1b31db00d68799e9f47d683d958ab90287cdbc54b84387f226e",
-    ".agents/skills/harness-sql/SKILL.md": "dec3e325e65027744f09e7f4fb8968190e74a94b2c3ff543e45a99e1c04d5c8f",
-    ".agents/skills/harness-svg/SKILL.md": "b32e7eaceb8ba550c3fbbd5d8e362fb7fc3f6c9ba29cc43f562d500eb5f44c5a",
-    ".agents/skills/harness-xlsx/SKILL.md": "295f3f47f3b9d8049f19845d68a2cdce1e221b98b65f1d6a0856eb662b0e38d3"
+    ".agents/skills/harness-browser/SKILL.md": "62f4c0328deb0ff679eb2cdfd5aea4a9142eceeb4ae4f06804817f62470dbb2c",
+    ".agents/skills/harness-edit/SKILL.md": "14a5d8ec64ed1a4de1a0766bfb4df712bd2395879627c58b963f7d3c8d8a1fc5",
+    ".agents/skills/harness-read/SKILL.md": "f90253f1099bd607505dfb07916301c912a1346e66ff6ed8fcbaa213f6d4dfa1",
+    ".agents/skills/harness-setup/SKILL.md": "8a3be93dd758e55b0192305641a026c5b252d5d2b2eb8d8beb2eed196a1c388b",
+    ".agents/skills/harness-sql/SKILL.md": "ed19e4502e5c427e71cf5fae81551643ab38fe03c771d4414338f1e9f856b9bd",
+    ".agents/skills/harness-svg/SKILL.md": "a0be74a1cd4b16a81f1d8c4cc9b0831fefb5d38cbff4a70cfaefd02029b2dcef",
+    ".agents/skills/harness-xlsx/SKILL.md": "a793084e3f50d1200ac5ca404c096da14767b525ae4e49bbe8134222d2d36bee"
   }
 }
