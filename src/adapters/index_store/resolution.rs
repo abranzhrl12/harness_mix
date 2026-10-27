@@ -94,6 +94,9 @@ pub(super) fn resolve_exact(
     let special_timer = profiling.then(|| {
         sync_diagnostic::resolver_timer("resolver_special")
     });
+    if kind == "http_route" {
+        return super::http_routes::resolve(db, id, &from, &name, line, col, &path, project, context, framework_snapshot);
+    }
     if language == "csharp" && kind == "stored_procedure_call" {
         let Some(target) = mvc_snapshot.sql_objects.resolve(db, project, &name, context, framework_snapshot)? else {
             return Ok(false);

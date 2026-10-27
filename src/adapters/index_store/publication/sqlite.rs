@@ -167,6 +167,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
         let provider_edges: Vec<ProviderEdge> = provider_edges(db, path)?;
         let prior = identities(db, path)?;
         let paired = identity_map(prior, extracted)?;
+        if language == "csharp" {
+            super::super::http_routes::invalidate(db, context)?;
+        }
         let incoming = incoming(db, path)?;
         // Capture original refs BEFORE deleting nodes/edges; never turn receiver.foo
         // into foo. Legacy unpaired edges without stamps block the entire transaction.
@@ -375,6 +378,9 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
             },
         )?;
         written.refs.append(&mut invalidation.recheck_refs);
+        if language == "csharp" {
+            written.refs.extend(super::super::http_routes::pending(db, context)?);
+        }
         if written.refs.len() > MAX_ROWS {
             return Err(LIMIT);
         }

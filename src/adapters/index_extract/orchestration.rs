@@ -35,7 +35,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
         return super::razor::extract_razor(path, source, context);
     }
     if lang == "vue" {
-        return super::vue::extract(path, source, context);
+        let mut graph = super::vue::extract(path, source, context)?;
+        super::http_frontend::enrich(path, source, &mut graph, context)?;
+        return Ok(graph);
     }
     if lang == "html" {
         return super::angular::html(path, source, context);
@@ -74,10 +76,12 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     }
     if lang == "csharp" {
         collect_sql_command_refs(source, &mut graph, context)?;
+        super::http_backend::enrich(path, source, &mut graph, context)?;
     }
     if matches!(lang, "typescript" | "tsx" | "javascript" | "jsx") {
         super::angular::enrich(path, source, &mut graph, context)?;
         super::vue_router::enrich(path, source, &mut graph, context)?;
+        super::http_frontend::enrich(path, source, &mut graph, context)?;
     }
     Ok(graph)
 }
