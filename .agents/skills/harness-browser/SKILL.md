@@ -1,63 +1,79 @@
 ---
 name: harness-browser
-description: Diagnosticar y verificar aplicaciones web con Harness MCP mediante consola, red, DOM y capturas. Usar ante fallos visuales, de interacción o hidratación; no para navegación general.
+description: Diagnose and verify web applications with Harness MCP via console, network, DOM, and screenshots. Use for visual, interaction, or hydration failures; not for general web browsing.
 ---
 
-# Diagnóstico web con evidencia
+# Evidence-Based Web Diagnostics
 
-Descubre el esquema actual de `harness_browser`; reutiliza una sesión Harness
-con raíz comprobada. Una herramienta disponible no significa navegador conectado.
-No edites hasta que la tarea autorice corregir código.
+Check the current `harness_browser` schema and reuse a Harness session with a
+verified workspace root. Having the tool available does not mean a browser is
+connected. Do not edit code until the task authorizes a fix.
 
-## Conectar y reproducir
+## Connect and Reproduce
 
-1. Reutiliza `connectionId` y `targetId` vigentes de esta sesión si existen.
-   En caso contrario, `connect` requiere el WebSocket CDP real del navegador:
-   `ws://127.0.0.1:<puerto>/devtools/browser/<id>`. No sirve la URL de la app
-   ni un endpoint `/devtools/page/`; solo se admiten endpoints loopback.
-   Si falta, pide el endpoint o la preparación del navegador; no adivines IDs,
-   abras depuración pública ni cambies el perfil habitual del usuario.
-2. Usa `targets`, elige la pestaña por URL/título y llama `attach` antes de
-   reproducir. No selecciones la primera pestaña sin comprobarla.
-3. Consulta `errors` acotado a `targetId`; conserva `nextCursor`. Reproduce la
-   ruta e interacción afectadas, incluida una recarga cuando el fallo sea de
-   carga inicial o hidratación. Esta herramienta no anuncia navegación,
-   recarga, clics ni ejecución arbitraria: pide la acción al usuario o utiliza
-   otra capacidad disponible y autorizada, sin inventar operaciones.
+1. Reuse an active `connectionId` and `targetId` from the current session when
+   available. Otherwise, call `connect`:
+   - **Automatic local CDP discovery and `localhost` tab selection**: You can
+     omit `endpoint` or pass `"auto"` or `"localhost"` to automatically detect
+     active local debugging sessions and prioritize `localhost` tabs. The
+     response returns `selectedTab` and `availableTabs` so you can verify the
+     selected target or switch if needed.
+   - **Explicit endpoint**: You may also pass a loopback browser CDP WebSocket
+     (`ws://127.0.0.1:<port>/devtools/browser/<id>`). Application URLs and
+     `/devtools/page/` endpoints are not valid explicit browser WebSocket URLs;
+     only loopback endpoints are allowed.
+   - If no active debugging session is found, ask the user for the endpoint or
+     browser setup; never guess IDs, expose public debugging ports, or alter the
+     user's default browser profile.
+2. Inspect `selectedTab` / `availableTabs` (or call `targets`), verify the tab
+   by URL and title, and call `attach` before reproducing if not already
+   attached to the right tab. Never blindly pick the first tab without checking
+   its URL/title.
+3. Query `errors` scoped to `targetId` and save `nextCursor`. Reproduce the
+   affected route and interaction, including a page reload when the failure
+   occurs on initial load or hydration. `harness_browser` does not perform
+   arbitrary navigation, reloads, clicks, or script execution: ask the user to
+   trigger the action or use another available, authorized capability without
+   inventing parameters.
 
-La captura comienza al adjuntarse; no garantiza recuperar errores anteriores.
-No concluyas ausencia de errores si no se reprodujo con la captura activa.
+Event capture starts on attach; prior errors are not guaranteed to be present.
+Never conclude there are no errors unless the issue was reproduced while capture
+was active.
 
-## Investigar sin inundar el contexto
+## Investigate Without Flooding Context
 
-- Consulta `errors` con `after` igual al cursor guardado para separar eventos
-  nuevos de históricos. `limit` admite 1..256; pagina usando `nextCursor` si
-  llenas el límite. `dropped` avisa de eventos perdidos, no de una captura completa.
-- Distingue warnings de consola, excepciones y fallos de red. Agrupa duplicados
-  al informar, conservando mensaje, ubicación, secuencia y pasos relevantes.
-  No ignores warnings de hidratación porque la pantalla parezca correcta.
-- Usa `inspect` sobre el selector relevante para obtener DOM, medidas y estilos;
-  amplía solo si falta evidencia. Respeta `truncated`. Usa `screenshot` cuando
-  la apariencia importe; una captura no demuestra ausencia de errores runtime.
-- Relaciona el mensaje/stack con fuente exacta: símbolo conocido directamente;
-  `explore` para seguir dependencias; búsqueda literal para localizar el mensaje
-  o componente. Diferencia causa confirmada de hipótesis.
-- Ante hidratación, compara el estado usado al renderizar servidor y cliente:
-  valor inicial, opciones disponibles y datos dependientes del navegador.
-  El DOM inspeccionado es el actual, no prueba por sí solo el HTML original SSR.
-  No ocultes el warning ni desactives SSR como arreglo automático.
+- Query `errors` with `after` set to your saved cursor to separate new events
+  from historical noise. `limit` accepts `1..256`; paginate with `nextCursor` if
+  the limit is reached. `dropped` indicates lost events, not a complete capture.
+- Distinguish console warnings, uncaught exceptions, and network failures.
+  Deduplicate repeated events when reporting while preserving the message,
+  source location, sequence, and reproduction steps. Never ignore hydration
+  warnings just because the screen looks visually normal.
+- Use `inspect` on the relevant selector to retrieve DOM structure, bounding
+  boxes, and computed styles; expand scope only if evidence is missing. Respect
+  `truncated`. Use `screenshot` when visual appearance matters; a screenshot
+  alone does not prove the absence of runtime errors.
+- Map messages and stack traces to exact source code: read known symbols
+  directly with `harness_symbols`, trace dependencies with `harness_explore`, or
+  run literal searches with `harness_search` to locate messages or components.
+  Clearly separate confirmed root causes from hypotheses.
+- For hydration mismatches, compare server-rendered and client-rendered state:
+  initial values, available options, and browser-dependent data. The inspected
+  DOM reflects current live state and does not by itself prove the original SSR
+  HTML. Never silence hydration warnings or disable SSR as an automatic workaround.
 
-## Verificar y entregar
+## Verify and Deliver
 
-Después de una corrección autorizada, guarda un cursor, repite la reproducción
-con captura activa y consulta eventos nuevos. Comprueba el comportamiento esperado
-y DOM/captura cuando aplique, además de las pruebas de código pertinentes.
-Un build correcto o HMR sin errores no sustituyen una recarga para hidratación.
+After an authorized code fix, save a cursor, repeat the reproduction with active
+capture, and query new events. Verify expected behavior and DOM/screenshots when
+applicable, alongside relevant code verification (`harness_verify`). A clean
+build or error-free HMR update does not replace a full reload for hydration bugs.
 
-Informa qué ruta/acción verificaste, si reapareció el error original, otros fallos
-relevantes y límites de captura o reproducción. No declares «sin errores» para
-toda la aplicación a partir de una pestaña, intervalo o resultado limitado.
-No copies credenciales o datos personales de DOM, URLs o logs al informe.
-Desconecta solo conexiones creadas para esta tarea cuando ya no se necesiten;
-no cierres el navegador del usuario. Ante transporte, timeout o runtime fallido,
-detén reintentos equivalentes, diagnostica con `harness_doctor` y comunica el límite.
+Report which route and action were verified, whether the original error
+reappeared, any other relevant failures, and any capture or reproduction
+limitations. Never claim the entire application is "error-free" based on a
+single tab, time window, or bounded query. Never copy credentials or personal
+data from DOM nodes, URLs, or logs into your report. Disconnect only
+connections created for this task once finished; never close the user's browser.
+On transport, timeout, or runtime failure, stop equivalent retries, diagnose
+with `harness_doctor`, and report the limitation.

@@ -1,5 +1,6 @@
 //! Read existing CodeGraph SQLite indexes without Node, migrations or arbitrary SQL.
 use super::project::Project;
+mod data_trace;
 mod database;
 mod graph;
 mod model;
@@ -78,18 +79,25 @@ fn validate_node(project: &Project, item: &mut Node) -> Result<(), Failure> {
 
 fn identifier(text: &str) -> bool {
     let mut chars = text.chars();
-    chars
-        .next()
-        .is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+    let first = chars.next();
+    if first == Some('@') {
+        let mut rest = chars;
+        return rest
+            .next()
+            .is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+            && rest.all(|c| c == '_' || c == '$' || c.is_alphanumeric());
+    }
+    first.is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
         && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
 }
 
 pub(super) fn query_symbols(args: &ExploreArgs) -> Vec<&str> {
     if let Some(symbol) = args.symbol.as_deref() {
-        return vec![symbol];
+        return vec![symbol.strip_prefix('@').unwrap_or(symbol)];
     }
     args.query
         .split_whitespace()
+        .map(|s| s.strip_prefix('@').unwrap_or(s))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -254,7 +262,8 @@ fn explore_inner(
         project.target(file)?;
     }
     let impact = args.view == Some(ExploreView::Impact);
-    let symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
+    let raw_symbol = args.symbol.as_deref().unwrap_or(args.query.trim());
+    let symbol = raw_symbol.strip_prefix('@').unwrap_or(raw_symbol);
     let max_files = if impact {
         1
     } else {
@@ -309,6 +318,20 @@ fn explore_inner(
                 super::index_store::quarantine::Coverage::default()
             };
             super::index_store::quarantine::annotate(&mut result, &archive, true);
+            db.execute_batch("ROLLBACK").map_err(failed)?;
+            if let Ok(Some(trace)) = data_trace::trace(
+                project,
+                args,
+                raw_symbol,
+                &[],
+                &BTreeSet::new(),
+                context,
+            ) {
+                if let Ok(trace_json) = serde_json::to_value(&trace) {
+                    result["dataTrace"] = trace_json.clone();
+                    result["crossLayerTrace"] = trace_json;
+                }
+            }
             return Ok(result);
         }
         selection::SelectionResult::Selected(selection) => selection,
@@ -362,6 +385,19 @@ fn explore_inner(
         summary,
         &symbol,
     )?;
+    let graph_files = graph
+        .nodes
+        .values()
+        .map(|node| node.file_path.clone())
+        .collect::<BTreeSet<_>>();
+    let trace_result = data_trace::trace(
+        project,
+        args,
+        &symbol,
+        &selection.targets,
+        &graph_files,
+        context,
+    )?;
     let mut result = response::respond(
         project,
         args,
@@ -379,6 +415,7 @@ fn explore_inner(
             selection,
             graph,
             sources: loaded,
+            data_trace: trace_result,
         },
     )?;
     super::index_store::quarantine::annotate(&mut result, &archive, true);

@@ -33,7 +33,7 @@ impl TaskAction {
 pub struct TaskArgs {
     /// Action to perform: start, status, list, events, cancel or observe.
     pub action: TaskAction,
-    /// Required by start. Uses the same bounded verification commands as harness_verify.
+    /// Required by start. Uses the same bounded verification commands and fast per-file checks as harness_verify.
     pub verify: Option<VerifyArgs>,
     /// Required by status, cancel and observe; optional filter for events.
     #[serde(alias = "job_id", alias = "jobId")]

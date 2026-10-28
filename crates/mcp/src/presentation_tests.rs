@@ -1,6 +1,6 @@
 use super::presentation::normalize_text_only_error;
 use super::{response_with_compact, response_with_presentation};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 fn sample() -> Value {
     json!({"state":"ok","requestId":"r1","scope":{"tool":"harness_explore"},
@@ -24,7 +24,10 @@ fn context_text_preserves_structured_graph_and_safety_metadata() {
     assert!(text.starts_with("## Graph context"));
     // The readable channel carries a compact meta line, never duplicated JSON;
     // the structured envelope holds the full graph.
-    assert!(!text.contains("```json"), "lean channel must not embed JSON: {text}");
+    assert!(
+        !text.contains("```json"),
+        "lean channel must not embed JSON: {text}"
+    );
     assert!(text.contains("state ok"));
     assert!(text.contains("freshness index=not_certified file=stale"));
     assert!(text.contains("coverage: 1 targets + 0 related"));
@@ -97,7 +100,8 @@ fn compact_preserves_nonempty_warnings_omissions_and_detail_refs() {
     let expected_omitted = envelope["omitted"].clone();
     let expected_detail = envelope["detail"].clone();
     let compact = response_with_compact(envelope.take(), true)
-        .structured_content.unwrap();
+        .structured_content
+        .unwrap();
     assert_eq!(compact["diagnostics"], expected_diagnostics);
     assert_eq!(compact["omitted"], expected_omitted);
     assert_eq!(compact["detail"], expected_detail);
@@ -136,8 +140,14 @@ fn parameter_deserialization_errors_gain_structured_diagnostics_without_losing_t
         envelope["diagnostics"][0]["message"],
         "Failed to deserialize parameters: unknown field `externalScopeId`"
     );
-    assert!(envelope["diagnostics"][0]["hint"].as_str().unwrap().contains("schema"));
-    assert_eq!(serde_json::to_value(&result.content).unwrap(), original_content);
+    assert!(envelope["diagnostics"][0]["hint"]
+        .as_str()
+        .unwrap()
+        .contains("schema"));
+    assert_eq!(
+        serde_json::to_value(&result.content).unwrap(),
+        original_content
+    );
     assert_eq!(serde_json::to_value(&result).unwrap()["isError"], true);
 }
 
@@ -171,7 +181,8 @@ fn direct_json_response_keeps_text_and_adds_structured_envelope() {
     assert!(structured.get("detail").is_none());
 
     let wire = serde_json::to_value(result).unwrap();
-    let payload: Value = serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
+    let payload: Value =
+        serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(payload, json!({"found":true}));
 }
 
@@ -191,7 +202,8 @@ fn direct_json_error_keeps_text_and_structured_diagnostics() {
 
     let wire = serde_json::to_value(result).unwrap();
     assert_eq!(wire["isError"], true);
-    let payload: Value = serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
+    let payload: Value =
+        serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(payload["state"], "error");
     assert_eq!(payload["requestId"], "r2");
     assert_eq!(payload["diagnostics"][0]["code"], "GRAPH_UNAVAILABLE");
@@ -199,3 +211,94 @@ fn direct_json_error_keeps_text_and_structured_diagnostics() {
     assert_eq!(payload["found"], false);
 }
 
+#[test]
+fn oversized_batch_with_detail_ref_renders_inline_summaries_for_every_job() {
+    let envelope = json!({
+        "state": "error",
+        "scope": {"tool": "harness_batch"},
+        "omitted": {"truncated": true},
+        "detail": {"ref": "batch-detail-ref", "complete": false},
+        "diagnostics": [{"code": "BATCH_PARTIAL", "message": "One or more read jobs did not succeed; inspect results"}],
+        "data": {
+            "results": [
+                {
+                    "index": 0,
+                    "tool": "harness_search",
+                    "target": "needle in src",
+                    "state": "ok",
+                    "omitted": {"matches": 24},
+                    "detail": {"ref": "search-detail-ref"},
+                    "data": {
+                        "totalMatches": 30,
+                        "matchedFiles": 4,
+                        "previewTruncated": true,
+                        "matches": [
+                            {"file": "src/a.rs", "line": 12, "text": "let needle = 1;"},
+                            {"file": "src/b.rs", "line": 44, "text": "use needle;"}
+                        ]
+                    }
+                },
+                {
+                    "index": 1,
+                    "tool": "harness_explore",
+                    "target": "src/a.rs::process",
+                    "state": "ok",
+                    "detail": {"ref": "explore-detail-ref"},
+                    "data": {
+                        "view": "summary",
+                        "indexFreshness": "fresh",
+                        "fileFreshness": {"status": "fresh"},
+                        "definitions": [
+                            {
+                                "path": "src/a.rs",
+                                "role": "target",
+                                "symbol": {"name": "process", "start": 10, "end": 25, "signature": "pub fn process()"}
+                            }
+                        ],
+                        "graph": {
+                            "nodeCount": 3,
+                            "edgeCount": 2,
+                            "relationCount": 2,
+                            "relations": [
+                                {"source": "caller_fn", "target": "process", "kind": "calls"}
+                            ]
+                        }
+                    }
+                },
+                {
+                    "index": 2,
+                    "tool": "harness_read",
+                    "target": "src/missing.rs:1-50",
+                    "state": "error",
+                    "diagnostics": [{"code": "PATH", "message": "file does not exist"}],
+                    "data": {}
+                }
+            ]
+        }
+    });
+
+    let result = response_with_presentation(envelope, false);
+    let wire = serde_json::to_value(result).unwrap();
+    assert_eq!(wire["isError"], true);
+    let text = wire["content"][0]["text"].as_str().unwrap();
+
+    for expected in [
+        "## Batch · 3 results · 1 failed",
+        "### 1 · harness_search · ok · `needle in src`",
+        "## Search matches · 2 shown (30 total across 4 file(s))",
+        "12 | let needle = 1;",
+        "44 | use needle;",
+        "detail.ref: search-detail-ref",
+        "### 2 · harness_explore · ok · `src/a.rs::process`",
+        "## Explore (summary) · 1 target(s), 0 related · 2 relation(s)",
+        "`caller_fn` —[calls]→ `process`",
+        "detail.ref: explore-detail-ref",
+        "### 3 · harness_read · error · `src/missing.rs:1-50`",
+        "**Status:** error (1 diagnostic(s))",
+        "> PATH: file does not exist",
+        "> BATCH_PARTIAL: One or more read jobs did not succeed; inspect results",
+        "> detail.ref: batch-detail-ref",
+    ] {
+        assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
+    }
+}

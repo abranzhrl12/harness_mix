@@ -215,12 +215,10 @@ fn git_diff_wraps_the_patch_in_a_diff_fence() {
         text.contains("```diff\n@@ -1,1 +1,1 @@\n-old line\n+new line\n```"),
         "{text}"
     );
-    assert!(
-        wire["structuredContent"]["data"]["preview"]
-            .as_str()
-            .unwrap()
-            .contains("-old line")
-    );
+    assert!(wire["structuredContent"]["data"]["preview"]
+        .as_str()
+        .unwrap()
+        .contains("-old line"));
 }
 
 #[test]
@@ -284,8 +282,8 @@ fn search_renders_and_merges_overlapping_context_ranges() {
         "state":"ok","scope":{"tool":"harness_search"},
         "data":{"matches":[
             {"file":"src/a.rs","line":3,"text":"needle","hash":"full-digest",
-                "context":{"start":2,"end":4,"text":"before\nneedle\nmiddle"}},
-            {"file":"src/a.rs","line":4,"text":"second","context":{"start":4,"end":6,"text":"middle\nafter\nlast"}}
+                "context":{"start":2,"end":4,"text":"before\r\nneedle\r\nmiddle\r\n"}},
+            {"file":"src/a.rs","line":4,"text":"second","context":{"start":4,"end":6,"text":"middle\r\nafter\r\nlast\r\n"}}
         ]}
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
@@ -494,11 +492,9 @@ fn browser_screenshot_becomes_image_content_without_duplicate_base64() {
             if image.data == "aGVsbG8=" && image.mime_type == "image/png"
     ));
     let wire = serde_json::to_value(result).unwrap();
-    assert!(
-        wire["structuredContent"]["data"]
-            .get("dataBase64")
-            .is_none()
-    );
+    assert!(wire["structuredContent"]["data"]
+        .get("dataBase64")
+        .is_none());
     assert_eq!(wire["structuredContent"]["data"]["width"], 12);
     assert_eq!(wire["structuredContent"]["data"]["height"], 8);
 }
@@ -587,5 +583,80 @@ fn explore_full_uses_the_lean_text_channel_and_failures_keep_diagnostics() {
         assert_eq!(payload["requestId"], "trace");
         assert_eq!(payload["indexDiagnostic"]["stage"], "schema");
         assert_eq!(payload["diagnostics"][0]["code"], "INDEX");
+    }
+}
+
+#[test]
+fn batch_with_explore_impact_sql_status_and_verify_renders_inline_summaries() {
+    let wire = wire_of(json!({
+        "state": "ok",
+        "scope": {"tool": "harness_batch"},
+        "detail": {"ref": "batch-ref"},
+        "data": {
+            "results": [
+                {
+                    "index": 0,
+                    "tool": "harness_explore",
+                    "target": "src/auth.rs::validate",
+                    "state": "ok",
+                    "data": {
+                        "view": "impact",
+                        "file": "src/auth.rs",
+                        "symbol": "validate",
+                        "indexFreshness": "fresh",
+                        "fileFreshness": {"status": "fresh"},
+                        "counts": {"callers": 2, "directCallers": 1, "files": 2},
+                        "callers": [
+                            {"symbol": "login", "file": "src/api.rs", "declarationLine": 18, "direct": true},
+                            {"symbol": "handle_req", "file": "src/http.rs", "declarationLine": 55, "direct": false}
+                        ],
+                        "callersOmitted": 0
+                    }
+                },
+                {
+                    "index": 1,
+                    "tool": "harness_sql",
+                    "target": "status",
+                    "state": "ok",
+                    "data": {
+                        "engine": "sqlserver",
+                        "status": "ready",
+                        "configured": true,
+                        "readOnly": true
+                    }
+                },
+                {
+                    "index": 2,
+                    "tool": "harness_verify",
+                    "target": "rust (crates/mcp)",
+                    "state": "ok",
+                    "data": {
+                        "action": "test",
+                        "status": "failed",
+                        "errorCount": 1,
+                        "warningCount": 0,
+                        "errors": [
+                            {"code": "E0308", "file": "src/lib.rs", "line": 42, "message": "mismatched types"}
+                        ]
+                    }
+                }
+            ]
+        }
+    }));
+
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    for expected in [
+        "## Batch · 3 results · 0 failed",
+        "### 1 · harness_explore · ok · `src/auth.rs::validate`",
+        "## Impact · validate at src/auth.rs · 2 caller(s) (1 direct) across 2 file(s)",
+        "`login` (src/api.rs:18) · direct",
+        "### 2 · harness_sql · ok · `status`",
+        "## SQL status (sqlserver) · ready · configured=true · readOnly=true",
+        "### 3 · harness_verify · ok · `rust (crates/mcp)`",
+        "## Verify (test) · failed · 1 error(s), 0 warning(s)",
+        "src/lib.rs:42 E0308: mismatched types",
+        "> detail.ref: batch-ref",
+    ] {
+        assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
     }
 }

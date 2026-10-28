@@ -16,8 +16,8 @@ pub(super) enum BackgroundVerificationPlan {
 }
 
 /// A verifier selected from the language-specific capabilities available in the workspace.
-/// Process-backed strategies carry their already validated invocation; TypeScript source
-/// checks remain in-process and never execute project code.
+/// Process-backed strategies carry their already validated invocation; fast per-file and
+/// TypeScript source checks remain in-process and never execute project code.
 enum VerificationStrategy {
     TypeScriptSyntax,
     AngularCompiler(ProcessSpec),
@@ -65,11 +65,12 @@ fn validate_verify_options(args: &VerifyArgs) -> Result<(), Failure> {
             "project and configuration are supported only for Angular",
         ));
     }
-    if !matches!(
-        args.engine.as_deref().unwrap_or("auto"),
-        "auto" | "dotnet" | "msbuild"
-    ) {
-        return Err(("VERIFY_ENGINE", "engine must be auto, dotnet or msbuild"));
+    let engine = args.engine.as_deref().unwrap_or("auto");
+    if !matches!(engine, "auto" | "dotnet" | "msbuild" | "fast" | "syntax") {
+        return Err((
+            "VERIFY_ENGINE",
+            "engine must be auto, dotnet, msbuild, fast or syntax",
+        ));
     }
     if !matches!(
         args.warnings.as_deref().unwrap_or("all"),
@@ -80,13 +81,22 @@ fn validate_verify_options(args: &VerifyArgs) -> Result<(), Failure> {
             "warnings must be all, changed-files or none",
         ));
     }
-    if (args.engine.is_some() || args.warnings.is_some())
+    if matches!(args.engine.as_deref(), Some("dotnet" | "msbuild"))
         && !args.language.eq_ignore_ascii_case("dotnet")
         && !args.language.eq_ignore_ascii_case("csharp")
     {
         return Err((
             "VERIFY_OPTIONS",
-            "engine and warnings are supported only for .NET",
+            "dotnet and msbuild engines are supported only for .NET",
+        ));
+    }
+    if args.warnings.is_some()
+        && !args.language.eq_ignore_ascii_case("dotnet")
+        && !args.language.eq_ignore_ascii_case("csharp")
+    {
+        return Err((
+            "VERIFY_OPTIONS",
+            "warnings filter is supported only for .NET",
         ));
     }
     Ok(())
@@ -128,10 +138,19 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     if args.language.eq_ignore_ascii_case("go") {
         return go::go_plan(project, args);
     }
+    if ["razor", "cshtml", "css", "scss", "vue", "astro"]
+        .iter()
+        .any(|lang| args.language.eq_ignore_ascii_case(lang))
+    {
+        return Err((
+            "VERIFY_SCOPE",
+            "Razor/CSS/SCSS/Vue/Astro verification uses fast in-process per-file checks; pass an explicit file path in scope",
+        ));
+    }
     if !args.language.eq_ignore_ascii_case("rust") {
         return Err((
             "UNSUPPORTED",
-            "Supported verifiers: Rust, Go, Python, JavaScript, TypeScript, Angular and dotnet",
+            "Supported verifiers: Rust, Go, Python, JavaScript, TypeScript, Razor, CSS/SCSS, Vue, Astro, Angular and dotnet",
         ));
     }
     rust::plan(project, args)
@@ -288,13 +307,16 @@ pub(super) fn verify(
         .into_process_spec()
         .map(|spec| verification_plan_from(spec, args))
         .transpose()?;
-    let native_typescript = spec.is_none();
+    let native_per_file = spec.is_none();
     let before = super::fingerprint::capture(project, context);
     context.check()?;
-    let outcome = if native_typescript {
-        run_typescript_syntax(&project.root, args, context)?
+    let (outcome, per_file_report) = if native_per_file {
+        let report = typescript::run_per_file_verification(project, args, context)?;
+        let outcome = report.outcome.clone();
+        (outcome, Some(report))
     } else {
-        NativeProcessRunner::new(&project.root)?.run(spec.as_ref().unwrap(), context)?
+        let outcome = NativeProcessRunner::new(&project.root)?.run(spec.as_ref().unwrap(), context)?;
+        (outcome, None)
     };
     let program = spec.as_ref().map(ProcessSpec::program);
     // A failed observation must not hide the tool's actual result or pretend freshness.
@@ -316,13 +338,32 @@ pub(super) fn verify(
         .map(std::borrow::Cow::Owned)
         .unwrap_or_else(|| raw_stdout.clone());
     let stderr = String::from_utf8_lossy(&outcome.stderr);
-    let output = format!("{stdout}\n{stderr}");
+    let output = if stderr.is_empty() {
+        stdout.to_string()
+    } else if stdout.is_empty() {
+        stderr.to_string()
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
     let status = VerificationStatus::interpret(&outcome);
     let limited = status.limited;
     let cancelled = status.cancelled;
     let timed_out = status.timed_out;
+    let resolved_language = if let Some(report) = &per_file_report {
+        report.language.as_str()
+    } else {
+        match program {
+            None => "typescript",
+            Some(Program::Go) => "go",
+            Some(Program::Python) => "python",
+            Some(Program::Node) => "javascript",
+            Some(Program::Dotnet | Program::Msbuild) => "dotnet",
+            _ => "rust",
+        }
+    };
     let mut result = json!({
-        "language":match program { None => "typescript", Some(Program::Go) => "go", Some(Program::Python) => "python", Some(Program::Node) => "javascript", Some(Program::Dotnet | Program::Msbuild) => "dotnet", _ => "rust" }, "scope":args.scope.as_deref().unwrap_or("."),
+        "language":resolved_language,
+        "scope":args.scope.as_deref().unwrap_or("."),
         "action":match args.action { Some(VerifyAction::Test) => "test", None if program == Some(Program::Cargo) => "check", _ => "build" },
         "package":args.package,
         "command":spec.as_ref().map(|spec| json!({"program":format!("{:?}",spec.program()).to_ascii_lowercase(),"arguments":spec.arguments()})),
@@ -340,11 +381,38 @@ pub(super) fn verify(
         "verificationFreshness":"not_tracked",
         "workspaceObservation":observation,
     });
-    if native_typescript {
-        result["verificationMode"] = json!("typescript_syntax_only");
+    if let Some(report) = &per_file_report {
+        result["verificationMode"] = json!(report.verification_mode);
+        result["fastPerFile"] = json!(true);
+        result["fullCompilationSkipped"] = json!(true);
         result["typeCheckPerformed"] = json!(false);
         result["codeExecuted"] = json!(false);
         result["testCountVerified"] = json!(false);
+        result["filesChecked"] = json!(report.files_checked);
+        result["validated"] = json!(report.validated);
+        result["pending"] = json!(report.pending);
+        result["summary"] = json!(report.summary);
+        let mut diag_items = report.diagnostics.clone();
+        if !status.passed {
+            diag_items.insert(
+                0,
+                json!({
+                    "code": "VERIFY_FAILED",
+                    "message": format!("Fast per-file verification failed: {}", report.summary),
+                    "severity": "error"
+                }),
+            );
+        }
+        if !diag_items.is_empty() {
+            result["diagnostics"] = json!(diag_items);
+        }
+    } else {
+        let (validated, pending, summary) =
+            typescript::process_verification_transparency(program, angular, args, status.passed);
+        result["fastPerFile"] = json!(false);
+        result["validated"] = json!(validated);
+        result["pending"] = json!(pending);
+        result["summary"] = json!(summary);
     }
     if matches!(program, Some(Program::Dotnet | Program::Msbuild)) {
         let summary = dotnet::dotnet_warning_summary(
@@ -410,17 +478,28 @@ pub(super) fn verify(
         });
         result["testCountVerified"] = json!(false);
     }
-    if outcome.reason == StopReason::Exited && outcome.exit_code != Some(0) {
-        result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Verification tool returned a nonzero exit status; inspect output"}]);
-    } else if timed_out {
-        result["diagnostics"] = json!([{"code":"TIMEOUT","message":"Verification deadline reached; inspect command and captured output tails"}]);
-    } else if cancelled {
-        result["diagnostics"] = json!([{"code":"CANCELLED","message":"Verification cancelled; captured output may be partial"}]);
-    } else if limited {
-        result["diagnostics"] = json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded the bounded capture budget","limitBytes":spec.as_ref().map(ProcessSpec::output_limit)}]);
+    if !native_per_file {
+        if outcome.reason == StopReason::Exited && outcome.exit_code != Some(0) {
+            result["diagnostics"] = json!([{"code":"VERIFY_FAILED","message":"Verification tool returned a nonzero exit status; inspect output"}]);
+        } else if timed_out {
+            result["diagnostics"] = json!([{"code":"TIMEOUT","message":"Verification deadline reached; inspect command and captured output tails"}]);
+        } else if cancelled {
+            result["diagnostics"] = json!([{"code":"CANCELLED","message":"Verification cancelled; captured output may be partial"}]);
+        } else if limited {
+            result["diagnostics"] = json!([{"code":"OUTPUT_LIMIT","message":"Combined process output exceeded the bounded capture budget","limitBytes":spec.as_ref().map(ProcessSpec::output_limit)}]);
+        }
     }
     if angular {
         angular::annotate(&mut result, angular_report.as_ref());
+        let (validated, pending, summary) = typescript::process_verification_transparency(
+            program,
+            true,
+            args,
+            result["passed"] == true,
+        );
+        result["validated"] = json!(validated);
+        result["pending"] = json!(pending);
+        result["summary"] = json!(summary);
         // Expose the invocation contract without echoing the embedded driver source.
         result["command"] = json!({"program":"node","mode":"embedded_module","compiler":"@angular/compiler-cli","scope":args.scope.as_deref().unwrap_or("."),"project":args.project,"configuration":args.configuration,"noEmit":true});
     }

@@ -17,18 +17,20 @@ fn smoke_connect_targets_owner_isolation_and_disconnect() {
         .browser(
             &BrowserArgs::Connect {
                 endpoint,
+                tab: None,
                 session: Some("smoke-owner".into()),
             },
             &context,
         )
         .unwrap();
-    let BrowserResult::Connected { connection_id } = connected else {
+    let BrowserResult::Connected { connection_id, .. } = connected else {
         panic!("unexpected connect result");
     };
     let listed = service
         .browser(
             &BrowserArgs::Targets {
                 connection_id: connection_id.clone(),
+                tab: None,
                 session: Some("smoke-owner".into()),
             },
             &context,
@@ -38,6 +40,7 @@ fn smoke_connect_targets_owner_isolation_and_disconnect() {
     let denied = service.browser(
         &BrowserArgs::Targets {
             connection_id: connection_id.clone(),
+            tab: None,
             session: Some("other-owner".into()),
         },
         &context,

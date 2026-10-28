@@ -2,6 +2,7 @@ use super::super::{
     project::{Failure, Project},
     symbol_graph,
 };
+use super::matcher_cache::{self, Options};
 use harness_domain::{
     contracts::{Kind, SearchArgs},
     results::utf16_len,
@@ -33,10 +34,29 @@ pub(super) fn build<'a>(
     project: &Project,
     args: &'a SearchArgs,
 ) -> Result<SearchPlan<'a>, Failure> {
+    build_with_matcher(project, args, None)
+}
+
+pub(super) fn build_fallback<'a>(
+    project: &Project,
+    args: &'a SearchArgs,
+    matcher: grep_regex::RegexMatcher,
+) -> Result<SearchPlan<'a>, Failure> {
+    build_with_matcher(project, args, Some(matcher))
+}
+
+fn build_with_matcher<'a>(
+    project: &Project,
+    args: &'a SearchArgs,
+    fallback_matcher: Option<grep_regex::RegexMatcher>,
+) -> Result<SearchPlan<'a>, Failure> {
     let file_size = matches!(args.kind, Kind::FileSize);
     let exclude_minified = file_size || matches!(args.kind, Kind::Text);
     let syntax = matches!(args.kind, Kind::Syntax);
-    let context_lines = args.context_lines.unwrap_or(0);
+    let term_retrieval = fallback_matcher.is_some();
+    let context_lines = args
+        .context_lines
+        .unwrap_or(if term_retrieval { 2 } else { 0 });
     if context_lines > 20 || (args.context_lines.is_some() && !matches!(args.kind, Kind::Text)) {
         return Err((
             "ARGUMENT",
@@ -95,7 +115,7 @@ pub(super) fn build<'a>(
             },
         ));
     }
-    // Compile once per request and reuse across files. A line terminator lets
+    // Reuse compiled matchers across requests. A line terminator lets
     // ripgrep optimize the matcher and rejects regexes requiring multiline input.
     let structural = args
         .ast
@@ -103,20 +123,23 @@ pub(super) fn build<'a>(
         .map(|language| super::structural::StructuralSearch::new(language, &args.query))
         .transpose()?;
     let matcher = if matches!(args.kind, Kind::Text) && structural.is_none() {
-        Some(
-            grep_regex::RegexMatcherBuilder::new()
-                .fixed_strings(!args.regex.unwrap_or(false))
-                .case_insensitive(!args.case_sensitive.unwrap_or(true))
-                .multi_line(true)
-                .line_terminator(Some(b'\n'))
-                .build(&args.query)
-                .map_err(|_| {
-                    (
-                        "ARGUMENT",
-                        "invalid or unsupported text regex; use single-line Rust regex syntax",
-                    )
-                })?,
-        )
+        Some(match fallback_matcher {
+            Some(matcher) => matcher,
+            None => matcher_cache::get(
+                &args.query,
+                Options {
+                    literal: !args.regex.unwrap_or(false),
+                    case_sensitive: args.case_sensitive.unwrap_or(true),
+                    multi_line: true,
+                },
+            )
+            .map_err(|_| {
+                (
+                    "ARGUMENT",
+                    "invalid or unsupported text regex; use single-line Rust regex syntax",
+                )
+            })?,
+        })
     } else {
         None
     };
@@ -144,7 +167,7 @@ pub(super) fn build<'a>(
         selected,
         globs,
         matcher,
-        term_retrieval: false,
+        term_retrieval,
         structural,
         min_lines,
         limit,

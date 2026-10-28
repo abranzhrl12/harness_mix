@@ -42,7 +42,7 @@ impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
         if args.path == "large" {
             return Ok(json!({
                 "path":args.path,"hash":"full-sha256",
-                "text":format!("{}", "line;\n".repeat(6000)),"totalLines":6000
+                "text":format!("{}", "line;\n".repeat(10000)),"totalLines":10000
             }));
         }
         Ok(json!({"path":args.path,"text":"memory"}))
@@ -228,7 +228,7 @@ fn oversized_batch_keeps_each_child_preview_and_a_full_detail_reference() {
     let child = &batch["data"]["results"][0];
     assert_eq!(child["tool"], "harness_read");
     assert_eq!(child["data"]["previewTruncated"], true);
-    assert!(child["data"]["text"].as_str().unwrap().len() < 3000);
+    assert!(child["data"]["text"].as_str().unwrap().len() < 8500);
     assert_eq!(child["data"]["hash"], "full-sha256");
     assert!(batch["detail"]["ref"].is_string(), "{batch}");
 }

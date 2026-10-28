@@ -108,3 +108,240 @@ fn summary_keeps_calls_ahead_of_type_references_and_reports_omissions() {
     .unwrap();
     assert_eq!(summary, reordered);
 }
+
+#[test]
+fn traces_t_observacion_empleado_end_to_end_across_form_json_csharp_sp_and_sql() {
+    use super::super::data_trace;
+    use crate::adapters::project::Project;
+    use harness_domain::{
+        contracts::{DataTraceLayerKind, ExploreArgs},
+        execution::OperationContext,
+    };
+    use serde_json::json;
+    use std::collections::BTreeSet;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("Views/Empleado")).unwrap();
+    std::fs::create_dir_all(root.join("Scripts/Empleado")).unwrap();
+    std::fs::create_dir_all(root.join("Models")).unwrap();
+    std::fs::create_dir_all(root.join("Controllers")).unwrap();
+    std::fs::create_dir_all(root.join("Sql")).unwrap();
+
+    std::fs::write(
+        root.join("Views/Empleado/Editar.cshtml"),
+        r#"@model EmpleadoViewModel
+<div class="form-group">
+    <input type="text" id="tObservacionEmpleado" name="tObservacionEmpleado" asp-for="ObservacionEmpleado" value="@Model.tObservacionEmpleado" />
+</div>
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("Scripts/Empleado/editar.js"),
+        r#"function guardarEmpleado() {
+    const obs = $('#tObservacionEmpleado').val();
+    const payload = { tObservacionEmpleado: obs };
+    $.ajax({ url: '/Empleado/Guardar', data: JSON.stringify(payload) });
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("Models/EmpleadoViewModel.cs"),
+        r#"namespace WebApp.Models {
+    public class EmpleadoViewModel {
+        public string tObservacionEmpleado { get; set; }
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("Controllers/EmpleadoController.cs"),
+        r#"using System.Data.SqlClient;
+namespace WebApp.Controllers {
+    public class EmpleadoController {
+        public void Guardar(EmpleadoViewModel model) {
+            var cmd = new SqlCommand("usp_GuardarEmpleado");
+            cmd.Parameters.AddWithValue("@tObservacionEmpleado", model.tObservacionEmpleado);
+        }
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        root.join("Sql/usp_GuardarEmpleado.sql"),
+        r#"CREATE PROCEDURE dbo.usp_GuardarEmpleado
+    @tObservacionEmpleado VARCHAR(250)
+AS
+BEGIN
+    UPDATE dbo.Empleado
+    SET ObservacionEmpleado = @tObservacionEmpleado
+    WHERE IdEmpleado = 1;
+END
+GO
+"#,
+    )
+    .unwrap();
+
+    let project = Project::new(root).unwrap();
+    let args: ExploreArgs = serde_json::from_value(json!({
+        "query": "tObservacionEmpleado"
+    }))
+    .unwrap();
+    let context = OperationContext::default();
+
+    let trace = data_trace::trace(
+        &project,
+        &args,
+        "tObservacionEmpleado",
+        &[],
+        &BTreeSet::new(),
+        &context,
+    )
+    .unwrap()
+    .expect("trace should be produced");
+
+    assert_eq!(trace.identifier, "tObservacionEmpleado");
+    assert_eq!(trace.normalized_identifier, "ObservacionEmpleado");
+    assert_eq!(trace.parameter_name, "@tObservacionEmpleado");
+    assert_eq!(
+        trace.chain,
+        "Form (.cshtml) → JSON/JS (.js) → C# Model/Controller (.cs) → SP Parameter (@...) → SQL Column (.sql)"
+    );
+    assert!(trace.complete_chain);
+    assert_eq!(trace.matched_layer_count, 5);
+    assert!(trace.missing_layers.is_empty());
+    assert_eq!(
+        trace.matched_layers,
+        vec![
+            DataTraceLayerKind::Form,
+            DataTraceLayerKind::Json,
+            DataTraceLayerKind::CsharpModel,
+            DataTraceLayerKind::SpParameter,
+            DataTraceLayerKind::SqlColumn,
+        ]
+    );
+
+    let form_layer = &trace.layers[0];
+    assert_eq!(form_layer.layer, DataTraceLayerKind::Form);
+    assert!(form_layer.matched);
+    assert_eq!(form_layer.matches[0].file_path, "Views/Empleado/Editar.cshtml");
+    assert_eq!(form_layer.matches[0].line, 3);
+
+    let json_layer = &trace.layers[1];
+    assert_eq!(json_layer.layer, DataTraceLayerKind::Json);
+    assert!(json_layer.matched);
+    assert!(
+        json_layer
+            .matches
+            .iter()
+            .any(|m| m.file_path == "Scripts/Empleado/editar.js" && m.line == 2)
+    );
+
+    let cs_layer = &trace.layers[2];
+    assert_eq!(cs_layer.layer, DataTraceLayerKind::CsharpModel);
+    assert!(cs_layer.matched);
+    assert!(
+        cs_layer
+            .matches
+            .iter()
+            .any(|m| m.file_path == "Models/EmpleadoViewModel.cs" && m.kind == "csharp_property")
+    );
+
+    let sp_layer = &trace.layers[3];
+    assert_eq!(sp_layer.layer, DataTraceLayerKind::SpParameter);
+    assert!(sp_layer.matched);
+    assert!(
+        sp_layer
+            .matches
+            .iter()
+            .any(|m| m.file_path == "Controllers/EmpleadoController.cs" && m.kind == "add_with_value")
+    );
+    assert!(
+        sp_layer
+            .matches
+            .iter()
+            .any(|m| m.file_path == "Sql/usp_GuardarEmpleado.sql" && m.kind == "sp_parameter_declaration")
+    );
+
+    let sql_layer = &trace.layers[4];
+    assert_eq!(sql_layer.layer, DataTraceLayerKind::SqlColumn);
+    assert!(sql_layer.matched);
+    assert!(
+        sql_layer
+            .matches
+            .iter()
+            .any(|m| m.file_path == "Sql/usp_GuardarEmpleado.sql" && m.line == 6)
+    );
+
+    let rendered = super::render_data_trace(&trace, false);
+    assert!(rendered.contains("**Cross-Layer Data Lineage (`tObservacionEmpleado`)**"));
+    assert!(rendered.contains(
+        "Form (.cshtml) → JSON/JS (.js) → C# Model/Controller (.cs) → SP Parameter (@...) → SQL Column (.sql)"
+    ));
+    assert!(rendered.contains("Views/Empleado/Editar.cshtml:3"));
+    assert!(rendered.contains("Scripts/Empleado/editar.js:2"));
+    assert!(rendered.contains("Models/EmpleadoViewModel.cs:3"));
+    assert!(rendered.contains("Controllers/EmpleadoController.cs:6"));
+    assert!(rendered.contains("Sql/usp_GuardarEmpleado.sql:6"));
+}
+
+#[test]
+fn data_trace_reports_missing_layers_explicitly_when_chain_is_incomplete() {
+    use super::super::data_trace;
+    use crate::adapters::project::Project;
+    use harness_domain::{
+        contracts::{DataTraceLayerKind, ExploreArgs},
+        execution::OperationContext,
+    };
+    use serde_json::json;
+    use std::collections::BTreeSet;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("Models")).unwrap();
+    std::fs::write(
+        root.join("Models/InventarioDto.cs"),
+        "public class InventarioDto { public int iStockActual { get; set; } }\n",
+    )
+    .unwrap();
+
+    let project = Project::new(root).unwrap();
+    let args: ExploreArgs = serde_json::from_value(json!({
+        "query": "iStockActual"
+    }))
+    .unwrap();
+    let trace = data_trace::trace(
+        &project,
+        &args,
+        "iStockActual",
+        &[],
+        &BTreeSet::new(),
+        &OperationContext::default(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert!(!trace.complete_chain);
+    assert_eq!(trace.matched_layer_count, 1);
+    assert_eq!(trace.matched_layers, vec![DataTraceLayerKind::CsharpModel]);
+    assert_eq!(
+        trace.missing_layers,
+        vec![
+            DataTraceLayerKind::Form,
+            DataTraceLayerKind::Json,
+            DataTraceLayerKind::SpParameter,
+            DataTraceLayerKind::SqlColumn,
+        ]
+    );
+    let rendered = super::render_data_trace(&trace, false);
+    assert!(rendered.contains("missing / unmatched"));
+    assert!(rendered.contains("[✗ missing]"));
+}

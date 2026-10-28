@@ -11,10 +11,10 @@ fn read_lines_is_a_count_and_canonical_output_uses_end() {
     assert!(value.get("lines").is_none());
     for value in [
         json!({"path":"x","start":1,"lines":0}),
-        json!({"path":"x","start":1,"lines":401}),
+        json!({"path":"x","start":1,"lines":421}),
         json!({"path":"x","start":0,"lines":1}),
         json!({"path":"x","start":5,"end":4}),
-        json!({"path":"x","start":1,"end":401}),
+        json!({"path":"x","start":1,"end":421}),
         json!({"path":"x","start":1,"end":5,"lines":5}),
         json!({"path":"x","start":usize::MAX,"lines":2}),
     ] {

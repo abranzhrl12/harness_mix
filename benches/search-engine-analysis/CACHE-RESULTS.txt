@@ -1,0 +1,6 @@
+   Compiling search-engine-analysis v0.1.0 (D:\Nueva carpeta\harness_mix\benches\search-engine-analysis)
+    Finished `release` profile [optimized] target(s) in 0.72s
+     Running `benches\search-engine-analysis\target\release\cache_checks.exe`
+literal: uncached_compile_us=6.360 cache_hit_us=0.898 preparation_speedup=7.08x
+fallback16: uncached_compile_us=442.192 cache_hit_us=0.770 preparation_speedup=574.28x
+Includes actual production cache lookup, mutex, recency update and matcher clone; excludes file IO and the rest of search.

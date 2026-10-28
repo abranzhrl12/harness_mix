@@ -186,3 +186,45 @@ fn lock_is_exclusive_until_dropped() {
     drop(lock);
     assert!(SyncLock::acquire(temp.path()).is_ok());
 }
+
+#[test]
+fn harness_skills_are_in_english_and_document_new_capabilities() {
+    let find_skill = |id: &str| {
+        SKILLS
+            .iter()
+            .find(|s| s.id == id && s.relative_path.ends_with("SKILL.md"))
+            .unwrap_or_else(|| panic!("missing skill {id}"))
+            .content
+    };
+
+    let read = find_skill("harness-read");
+    assert!(read.contains("description: Investigate code, read symbols, and query dependencies with Harness MCP."));
+    assert!(read.contains("inline per-job summaries"));
+    assert!(read.contains("detail.ref"));
+    assert!(read.contains("form field → JSON/JS → C# model → SP parameter → SQL column"));
+
+    let edit = find_skill("harness-edit");
+    assert!(edit.contains("description: Edit code and verify changes with Harness MCP."));
+    assert!(edit.contains("fast per-file verification"));
+    assert!(edit.contains("validated"));
+    assert!(edit.contains("pending"));
+
+    let browser = find_skill("harness-browser");
+    assert!(browser.contains("description: Diagnose and verify web applications with Harness MCP"));
+    assert!(browser.contains("selectedTab"));
+    assert!(browser.contains("availableTabs"));
+    assert!(browser.contains("\"auto\""));
+    assert!(browser.contains("\"localhost\""));
+
+    let sql = find_skill("harness-sql");
+    assert!(sql.contains("description: Query SQL Server or PostgreSQL databases via Harness MCP"));
+
+    let xlsx = find_skill("harness-xlsx");
+    assert!(xlsx.contains("description: Inspect or read existing XLSX workbooks via Harness MCP"));
+
+    let svg = find_skill("harness-svg");
+    assert!(svg.contains("description: Inspect or preview existing static SVG files with Harness MCP."));
+
+    let setup = find_skill("harness-setup");
+    assert!(setup.contains("description: Install or uninstall Harness in a project, connect MCP, and prepare initial usage."));
+}

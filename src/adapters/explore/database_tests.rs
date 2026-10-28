@@ -89,3 +89,73 @@ fn read_open_waits_for_an_exclusive_sqlite_transaction_to_release() {
     assert_eq!(opened.version, 11);
     assert!(started.elapsed() >= Duration::from_millis(100));
 }
+
+#[test]
+fn explore_populates_cross_layer_data_trace_for_t_observacion_empleado() {
+    use harness_domain::contracts::ExploreArgs;
+
+    let root = tempfile::tempdir().unwrap();
+    let cg_dir = root.path().join(".codegraph");
+    std::fs::create_dir_all(&cg_dir).unwrap();
+    let db = Connection::open(cg_dir.join("codegraph.db")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE schema_versions(version INTEGER);
+         INSERT INTO schema_versions VALUES(11);
+         CREATE TABLE files(path TEXT PRIMARY KEY, content_hash TEXT, errors TEXT);
+         CREATE TABLE nodes(id TEXT PRIMARY KEY, name TEXT, kind TEXT, file_path TEXT, start_line INTEGER, qualified_name TEXT);
+         CREATE TABLE edges(id INTEGER PRIMARY KEY, source TEXT, target TEXT, kind TEXT);",
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(root.path().join("Views/Empleado")).unwrap();
+    std::fs::create_dir_all(root.path().join("Scripts")).unwrap();
+    std::fs::create_dir_all(root.path().join("Models")).unwrap();
+    std::fs::create_dir_all(root.path().join("Data")).unwrap();
+    std::fs::create_dir_all(root.path().join("Sql")).unwrap();
+
+    let cshtml = "<input id=\"tObservacionEmpleado\" name=\"tObservacionEmpleado\" value=\"@Model.tObservacionEmpleado\" />\n";
+    let js = "const data = { tObservacionEmpleado: $('#tObservacionEmpleado').val() };\n";
+    let cs_model = "public class EmpleadoModel {\n    public string tObservacionEmpleado { get; set; }\n}\n";
+    let cs_repo = "public class EmpleadoRepo {\n    public void Save(EmpleadoModel m) {\n        cmd.Parameters.Add(new SqlParameter(\"@tObservacionEmpleado\", m.tObservacionEmpleado));\n    }\n}\n";
+    let sql = "CREATE PROCEDURE dbo.sp_SaveEmpleado\n    @tObservacionEmpleado VARCHAR(500)\nAS\nBEGIN\n    INSERT INTO dbo.Empleado (ObservacionEmpleado) VALUES (@tObservacionEmpleado);\nEND\n";
+
+    std::fs::write(root.path().join("Views/Empleado/Index.cshtml"), cshtml).unwrap();
+    std::fs::write(root.path().join("Scripts/empleado.js"), js).unwrap();
+    std::fs::write(root.path().join("Models/EmpleadoModel.cs"), cs_model).unwrap();
+    std::fs::write(root.path().join("Data/EmpleadoRepo.cs"), cs_repo).unwrap();
+    std::fs::write(root.path().join("Sql/sp_SaveEmpleado.sql"), sql).unwrap();
+
+    db.execute(
+        "INSERT INTO files VALUES('Models/EmpleadoModel.cs', ?1, NULL)",
+        [harness_domain::hash(cs_model.as_bytes())],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO nodes VALUES('prop-1', 'tObservacionEmpleado', 'property', 'Models/EmpleadoModel.cs', 2, 'EmpleadoModel.tObservacionEmpleado')",
+        [],
+    )
+    .unwrap();
+    drop(db);
+
+    let project = Project::new(root.path()).unwrap();
+    let args: ExploreArgs = serde_json::from_value(json!({
+        "query": "@tObservacionEmpleado"
+    }))
+    .unwrap();
+    let result = super::super::explore(&project, &args, &OperationContext::default()).unwrap();
+
+    let trace = &result["dataTrace"];
+    assert_eq!(trace["identifier"], "tObservacionEmpleado");
+    assert_eq!(trace["normalizedIdentifier"], "ObservacionEmpleado");
+    assert_eq!(trace["parameterName"], "@tObservacionEmpleado");
+    assert_eq!(trace["completeChain"], true);
+    assert_eq!(trace["matchedLayerCount"], 5);
+    assert_eq!(result["crossLayerTrace"], *trace);
+    assert_eq!(result["_detail"]["dataTrace"], *trace);
+    assert!(
+        result["text"]
+            .as_str()
+            .unwrap()
+            .contains("Form (.cshtml) → JSON/JS (.js) → C# Model/Controller (.cs) → SP Parameter (@...) → SQL Column (.sql)")
+    );
+}

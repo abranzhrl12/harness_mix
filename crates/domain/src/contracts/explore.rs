@@ -68,3 +68,89 @@ pub enum ExploreDirection {
     Outbound,
     Both,
 }
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum DataTraceLayerKind {
+    #[serde(rename = "form")]
+    Form,
+    #[serde(rename = "json")]
+    Json,
+    #[serde(rename = "csharpModel")]
+    CsharpModel,
+    #[serde(rename = "spParameter")]
+    SpParameter,
+    #[serde(rename = "sqlColumn")]
+    SqlColumn,
+}
+
+impl DataTraceLayerKind {
+    pub const ALL: [Self; 5] = [
+        Self::Form,
+        Self::Json,
+        Self::CsharpModel,
+        Self::SpParameter,
+        Self::SqlColumn,
+    ];
+
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Form => "form",
+            Self::Json => "json",
+            Self::CsharpModel => "csharpModel",
+            Self::SpParameter => "spParameter",
+            Self::SqlColumn => "sqlColumn",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Form => "Form (.cshtml)",
+            Self::Json => "JSON/JS (.js)",
+            Self::CsharpModel => "C# Model/Controller (.cs)",
+            Self::SpParameter => "SP Parameter (@...)",
+            Self::SqlColumn => "SQL Column (.sql)",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DataTraceMatch {
+    pub file_path: String,
+    pub line: usize,
+    pub kind: String,
+    pub matched_token: String,
+    pub snippet: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DataTraceLayer {
+    pub layer: DataTraceLayerKind,
+    pub label: String,
+    pub status: String,
+    pub matched: bool,
+    pub matches: Vec<DataTraceMatch>,
+    pub matches_omitted: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CrossLayerDataTrace {
+    pub identifier: String,
+    pub normalized_identifier: String,
+    pub parameter_name: String,
+    pub chain: String,
+    pub summary_chain: String,
+    pub complete_chain: bool,
+    pub matched_layer_count: usize,
+    pub total_layers: usize,
+    pub matched_layers: Vec<DataTraceLayerKind>,
+    pub missing_layers: Vec<DataTraceLayerKind>,
+    pub layers: Vec<DataTraceLayer>,
+    pub truncated: bool,
+}

@@ -1,5 +1,6 @@
 //! Automatic lexical fallback. BM25 is provided by the library, without a model
 //! or persistent index; exact, regex and structural searches retain precedence.
+use super::matcher_cache::{self, Options};
 use bm25::{EmbedderBuilder, Scorer, Tokenizer};
 use harness_domain::{
     Failure,
@@ -69,12 +70,16 @@ pub(super) fn fallback_matcher(
         .map(|term| regex::escape(term))
         .collect::<Vec<_>>()
         .join("|");
-    grep_regex::RegexMatcherBuilder::new()
-        .case_insensitive(true)
-        .line_terminator(Some(b'\n'))
-        .build(&pattern)
-        .map(Some)
-        .map_err(|_| ("INTERNAL", "could not compile term retrieval matcher"))
+    matcher_cache::get(
+        &pattern,
+        Options {
+            literal: false,
+            case_sensitive: false,
+            multi_line: false,
+        },
+    )
+    .map(Some)
+    .map_err(|_| ("INTERNAL", "could not compile term retrieval matcher"))
 }
 
 pub(super) fn rank(

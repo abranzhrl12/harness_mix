@@ -1,5 +1,10 @@
 use super::project::{Failure, Project};
+#[cfg(test)]
+mod budget_tests;
+#[cfg(test)]
+mod cache_integration_tests;
 mod graph;
+mod matcher_cache;
 mod plan;
 mod presentation;
 mod ranking;
@@ -7,8 +12,6 @@ mod scan;
 mod structural;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod budget_tests;
 use harness_domain::{contracts::SearchArgs, execution::OperationContext};
 use serde_json::Value;
 
@@ -33,10 +36,7 @@ pub fn search_with_context(
         && outcome.skipped == 0
     {
         if let Some(matcher) = ranking::fallback_matcher(args)? {
-            let mut fallback = plan::build(project, args)?;
-            fallback.matcher = Some(matcher);
-            fallback.term_retrieval = true;
-            fallback.context_lines = args.context_lines.unwrap_or(2);
+            let fallback = plan::build_fallback(project, args, matcher)?;
             let first_started = outcome.started;
             let first_bytes = outcome.bytes;
             let first_visited = outcome.visited;

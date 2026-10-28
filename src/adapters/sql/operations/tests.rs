@@ -1,5 +1,44 @@
-use super::{ResolvedSqlObject, RoutineCatalog, routine_response};
+use super::{
+    ResolvedSqlObject, RoutineCatalog, SqlDescribeKind, catalog_type_filter, infer_describe_kind,
+    routine_response,
+};
 use serde_json::{Value, json};
+
+#[test]
+fn describe_without_kind_searches_relations_and_routines_and_infers_kind_from_type_desc() {
+    assert_eq!(
+        catalog_type_filter(None),
+        "'U','V','P','PC','FN','IF','TF','FS','FT'"
+    );
+    assert_eq!(
+        catalog_type_filter(Some(&SqlDescribeKind::Relation)),
+        "'U','V'"
+    );
+    assert_eq!(
+        catalog_type_filter(Some(&SqlDescribeKind::Routine)),
+        "'P','PC','FN','IF','TF','FS','FT'"
+    );
+    assert!(matches!(
+        infer_describe_kind("USER_TABLE"),
+        SqlDescribeKind::Relation
+    ));
+    assert!(matches!(
+        infer_describe_kind("VIEW"),
+        SqlDescribeKind::Relation
+    ));
+    assert!(matches!(
+        infer_describe_kind("SQL_STORED_PROCEDURE"),
+        SqlDescribeKind::Routine
+    ));
+    assert!(matches!(
+        infer_describe_kind("SQL_SCALAR_FUNCTION"),
+        SqlDescribeKind::Routine
+    ));
+    assert!(matches!(
+        infer_describe_kind("SQL_INLINE_TABLE_VALUED_FUNCTION"),
+        SqlDescribeKind::Routine
+    ));
+}
 
 #[test]
 fn routine_response_preserves_resolution_and_catalog_budget_metadata() {

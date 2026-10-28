@@ -609,15 +609,49 @@ impl Project {
         if start > lines.len() {
             return Err(("RANGE", "inicio supera el final del archivo"));
         }
-        let actual_end = end.min(lines.len());
-        let snippet =
-            lines[start - 1..actual_end].join(if text.contains("\r\n") { "\r\n" } else { "\n" });
+        let mut actual_end = end.min(lines.len());
+        let sep = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut snippet = lines[start - 1..actual_end].join(sep);
+        let mut truncated_by_bytes = false;
         if snippet.len() > 16000 {
-            return Err(("SIZE", "fragmento demasiado grande; reducir el rango"));
+            if lines[start - 1].len() > 16000 {
+                return Err(("SIZE", "fragmento demasiado grande; reducir el rango"));
+            }
+            let mut used = 0usize;
+            let mut fit_end = start - 1;
+            for (idx, line) in lines[start - 1..actual_end].iter().enumerate() {
+                let added = if idx == 0 { line.len() } else { sep.len() + line.len() };
+                if used + added > 16000 {
+                    break;
+                }
+                used += added;
+                fit_end = start + idx;
+            }
+            actual_end = fit_end;
+            snippet = lines[start - 1..actual_end].join(sep);
+            truncated_by_bytes = true;
         }
-        Ok(
-            json!({"path":relative,"start":start,"end":actual_end,"totalLines":lines.len(),"hash":hash(&bytes),"text":snippet,"anchors":harness_domain::navigation::anchors(text,start,actual_end)}),
-        )
+        let mut payload = json!({
+            "path": relative,
+            "start": start,
+            "end": actual_end,
+            "totalLines": lines.len(),
+            "hash": hash(&bytes),
+            "text": snippet,
+            "anchors": harness_domain::navigation::anchors(text, start, actual_end)
+        });
+        if truncated_by_bytes {
+            payload["truncated"] = json!(true);
+            payload["nextStart"] = json!(actual_end + 1);
+            payload["warnings"] = json!([{
+                "code": "READ_TRUNCATED_BY_BYTE_BUDGET",
+                "message": format!(
+                    "Rango truncado en la línea {actual_end} por el presupuesto de 16 KB; continúa desde start={}",
+                    actual_end + 1
+                )
+            }]);
+        }
+        Ok(payload)
     }
 }
 
@@ -692,7 +726,13 @@ mod tests {
             format!("{}\n", "x".repeat(100)).repeat(300),
         )
         .unwrap();
-        assert_eq!(p.read("long.txt", 1, 300).unwrap_err().0, "SIZE");
+        let truncated = p.read("long.txt", 1, 300).unwrap();
+        assert_eq!(truncated["truncated"], true);
+        assert_eq!(truncated["end"], 158);
+        assert_eq!(truncated["nextStart"], 159);
+        assert!(truncated["text"].as_str().unwrap().len() <= 16000);
+        fs::write(dir.path().join("single_huge.txt"), "x".repeat(16001)).unwrap();
+        assert_eq!(p.read("single_huge.txt", 1, 1).unwrap_err().0, "SIZE");
     }
     #[test]
     fn rejects_unsafe_and_sensitive_paths() {

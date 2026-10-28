@@ -1,55 +1,63 @@
 # Harness MCP
 
-Usa Harness MCP como vía principal para investigar, leer, editar y verificar este
-proyecto. Descubre sus nombres reales, ejecuta `harness_bootstrap`, comprueba la
-raíz y reutiliza `data.session`. Sigue los esquemas actuales, no versiones anteriores.
+Use Harness MCP as the primary channel to investigate, read, edit, and verify
+this project. Discover its live tool names, run `harness_bootstrap`, verify the
+workspace root, and reuse `data.session`. Follow the live tool schemas rather
+than assuming older versions.
 
-## Carga solo la guía necesaria
+## Load Only the Needed Guide
 
-| Trabajo | Skill local |
+| Task | Local Skill |
 | --- | --- |
-| Buscar, leer código o comprender relaciones | `.agents/skills/harness-read/SKILL.md` |
-| Reemplazar, escribir, mover y verificar código | `.agents/skills/harness-edit/SKILL.md` |
-| Consultar SQL Server o PostgreSQL | `.agents/skills/harness-sql/SKILL.md` |
-| Leer un XLSX existente | `.agents/skills/harness-xlsx/SKILL.md` |
-| Inspeccionar o previsualizar SVG | `.agents/skills/harness-svg/SKILL.md` |
-| Instalar, inicializar o verificar el CLI/servidor Harness | `.agents/skills/harness-setup/SKILL.md` |
+| Search, read code, or trace relationships across layers | `.agents/skills/harness-read/SKILL.md` |
+| Replace, write, move, and verify code | `.agents/skills/harness-edit/SKILL.md` |
+| Diagnose web apps via console, network, DOM, and screenshots | `.agents/skills/harness-browser/SKILL.md` |
+| Query SQL Server or PostgreSQL | `.agents/skills/harness-sql/SKILL.md` |
+| Read an existing XLSX workbook | `.agents/skills/harness-xlsx/SKILL.md` |
+| Inspect or preview an SVG file | `.agents/skills/harness-svg/SKILL.md` |
+| Install, initialize, or verify the Harness CLI/server | `.agents/skills/harness-setup/SKILL.md` |
 
-Lee completa la skill aplicable antes de actuar; combina guías solo cuando la
-tarea lo requiera. Un símbolo conocido puede leerse directamente, sin búsqueda,
-outline ni firma previos.
+Read the applicable skill in full before acting; combine skills only when the
+task requires it. Read known symbols directly with `harness_symbols` without a
+prior search, outline, or signature call. Group multiple independent reads into
+a single `harness_batch` call (`{ "jobs": [...] }`).
 
-## Invariantes
+## Invariants
 
-- Conserva fuente necesaria, documentación, hashes y avisos de omisiones,
-  truncamiento y frescura. Un resumen no equivale a toda la evidencia.
-- Respeta cambios concurrentes, rutas protegidas, scopes externos y perfil.
-  Investigar no autoriza editar; disponer de herramientas no amplía permisos.
-- No inicialices, sincronices ni reconstruyas el índice por rutina. Lectura y
-  búsqueda no requieren índice; las relaciones necesitan uno compatible.
-  Indexar escribe en `.codegraph/` y requiere autorización. No borres índices
-  para repararlos. Para un proyecto sin índice y con autorización, usa primero
-  `--root <proyecto> --init-index` y después `--root <proyecto> --reindex`.
-  Si ya existe, inspecciona compatibilidad y usa mantenimiento admitido.
-- Ante transporte, timeout o runtime fallido, detén reintentos equivalentes,
-  diagnostica con `harness_doctor` y comunica el bloqueo. No eludas el fallo con
-  acceso directo o shell. Una capacidad no soportada es distinta de un fallo:
-  explica el límite antes de utilizar una alternativa autorizada.
-- Sintaxis válida no demuestra compilación ni corrección. Reporta cambios,
-  verificaciones ejecutadas y pendientes. Los checkpoints no son snapshots.
-  No hagas commit ni push sin petición.
+- Preserve required source context, documentation, hashes, and notices regarding
+  omissions, truncation, and freshness. A summary does not replace full evidence.
+- Respect concurrent changes, protected paths, external scopes, and active
+  profiles. Permission to investigate does not authorize editing; having tools
+  available does not expand permissions.
+- Do not initialize, synchronize, or rebuild the code index routinely. Reading
+  and searching do not require an index; relationship queries (`harness_explore`)
+  require a compatible one. Indexing writes to `.codegraph/` and requires user
+  authorization. Never delete indexes to "repair" them. For an unindexed project
+  with user authorization, run `--root <project> --init-index` first and then
+  `--root <project> --reindex`. If an index already exists, inspect
+  compatibility and use supported maintenance commands.
+- On transport, timeout, or runtime failure, stop equivalent retries, diagnose
+  with `harness_doctor`, and report the blocker. Never bypass failures with
+  direct filesystem access or shell commands. An unsupported capability is
+  distinct from a failure: explain the limitation before using an authorized
+  alternative.
+- Valid syntax does not prove full compilation or runtime correctness. Report
+  applied edits, `validated` checks, and `pending` checks. Checkpoints are not
+  snapshots. Never commit or push unless explicitly requested.
 
-## Si falta la conexión
+## If the Connection Is Missing
 
-El ejecutable conocido es el binario global npm de la instalación actual:
+The known executable is the global npm binary from the current installation:
 `C:/Users/AbrahamRodriguez/AppData/Roaming/npm/node_modules/@abranzhrl1212/agent-harness/bin/agent-harness.exe`
-o el build local del repo (`<raíz>/target/release/agent-harness.exe`). Comprueba
-existencia y `--version`; no descargues binarios desconocidos. La entrada MCP usa
-ese comando con `args: ["--root", "RUTA_ABSOLUTA_DEL_PROYECTO"]`.
+or the local repository release build (`<root>/target/release/agent-harness.exe`).
+Verify existence and `--version`; never download unknown binaries. The MCP entry
+uses that command with `args: ["--root", "ABSOLUTE_PROJECT_PATH"]`.
 
-Configura solo si el usuario lo pidió: identifica cliente y archivo real,
-preserva otros servidores y no cambies credenciales o permisos. Si falta el
-binario, localiza una instalación conocida o compila con `cargo build --release
---locked` cuando la configuración forme parte de la tarea. No inicies stdio en
-una terminal como sustituto de registrarlo en el cliente. Si falta reconexión,
-informa el paso pendiente; no declares conexión operativa sin bootstrap real.
+Configure client files only if requested by the user: identify the client and
+its actual config file, preserve other servers, and never alter credentials or
+permissions. If the binary is missing, locate a known installation or build from
+source with `cargo build --release --locked` when configuration is part of the
+task. Never start a stdio server in a terminal as a substitute for registering
+it in the client. If a client reload/reconnection is needed, report that pending
+step; never claim an operational connection without a real `harness_bootstrap`
+call.

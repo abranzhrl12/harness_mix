@@ -1,27 +1,45 @@
 ---
 name: harness-sql
-description: Consultar bases SQL Server o PostgreSQL mediante Harness MCP, descubrir objetos y obtener resultados acotados. No para editar SQL como código ni para SQLite local no soportado.
+description: Query SQL Server or PostgreSQL databases via Harness MCP, discover schema objects, and fetch bounded results. Not for editing SQL files as code or unsupported local SQLite databases.
 ---
 
-# SQL con contexto mínimo suficiente
+# SQL with Minimal Sufficient Context
 
-Bootstrap si falta sesión; confirma raíz y consulta el esquema real de `harness_sql`. La conexión es de solo lectura: solo SELECT/WITH; el harness no ejecuta CREATE/ALTER/DROP ni escrituras — los scripts de esquema se aplican fuera (SSMS o release). No supongas motores, credenciales ni autorización de escritura.
+Run `harness_bootstrap` if you lack an active session; verify the workspace root
+and check the live `harness_sql` schema. The database connection is strictly
+read-only (`SELECT` / `WITH` only); Harness never executes `CREATE`, `ALTER`,
+`DROP`, or write statements — schema migration scripts must be applied externally
+(e.g., via SSMS or release pipelines). Never assume database engines,
+credentials, or write authorization.
 
-| Necesidad | Acción |
+| Need | Action |
 | --- | --- |
-| Estado o motores desconocidos | `status` |
-| Objeto desconocido | `search` con nombre concreto |
-| Estructura de objeto conocido | `describe` (`name="dbo.Objeto"` o `name` unqualified + `schema="dbo"`) |
-| Relaciones de un esquema | `map`, esquema y límite acotados |
-| Datos | `query` con `sql` (bajo `action=query`, `query` es alias aceptado) |
-| Script de SP/View/Función | Redáctalo y explícalo; entrégalo para SSMS o release — nunca lo ejecutes aquí |
+| Unknown connection state or engines | `status` |
+| Unknown database object | `search` with a specific object name |
+| Structure or definition of a known object | `describe` (`name="dbo.Object"` or `name` + `schema="dbo"`): automatically detects whether the object is a table/view (`relation`) or stored procedure/function (`routine`) without requiring a prior `search` or `kind` |
+| Relationships within a schema | `map`, with bounded schema and limit |
+| Query rows | `query` with `sql` (under `action=query`, `query` is also accepted as an alias) |
+| SP / View / Function migration script | Draft and explain the SQL script; hand it off for SSMS or release deployment — never execute DDL/DML here |
 
-Evita status/search/describe si ya tienes conexión y esquema vigentes suficientes. Si hay dos motores, especifica `engine`. En PostgreSQL, omitir schema en búsqueda incluye los permitidos por política; no presupongas `public`.
+Skip `status`, `search`, or `describe` when you already have a valid connection
+and sufficient schema context. If two engines are configured, specify `engine`.
+In PostgreSQL, omitting `schema` during search includes all schemas allowed by
+policy; do not assume `public`.
 
-- Usa parámetros donde la conexión los soporte; limita filas con la sintaxis del motor. No ejecutes rutinas con efectos laterales bajo la apariencia de SELECT.
-- Reutiliza metadatos mientras sean válidos. La caché depende del backend/configuración: no prometas 0 ms ni pases `schemaCacheSeconds` si el esquema de la llamada no lo anuncia. Usa `refresh` únicamente cuando esté soportado y necesites invalidar metadatos.
-- Agrupa descripciones independientes con batch si están admitidas. No descargues todo el catálogo por rutina.
-- Para resultados grandes guardados, usa `harness_data_query` con proyecciones JMESPath; recupera detalles omitidos solo cuando afecten la respuesta.
-- Distingue cero filas, permisos insuficientes, truncamiento y error. Ante fallos de conexión/runtime, diagnostica y comunica; no improvises otra conexión.
+- Use parameterized queries where supported by the connection and bound row
+  counts using the engine's native syntax (`TOP` / `LIMIT`). Never invoke
+  routines with side effects disguised as `SELECT`.
+- Reuse valid metadata across calls. Caching depends on backend configuration:
+  do not promise 0 ms latency or pass `schemaCacheSeconds` unless advertised by
+  the tool schema. Use `refresh` only when supported and you need to invalidate
+  stale metadata after external schema changes.
+- Batch independent `describe` calls via `harness_batch` when supported. Never
+  dump the entire database catalog routinely.
+- For large stored results, use `harness_data_query` with JMESPath projections;
+  fetch omitted details via `harness_detail` only when they affect the answer.
+- Distinguish between zero matching rows, insufficient permissions, truncation,
+  and runtime errors. On connection or runtime failure, diagnose and report the
+  issue; never improvise alternative direct connections.
 
-Concluye con resultado, filtros y límites relevantes; no vuelques datos sensibles innecesarios.
+Conclude with the query result, applied filters, and relevant bounds; never dump
+unnecessary sensitive data.

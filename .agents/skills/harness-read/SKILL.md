@@ -1,110 +1,134 @@
 ---
 name: harness-read
-description: Investigar código, leer símbolos y consultar dependencias con Harness MCP. No para SQL, XLSX ni SVG.
+description: Investigate code, read symbols, and query dependencies with Harness MCP. Not for SQL, XLSX, or SVG.
 ---
 
-# Leer e investigar
+# Read and Investigate
 
-Usa los nombres y esquemas anunciados por la conexión; no inventes parámetros.
-Esta guía cubre lectura e investigación, no instalación ni preparación inicial.
-Si el problema ocurre en una aplicación web (visual, interacción, consola o
-hidratación), carga también `../harness-browser/SKILL.md` para obtener evidencia
-del navegador; la lectura de código sola no verifica lo que ocurre en la pestaña.
+Use the tool names and schemas advertised by the connection; never invent parameters.
+This guide covers reading and investigation, not installation or initial setup.
+If the issue occurs in a web application (visual, interaction, console, or
+hydration), also load `../harness-browser/SKILL.md` to gather browser evidence;
+reading code alone does not verify what happens in the tab.
 
-## Elige por la información que falta
+## Choose by the Missing Information
 
-Prioriza `harness_explore` para investigar cómo funciona código y seguir sus
-relaciones; evita cadenas de búsquedas y lecturas archivo por archivo. Para
-localizar texto literal o una ruta desconocida, usa `harness_search`; para leer
-un símbolo ya conocido sin necesitar relaciones, usa `harness_symbols` directamente.
+Prioritize `harness_explore` to investigate how code works and follow its
+relationships; avoid chains of text searches and file-by-file reads. To locate
+literal text or an unknown path, use `harness_search`; to read a known symbol
+when relationships are not needed, use `harness_symbols` directly.
 
-| Necesidad | Herramienta |
+| Need | Tool |
 | --- | --- |
-| Encontrar un archivo o texto | `harness_search`, `kind=files` o `text` (`kind=files` coincide con substring del nombre, no con globs: `*.cs` no encuentra nada; usa `Almacen` o filtra con `globs`) |
-| Leer una implementación conocida | `harness_symbols`, `action=read`, `path`, `symbol` |
-| Elegir un símbolo del archivo | `harness_symbols`, `action=outline`, `path` |
-| Obtener solo la firma | `harness_symbols`, `action=read`, `view=signature` |
-| Entender llamadas, dependencias o impacto | `harness_explore`, selector real y vista apropiada |
-| Leer texto sin símbolo o formato no soportado | `harness_read`, rango suficiente |
-| Recuperar contenido omitido | `harness_detail`, referencia recibida |
-| Proyectar campos de un resultado grande | `harness_data_query`, JMESPath |
+| Find a file or literal text | `harness_search`, `kind=files` or `text` (`kind=files` matches filename substrings, not globs: `*.cs` matches nothing; use `Almacen` or filter with `globs`). If you plan to edit matches, include `contextLines: 5` (or `3..10`) to receive the numbered block ready for `harness_replace` without an intermediate `harness_read` |
+| Read a known implementation | `harness_symbols`, `action=read`, `path`, `symbol` |
+| Choose a symbol from a file | `harness_symbols`, `action=outline`, `path` |
+| Get only the signature | `harness_symbols`, `action=read`, `view=signature` |
+| Understand calls, dependencies, or impact | `harness_explore`, real selector and appropriate view |
+| Trace a field or identifier across layers | `harness_explore`, `query` or `symbol` for cross-layer data tracing (`form field → JSON/JS → C# model → SP parameter → SQL column`) |
+| Read non-symbol text or unsupported formats | `harness_read`, sufficient line range |
+| Retrieve omitted content | `harness_detail`, received reference (`detail.ref`) |
+| Project fields from a large result | `harness_data_query`, JMESPath |
 
-Un símbolo conocido se lee directamente, sin búsqueda, outline ni firma previos:
-
-```json
-{"action":"read","path":"src/modulo.rs","symbol":"validar"}
-```
-
-La lectura devuelve fuente exacta por defecto; no necesita `view=full` ni flags
-de compactación. Los rangos son inclusivos, base 1. Si hay ambigüedad, selecciona
-un `container` o `symbolId` devuelto; no los adivines. Una firma no es fuente para
-editar. Conserva los hashes que la herramienta requiera, como `expectedHash`
-para extracción Vue; no busques un hash solo para usar `replace`, donde es opcional.
-
-### Lectura por bloques
-
-`harness_read` usa `path`, `start` y `end`: líneas inclusivas, base 1, máximo
-420 líneas por llamada (`end - start + 1 <= 420`). Pide solo el rango necesario,
-no 420 por defecto. Por ejemplo: `{"path":"src/modulo.rs","start":80,"end":160}`.
-Si necesitas más, continúa desde el último `end + 1`, sin releer bloques ni
-recorrer todo el archivo si un símbolo o `explore` responde la pregunta.
-
-## Relaciones y límites
-
-Para llamadas, dependencias o impacto, empieza con `explore`, no con búsquedas
-de referencias textuales ni lecturas archivo por archivo. Con archivo y símbolo
-conocidos, llámalo directamente: no necesita búsqueda ni outline previos.
+Read a known symbol directly without a prior search, outline, or signature call:
 
 ```json
-{"filePath":"src/modulo.rs","symbol":"validar","view":"summary"}
+{"action":"read","path":"src/module.rs","symbol":"validate"}
 ```
 
-Los selectores de archivo aceptan separadores nativos (`src\\modulo.rs` en Windows)
-y rutas relativas con `./`; el servidor normaliza antes de consultar el índice, y
-si no hay coincidencia exacta reintenta con minúsculas antes de reportar
-`TARGET_NOT_RESOLVED`.
+Symbol reads return exact source by default; they do not need `view=full` or
+compaction flags. Line ranges are 1-based and inclusive. If ambiguous, select a
+returned `container` or `symbolId`; do not guess them. A signature is not source
+for editing. Preserve any hashes required by the tool, such as `expectedHash`
+for Vue extraction; do not fetch a hash just to use `replace`, where it is optional.
 
-`summary` devuelve relaciones y firmas, sin cuerpos por diseño; no recuperes
-cuerpos si no cambian la respuesta. `full` (por defecto si omites `view`) añade
-cuerpos: su texto llega en un bloque lean cuyo código numerado (`N | `) usa un
-fence con el lenguaje de la extensión (` ```csharp `, ` ```javascript `…), en
-orden natural de lectura (título, código, relaciones al final); una meta-línea
-compacta lleva estado, frescura, cobertura y `detail.ref` — nunca busques JSON
-en ese texto: el sobre íntegro entra por `structuredContent` y `detail.ref`
-recupera el resultado completo sin repetir el análisis. `impact` consulta
-impacto entrante. Si falta ubicación, usa `search` para encontrar un candidato;
-si hay homónimos, acota con `filePath` y los selectores devueltos. Una búsqueda
-literal sigue siendo apropiada para texto. Añade presupuestos solo si hacen
-falta y la vista los admite. `maxFiles` limita archivos objetivo y fuentes
-relacionadas cargadas, no el número de nodos.
+### Block Reads
 
-La misma lectura lean aplica a las demás herramientas de solo lectura: 
-`harness_read` renderiza el fragmento con fence de lenguaje y líneas
-absolutas `N | ` (el título lleva la línea inicial); `harness_symbols`
-action=read reutiliza ese formato y action=outline devuelve una tabla
-`Line | Kind | Name | Signature`; `harness_sql` action=query/`describe`
-entregan tablas Markdown (con QUERY/SCHEMA en readonly siempre) y las
-definiciones de rutinas llegan en un fence `sql`; `harness_git` action=diff
-envuelve el parche en un fence `diff` y action=status agrupa tracked/
-conflicts/untracked; `harness_search` kind=text agrupa coincidencias por
-archivo con líneas numeradas. En todos los casos el sobre canónico
-(rectángulos completos, hashes, filas crudas) sigue en `structuredContent`.
-Los errores mantienen el JSON estructurado con diagnósticos intactos.
+`harness_read` uses `path`, `start`, and `end`: 1-based inclusive line numbers,
+up to 420 lines per call (`end - start + 1 <= 420`). If the range exceeds the
+16 KB budget, it automatically truncates on complete line boundaries and returns
+`nextStart` without failing with a `SIZE` error. Request only the range you need,
+not 420 by default. For example: `{"path":"src/module.rs","start":80,"end":160}`.
+If you need more, continue from `nextStart` (or the last `end + 1`) without
+re-reading blocks or scanning the entire file when a symbol read or `explore`
+answers the question.
 
-Revisa cobertura, frescura y omisiones antes de concluir. Un hash de fuente o
-`syntaxOnly=true` no certifica el grafo; un resultado vacío limitado no prueba
-ausencia. Recupera solo cuerpos o detalles que puedan cambiar la respuesta.
-Si el grafo no está disponible o vigente, avanza con fuente y declara ese límite.
-No sincronices ni reindexes por rutina: lectura y búsqueda no requieren índice;
-las relaciones necesitan uno compatible y el mantenimiento requiere autorización.
+## Relationships, Cross-Layer Tracing, and Limits
 
-Reutiliza evidencia vigente. Agrupa únicamente lecturas independientes con
-`harness_batch`; para explore usa `syncIndex=false` si el esquema lo admite.
-Si un batch devuelve referencias, recupera sus detalles sin repetir los trabajos.
-No reduzcas el presupuesto hasta provocar recuperaciones previsibles.
+For calls, dependencies, or impact, start with `harness_explore`, not text
+reference searches or file-by-file reads. When the file and symbol are known,
+call it directly without prior search or outline calls:
 
-Ante fallo de transporte, timeout o runtime, detén reintentos equivalentes,
-diagnostica con `harness_doctor` y comunica el bloqueo; no lo eludas con shell.
-Una capacidad no soportada es distinta: explica el límite antes de una alternativa
-autorizada. Termina cuando la evidencia responda la pregunta y explicita los
-límites que afecten la conclusión.
+```json
+{"filePath":"src/module.rs","symbol":"validate","view":"summary"}
+```
+
+File selectors accept native path separators (`src\\module.rs` on Windows) and
+relative `./` prefixes; the server normalizes paths before querying the index
+and retries case-insensitively before reporting `TARGET_NOT_RESOLVED`.
+
+### Cross-Layer Data Tracing
+
+When investigating how a field or identifier (such as `tObservacionEmpleado`)
+flows across layers, use `harness_explore` to trace the full chain end-to-end:
+`form field → JSON/JS → C# model → SP parameter → SQL column`. Pass the
+identifier in `query` (or `symbol` when anchored to a file) so `harness_explore`
+links UI/Razor inputs, JavaScript payloads, C# DTO/model properties, stored
+procedure parameters, and database columns in a single exploration pass instead
+of manual multi-step searches.
+
+### Views and Lean Output
+
+`summary` returns relationships and signatures without bodies by design; do not
+fetch bodies unless they change the answer. `full` (the default when `view` is
+omitted) includes bodies: its text arrives in a lean block whose numbered code
+(`N | `) uses a language fence matching the file extension (` ```csharp `,
+` ```javascript `, etc.) in natural reading order (header, code, relationships
+at the end); a compact meta-line carries status, freshness, coverage, and
+`detail.ref` — never parse JSON from that text: the full canonical envelope is
+in `structuredContent`, and `detail.ref` retrieves the complete untruncated
+result via `harness_detail` without re-running the analysis. `impact` queries
+inbound callers. If the location is unknown, use `search` to find a candidate;
+if homonyms exist, narrow with `filePath` and the returned selectors. Literal
+search remains appropriate for plain text. Add budgets only when needed and
+supported by the view. `maxFiles` limits target files and loaded related sources,
+not the node count.
+
+The same lean rendering applies across read-only tools:
+`harness_read` renders the snippet in a language fence with absolute `N | `
+line numbers (the header shows the starting line); `harness_symbols`
+`action=read` reuses that format and `action=outline` returns a
+`Line | Kind | Name | Signature` table; `harness_sql` `action=query`/`describe`
+deliver Markdown tables (always readonly for QUERY/SCHEMA) and routine
+definitions arrive in a `sql` fence; `harness_git` `action=diff` wraps patches
+in a `diff` fence and `action=status` groups tracked/conflicts/untracked files;
+`harness_search` `kind=text` groups matches by file with numbered lines. In all
+cases, the canonical envelope (full ranges, hashes, raw rows) remains in
+`structuredContent`. Errors keep structured JSON with intact diagnostics.
+
+Check coverage, freshness, and omissions before concluding. A source hash or
+`syntaxOnly=true` does not certify the graph; a bounded empty result does not
+prove absence. Retrieve only bodies or details that could change the answer.
+If the graph is unavailable or stale, proceed with source reads and state that
+limitation. Do not sync or reindex routinely: reading and searching do not
+require an index; relationship queries require a compatible index, and index
+maintenance requires user authorization.
+
+## Batching Independent Reads
+
+Reuse valid evidence. Group independent read/search/symbol/explore calls into a
+single `harness_batch` with `{ "jobs": [...] }`; for `explore` jobs, pass
+`syncIndex=false` when supported by the schema.
+
+`harness_batch` returns inline per-job summaries (matches, status, and
+diagnostics) by default first so you can inspect results immediately from a
+single call. Each job also provides a `detail.ref` handle separately when you
+need to retrieve the full untruncated output via `harness_detail` without
+re-running the batch jobs. Do not shrink budgets so aggressively that you force
+predictable follow-up fetches.
+
+On transport, timeout, or runtime failure, stop equivalent retries, diagnose
+with `harness_doctor`, and report the blocker; do not bypass it with shell
+commands. An unsupported capability is different: explain the limitation before
+using an authorized alternative. Stop once the evidence answers the question and
+state any limits that affect the conclusion.

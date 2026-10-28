@@ -194,6 +194,7 @@ mod browser_request_tests {
     fn browser_request_keeps_tool_name_and_serialized_action() {
         let request = Request::Browser(BrowserArgs::Connect {
             endpoint: "http://127.0.0.1:9222".into(),
+            tab: None,
             session: Some("session-1".into()),
         });
         assert_eq!(request.name(), "harness_browser");

@@ -116,7 +116,7 @@ pub enum StopReason {
 }
 
 /// Bytes preserve split UTF-8 sequences; presentation decoding happens afterwards.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ProcessOutcome {
     pub exit_code: Option<i32>,
     pub stdout: Vec<u8>,

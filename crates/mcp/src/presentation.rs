@@ -57,9 +57,18 @@ pub(super) fn response_with_options(
                 response_with_context(envelope, context)
             }
         }
-        Some("harness_batch") if envelope["state"] == "ok" => {
+        Some("harness_batch") => {
+            if compact {
+                if let Some(object) = envelope.as_object_mut() {
+                    object.remove("requestId");
+                }
+            }
             if let Some(text) = readable_batch::render(&envelope) {
-                let mut result = CallToolResult::structured(envelope);
+                let mut result = if envelope["state"] == "ok" {
+                    CallToolResult::structured(envelope)
+                } else {
+                    CallToolResult::structured_error(envelope)
+                };
                 result.content = vec![rmcp::model::ContentBlock::text(text)];
                 return result;
             }
@@ -221,13 +230,23 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
         }
         "harness_symbols" if data["items"].is_array() => {
             let items = data["items"].as_array().unwrap();
+            let total_items = data["totalItems"]
+                .as_u64()
+                .map(|n| n as usize)
+                .unwrap_or(items.len());
             let rows: Vec<(String, Vec<String>)> = items
                 .iter()
                 .map(|item| {
+                    let line = item["range"][0]
+                        .as_u64()
+                        .or_else(|| item["start"].as_u64())
+                        .or_else(|| item["line"].as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| item["line"].to_string());
                     (
                         String::new(),
                         vec![
-                            item["line"].to_string(),
+                            line,
                             cell(&item["kind"], 24),
                             cell(&item["name"], 60),
                             cell(&item["signature"], 120),
@@ -238,7 +257,7 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
             Some(format!(
                 "## Outline {} · {} items ({} shown)\n\n{}",
                 cell(&data["path"], 160),
-                items.len(),
+                total_items,
                 items.len(),
                 markdown_table(&["Line", "Kind", "Name", "Signature"], &rows)
             ))
@@ -572,7 +591,25 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 }
             }
             let shown: usize = files.iter().map(|(_, rows)| rows.len()).sum();
-            let mut text = format!("## Search matches · {shown} shown\n");
+            let omitted_matches = envelope["omitted"]["matches"]
+                .as_u64()
+                .or_else(|| data["omitted"].as_u64())
+                .unwrap_or(0) as usize;
+            let total = data["totalMatches"]
+                .as_u64()
+                .or_else(|| data["total"].as_u64())
+                .or_else(|| data["count"].as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(shown + omitted_matches);
+            let file_count = data["matchedFiles"]
+                .as_u64()
+                .map(|n| n as usize)
+                .unwrap_or(files.len());
+            let mut text = if total > shown {
+                format!("## Search matches · {shown} shown ({total} total across {file_count} file(s))\n")
+            } else {
+                format!("## Search matches · {shown} shown ({file_count} file(s))\n")
+            };
             for (file, rows) in files {
                 let body = search_spans(&rows)
                     .into_iter()
@@ -620,6 +657,7 @@ fn search_spans(rows: &[&serde_json::Value]) -> Vec<(u64, Vec<String>)> {
         let (Some(start), Some(body)) = (start, body) else {
             continue;
         };
+        let body = body.strip_suffix('\n').unwrap_or(body);
         for (offset, line) in body.split('\n').enumerate() {
             lines
                 .entry(start + offset as u64)

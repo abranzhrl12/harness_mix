@@ -345,16 +345,27 @@ mod git_contract_tests {
     }
 
     #[test]
+    fn unified_git_diff_without_path_defaults_to_workspace() {
+        let request = serde_json::from_value::<GitArgs>(json!({"action":"diff"}))
+            .unwrap()
+            .into_request();
+        assert_eq!(request.arguments()["path"], ".");
+        assert!(!request.is_mutating());
+    }
+
+    #[test]
     fn unified_git_rejects_missing_or_cross_action_fields_and_decodes_batches() {
         for value in [
             json!({}),
-            json!({"action":"diff"}),
             json!({"action":"commit"}),
             json!({"action":"status","path":"x"}),
             json!({"action":"diff","path":"x","limit":5}),
             json!({"action":"status","unknown":true}),
         ] {
-            assert!(serde_json::from_value::<GitArgs>(value).is_err());
+            assert!(
+                serde_json::from_value::<GitArgs>(value.clone()).is_err(),
+                "unexpectedly accepted invalid Git arguments: {value}"
+            );
         }
         let job: BatchJob = serde_json::from_value(
             json!({"tool":"harness_git","arguments":{"action":"diff","path":"x"}}),
@@ -367,7 +378,10 @@ mod git_contract_tests {
         let job: BatchJob =
             serde_json::from_value(json!({"tool":"harness_git","arguments":{"action":"diff"}}))
                 .unwrap();
-        assert_eq!(job.into_request(None).err().unwrap().0, "ARGUMENT");
+        let request = job.into_request(None).unwrap();
+        assert_eq!(request.arguments()["action"], "diff");
+        assert_eq!(request.arguments()["path"], ".");
+        assert!(!request.is_mutating());
     }
 
     #[cfg(feature = "schema")]
@@ -382,11 +396,12 @@ mod git_contract_tests {
             .find(|branch| branch["properties"]["action"]["const"] == "diff")
             .unwrap();
         assert!(
-            diff["required"]
+            !diff["required"]
                 .as_array()
                 .unwrap()
                 .contains(&json!("path"))
         );
+        assert_eq!(diff["properties"]["path"]["default"], ".");
     }
 }
 

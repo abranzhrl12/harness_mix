@@ -1,45 +1,67 @@
 ---
 name: harness-edit
-description: Modificar código y verificar cambios con Harness MCP. No para investigación de solo lectura.
+description: Edit code and verify changes with Harness MCP. Not for read-only investigation.
 ---
 
-# Editar y verificar
+# Edit and Verify
 
-Reutiliza una sesión con raíz comprobada por bootstrap. Revisa el estado Git y
-preserva cambios ajenos. Obtén con Harness la fuente exacta que falta; no releas
-contexto vigente ni cargues otra skill si ya tienes la evidencia necesaria.
+Reuse a session whose workspace root was verified via `harness_bootstrap`. Check
+Git status and preserve unrelated changes. Fetch any missing exact source via
+Harness; do not re-read valid context or load another skill if you already have
+the required evidence.
 
-## Aplicar el cambio
+## Apply the Change
 
-- `harness_replace`: usa `path`, `oldText` exacto y `newText`. `hash` es opcional;
-  si se omite, usa la lectura interna del archivo. No pidas otra lectura solo
-  para obtenerlo. Desambigua con `line` cuando corresponda; agrupa cambios del
-  mismo original en `chunks` únicos y no solapados.
-- No uses firmas, resúmenes ni números de línea como `oldText`. Ante `STALE`,
-  recupera el contexto afectado y adapta el cambio; no fuerces la versión anterior.
-- `harness_write`: distingue creación de reemplazo. Conserva `expectedHash`
-  cuando sea la precondición de sobrescritura.
-- `harness_move` no actualiza imports ni sobrescribe destinos. Si el movimiento
-  ocurrió y falló el mantenimiento posterior del índice, no repitas el movimiento.
-- Usa las herramientas anunciadas y autorizadas. Si instrucciones superiores
-  exigen `apply_patch`, úsalo con contexto vigente obtenido mediante Harness;
-  no eludas un rechazo de permisos.
+- `harness_replace`: pass `path`, exact `oldText`, and `newText`. `hash` is
+  optional; when omitted, the server uses its internal file read. Never perform
+  an extra read just to obtain a hash. Disambiguate with `line` when needed;
+  group edits to the same file into unique, non-overlapping `chunks`.
+- If you locate the target with `harness_search` (`kind=text`), pass
+  `contextLines: 5` (or `3..10`) in the search call to receive the surrounding
+  lines and line numbers (`N | `) directly, then call `harness_replace`
+  immediately without an intermediate `harness_read`.
+- Never use signatures, summaries, or line-number prefixes (`N | `) as `oldText`.
+  On `STALE`, fetch the affected context and adapt your edit; do not force the
+  stale version.
+- `harness_write`: distinguish file creation from replacement. Preserve
+  `expectedHash` when required as an overwrite precondition.
+- `harness_move` does not rewrite imports or overwrite existing destinations. If
+  the file move succeeded and only subsequent index maintenance failed, do not
+  repeat the move.
+- Use advertised and authorized tools. If higher-priority instructions require
+  `apply_patch`, use it with current context obtained through Harness; never
+  bypass a permission rejection.
 
-## Verificar y entregar
+## Verify and Deliver
 
-Revisa el diff con `harness_git` y ejecuta la verificación proporcional al cambio
-con `harness_verify`; usa jobs cuando necesites seguimiento en segundo plano.
-Consulta el esquema antes de pedir filtros o perfiles. Sintaxis válida no demuestra
-compilación ni corrección; la evidencia debe corresponder a la última edición.
+Review the diff with `harness_git` and run verification proportional to the
+change with `harness_verify`; use background `harness_jobs` when long-running
+follow-up is needed. Check the tool schema before requesting filters or profiles.
 
-Para corregir fallos web de interfaz, interacción o hidratación, usa también
-`../harness-browser/SKILL.md`: reproduce con captura activa y comprueba consola,
-red y comportamiento después del cambio. Si falta navegador conectado o no
-puedes reproducir, declara pendiente la verificación runtime, aunque compile.
+### Fast Per-File Verification vs. Full Compilation
 
-Si falta una capacidad, explica el límite antes de usar una alternativa autorizada.
-Ante fallo de transporte, timeout o runtime, diagnostica con `harness_doctor`;
-no lo eludas con shell, permisos más amplios ni reconstrucción del índice.
+For small or localized JS, Razor (`.cshtml`), or C# (`.cs`) edits, pass the
+modified file paths to `harness_verify` for fast per-file verification. This
+runs lightweight syntax and structural checks on the changed files and
+explicitly reports `validated` checks versus `pending` checks (such as full
+solution compilation or integration tests) without waiting for a full project
+build. Valid syntax alone does not prove full compilation or runtime
+correctness; always ensure verification evidence matches your latest edit and
+clearly report both `validated` and `pending` checks.
 
-Entrega el cambio, verificaciones realizadas y pendientes. No hagas commit,
-push ni sustituyas binarios instalados sin petición.
+### Browser and Runtime Verification
+
+When fixing web UI, interaction, or hydration bugs, also follow
+`../harness-browser/SKILL.md`: reproduce with active capture and check console,
+network, and DOM behavior after the change. If no browser is connected or you
+cannot reproduce the flow, report runtime verification as `pending`, even if the
+code compiles.
+
+If a capability is unsupported, explain the limitation before using an
+authorized alternative. On transport, timeout, or runtime failure, diagnose with
+`harness_doctor`; never bypass failures with shell commands, broader permissions,
+or index rebuilds.
+
+Deliver the change along with executed (`validated`) and `pending`
+verifications. Do not commit, push, or replace installed binaries unless
+explicitly asked.

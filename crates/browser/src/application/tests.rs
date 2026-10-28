@@ -45,6 +45,9 @@ impl BrowserBackend for FakeBackend {
         } else {
             Ok(BrowserResult::Connected {
                 connection_id: "injected".into(),
+                endpoint: None,
+                selected_tab: None,
+                available_tabs: Vec::new(),
             })
         }
     }
@@ -53,6 +56,7 @@ impl BrowserBackend for FakeBackend {
 fn connect(endpoint: &str) -> BrowserArgs {
     BrowserArgs::Connect {
         endpoint: endpoint.into(),
+        tab: None,
         session: Some("test-session".into()),
     }
 }
@@ -101,7 +105,7 @@ fn service_delegates_valid_requests_and_returns_backend_result() {
 
     assert!(matches!(
         result,
-        BrowserResult::Connected { connection_id } if connection_id == "injected"
+        BrowserResult::Connected { connection_id, .. } if connection_id == "injected"
     ));
     assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
 }
@@ -120,9 +124,26 @@ fn local_http_discovery_endpoint_reaches_backend() {
 
     assert!(matches!(
         result,
-        BrowserResult::Connected { connection_id } if connection_id == "injected"
+        BrowserResult::Connected { connection_id, .. } if connection_id == "injected"
     ));
     assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn auto_discovery_and_localhost_tab_shorthand_reach_backend() {
+    let backend = Arc::new(FakeBackend::succeeding());
+    let service = BrowserUseCase::with_backend(backend.clone());
+
+    for endpoint in ["auto", "localhost", ":5173", "localhost:3000"] {
+        let result = service
+            .browser(&connect(endpoint), &OperationContext::without_deadline())
+            .unwrap();
+        assert!(matches!(
+            result,
+            BrowserResult::Connected { connection_id, .. } if connection_id == "injected"
+        ));
+    }
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 4);
 }
 
 #[test]

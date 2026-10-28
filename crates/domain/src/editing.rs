@@ -1,5 +1,6 @@
 //! Pure edit planning, compatible with Node's newline-tolerant unique matching.
 
+mod batch;
 mod encoding;
 mod hints;
 mod matching;

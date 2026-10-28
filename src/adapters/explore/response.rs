@@ -1,5 +1,5 @@
 //! Finalize source freshness at the original observation point and assemble responses.
-use super::{graph::GraphWalk, selection::Selection, sources::LoadedSources};
+use super::{graph::GraphWalk, model::CrossLayerDataTrace, selection::Selection, sources::LoadedSources};
 use crate::adapters::project::Project;
 use harness_domain::{
     Failure,
@@ -22,6 +22,7 @@ pub(super) struct ResponseInput {
     pub(super) selection: Selection,
     pub(super) graph: GraphWalk,
     pub(super) sources: LoadedSources,
+    pub(super) data_trace: Option<CrossLayerDataTrace>,
 }
 
 pub(super) fn respond(
@@ -43,6 +44,7 @@ pub(super) fn respond(
         selection,
         graph,
         sources,
+        data_trace,
     } = input;
     let Selection {
         candidates,
@@ -187,6 +189,38 @@ pub(super) fn respond(
             json!({"code":if freshness["status"] == "stale" {"INDEX_STALE"} else {"INDEX_UNCHECKED"},"severity":"warning","message":"Contributing file freshness is stale or unverified; indexed relationships must not be treated as current source evidence"}),
         ]
     };
+    let mut definitions = definitions;
+    for definition in &mut definitions {
+        let complete = definition["_bodyComplete"] == true
+            && definition["_textEnd"]
+                .as_u64()
+                .is_some_and(|end| end <= max_chars as u64);
+        definition.as_object_mut().unwrap().remove("_bodyComplete");
+        definition.as_object_mut().unwrap().remove("_textEnd");
+        definition["sourceStatus"] = json!(if complete {
+            "complete"
+        } else if summary {
+            "signature_only"
+        } else {
+            "partial"
+        });
+        if !complete {
+            let mut arguments = json!({"path":definition["path"],"symbol":definition["symbol"]["name"],
+                "symbolId":definition["symbol"]["symbolId"],"view":"full"});
+            if let Some(session) = &args.session {
+                arguments["session"] = json!(session);
+            }
+            arguments["action"] = json!("read");
+            definition["nextCall"] = json!({"tool":"harness_symbols","arguments":arguments});
+        }
+    }
+    let base_text_truncated = utf16_len(&text) > max_chars;
+    if let Some(trace) = &data_trace {
+        let rendered = super::presentation::render_data_trace(trace, summary);
+        if !rendered.is_empty() && utf16_len(&text).saturating_add(utf16_len(&rendered)) <= max_chars {
+            text.push_str(&rendered);
+        }
+    }
     let preview = prefix(&text, max_chars);
     // Compact data view: when every contributing file still matches, the full
     // per-file freshness records and legal notices stay retrievable in _detail.
@@ -219,12 +253,12 @@ pub(super) fn respond(
     } else {
         full_graph.clone()
     };
-    let context_truncation = json!({"definitionBodies":definitions_limited,"textPreview":utf16_len(&text)>max_chars,
+    let context_truncation = json!({"definitionBodies":definitions_limited,"textPreview":base_text_truncated,
         "relatedBodies":context_omitted>0,"summaryRelations":displayed_graph["summaryTruncated"]==true});
     // Nothing truncated is the healthy case: emit it in detail only, not on
     // every response (one boolean would say the same).
     let context_clear = !definitions_limited
-        && utf16_len(&text) <= max_chars
+        && !base_text_truncated
         && context_omitted == 0
         && displayed_graph["summaryTruncated"] != true;
     let displayed_candidates: Vec<_> = candidates
@@ -233,29 +267,11 @@ pub(super) fn respond(
         .collect();
     let displayed_candidates_omitted =
         candidates_omitted + candidates.len() - displayed_candidates.len();
-    let mut definitions = definitions;
-    for definition in &mut definitions {
-        let complete = definition["_bodyComplete"] == true
-            && definition["_textEnd"]
-                .as_u64()
-                .is_some_and(|end| end <= max_chars as u64);
-        definition.as_object_mut().unwrap().remove("_bodyComplete");
-        definition.as_object_mut().unwrap().remove("_textEnd");
-        definition["sourceStatus"] = json!(if complete {
-            "complete"
-        } else if summary {
-            "signature_only"
-        } else {
-            "partial"
-        });
-        if !complete {
-            let mut arguments = json!({"path":definition["path"],"symbol":definition["symbol"]["name"],
-                "symbolId":definition["symbol"]["symbolId"],"view":"full"});
-            if let Some(session) = &args.session {
-                arguments["session"] = json!(session);
-            }
-            arguments["action"] = json!("read");
-            definition["nextCall"] = json!({"tool":"harness_symbols","arguments":arguments});
+    let mut detail_text = text.clone();
+    if let Some(trace) = &data_trace {
+        let rendered = super::presentation::render_data_trace(trace, summary);
+        if !rendered.is_empty() && !detail_text.contains("**Cross-Layer Data Lineage") && !detail_text.contains("Trazabilidad de dato") {
+            detail_text.push_str(&rendered);
         }
     }
     let requested = super::query_symbols(args);
@@ -265,10 +281,18 @@ pub(super) fn respond(
         "definitions":definitions,"unresolved":unresolved,"candidates":displayed_candidates,"candidatesOmitted":displayed_candidates_omitted,"selection":{"filePath":args.file_path,"container":args.container,"symbolId":args.symbol_id,"multipleTargets":targets.len()>1,"symbolIdNamespace":"codegraph-node-id"},"graph":displayed_graph,
         "indexFreshness":"not_certified","absenceProven":false,"synchronized":false,"fileFreshness":freshness,"diagnostics":diagnostics,
         "notice":"Bounded indexed relationships, not execution traces; full notices in _detail.notice.",
-        "truncated":truncated || utf16_len(&text)>max_chars || context_omitted>0 || displayed_graph["summaryTruncated"]==true,"_complete":!partial,
-        "_detail":{"text":text,"definitionView":if summary {"signature"} else {"full"},"graph":full_graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness_full,
+        "truncated":truncated || base_text_truncated || context_omitted>0 || displayed_graph["summaryTruncated"]==true,"_complete":!partial,
+        "_detail":{"text":detail_text,"definitionView":if summary {"signature"} else {"full"},"graph":full_graph,"contextTruncation":context_truncation,"candidates":candidates,"candidatesOmitted":candidates_omitted,"definitions":definitions,"unresolved":unresolved,"fileFreshness":freshness_full,
         "notice":"Not execution traces or exhaustive impact; matching content does not prove index completeness, relation validity, unindexed changes or a coherent whole-workspace snapshot. Local symbol readers support Rust, JavaScript and TypeScript; other bodies may be unresolved. graph.truncated concerns graph selection/edges only; contextTruncation concerns presentation. Indexer availability does not grant write authorization. Preview is not replacement text.","indexFreshness":"not_certified","synchronized":false}});
-    if result["truncated"] == json!(false) && context_clear
+    if let Some(trace) = data_trace {
+        let trace_json = serde_json::to_value(&trace).map_err(|_| super::CONTRACT)?;
+        result["dataTrace"] = trace_json.clone();
+        result["crossLayerTrace"] = trace_json.clone();
+        result["_detail"]["dataTrace"] = trace_json.clone();
+        result["_detail"]["crossLayerTrace"] = trace_json;
+    }
+    if result["truncated"] == json!(false)
+        && context_clear
         && result["unresolved"].as_array().is_none_or(Vec::is_empty)
     {
         // Truncation bookkeeping only earns tokens when something was cut.

@@ -179,6 +179,172 @@ fn dotnet_rejects_implicit_directories_and_unapproved_project_types() {
 }
 
 #[test]
+fn fast_per_file_razor_cshtml_validates_directives_tags_csharp_and_scripts_without_msbuild() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("Views/Taller")).unwrap();
+    let cshtml_path = root.path().join("Views/Taller/Itinerario.cshtml");
+    let valid_cshtml = r#"@model IEnumerable<Web.Models.ItinerarioItem>
+@{
+    var title = "Itinerario de Taller";
+    var total = Model.Count();
+}
+<div class="itinerario-panel" data-title="@title">
+    <h2>@title (@total)</h2>
+    <style>
+        @@media screen and (max-width: 768px) {
+            .itinerario-panel { padding: 8px; }
+        }
+    </style>
+</div>
+@section Scripts {
+    <script>
+        const endpoint = '@Url.Action("Listar", "Taller")';
+        const initialTotal = @(total);
+        function refreshItinerario() {
+            return fetch(endpoint).then(r => r.json());
+        }
+    </script>
+}
+"#;
+    std::fs::write(&cshtml_path, valid_cshtml).unwrap();
+    let project = Project::new(root.path()).unwrap();
+
+    for language in ["dotnet", "csharp", "razor", "cshtml"] {
+        let args: VerifyArgs = serde_json::from_value(json!({
+            "language": language,
+            "scope": "Views/Taller/Itinerario.cshtml"
+        }))
+        .unwrap();
+        let result = verify(&project, &args, &OperationContext::default()).unwrap();
+        assert_eq!(result["passed"], true, "{result}");
+        assert_eq!(result["language"], "razor");
+        assert_eq!(result["verificationMode"], "razor_fast_per_file");
+        assert_eq!(result["fastPerFile"], true);
+        assert_eq!(result["fullCompilationSkipped"], true);
+        assert!(result["command"].is_null());
+
+        let validated: Vec<&str> = result["validated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(validated.contains(&"razor-directives (Views/Taller/Itinerario.cshtml)"));
+        assert!(validated.contains(&"razor-syntax-balance (Views/Taller/Itinerario.cshtml)"));
+        assert!(validated.contains(&"razor-html-tag-balance (Views/Taller/Itinerario.cshtml)"));
+        assert!(
+            validated
+                .iter()
+                .any(|item| item.starts_with("razor-csharp-blocks (Views/Taller/Itinerario.cshtml:"))
+        );
+        assert!(
+            validated
+                .iter()
+                .any(|item| item.starts_with("razor-embedded-scripts (Views/Taller/Itinerario.cshtml:"))
+        );
+        assert!(
+            validated
+                .iter()
+                .any(|item| item.starts_with("razor-embedded-styles (Views/Taller/Itinerario.cshtml:"))
+        );
+
+        let pending: Vec<&str> = result["pending"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(pending.contains(&"dotnet-msbuild-compile (skipped for fast per-file check)"));
+        assert!(pending.contains(&"csharp-model-and-helper-typecheck (skipped for fast per-file check)"));
+        assert!(pending.contains(&"browser-runtime-verification"));
+    }
+
+    // Now introduce an unbalanced HTML tag and an inline <script> syntax error in Razor
+    let invalid_cshtml = r#"@model IEnumerable<Web.Models.ItinerarioItem>
+<div class="itinerario-panel">
+    <span>Unclosed span
+</div>
+@section Scripts {
+    <script>
+        function brokenInlineJs( {
+            return 1;
+        }
+    </script>
+}
+"#;
+    std::fs::write(&cshtml_path, invalid_cshtml).unwrap();
+    let args: VerifyArgs = serde_json::from_value(json!({
+        "language": "dotnet",
+        "scope": "Views/Taller/Itinerario.cshtml"
+    }))
+    .unwrap();
+    let failed = verify(&project, &args, &OperationContext::default()).unwrap();
+    assert_eq!(failed["passed"], false, "{failed}");
+    assert_eq!(failed["ok"], false);
+    let diag_codes: Vec<&str> = failed["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|d| d["code"].as_str())
+        .collect();
+    assert!(
+        diag_codes.contains(&"RAZOR_HTML_UNBALANCED"),
+        "expected RAZOR_HTML_UNBALANCED in {diag_codes:?}"
+    );
+    assert!(
+        diag_codes.contains(&"RAZOR_INLINE_JS_SYNTAX"),
+        "expected RAZOR_INLINE_JS_SYNTAX in {diag_codes:?}"
+    );
+}
+
+#[test]
+fn fast_per_file_multi_file_combines_js_and_cshtml_checks() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("Scripts")).unwrap();
+    std::fs::create_dir_all(root.path().join("Views/Taller")).unwrap();
+    std::fs::write(
+        root.path().join("Scripts/app.js"),
+        "const ok = true; export default ok;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("Views/Taller/Index.cshtml"),
+        "<div><p>Hola</p></div>\n",
+    )
+    .unwrap();
+    let project = Project::new(root.path()).unwrap();
+    let args: VerifyArgs = serde_json::from_value(json!({
+        "language": "dotnet",
+        "files": "Scripts/app.js, Views/Taller/Index.cshtml"
+    }))
+    .unwrap();
+    let result = verify(&project, &args, &OperationContext::default()).unwrap();
+    assert_eq!(result["passed"], true, "{result}");
+    assert_eq!(result["language"], "multi_file");
+    assert_eq!(result["verificationMode"], "fast_per_file_syntax");
+    assert_eq!(
+        result["filesChecked"],
+        json!(["Scripts/app.js", "Views/Taller/Index.cshtml"])
+    );
+    let validated: Vec<&str> = result["validated"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(validated.contains(&"js-syntax (Scripts/app.js)"));
+    assert!(validated.contains(&"razor-syntax-balance (Views/Taller/Index.cshtml)"));
+    let pending: Vec<&str> = result["pending"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(pending.contains(&"dotnet-msbuild-compile (skipped for fast per-file check)"));
+    assert!(pending.contains(&"browser-runtime-verification"));
+}
+
+#[test]
 #[ignore = "requires installed .NET SDK; run explicitly"]
 fn real_dotnet_build_and_test_dispatch() {
     let root = tempfile::tempdir().unwrap();

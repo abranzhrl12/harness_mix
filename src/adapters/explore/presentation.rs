@@ -1,6 +1,6 @@
 //! Pure source formatting, context selection and graph summaries.
-use super::model::Node;
-use harness_domain::{Failure, parsing::SourceFormat, contracts::ExploreDirection};
+use super::model::{CrossLayerDataTrace, Node};
+use harness_domain::{Failure, contracts::ExploreDirection, parsing::SourceFormat};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,6 +9,59 @@ pub(super) fn header(symbol: &str) -> String {
         "**Exploration: {}**\n\nIndexed relationships; freshness is not certified.\n\n**Source Code**\n",
         symbol.replace(['\r', '\n'], " ")
     )
+}
+
+pub(super) fn render_data_trace(trace: &CrossLayerDataTrace, summary: bool) -> String {
+    if trace.matched_layer_count == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    if summary {
+        out.push_str(&format!(
+            "\nTrazabilidad de dato (`{}` → `{}` / `{}`): {}\n",
+            trace.identifier, trace.normalized_identifier, trace.parameter_name, trace.summary_chain
+        ));
+        return out;
+    }
+    out.push_str(&format!(
+        "\n**Cross-Layer Data Lineage (`{}`)**\n\n`{}`\n",
+        trace.identifier, trace.chain
+    ));
+    out.push_str(&format!("- Chain status: {}\n", trace.summary_chain));
+    for layer in &trace.layers {
+        if layer.matched {
+            out.push_str(&format!(
+                "- **{}** (`{}`): matched ({} hit{})\n",
+                layer.label,
+                layer.layer.id(),
+                layer.matches.len(),
+                if layer.matches.len() == 1 { "" } else { "s" }
+            ));
+            for item in layer.matches.iter().take(3) {
+                out.push_str(&format!(
+                    "  - `{}:{}` [{}] `{}`\n",
+                    item.file_path, item.line, item.kind, item.snippet
+                ));
+            }
+            let extra = layer
+                .matches
+                .len()
+                .saturating_sub(3)
+                .saturating_add(layer.matches_omitted);
+            if extra > 0 {
+                out.push_str(&format!(
+                    "  - > {extra} additional match(es) in `dataTrace.layers`.\n"
+                ));
+            }
+        } else {
+            out.push_str(&format!(
+                "- **{}** (`{}`): missing / unmatched\n",
+                layer.label,
+                layer.layer.id()
+            ));
+        }
+    }
+    out
 }
 
 pub(super) fn source(path: &str, start: u64, body: &str, truncated: bool) -> String {

@@ -356,15 +356,29 @@ pub(super) fn map(
 
 type SqlServerClient = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
 
+pub(super) fn catalog_type_filter(kind: Option<&SqlDescribeKind>) -> &'static str {
+    match kind {
+        Some(SqlDescribeKind::Routine) => "'P','PC','FN','IF','TF','FS','FT'",
+        Some(SqlDescribeKind::Relation) => "'U','V'",
+        None => "'U','V','P','PC','FN','IF','TF','FS','FT'",
+    }
+}
+
+pub(super) fn infer_describe_kind(type_desc: &str) -> SqlDescribeKind {
+    match type_desc.trim().to_ascii_uppercase().as_str() {
+        "USER_TABLE" | "VIEW" | "SYSTEM_TABLE" | "INTERNAL_TABLE" | "EXTERNAL_TABLE" => {
+            SqlDescribeKind::Relation
+        }
+        _ => SqlDescribeKind::Routine,
+    }
+}
+
 async fn resolve_catalog_object(
     client: &mut SqlServerClient,
     parsed_name: &ParsedSqlObjectName,
-    kind: &SqlDescribeKind,
+    kind: Option<&SqlDescribeKind>,
 ) -> Result<ObjectResolution, Failure> {
-    let type_filter = match kind {
-        SqlDescribeKind::Routine => "'P','PC','FN','IF','TF','FS','FT'",
-        SqlDescribeKind::Relation => "'U','V'",
-    };
+    let type_filter = catalog_type_filter(kind);
     let (requested_schema_param, requested_name_param) = object_lookup_parameters(parsed_name);
     let resolver_sql = format!(
         r#"SELECT TOP (6) s.name AS [schema], o.name, o.object_id, o.type_desc
@@ -542,13 +556,12 @@ pub(super) fn describe(
         return Err(("ARGUMENT", "Indicar nombre del objeto SQL"));
     }
 
-    let kind = args.kind.as_ref().unwrap_or(&SqlDescribeKind::Relation);
-    if matches!(kind, SqlDescribeKind::Routine)
-        && args
-            .sections
-            .as_ref()
-            .is_some_and(|sections| !sections.is_empty())
-    {
+    let requested_kind = args.kind.clone();
+    let has_sections = args
+        .sections
+        .as_ref()
+        .is_some_and(|sections| !sections.is_empty());
+    if matches!(requested_kind, Some(SqlDescribeKind::Routine)) && has_sections {
         return Err((
             "SQL_DESCRIBE_SECTION",
             "SQL Server routine describe does not support sections",
@@ -588,29 +601,41 @@ pub(super) fn describe(
     let result_data = match block_on_safe(checked(
         async {
             let mut client = connect(&project_clone, &config_clone).await?;
-            let resolved = match resolve_catalog_object(&mut client, &parsed_name, kind).await? {
-                ObjectResolution::NotFound => {
-                    return Ok::<Value, Failure>(object_resolution_failure(
-                        "SQL_OBJECT_NOT_FOUND",
-                        "Object not found or not visible with the current SQL login permissions",
-                        &[],
-                        false,
-                    ));
-                }
-                ObjectResolution::Ambiguous {
-                    candidates,
-                    truncated,
-                } => {
-                    return Ok::<Value, Failure>(object_resolution_failure(
-                        "SQL_OBJECT_AMBIGUOUS",
-                        "Object name matches multiple visible schemas; specify the schema",
-                        &candidates,
+            let resolved =
+                match resolve_catalog_object(&mut client, &parsed_name, requested_kind.as_ref())
+                    .await?
+                {
+                    ObjectResolution::NotFound => {
+                        return Ok::<Value, Failure>(object_resolution_failure(
+                            "SQL_OBJECT_NOT_FOUND",
+                            "Object not found or not visible with the current SQL login permissions",
+                            &[],
+                            false,
+                        ));
+                    }
+                    ObjectResolution::Ambiguous {
+                        candidates,
                         truncated,
-                    ));
-                }
-                ObjectResolution::Unique(resolved) => resolved,
-            };
-            match kind {
+                    } => {
+                        return Ok::<Value, Failure>(object_resolution_failure(
+                            "SQL_OBJECT_AMBIGUOUS",
+                            "Object name matches multiple visible schemas; specify the schema",
+                            &candidates,
+                            truncated,
+                        ));
+                    }
+                    ObjectResolution::Unique(resolved) => resolved,
+                };
+            let effective_kind = requested_kind
+                .clone()
+                .unwrap_or_else(|| infer_describe_kind(&resolved.kind));
+            if matches!(effective_kind, SqlDescribeKind::Routine) && has_sections {
+                return Err((
+                    "SQL_DESCRIBE_SECTION",
+                    "SQL Server routine describe does not support sections",
+                ));
+            }
+            match effective_kind {
                 SqlDescribeKind::Routine => {
                     let catalog = read_routine_catalog(
                         &mut client,

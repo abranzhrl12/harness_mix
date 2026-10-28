@@ -1,0 +1,13 @@
+﻿[package]
+name = "replace-matcher-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+default-run = "replace-matcher-bench"
+
+[workspace]
+resolver = "3"
+
+[dependencies]
+harness-domain = { path = "../../crates/domain" }
+aho-corasick = "1.1"

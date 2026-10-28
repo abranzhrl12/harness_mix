@@ -1,0 +1,44 @@
+   Compiling harness-domain v0.1.0 (D:\Nueva carpeta\harness_mix\crates\domain)
+   Compiling replace-matcher-bench v0.1.0 (D:\Nueva carpeta\harness_mix\benches\replace-matcher)
+    Finished `release` profile [optimized] target(s) in 5.89s
+     Running `benches\replace-matcher\target\release\full_prepare.exe`
+full_equivalence_checks=PASS; golden baseline includes request validation, matching, CRLF/BOM and exact error messages
+Full prepare medians, 7 samples, rotating order; includes per-call automaton build when selected and supplied hash validation; excludes syntax validation and publication.
+lf,bytes=4092,chunks=1,old_us=4.344,new_us=4.347,speedup=0.999
+lf,bytes=4092,chunks=8,old_us=14.052,new_us=13.459,speedup=1.044
+lf,bytes=4092,chunks=16,old_us=24.967,new_us=24.074,speedup=1.037
+lf,bytes=4092,chunks=32,old_us=46.310,new_us=44.470,speedup=1.041
+lf,bytes=4092,chunks=64,old_us=92.243,new_us=87.969,speedup=1.049
+lf,bytes=4092,chunks=128,old_us=184.659,new_us=173.630,speedup=1.064
+lf,bytes=65516,chunks=1,old_us=59.262,new_us=60.986,speedup=0.972
+lf,bytes=65516,chunks=8,old_us=188.230,new_us=177.118,speedup=1.063
+lf,bytes=65516,chunks=16,old_us=341.302,new_us=316.434,speedup=1.079
+lf,bytes=65516,chunks=32,old_us=653.910,new_us=605.062,speedup=1.081
+lf,bytes=65516,chunks=64,old_us=1244.842,new_us=1181.871,speedup=1.053
+lf,bytes=65516,chunks=128,old_us=2427.733,new_us=2207.300,speedup=1.100
+lf,bytes=98296,chunks=1,old_us=102.779,new_us=116.018,speedup=0.886
+lf,bytes=98296,chunks=8,old_us=298.707,new_us=284.738,speedup=1.049
+lf,bytes=98296,chunks=16,old_us=568.785,new_us=249.874,speedup=2.276
+lf,bytes=98296,chunks=32,old_us=1026.929,new_us=270.344,speedup=3.799
+lf,bytes=98296,chunks=64,old_us=1856.567,new_us=321.603,speedup=5.773
+lf,bytes=98296,chunks=128,old_us=3629.500,new_us=409.053,speedup=8.873
+lf,bytes=524282,chunks=1,old_us=550.723,new_us=549.525,speedup=1.002
+lf,bytes=524282,chunks=8,old_us=1525.275,new_us=1497.492,speedup=1.019
+lf,bytes=524282,chunks=16,old_us=2746.600,new_us=1109.017,speedup=2.477
+lf,bytes=524282,chunks=32,old_us=5137.733,new_us=1125.733,speedup=4.564
+lf,bytes=524282,chunks=64,old_us=9525.533,new_us=1220.171,speedup=7.807
+lf,bytes=524282,chunks=128,old_us=18109.033,new_us=1523.358,speedup=11.888
+lf,bytes=2097150,chunks=1,old_us=1748.558,new_us=1747.358,speedup=1.001
+lf,bytes=2097150,chunks=8,old_us=5005.600,new_us=4714.167,speedup=1.062
+lf,bytes=2097150,chunks=16,old_us=9026.267,new_us=3697.967,speedup=2.441
+lf,bytes=2097150,chunks=32,old_us=16315.833,new_us=3755.067,speedup=4.345
+lf,bytes=2097150,chunks=64,old_us=31400.733,new_us=3861.700,speedup=8.131
+lf,bytes=2097150,chunks=128,old_us=61966.433,new_us=5277.167,speedup=11.742
+crlf,bytes=524271,chunks=32,old_us=5381.900,new_us=3504.267,speedup=1.536
+bom_crlf,bytes=524274,chunks=32,old_us=5494.583,new_us=3383.883,speedup=1.624
+fallback,bytes=524282,chunks=32,old_us=25352.667,new_us=24201.700,speedup=1.048
+mixed,bytes=524282,chunks=32,old_us=9943.900,new_us=7294.400,speedup=1.363
+long,bytes=524190,chunks=32,old_us=10051.067,new_us=12210.167,speedup=0.823
+missing,bytes=524282,chunks=32,old_us=1096.000,new_us=1071.404,speedup=1.023
+ambiguous,bytes=524282,chunks=32,old_us=402.946,new_us=412.129,speedup=0.978
+duplicate,bytes=524282,chunks=32,old_us=4867.267,new_us=1088.712,speedup=4.471

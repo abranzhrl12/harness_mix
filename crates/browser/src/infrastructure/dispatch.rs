@@ -13,17 +13,19 @@ use uuid::Uuid;
 
 use harness_domain::{
     Failure,
-    browser::{BrowserArgs, BrowserResult, BrowserTarget},
+    browser::{BrowserArgs, BrowserResult, BrowserSelectedTab, BrowserTarget},
     execution::OperationContext,
 };
 
 use crate::{
-    domain::{MAX_EVENT_MESSAGE, required_session, validate_connect_endpoint},
+    domain::{
+        MAX_EVENT_MESSAGE, is_localhost_url, rank_targets, required_session, select_target,
+        validate_connect_endpoint,
+    },
     infrastructure::{
         cdp::{MAX_ATTACHED_PAGES, MAX_CONNECTIONS, MAX_TARGETS},
-        discovery,
         connection::{BrowserConnection, owned_connection, owned_connection_mut, owned_page},
-        events, inspect,
+        discovery, events, inspect,
     },
 };
 
@@ -35,7 +37,33 @@ pub(super) async fn dispatch(
 ) -> Result<BrowserResult, Failure> {
     context.check()?;
     match args {
-        BrowserArgs::Connect { endpoint, session } => {
+        BrowserArgs::Discover {
+            endpoint,
+            tab,
+            session,
+        } => {
+            let _owner = required_session(session)?;
+            if let Some(endpoint) = endpoint.as_deref() {
+                validate_connect_endpoint(endpoint)?;
+            }
+            let discovered =
+                discovery::discover_session(endpoint.as_deref(), tab.as_deref()).await?;
+            let selected_tab = select_target(
+                &discovered.targets,
+                discovered.effective_tab_filter.as_deref(),
+            )
+            .map(BrowserSelectedTab::from);
+            Ok(BrowserResult::Discovered {
+                endpoint: discovered.ws_endpoint,
+                selected_tab,
+                available_tabs: discovered.targets,
+            })
+        }
+        BrowserArgs::Connect {
+            endpoint,
+            tab,
+            session,
+        } => {
             let owner = required_session(session)?;
             validate_connect_endpoint(&endpoint)?;
             if sessions.contains_key(&owner) {
@@ -50,8 +78,9 @@ pub(super) async fn dispatch(
                     "Se alcanzó el límite de conexiones de navegador",
                 ));
             }
-            let endpoint = discovery::resolve_endpoint(&endpoint).await?;
-            let (browser, mut handler) = Browser::connect(endpoint).await.map_err(|_| {
+            let discovered = discovery::discover_session(Some(&endpoint), tab.as_deref()).await?;
+            let ws_endpoint = discovered.ws_endpoint.clone();
+            let (browser, mut handler) = Browser::connect(ws_endpoint.clone()).await.map_err(|_| {
                 (
                     "BROWSER_CONNECT",
                     "No se pudo conectar al endpoint CDP local",
@@ -64,23 +93,55 @@ pub(super) async fn dispatch(
                     }
                 }
             });
+            let mut connection = BrowserConnection {
+                owner: owner.clone(),
+                browser,
+                pages: HashMap::new(),
+                events: Arc::new(Mutex::new(events::EventBuffer::default())),
+                request_urls: Arc::new(Mutex::new(HashMap::new())),
+                tasks: vec![handler_task],
+            };
+
+            let mut available_tabs = match connection.browser.fetch_targets().await {
+                Ok(raw_targets) => {
+                    map_targets(raw_targets, discovered.effective_tab_filter.as_deref())
+                        .unwrap_or_else(|_| discovered.targets.clone())
+                }
+                Err(_) => discovered.targets.clone(),
+            };
+            if available_tabs.is_empty() && !discovered.targets.is_empty() {
+                available_tabs = discovered.targets;
+            }
+
+            let candidate_tab = select_target(
+                &available_tabs,
+                discovered.effective_tab_filter.as_deref(),
+            )
+            .cloned();
+
+            let mut selected_tab = None;
+            if let Some(target) = candidate_tab {
+                if attach_target_to_connection(&mut connection, &target.id)
+                    .await
+                    .is_ok()
+                {
+                    selected_tab = Some(BrowserSelectedTab::from(&target));
+                }
+            }
+
             let id = Uuid::new_v4().to_string();
-            connections.insert(
-                id.clone(),
-                BrowserConnection {
-                    owner: owner.clone(),
-                    browser,
-                    pages: HashMap::new(),
-                    events: Arc::new(Mutex::new(events::EventBuffer::default())),
-                    request_urls: Arc::new(Mutex::new(HashMap::new())),
-                    tasks: vec![handler_task],
-                },
-            );
+            connections.insert(id.clone(), connection);
             sessions.insert(owner, id.clone());
-            Ok(BrowserResult::Connected { connection_id: id })
+            Ok(BrowserResult::Connected {
+                connection_id: id,
+                endpoint: Some(ws_endpoint),
+                selected_tab,
+                available_tabs,
+            })
         }
         BrowserArgs::Targets {
             connection_id,
+            tab,
             session,
         } => {
             let owner = required_session(session)?;
@@ -90,8 +151,12 @@ pub(super) async fn dispatch(
                 .fetch_targets()
                 .await
                 .map_err(|_| ("BROWSER_CDP", "No se pudieron listar las pestañas"))?;
+            let mapped = map_targets(targets, tab.as_deref())?;
+            let selected_tab = select_target(&mapped, tab.as_deref()).map(BrowserSelectedTab::from);
             Ok(BrowserResult::Targets {
-                targets: map_targets(targets)?,
+                available_tabs: mapped.clone(),
+                targets: mapped,
+                selected_tab,
             })
         }
         BrowserArgs::Attach {
@@ -101,32 +166,33 @@ pub(super) async fn dispatch(
         } => {
             let owner = required_session(session)?;
             let connection = owned_connection_mut(connections, &connection_id, &owner)?;
-            if !connection.pages.contains_key(&target_id) {
-                if connection.pages.len() >= MAX_ATTACHED_PAGES {
-                    return Err(("BROWSER_LIMIT", "Se alcanzó el límite de pestañas adjuntas"));
-                }
-                connection.browser.fetch_targets().await.map_err(|_| {
-                    (
-                        "BROWSER_CDP",
-                        "No se pudieron descubrir las pestañas existentes",
-                    )
-                })?;
-                let page = connection
-                    .browser
-                    .get_page(TargetId::from(target_id.clone()))
-                    .await
-                    .map_err(|_| ("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
-                let tasks = events::subscribe_events(
-                    &page,
-                    &target_id,
-                    Arc::clone(&connection.events),
-                    Arc::clone(&connection.request_urls),
+            let raw_targets = connection.browser.fetch_targets().await.map_err(|_| {
+                (
+                    "BROWSER_CDP",
+                    "No se pudieron descubrir las pestañas existentes",
                 )
-                .await?;
-                connection.tasks.extend(tasks);
-                connection.pages.insert(target_id.clone(), page);
-            }
-            Ok(BrowserResult::Attached { target_id })
+            })?;
+            let available_tabs = map_targets(raw_targets, Some(&target_id)).unwrap_or_default();
+
+            let resolved_target = if available_tabs.iter().any(|t| t.id == target_id) {
+                available_tabs.iter().find(|t| t.id == target_id).cloned()
+            } else {
+                select_target(&available_tabs, Some(&target_id)).cloned()
+            };
+
+            let actual_target_id = resolved_target
+                .as_ref()
+                .map(|t| t.id.clone())
+                .unwrap_or_else(|| target_id.clone());
+
+            attach_target_to_connection(connection, &actual_target_id).await?;
+            let selected_tab = resolved_target.as_ref().map(BrowserSelectedTab::from);
+
+            Ok(BrowserResult::Attached {
+                target_id: actual_target_id,
+                selected_tab,
+                available_tabs,
+            })
         }
         BrowserArgs::Inspect {
             connection_id,
@@ -203,7 +269,36 @@ pub(super) async fn dispatch(
     }
 }
 
-fn map_targets(targets: Vec<TargetInfo>) -> Result<Vec<BrowserTarget>, Failure> {
+async fn attach_target_to_connection(
+    connection: &mut BrowserConnection,
+    target_id: &str,
+) -> Result<(), Failure> {
+    if !connection.pages.contains_key(target_id) {
+        if connection.pages.len() >= MAX_ATTACHED_PAGES {
+            return Err(("BROWSER_LIMIT", "Se alcanzó el límite de pestañas adjuntas"));
+        }
+        let page = connection
+            .browser
+            .get_page(TargetId::from(target_id.to_owned()))
+            .await
+            .map_err(|_| ("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
+        let tasks = events::subscribe_events(
+            &page,
+            target_id,
+            Arc::clone(&connection.events),
+            Arc::clone(&connection.request_urls),
+        )
+        .await?;
+        connection.tasks.extend(tasks);
+        connection.pages.insert(target_id.to_owned(), page);
+    }
+    Ok(())
+}
+
+fn map_targets(
+    targets: Vec<TargetInfo>,
+    filter: Option<&str>,
+) -> Result<Vec<BrowserTarget>, Failure> {
     let mut pages = Vec::with_capacity(MAX_TARGETS);
     for target in targets.into_iter().filter(|target| target.r#type == "page") {
         if pages.len() == MAX_TARGETS {
@@ -212,12 +307,18 @@ fn map_targets(targets: Vec<TargetInfo>) -> Result<Vec<BrowserTarget>, Failure> 
                 "La lista de pestañas excede el límite de 128; no se truncó",
             ));
         }
-        pages.push(BrowserTarget {
-            id: target.target_id.as_ref().to_owned(),
-            title: events::bounded_text(target.title, MAX_EVENT_MESSAGE),
-            url: events::bounded_text(target.url, MAX_EVENT_MESSAGE),
-            target_type: target.r#type,
-        });
+        let id = target.target_id.as_ref().to_owned();
+        let title = events::bounded_text(target.title, MAX_EVENT_MESSAGE);
+        let url = events::bounded_text(target.url, MAX_EVENT_MESSAGE);
+        let is_localhost = is_localhost_url(&url);
+        pages.push(BrowserTarget::new(
+            id,
+            title,
+            url,
+            target.r#type,
+            is_localhost,
+        ));
     }
+    rank_targets(&mut pages, filter);
     Ok(pages)
 }

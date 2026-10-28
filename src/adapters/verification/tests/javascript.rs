@@ -128,6 +128,21 @@ fn typescript_and_tsx_builds_validate_syntax_without_execution_or_typechecking()
         assert_eq!(result["verificationMode"], "typescript_syntax_only");
         assert_eq!(result["typeCheckPerformed"], false);
         assert_eq!(result["codeExecuted"], false);
+        assert_eq!(result["fastPerFile"], true);
+        assert!(
+            result["validated"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item.as_str().unwrap().contains(&format!("ts-syntax ({scope})")))
+        );
+        assert!(
+            result["pending"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item.as_str().unwrap().contains("typescript-project-typecheck"))
+        );
         assert!(matches!(
             background_plan(root.path(), &args, None).unwrap(),
             BackgroundVerificationPlan::TypeScriptSyntax
@@ -181,6 +196,106 @@ fn typescript_reloads_changed_source_and_rejects_invalid_syntax_and_tests() {
 }
 
 #[test]
+fn fast_per_file_javascript_validates_syntax_and_reports_validated_and_pending() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("Scripts")).unwrap();
+    let js_path = root.path().join("Scripts/app.js");
+    std::fs::write(
+        &js_path,
+        "export function initTaller(items) {\n  return items.map(x => x.id);\n}\n",
+    )
+    .unwrap();
+    let project = Project::new(root.path()).unwrap();
+
+    // Test both language="javascript" and language="dotnet" with scope="Scripts/app.js"
+    for language in ["javascript", "js", "dotnet"] {
+        let args: VerifyArgs = serde_json::from_value(json!({
+            "language": language,
+            "path": "Scripts/app.js"
+        }))
+        .unwrap();
+        let result = verify(&project, &args, &OperationContext::default()).unwrap();
+        assert_eq!(result["passed"], true, "{result}");
+        assert_eq!(result["language"], "javascript");
+        assert_eq!(result["verificationMode"], "javascript_fast_per_file");
+        assert_eq!(result["fastPerFile"], true);
+        assert_eq!(result["fullCompilationSkipped"], true);
+        assert_eq!(result["codeExecuted"], false);
+
+        let validated: Vec<&str> = result["validated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            validated.contains(&"js-syntax (Scripts/app.js)"),
+            "expected js-syntax in validated: {validated:?}"
+        );
+        assert!(
+            validated
+                .iter()
+                .any(|item| item.starts_with("js-ast-structure (Scripts/app.js:")),
+            "expected js-ast-structure in validated: {validated:?}"
+        );
+
+        let pending: Vec<&str> = result["pending"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            pending.contains(&"browser-runtime-verification"),
+            "expected browser-runtime-verification in pending: {pending:?}"
+        );
+        if language == "dotnet" {
+            assert!(
+                pending.contains(&"dotnet-msbuild-compile (skipped for fast per-file check)"),
+                "expected dotnet-msbuild-compile in pending for dotnet context: {pending:?}"
+            );
+        }
+        assert!(
+            result["summary"]
+                .as_str()
+                .unwrap()
+                .contains("Fast per-file verification PASSED")
+        );
+        assert!(
+            result["output"]
+                .as_str()
+                .unwrap()
+                .contains("Validated: [")
+        );
+    }
+
+    // Broken JavaScript syntax reports line/column diagnostics and marks failed check in validated
+    std::fs::write(&js_path, "function initTaller( {\n  return 1;\n}\n").unwrap();
+    let args: VerifyArgs = serde_json::from_value(json!({
+        "language": "javascript",
+        "scope": "Scripts/app.js"
+    }))
+    .unwrap();
+    let failed = verify(&project, &args, &OperationContext::default()).unwrap();
+    assert_eq!(failed["passed"], false, "{failed}");
+    assert_eq!(failed["ok"], false);
+    assert!(
+        failed["validated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "js-syntax (Scripts/app.js: failed)")
+    );
+    assert!(
+        failed["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "SYNTAX_ERROR" && d["path"] == "Scripts/app.js" && d["line"] == 1)
+    );
+}
+
+#[test]
 #[ignore = "requires installed Node.js with builtin test runner; run explicitly"]
 fn real_javascript_check_tests_and_failures() {
     super::super::process::executable(Program::Node).expect("Node unavailable in absolute PATH");
@@ -211,7 +326,10 @@ fn real_javascript_check_tests_and_failures() {
         let result = call(scope, VerifyAction::Build);
         assert_eq!(result["state"], "ok", "{result}");
         assert_eq!(result["scope"]["language"], "javascript");
-        assert_eq!(result["data"]["verificationMode"], "node_syntax_check");
+        assert!(matches!(
+            result["data"]["verificationMode"].as_str(),
+            Some("javascript_fast_per_file" | "node_syntax_check")
+        ));
     }
     let test = call("fixture.test.cjs", VerifyAction::Test);
     assert_eq!(test["state"], "ok", "{test}");

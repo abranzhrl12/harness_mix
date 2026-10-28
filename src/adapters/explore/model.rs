@@ -1,3 +1,6 @@
+pub use harness_domain::contracts::{
+    CrossLayerDataTrace, DataTraceLayer, DataTraceLayerKind, DataTraceMatch,
+};
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]

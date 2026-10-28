@@ -1,0 +1,27 @@
+   Compiling search-engine-analysis v0.1.0 (D:\Nueva carpeta\harness_mix\benches\search-engine-analysis)
+    Finished `release` profile [optimized] target(s) in 1.47s
+     Running `benches\search-engine-analysis\target\release\search-engine-analysis.exe`
+grep-regex 0.1.14 + grep-searcher 0.1.17; 9 samples, rotating engine order; medians in microseconds
+scan includes line numbers and Vec allocation; excludes filesystem, policy, hashes, context, JSON, BM25 and matcher construction
+edge_checks=PASS; ASCII-only query s against Unicode long-s: regex matches, bare Aho misses
+build terms=2 grep_us=239.97 literals_us=151.08 aho_us=27.92 hybrid_total_build_us=267.89 cached_clone_us=0.778 redundant_exact_build_us=4.06
+scan ascii_hits0 bytes=857242 terms=2 grep_us=118.78 literals_us=103.52 hybrid_us=297.35 hybrid_speedup=0.399
+scan ascii_hits1 bytes=855930 terms=2 grep_us=141.50 literals_us=180.58 hybrid_us=443.45 hybrid_speedup=0.319
+scan ascii_hits25 bytes=824442 terms=2 grep_us=524.83 literals_us=523.38 hybrid_us=505.00 hybrid_speedup=1.039
+scan unicode_hits1 bytes=970618 terms=2 grep_us=150.82 literals_us=151.03 hybrid_us=152.30 hybrid_speedup=0.990
+build terms=8 grep_us=252.50 literals_us=215.66 aho_us=26.14 hybrid_total_build_us=278.64 cached_clone_us=0.288 redundant_exact_build_us=6.09
+scan ascii_hits0 bytes=857242 terms=8 grep_us=91.05 literals_us=92.62 hybrid_us=258.05 hybrid_speedup=0.353
+scan ascii_hits1 bytes=855930 terms=8 grep_us=133.43 literals_us=133.53 hybrid_us=286.18 hybrid_speedup=0.466
+scan ascii_hits25 bytes=824442 terms=8 grep_us=531.50 literals_us=523.08 hybrid_us=502.43 hybrid_speedup=1.058
+scan unicode_hits1 bytes=970618 terms=8 grep_us=147.32 literals_us=147.78 hybrid_us=146.85 hybrid_speedup=1.003
+build terms=16 grep_us=264.01 literals_us=274.57 aho_us=30.80 hybrid_total_build_us=294.81 cached_clone_us=0.277 redundant_exact_build_us=670.55
+scan ascii_hits0 bytes=857242 terms=16 grep_us=90.70 literals_us=90.25 hybrid_us=249.45 hybrid_speedup=0.364
+scan ascii_hits1 bytes=855930 terms=16 grep_us=135.30 literals_us=133.90 hybrid_us=284.93 hybrid_speedup=0.475
+scan ascii_hits25 bytes=824442 terms=16 grep_us=538.05 literals_us=538.98 hybrid_us=520.50 hybrid_speedup=1.034
+scan unicode_hits1 bytes=970618 terms=16 grep_us=158.10 literals_us=150.25 hybrid_us=150.43 hybrid_speedup=1.051
+scan actual_sources bytes=36374 terms=3 grep_us=37.12 literals_us=36.27 hybrid_us=28.08 hybrid_speedup=1.322
+read_reuse no_exact hits=0 two_pass_us=161.43 same_buffer_us=140.28 speedup=1.151
+read_reuse no_exact hits=1 two_pass_us=208.62 same_buffer_us=189.12 speedup=1.103
+read_reuse no_exact hits=25 two_pass_us=662.75 same_buffer_us=607.73 speedup=1.091
+read_reuse exact_in_last_file two_pass_us=50.98 same_buffer_us=187.05 speedup=0.273
+read_reuse uses Vec copies as a read-cost floor; no real IO, traversal, context or budget semantics; not a production replacement

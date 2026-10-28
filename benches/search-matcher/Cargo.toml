@@ -1,0 +1,10 @@
+[package]
+name = "search-matcher-bench"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+aho-corasick = "=1.1.5"
+regex = "=1.13.1"

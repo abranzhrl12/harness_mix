@@ -10,7 +10,7 @@ Configura tu cliente MCP para iniciar el EXE con:
 
 El cliente controla stdin/stdout; iniciar el EXE en una terminal no registra el servidor. Reinicia MCP después de actualizar y llama a `harness_bootstrap`.
 
-Las seis skills incluidas en cada versión se instalan por proyecto. Para preparar un proyecto nuevo, ejecuta:
+Las catorce skills incluidas en esta versión se instalan por proyecto: siete de Harness y siete de trabajo del agente (depuración, pruebas, verificación y arquitectura), con sus documentos auxiliares y licencias. Para preparar un proyecto nuevo, ejecuta:
 
 ~~~powershell
 .\agent-harness.exe init --root "C:/proyectos/mi-app"
@@ -24,7 +24,7 @@ Al actualizar el EXE, el arranque de ese proyecto sincroniza las skills si el op
 .\agent-harness.exe skills sync --root "C:/proyectos/mi-app"
 ~~~
 
-La fuente versionada son los seis `SKILL.md` de `.agents/skills`; el ejecutable los incluye al compilar. El manifiesto `.agents/skills/.harness-manifest.json` registra su SHA-256, la versión Cargo del ejecutable y `contractVersion` leído de `contracts/tool-contract.json`. Un formato de manifiesto desconocido detiene la sincronización sin escribir.
+La fuente versionada está en `.agents/skills`; `crates/skills/src/catalog.rs` enumera los `SKILL.md`, documentos auxiliares y licencias que el ejecutable incluye al compilar. Las skills de trabajo proceden de `obra/superpowers` y `mattpocock/skills`; cada directorio conserva su licencia MIT. `init` copia estos archivos sin descargarlos ni ejecutar los scripts de ejemplo. Un ejecutable anterior conserva su catálogo hasta que se actualice. El manifiesto `.agents/skills/.harness-manifest.json` registra su SHA-256, la versión Cargo del ejecutable y `contractVersion` leído de `contracts/tool-contract.json`. Un formato de manifiesto desconocido detiene la sincronización sin escribir.
 
 `--check` devuelve un código distinto de cero si faltan archivos, hay cambios o se detectan conflictos; `--dry-run` muestra el plan sin escribir. Los archivos locales divergentes se conservan y se reportan para resolución manual. Para sincronizar automáticamente al iniciar el servidor de un único proyecto, usa `--enable-auto`; esta preferencia se guarda en `.agents/harness-skills-sync.json` dentro de ese proyecto. Si no hay actualizaciones pendientes, no reescribe las skills ni el manifiesto. `--disable-auto` la desactiva. La configuración de servidores con `--workspace-config` no aplica este opt-in.
 

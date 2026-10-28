@@ -8,6 +8,38 @@
 
 use serde_json::{Value, json};
 
+/// Normalize a SQL parameter or column name for cross-layer lineage matching:
+/// strips leading `@` and common Hungarian type prefixes (`t`, `i`, `n`, `b`, `f`, `d`)
+/// when followed by an uppercase ASCII letter (e.g., `@tObservacionEmpleado` -> `ObservacionEmpleado`).
+pub(crate) fn normalize_sql_identifier(raw: &str) -> (String, String, String) {
+    let clean = raw.trim().trim_start_matches('@').to_owned();
+    let bytes = clean.as_bytes();
+    let normalized = if bytes.len() >= 2
+        && matches!(bytes[0], b't' | b'i' | b'n' | b'b' | b'f' | b'd')
+        && bytes[1].is_ascii_uppercase()
+    {
+        clean[1..].to_owned()
+    } else {
+        clean.clone()
+    };
+    let parameter = format!("@{clean}");
+    (clean, normalized, parameter)
+}
+
+/// Checks whether two SQL/application identifiers match either directly (case-insensitively,
+/// ignoring `@`) or via their Hungarian-stripped stem.
+pub(crate) fn sql_identifiers_match(a: &str, b: &str) -> bool {
+    let (clean_a, norm_a, _) = normalize_sql_identifier(a);
+    let (clean_b, norm_b, _) = normalize_sql_identifier(b);
+    if clean_a.is_empty() || clean_b.is_empty() {
+        return false;
+    }
+    clean_a.eq_ignore_ascii_case(&clean_b)
+        || (norm_a.len() >= 2
+            && norm_b.len() >= 2
+            && norm_a.eq_ignore_ascii_case(&norm_b))
+}
+
 /// One normalized catalog row. Both engines project their catalog into this
 /// shape before assembly.
 pub(super) struct MapRow {
@@ -173,11 +205,13 @@ pub(super) fn assemble(engine: &str, rows: Vec<MapRow>, limit: usize) -> Value {
         if parameter.is_empty() && data_type.is_empty() {
             continue;
         }
+        let (_, normalized_name, _) = normalize_sql_identifier(&parameter);
         routine_index[position].2["parameters"]
             .as_array_mut()
             .expect("parameter array")
             .push(json!({
                 "name": parameter,
+                "normalizedName": normalized_name,
                 "type": data_type,
                 "direction": if direction == "out" || direction == "inout" { "out" } else { "in" }
             }));

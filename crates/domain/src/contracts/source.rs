@@ -118,19 +118,19 @@ impl TryFrom<ReadInput> for ReadArgs {
         }
         let end = match (input.end, input.lines) {
             (Some(end), None) => end,
-            (None, Some(count)) if count > 0 && count <= 400 => input
+            (None, Some(count)) if count > 0 && count <= 420 => input
                 .start
                 .checked_add(count - 1)
                 .ok_or("read range overflow")?,
             (None, None) => input.start.checked_add(119).ok_or("read range overflow")?,
             (Some(_), Some(_)) => return Err("use either end or lines, not both".into()),
-            _ => return Err("provide end or lines (1..400)".into()),
+            _ => return Err("provide end or lines (1..420)".into()),
         };
         if end < input.start {
             return Err("end must be greater than or equal to start".into());
         }
-        if end - input.start >= 400 {
-            return Err("read range cannot exceed 400 lines".into());
+        if end - input.start >= 420 {
+            return Err("read range cannot exceed 420 lines".into());
         }
         Ok(Self {
             external_scope: input.external_scope,

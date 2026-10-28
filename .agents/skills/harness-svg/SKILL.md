@@ -1,17 +1,28 @@
 ---
 name: harness-svg
-description: Inspeccionar o previsualizar SVG estático existente con Harness MCP. No para generar imágenes raster ni editar código SVG.
+description: Inspect or preview existing static SVG files with Harness MCP. Not for generating raster images or editing SVG code directly.
 ---
 
-# Inspección y vista previa SVG
+# SVG Inspection and Preview
 
-Bootstrap si falta sesión y consulta el esquema de `harness_svg`. El servidor anunciado admite SVG estático de hasta 256 KiB; no supongas ejecución de scripts ni recursos externos.
+Run `harness_bootstrap` if you lack an active session and check the `harness_svg`
+schema. The advertised server supports static SVGs up to 256 KiB; never assume
+script execution or external resource loading.
 
-- Usa `mode=inspect` para estructura, dimensiones y diagnóstico textual.
-- Usa `mode=preview` directamente si necesitas juzgar apariencia. No hagas ambas llamadas por rutina.
-- Proporciona `path` y sesión; `externalScope` solo si ya existe autorización válida. No amplíes permisos por un rechazo.
-- Una inspección estructural no demuestra calidad visual. Examina la imagen devuelta antes de afirmar resultados visuales; si no existe preview, informa esa limitación.
-- Para editar el XML, usa la capacidad de edición autorizada con fuente vigente y verifica después. Esta herramienta por sí sola no escribe archivos.
-- Ante formato, tamaño o renderizado no soportado, informa el límite. Ante fallo de runtime/transporte, diagnostica sin reintentos equivalentes ni bypass.
+- Use `mode=inspect` for XML structure, dimensions, and text diagnostics.
+- Use `mode=preview` directly when you need to evaluate visual appearance. Do
+  not run both modes routinely.
+- Pass `path` and `session`; include `externalScope` only when valid
+  authorization already exists. Never escalate permissions after a rejection.
+- Structural inspection alone does not prove visual quality. Examine the
+  rendered preview image before making visual claims; if no preview is
+  available, state that limitation.
+- To edit the SVG XML, use an authorized editing tool (`harness_replace` /
+  `harness_write`) with current source context and verify afterward.
+  `harness_svg` itself is read-only and never writes files.
+- If the format, file size, or rendering features are unsupported, report the
+  limitation. On runtime or transport failure, diagnose with `harness_doctor`
+  without equivalent retries or shell bypasses.
 
-Termina con los hallazgos relevantes; evita descargar el XML completo si estructura o preview ya bastan.
+Conclude with the relevant findings; avoid dumping raw XML when structural
+summary or preview is sufficient.

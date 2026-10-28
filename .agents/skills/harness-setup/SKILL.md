@@ -1,69 +1,78 @@
 ---
 name: harness-setup
-description: Instalar o retirar Harness del proyecto, conectar MCP y preparar su uso inicial. No para lectura habitual ni mantenimiento rutinario del índice.
+description: Install or uninstall Harness in a project, connect MCP, and prepare initial usage. Not for routine code reading or routine index maintenance.
 ---
 
-# Preparar Harness
+# Set Up Harness
 
-Configura el proyecto y el cliente una vez; no repitas la preparación antes de
-cada lectura. Reutiliza una conexión operativa y la sesión vigente.
+Configure the project and client once; do not repeat setup before every read.
+Reuse an active connection and valid session.
 
-## Ejecutable
+## Executable
 
-Comprueba la instalación conocida con `agent-harness --version`. La versión sirve
-para diagnóstico; no es contexto que deba repetirse en cada respuesta.
-Si el comando falta, localiza el binario existente antes de instalar.
+Check the known installation with `agent-harness --version`. The version output
+is for diagnostics; do not repeat it in every response. If the command is not
+on `PATH`, locate the existing binary before installing.
 
-Si se pidió instalar en Windows x64, usa
-`npm install --global @abranzhrl1212/agent-harness@<version>` con la versión elegida
-por el usuario o comprobada en el registro actual. No descargues binarios desconocidos.
+If asked to install on Windows x64, run:
+`npm install --global @abranzhrl1212/agent-harness@<version>` using the version
+requested by the user or verified in the current registry. Never download
+unknown binaries.
 
-## Configuración
+## Project Configuration
 
-Solo si se pidió instalar en el proyecto, ejecuta `agent-harness init` desde su
-raíz, o `agent-harness init --root <ruta-absoluta>`. Instala las skills, configura
-los MCP locales de Codex y Antigravity y prepara el índice. Si ya existe, lo
-sincroniza sin borrarlo. Repetir `init` reanuda la instalación; no requiere flags
-adicionales. Conserva servidores ajenos, permisos, credenciales y archivos editados.
+Only when asked to install Harness into a project, run `agent-harness init` from
+the workspace root, or `agent-harness init --root <absolute-path>`. This
+installs the bundled skills, configures local MCP entries for Codex and
+Antigravity, and prepares the index. If an installation already exists, it
+synchronizes without deleting existing data. Re-running `init` resumes an
+incomplete installation without extra flags. Preserve unrelated MCP servers,
+permissions, credentials, and locally edited files.
 
-`agent-harness uninstall` retira lo registrado en
-`.agents/harness-installation.json`, restaura archivos anteriores y elimina solo
-el índice creado por esa instalación. Conserva índices anteriores y archivos
-modificados; informa los conflictos. No elimina el binario compartido. Si el
-índice está en uso, cierra las conexiones MCP de ese proyecto antes de reintentar.
+`agent-harness uninstall` removes only the artifacts recorded in
+`.agents/harness-installation.json`, restores prior file versions, and deletes
+only the index created by that installation. It preserves pre-existing indexes
+and user-modified files, reporting any conflicts, and never deletes the shared
+executable. If the index is locked by an active process, close the project's MCP
+connections before retrying.
 
-Para conectar, identifica el cliente y su archivo real. Usa el comando y argumentos
-registrada por `init`; conserva otros servidores, credenciales y permisos.
-La entrada stdio usa el ejecutable con `args: ["--root", "RUTA_ABSOLUTA"]`.
-No abras stdio en una terminal como sustituto de registrarlo en el cliente.
+To connect a client manually, identify the client and its actual config file.
+Use the command and arguments registered by `init` while preserving other
+servers, credentials, and permissions. The stdio entry uses the executable with
+`args: ["--root", "ABSOLUTE_PROJECT_PATH"]`. Never launch a stdio server in an
+interactive terminal as a substitute for registering it in the client config.
 
-## Primera conexión y sesión
+## First Connection and Session
 
-Tras conectar, ejecuta `harness_bootstrap`: confirma `root` y reutiliza
-`data.session` en las llamadas posteriores. En la implementación actual, bootstrap
-abre o restaura la sesión; no inicializa el índice. No lo repitas por lectura:
-solo al necesitar una sesión nueva o restaurar una conocida con `session`.
-No declares la conexión operativa sin bootstrap correcto. Si no puedes reconectar
-desde aquí, informa ese paso pendiente. Reiniciar la sesión del cliente puede ser
-necesario para descubrir skills nuevas o cargar instrucciones actualizadas.
+After connecting, call `harness_bootstrap`: verify `root` and reuse
+`data.session` in subsequent tool calls. In the current implementation,
+bootstrap opens or restores a session; it does not initialize the code index. Do
+not call bootstrap before every read—only when starting a new session or
+restoring a known one via `session`. Never claim the MCP connection is
+operational without a successful `harness_bootstrap` call. If client reload is
+required to pick up new MCP config or skills, inform the user of that pending
+step.
 
-## Índice inicial, solo para relaciones
+## Initial Index (Relationships Only)
 
-Leer y buscar código no requieren índice. Si se necesitan relaciones y el usuario
-autoriza crear uno en un proyecto sin índice, ejecuta primero
-`agent-harness --root <ruta-absoluta> --init-index` y después
-`agent-harness --root <ruta-absoluta> --reindex`.
-Si ya existe, comprueba compatibilidad antes de elegir mantenimiento admitido;
-no lo borres ni repitas la inicialización. `indexed=true` solo indica que existe
-`.codegraph/`, no que sea compatible, completo o vigente. La preparación inicial
-no garantiza frescura tras cambios posteriores; actualizarlo requiere autorización.
+Reading and searching code do not require an index. If relationship/graph
+queries (`harness_explore`) are needed and the user authorizes creating an index
+in an unindexed project, run:
+1. `agent-harness --root <absolute-path> --init-index`
+2. `agent-harness --root <absolute-path> --reindex`
 
-## Uso posterior
+If `.codegraph/` already exists, check compatibility before running supported
+maintenance; never delete `.codegraph/` or repeat `--init-index`. `indexed=true`
+only indicates that `.codegraph/` exists, not that the index is compatible,
+complete, or fresh. Initial setup does not guarantee freshness after later code
+edits; reindexing requires authorization.
 
-Las skills enseñan el flujo; las herramientas devuelven datos y avisos de la
-operación. Bootstrap no carga `AGENTS.md` ni el antiguo archivo de reglas.
-Para código, consulta `harness-read` o `harness-edit` según la tarea.
+## Subsequent Usage
 
-Shell se usa aquí para instalación y configuración; no para eludir fallos de
-Harness. No inicialices ni reconstruyas `.codegraph/` por rutina: el índice
-no es requisito para leer o buscar código.
+Skills define the workflow; tools return operational data and diagnostics.
+`harness_bootstrap` does not load `AGENTS.md` or legacy rule files. For code
+tasks, load `harness-read` or `harness-edit` according to the task.
+
+Shell commands are used here strictly for installation and configuration—never
+to bypass Harness tool failures. Do not initialize or rebuild `.codegraph/`
+routinely: an index is not required to read or search code.

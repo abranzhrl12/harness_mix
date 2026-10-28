@@ -26,6 +26,21 @@ impl OriginalOffsets {
 }
 
 pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
+    // Specialize the common path so small edits keep the original tight loop.
+    let bulk = args.line.is_none()
+        && args.chunks.as_ref().is_some_and(|chunks| {
+            super::batch::eligible(bytes.len(), chunks.len(), || {
+                chunks.iter().map(|chunk| chunk.old_text.len()).sum()
+            })
+        });
+    if bulk {
+        prepare_inner::<true>(bytes, args)
+    } else {
+        prepare_inner::<false>(bytes, args)
+    }
+}
+
+fn prepare_inner<const BULK: bool>(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     if args.line == Some(0) || (args.line.is_some() && args.chunks.is_some()) {
         return Err((
             "EDIT",
@@ -71,13 +86,25 @@ pub fn prepare(bytes: &[u8], args: &ReplaceArgs) -> Result<String, Failure> {
     }
     let normalized = normalize(text);
     let mut edits = Vec::with_capacity(chunks.len());
-    for (old, new) in chunks {
-        let needle = normalize(old);
-        let (first, end_offset) = match args.line {
-            Some(line) => locate_chunk_at_line(&normalized, needle.as_ref(), line)?,
-            None => locate_chunk(&normalized, needle.as_ref())?,
-        };
-        edits.push((first, end_offset, Cow::Borrowed(new)));
+    if BULK
+        && super::batch::eligible(normalized.len(), chunks.len(), || {
+            chunks.iter().map(|(old, _)| old.len()).sum()
+        })
+    {
+        let needles: Vec<_> = chunks.iter().map(|(old, _)| normalize(old)).collect();
+        let ranges = super::batch::locate_chunks(&normalized, &needles)?;
+        for ((first, end_offset), (_, new)) in ranges.into_iter().zip(chunks) {
+            edits.push((first, end_offset, Cow::Borrowed(new)));
+        }
+    } else {
+        for (old, new) in chunks {
+            let needle = normalize(old);
+            let (first, end_offset) = match args.line {
+                Some(line) => locate_chunk_at_line(&normalized, needle.as_ref(), line)?,
+                None => locate_chunk(&normalized, needle.as_ref())?,
+            };
+            edits.push((first, end_offset, Cow::Borrowed(new)));
+        }
     }
     edits.sort_unstable_by_key(|edit| edit.0);
     if edits.windows(2).any(|pair| pair[0].1 > pair[1].0) {

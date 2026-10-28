@@ -2,6 +2,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Default auto-discovery endpoint sentinel when `endpoint` is omitted on `connect` or `discover`.
+pub fn default_connect_endpoint() -> String {
+    "auto".to_owned()
+}
+
 /// One browser operation. `session` pins the browser connection to a Harness session.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -9,21 +14,67 @@ use std::collections::BTreeMap;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrowserArgs {
     Connect {
-        /// Local CDP discovery URL, e.g. http://localhost:9222, or a direct
-        /// ws://loopback:port/devtools/browser/id URL. Chromium must already
-        /// expose remote debugging; HTTP discovery permits only /json/version.
+        /// Local CDP discovery URL (e.g. `http://localhost:9222`), a direct
+        /// `ws://loopback:port/devtools/browser/id` URL, `"auto"` / `"localhost"`
+        /// to auto-discover an active debugging session, or a localhost tab
+        /// URL/port filter (e.g. `http://localhost:3000` or `:5173`).
+        #[serde(default = "default_connect_endpoint")]
         endpoint: String,
+        /// Optional tab selector (URL substring, port like `:3000`, title, or targetId)
+        /// to automatically select and attach when connecting.
+        #[serde(
+            default,
+            alias = "target",
+            alias = "urlFilter",
+            alias = "url_filter",
+            alias = "targetId",
+            alias = "target_id",
+            skip_serializing_if = "Option::is_none"
+        )]
+        tab: Option<String>,
+        session: Option<String>,
+    },
+    Discover {
+        /// Optional CDP endpoint or `"auto"` / `"localhost"` to probe local debugging ports
+        /// and `DevToolsActivePort` files.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        endpoint: Option<String>,
+        /// Optional tab selector (URL substring, port, title, or targetId) to rank and
+        /// highlight the best matching tab.
+        #[serde(
+            default,
+            alias = "target",
+            alias = "urlFilter",
+            alias = "url_filter",
+            alias = "targetId",
+            alias = "target_id",
+            skip_serializing_if = "Option::is_none"
+        )]
+        tab: Option<String>,
         session: Option<String>,
     },
     Targets {
         #[serde(rename = "connectionId")]
         connection_id: String,
+        /// Optional filter (URL substring, port, title, or targetId) to narrow or highlight tabs.
+        #[serde(
+            default,
+            alias = "target",
+            alias = "urlFilter",
+            alias = "url_filter",
+            skip_serializing_if = "Option::is_none"
+        )]
+        tab: Option<String>,
         session: Option<String>,
     },
     Attach {
         #[serde(rename = "connectionId")]
         connection_id: String,
-        #[serde(rename = "targetId")]
+        /// Target ID, `"auto"` / `"localhost"`, or a URL/port/title filter to select and attach.
+        #[serde(rename = "targetId", alias = "tab", alias = "target", alias = "urlFilter")]
         target_id: String,
         session: Option<String>,
     },
@@ -63,10 +114,20 @@ pub enum BrowserArgs {
 }
 
 impl BrowserArgs {
+    /// Construct a `Connect` request with an explicit endpoint and optional session.
+    pub fn connect(endpoint: impl Into<String>, session: Option<String>) -> Self {
+        Self::Connect {
+            endpoint: endpoint.into(),
+            tab: None,
+            session,
+        }
+    }
+
     /// Replace a caller-provided session alias with the resolved session lease ID.
     pub fn with_session(&mut self, resolved_session: String) {
         match self {
             Self::Connect { session, .. }
+            | Self::Discover { session, .. }
             | Self::Targets { session, .. }
             | Self::Attach { session, .. }
             | Self::Inspect { session, .. }
@@ -79,6 +140,7 @@ impl BrowserArgs {
     pub fn session(&self) -> Option<&str> {
         match self {
             Self::Connect { session, .. }
+            | Self::Discover { session, .. }
             | Self::Targets { session, .. }
             | Self::Attach { session, .. }
             | Self::Inspect { session, .. }
@@ -96,19 +158,58 @@ impl BrowserArgs {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserSelectedTab {
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    pub title: String,
+    pub url: String,
+}
+
+impl From<&BrowserTarget> for BrowserSelectedTab {
+    fn from(target: &BrowserTarget) -> Self {
+        Self {
+            target_id: target.id.clone(),
+            title: target.title.clone(),
+            url: target.url.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum BrowserResult {
     Connected {
         #[serde(rename = "connectionId")]
         connection_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        endpoint: Option<String>,
+        #[serde(rename = "selectedTab", skip_serializing_if = "Option::is_none")]
+        selected_tab: Option<BrowserSelectedTab>,
+        #[serde(rename = "availableTabs", skip_serializing_if = "Vec::is_empty")]
+        available_tabs: Vec<BrowserTarget>,
+    },
+    Discovered {
+        endpoint: String,
+        #[serde(rename = "selectedTab", skip_serializing_if = "Option::is_none")]
+        selected_tab: Option<BrowserSelectedTab>,
+        #[serde(rename = "availableTabs")]
+        available_tabs: Vec<BrowserTarget>,
     },
     Targets {
         targets: Vec<BrowserTarget>,
+        #[serde(rename = "selectedTab", skip_serializing_if = "Option::is_none")]
+        selected_tab: Option<BrowserSelectedTab>,
+        #[serde(rename = "availableTabs", skip_serializing_if = "Vec::is_empty")]
+        available_tabs: Vec<BrowserTarget>,
     },
     Attached {
         #[serde(rename = "targetId")]
         target_id: String,
+        #[serde(rename = "selectedTab", skip_serializing_if = "Option::is_none")]
+        selected_tab: Option<BrowserSelectedTab>,
+        #[serde(rename = "availableTabs", skip_serializing_if = "Vec::is_empty")]
+        available_tabs: Vec<BrowserTarget>,
     },
     Inspected {
         snapshot: BrowserElementSnapshot,
@@ -133,13 +234,38 @@ pub enum BrowserResult {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrowserTarget {
     pub id: String,
+    #[serde(rename = "targetId")]
+    pub target_id: String,
     pub title: String,
     pub url: String,
     #[serde(rename = "targetType")]
     pub target_type: String,
+    #[serde(rename = "isLocalhost")]
+    pub is_localhost: bool,
+}
+
+impl BrowserTarget {
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        url: impl Into<String>,
+        target_type: impl Into<String>,
+        is_localhost: bool,
+    ) -> Self {
+        let id = id.into();
+        let target_id = id.clone();
+        Self {
+            id,
+            target_id,
+            title: title.into(),
+            url: url.into(),
+            target_type: target_type.into(),
+            is_localhost,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -246,6 +372,22 @@ mod tests {
     }
 
     #[test]
+    fn connect_defaults_endpoint_to_auto_and_accepts_tab_aliases() {
+        let args: BrowserArgs = serde_json::from_value(serde_json::json!({
+            "action": "connect",
+            "urlFilter": "localhost:5173"
+        }))
+        .unwrap();
+        match args {
+            BrowserArgs::Connect { endpoint, tab, .. } => {
+                assert_eq!(endpoint, "auto");
+                assert_eq!(tab.as_deref(), Some("localhost:5173"));
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
     fn session_is_resolved_for_every_action_and_survives_round_trip() {
         let mut args: BrowserArgs = serde_json::from_value(serde_json::json!({
             "action": "attach",
@@ -267,7 +409,6 @@ mod tests {
     #[test]
     fn all_actions_require_their_identifying_fields() {
         for value in [
-            serde_json::json!({"action":"connect"}),
             serde_json::json!({"action":"targets"}),
             serde_json::json!({"action":"attach","connectionId":"c"}),
             serde_json::json!({"action":"inspect","connectionId":"c"}),

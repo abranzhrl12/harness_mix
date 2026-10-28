@@ -1,23 +1,35 @@
 ---
 name: harness-xlsx
-description: Inspeccionar o leer archivos XLSX existentes mediante Harness MCP por hoja, rango o página. No para crear libros ni controlar Excel abierto.
+description: Inspect or read existing XLSX workbooks via Harness MCP by sheet, range, or page. Not for creating workbooks or controlling an open Excel instance.
 ---
 
-# Lectura XLSX acotada
+# Bounded XLSX Reading
 
-Bootstrap si falta sesión y usa el esquema anunciado de `harness_xlsx`. No cargues todo el libro para descubrir una hoja.
+Run `harness_bootstrap` if you lack an active session and follow the advertised
+`harness_xlsx` schema. Never load an entire workbook just to discover a sheet.
 
-- Si desconoces las hojas, llama con `path` sin `sheet` para metadatos.
-- Si conoces hoja y rango, ve directamente a ellos: `path`, `sheet`, `range`. Para tablas extensas usa páginas acotadas con `rowOffset` y `pageSize` según la respuesta.
-- Solicita fórmulas mediante `formulas` solo cuando sean necesarias. No confundas fórmulas, valores almacenados y recálculo: no afirmes haber recalculado con una herramienta de lectura.
-- Conserva hash y cobertura. Usa `expectedHash` cuando requieras coherencia entre páginas y esté disponible; ante cambio del archivo, reinicia la parte afectada, no mezcles versiones.
-- Proyecta resultados voluminosos con `harness_data_query` cuando lo permita la salida. No conviertas omisiones o celdas ausentes en ceros sin evidencia.
-- Respeta scopes; un rechazo no autoriza leer por otra vía. La herramienta no modifica libros: si se pide creación o edición, selecciona una capacidad apropiada y autorizada.
+- If sheet names are unknown, call `harness_xlsx` with `path` and omit `sheet`
+  to retrieve workbook metadata.
+- If the sheet and range are known, query them directly with `path`, `sheet`,
+  and `range`. For large tables, paginate using bounded `rowOffset` and
+  `pageSize` values based on the response.
+- Request cell formulas via `formulas` only when needed. Do not confuse formulas,
+  cached values, and live recalculation: never claim to have recalculated a
+  workbook using a read-only tool.
+- Preserve file hashes and coverage metadata. Pass `expectedHash` when page
+  consistency is required and supported; if the underlying file changes, restart
+  reads for the affected range rather than mixing versions.
+- Project large outputs with `harness_data_query` when supported. Never treat
+  omitted cells or empty values as zeros without evidence.
+- Respect path and scope boundaries; a permission rejection does not authorize
+  reading the file through an alternative channel. This tool does not modify
+  workbooks: if creation or editing is requested, use an appropriate authorized
+  capability.
 
-Ejemplo, sustituyendo valores reales:
+Example (replace with real values):
 
 ```json
-{"path":"datos.xlsx","sheet":"Ventas","range":"A1:F30","session":"SESION"}
+{"path":"data.xlsx","sheet":"Sales","range":"A1:F30","session":"SESSION_ID"}
 ```
 
-Informa hoja/rango, resultados y límites de interpretación relevantes.
+Report the inspected sheet/range, results, and any relevant interpretation limits.

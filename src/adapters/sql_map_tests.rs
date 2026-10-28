@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 fn row(kind: &str, schema: &str, name: &str, d1: &str, d2: &str, d3: &str, d4: &str) -> MapRow {
     MapRow::new(kind, schema, name, d1, d2, d3, d4)
@@ -35,4 +35,36 @@ fn assemble_reports_truncation_when_the_relation_limit_is_reached() {
     let map = assemble("postgresql", rows, 1);
     assert_eq!(map["counts"]["relations"], 1);
     assert_eq!(map["truncated"], true);
+}
+
+#[test]
+fn normalize_sql_identifier_strips_at_and_hungarian_prefixes() {
+    let (clean, normalized, param) = normalize_sql_identifier("@tObservacionEmpleado");
+    assert_eq!(clean, "tObservacionEmpleado");
+    assert_eq!(normalized, "ObservacionEmpleado");
+    assert_eq!(param, "@tObservacionEmpleado");
+
+    assert!(sql_identifiers_match("@tObservacionEmpleado", "tObservacionEmpleado"));
+    assert!(sql_identifiers_match("@tObservacionEmpleado", "ObservacionEmpleado"));
+    assert!(sql_identifiers_match("iIdEmpleado", "IdEmpleado"));
+    assert!(!sql_identifiers_match("tObservacionEmpleado", "iIdEmpleado"));
+
+    let rows = vec![row(
+        "routine",
+        "dbo",
+        "usp_GuardarEmpleado",
+        "@tObservacionEmpleado",
+        "varchar",
+        "in",
+        "procedure",
+    )];
+    let map = assemble("mssql", rows, 50);
+    assert_eq!(
+        map["routines"][0]["parameters"][0]["name"],
+        "@tObservacionEmpleado"
+    );
+    assert_eq!(
+        map["routines"][0]["parameters"][0]["normalizedName"],
+        "ObservacionEmpleado"
+    );
 }
