@@ -38,6 +38,22 @@ fn symbols_read_renders_a_lean_source_channel_and_keeps_the_canonical_envelope()
 }
 
 #[test]
+fn symbols_signature_without_source_renders_signature_location_and_selector() {
+    let wire = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_symbols","path":"src/lib.rs"},
+        "data":{"path":"src/lib.rs","hash":"full-hash","text":null,"notice":"Use full read for source.",
+            "symbol":{"name":"answer","kind":"function_item","start":12,"end":14,
+                "signature":"pub fn answer() -> u32","symbolId":"rust:function:answer"}}
+    }));
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("answer at src/lib.rs:12"), "{text}");
+    assert!(text.contains("pub fn answer() -> u32"), "{text}");
+    assert!(text.contains("rust:function:answer"), "{text}");
+    assert!(text.contains("Use full read for source."), "{text}");
+    assert_eq!(wire["structuredContent"]["data"]["hash"], "full-hash");
+}
+
+#[test]
 fn read_renders_a_lean_numbered_channel_with_the_line_range() {
     let wire = wire_of(json!({
         "state":"ok","requestId":"r","scope":{"tool":"harness_read","path":"src/app.cs"},
@@ -65,9 +81,18 @@ fn outline_renders_a_markdown_table_from_items() {
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
     assert!(text.starts_with("## Outline p.cs · 2 items"), "{text}");
-    assert!(text.contains("| Line | Kind | Name | Signature |"), "{text}");
-    assert!(text.contains("| 15 | method | Anticipo_Cobrar | public long Anticipo_Cobrar(int a) |"), "{text}");
-    assert!(text.contains("| 43 | method | NumeroOrden_Listar |"), "{text}");
+    assert!(
+        text.contains("| Line | Kind | Name | Signature |"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| 15 | method | Anticipo_Cobrar | public long Anticipo_Cobrar(int a) |"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| 43 | method | NumeroOrden_Listar |"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -96,6 +121,33 @@ fn sql_query_rows_render_a_markdown_table_and_keep_canonical_rows() {
 }
 
 #[test]
+fn sql_empty_query_and_shortened_cells_are_explicit() {
+    let empty = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_sql"},
+        "data":{"rowCount":0,"rows":[],"columns":["id","name"]}
+    }));
+    let text = empty["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("0 row(s)"), "{text}");
+    assert!(text.contains("No rows returned"), "{text}");
+    assert!(text.contains("id, name"), "{text}");
+
+    let value = "x".repeat(120);
+    let clipped = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_sql"},
+        "data":{"rowCount":1,"rows":[{"value":value}],"truncated":false}
+    }));
+    let text = clipped["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Some cell values are shortened"), "{text}");
+    assert_eq!(
+        clipped["structuredContent"]["data"]["rows"][0]["value"]
+            .as_str()
+            .unwrap()
+            .len(),
+        120
+    );
+}
+
+#[test]
 fn sql_describe_renders_a_column_table() {
     let wire = wire_of(json!({
         "state":"ok","scope":{"tool":"harness_sql"},
@@ -105,10 +157,19 @@ fn sql_describe_renders_a_column_table() {
             "truncated":false}
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
-    assert!(text.starts_with("## Describe [dbo].[Anticipos] (2 column(s))"), "{text}");
+    assert!(
+        text.starts_with("## Describe [dbo].[Anticipos] (2 column(s))"),
+        "{text}"
+    );
     assert!(text.contains("| id | int | - | NO |"), "{text}");
     assert!(text.contains("| nombre | varchar | -1 | YES |"), "{text}");
-    assert_eq!(wire["structuredContent"]["data"]["columns"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        wire["structuredContent"]["data"]["columns"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -121,9 +182,15 @@ fn sql_routine_renders_parameter_table_and_definition_in_a_sql_fence() {
             "parameterMetadataSource":"sys.parameters","parametersComplete":true,"truncated":false}
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
-    assert!(text.starts_with("## Define [dbo].[Anticipo_Cobrar] · parameters (1)"), "{text}");
+    assert!(
+        text.starts_with("## Define [dbo].[Anticipo_Cobrar] · parameters (1)"),
+        "{text}"
+    );
     assert!(text.contains("| @comprobante | int | IN |"), "{text}");
-    assert!(text.contains("```sql\nCREATE PROCEDURE dbo.Anticipo_Cobrar AS\n```"), "{text}");
+    assert!(
+        text.contains("```sql\nCREATE PROCEDURE dbo.Anticipo_Cobrar AS\n```"),
+        "{text}"
+    );
     assert_eq!(
         wire["structuredContent"]["data"]["definition"],
         json!("CREATE PROCEDURE dbo.Anticipo_Cobrar AS")
@@ -140,8 +207,14 @@ fn git_diff_wraps_the_patch_in_a_diff_fence() {
             "files":{"changed":1,"included":1},"note":"Tracked changes only"}
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
-    assert!(text.starts_with("## Git diff tracked.txt · HEAD:worktree · 6 line(s)"), "{text}");
-    assert!(text.contains("```diff\n@@ -1,1 +1,1 @@\n-old line\n+new line\n```"), "{text}");
+    assert!(
+        text.starts_with("## Git diff tracked.txt · HEAD:worktree · 6 line(s)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("```diff\n@@ -1,1 +1,1 @@\n-old line\n+new line\n```"),
+        "{text}"
+    );
     assert!(
         wire["structuredContent"]["data"]["preview"]
             .as_str()
@@ -160,7 +233,12 @@ fn git_status_renders_grouped_entries() {
             "counts":{"staged":1,"modified":0,"untracked":1}}
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
-    assert!(text.starts_with("## Git status · branch main · head abc123def456 · upstream origin/main · 2 file(s)"), "{text}");
+    assert!(
+        text.starts_with(
+            "## Git status · branch main · head abc123def456 · upstream origin/main · 2 file(s)"
+        ),
+        "{text}"
+    );
     assert!(text.contains("### Tracked (staged or modified)"), "{text}");
     assert!(text.contains("- modified.txt (M )"), "{text}");
     assert!(text.contains("### Untracked"), "{text}");
@@ -181,13 +259,44 @@ fn search_text_matches_render_grouped_numbered_lines() {
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
     assert!(text.starts_with("## Search matches · 3 shown"), "{text}");
-    assert!(text.contains("### src/a.cs\n\n```csharp\n12 | needle in line\n20 | needle again\n```"), "{text}");
-    assert!(text.contains("### src/b.rs\n\n```rust\n5 | rust needle\n```"), "{text}");
-    assert_eq!(wire["structuredContent"]["data"]["warnings"][0], json!("limited"));
+    assert!(
+        text.contains("### src/a.cs\n\n```csharp\n12 | needle in line\n…\n20 | needle again\n```"),
+        "{text}"
+    );
+    assert!(
+        text.contains("### src/b.rs\n\n```rust\n5 | rust needle\n```"),
+        "{text}"
+    );
+    assert_eq!(
+        wire["structuredContent"]["data"]["warnings"][0],
+        json!("limited")
+    );
     assert_eq!(wire["structuredContent"]["detail"]["ref"], json!("saved"));
     assert_eq!(
         wire["structuredContent"]["data"]["matches"][1]["line"],
         json!(5)
+    );
+}
+
+#[test]
+fn search_renders_and_merges_overlapping_context_ranges() {
+    let wire = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_search"},
+        "data":{"matches":[
+            {"file":"src/a.rs","line":3,"text":"needle","hash":"full-digest",
+                "context":{"start":2,"end":4,"text":"before\nneedle\nmiddle"}},
+            {"file":"src/a.rs","line":4,"text":"second","context":{"start":4,"end":6,"text":"middle\nafter\nlast"}}
+        ]}
+    }));
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("2 | before\n3 | needle\n4 | middle\n5 | after\n6 | last"),
+        "{text}"
+    );
+    assert_eq!(text.matches("4 | middle").count(), 1, "{text}");
+    assert_eq!(
+        wire["structuredContent"]["data"]["matches"][0]["hash"],
+        "full-digest"
     );
 }
 
@@ -200,7 +309,37 @@ fn search_file_paths_render_as_a_readable_list() {
     let text = wire["content"][0]["text"].as_str().unwrap();
     assert!(text.starts_with("## Search results · 2 file(s)"), "{text}");
     assert!(text.contains("- src/a.cs\n- src/b.rs\n"), "{text}");
-    assert_eq!(wire["structuredContent"]["data"]["paths"][1], json!("src/b.rs"));
+    assert_eq!(
+        wire["structuredContent"]["data"]["paths"][1],
+        json!("src/b.rs")
+    );
+}
+
+#[test]
+fn search_file_size_and_syntax_results_render_their_distinct_row_shapes() {
+    let sizes = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_search"},
+        "data":{"kind":"file_size","minLines":20,"files":[
+            {"path":"src/a.rs","lines":21,"bytes":512}
+        ]}
+    }));
+    let text = sizes["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("File size search"), "{text}");
+    assert!(text.contains("| src/a.rs | 21 | 512 |"), "{text}");
+
+    let syntax = wire_of(json!({
+        "state":"ok","scope":{"tool":"harness_search"},
+        "data":{"kind":"syntax","selector":"function_item:load","matches":[
+            {"file":"src/a.rs","start":12,"end":15,"kind":"function_item",
+                "name":"load","signature":"fn load()","symbolId":"rust:fn:load"}
+        ]}
+    }));
+    let text = syntax["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Syntax search"), "{text}");
+    assert!(
+        text.contains("| src/a.rs | 12 | function_item | load | fn load() | rust:fn:load |"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -226,7 +365,10 @@ fn search_text_does_not_silently_clip_long_matches_or_close_embedded_fences() {
     }));
     let text = wire["content"][0]["text"].as_str().unwrap();
     assert!(text.contains(&long), "match text was clipped");
-    assert!(text.contains("````rust\n12 | "), "fence did not protect embedded backticks: {text}");
+    assert!(
+        text.contains("````rust\n12 | "),
+        "fence did not protect embedded backticks: {text}"
+    );
 }
 
 #[test]
@@ -381,15 +523,32 @@ fn explore_text_and_envelope_preserve_evidence_and_compact_summary() {
     });
     let (payload, wire) = symbols_payload(original.clone());
     assert_ne!(wire["isError"], true);
-    let with_legacy_flags = serde_json::to_value(response_with_options(original.clone(), true, true)).unwrap();
-    assert_eq!(wire, with_legacy_flags, "graph callers need no presentation flags");
+    let with_legacy_flags =
+        serde_json::to_value(response_with_options(original.clone(), true, true)).unwrap();
+    assert_eq!(
+        wire, with_legacy_flags,
+        "graph callers need no presentation flags"
+    );
     assert!(payload.get("text").is_none());
     assert!(payload.get("reuseGuidance").is_none());
-    assert_eq!(payload["definitions"][0]["symbol"]["signature"], "/// docs\nfn f()");
-    assert_eq!(payload["definitions"][0]["symbol"]["range"], json!([2,4]));
+    assert_eq!(
+        payload["definitions"][0]["symbol"]["signature"],
+        "/// docs\nfn f()"
+    );
+    assert_eq!(payload["definitions"][0]["symbol"]["range"], json!([2, 4]));
     assert_eq!(payload["definitions"][0]["hash"], "sha");
-    assert_eq!(payload["definitions"][0]["nextCall"]["tool"], "harness_symbols");
-    for key in ["graph", "fileFreshness", "indexFreshness", "candidatesOmitted", "absenceProven", "editReady"] {
+    assert_eq!(
+        payload["definitions"][0]["nextCall"]["tool"],
+        "harness_symbols"
+    );
+    for key in [
+        "graph",
+        "fileFreshness",
+        "indexFreshness",
+        "candidatesOmitted",
+        "absenceProven",
+        "editReady",
+    ] {
         assert_eq!(payload[key], original["data"][key]);
     }
     for key in ["diagnostics", "detail", "omitted"] {
@@ -417,10 +576,7 @@ fn explore_full_uses_the_lean_text_channel_and_failures_keep_diagnostics() {
     // The source appears once in the reading channel; the full source stays
     // canonical in structuredContent for envelope-first clients.
     assert_eq!(text.matches("fn f() {}").count(), 1);
-    assert_eq!(
-        result["structuredContent"]["data"]["text"],
-        json!(body)
-    );
+    assert_eq!(result["structuredContent"]["data"]["text"], json!(body));
     for state in ["error", "timeout", "cancelled"] {
         let (payload, wire) = symbols_payload(json!({
             "state":state,"requestId":"trace","scope":{"tool":"harness_explore"},

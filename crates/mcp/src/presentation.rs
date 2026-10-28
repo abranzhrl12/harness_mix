@@ -5,10 +5,7 @@ use rmcp::model::CallToolResult;
 mod readable_batch;
 
 #[cfg(test)]
-pub(super) fn response_with_compact(
-    envelope: serde_json::Value,
-    compact: bool,
-) -> CallToolResult {
+pub(super) fn response_with_compact(envelope: serde_json::Value, compact: bool) -> CallToolResult {
     response_with_options(envelope, compact, false)
 }
 
@@ -24,10 +21,15 @@ pub(super) fn response_with_options(
         // Full explorations swap the redundant full-JSON text channel for the
         // lean "Graph context" block (status summary plus the source once). The
         // structured envelope stays canonical for envelope-first clients.
-        Some("harness_explore") if envelope["state"] == "ok" && envelope["data"]["view"] == "full" => {
+        Some("harness_explore")
+            if envelope["state"] == "ok" && envelope["data"]["view"] == "full" =>
+        {
             response_with_context(envelope, true)
         }
-        Some(lean @ ("harness_read" | "harness_symbols" | "harness_sql" | "harness_git" | "harness_search")) => {
+        Some(
+            lean @ ("harness_read" | "harness_symbols" | "harness_sql" | "harness_git"
+            | "harness_search"),
+        ) => {
             // Successful source, table and status payloads render a readable
             // markdown channel while structuredContent keeps the canonical
             // envelope. Failures keep the structured JSON contract end to end.
@@ -104,7 +106,13 @@ fn fence_run(body: &str) -> String {
 fn numbered_lines(text: &str, start: u64) -> String {
     text.split('\n')
         .enumerate()
-        .map(|(offset, line)| format!("{} | {}", start + offset as u64, line.trim_end_matches('\r')))
+        .map(|(offset, line)| {
+            format!(
+                "{} | {}",
+                start + offset as u64,
+                line.trim_end_matches('\r')
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -170,11 +178,40 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 lean_source(path, text, start)
             ))
         }
+        "harness_symbols" if data["symbol"].is_object() && !data["text"].is_string() => {
+            let symbol = &data["symbol"];
+            let start = symbol["range"][0]
+                .as_u64()
+                .or_else(|| symbol["start"].as_u64())
+                .or_else(|| symbol["line"].as_u64())
+                .unwrap_or(1);
+            let path = data["path"].as_str().unwrap_or("");
+            let signature = symbol["signature"]
+                .as_str()
+                .unwrap_or("(signature unavailable)");
+            let fence = fence_run(signature);
+            let mut text = format!(
+                "## Symbol {} at {}:{}\n\n**Kind:** {}\n\n{fence}\n{signature}\n{fence}\n",
+                cell(&symbol["name"], 120),
+                clip(path, 160),
+                start,
+                cell(&symbol["kind"], 48)
+            );
+            if let Some(id) = symbol["symbolId"].as_str() {
+                text.push_str(&format!("\n**Selector:** `{}`\n", clip(id, 200)));
+            }
+            if let Some(notice) = data["notice"].as_str() {
+                text.push_str(&format!("\n> {}\n", clip(notice, 300)));
+            }
+            Some(text)
+        }
         "harness_symbols" if data["symbol"].is_object() && data["text"].is_string() => {
             let symbol = &data["symbol"];
-            let start = symbol["range"][0].as_u64()
+            let start = symbol["range"][0]
+                .as_u64()
                 .or_else(|| symbol["start"].as_u64())
-                .or_else(|| symbol["line"].as_u64()).unwrap_or(1);
+                .or_else(|| symbol["line"].as_u64())
+                .unwrap_or(1);
             Some(format!(
                 "## Symbol {} · {}\n\n{}",
                 cell(&symbol["name"], 120),
@@ -217,8 +254,42 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 }
             }
             if columns.is_empty() {
-                return None;
+                let available = data["columns"]
+                    .as_array()
+                    .map(|columns| {
+                        columns
+                            .iter()
+                            .filter_map(|column| {
+                                column.as_str().or_else(|| column["column"].as_str())
+                            })
+                            .map(|name| clip(name, 80))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                return Some(if available.is_empty() {
+                    format!(
+                        "## Query result: {} row(s)\n\nNo rows returned.",
+                        data["rowCount"].as_u64().unwrap_or(0)
+                    )
+                } else {
+                    format!(
+                        "## Query result: {} row(s)\n\nNo rows returned. Available columns: {}.",
+                        data["rowCount"].as_u64().unwrap_or(0),
+                        available.join(", ")
+                    )
+                });
             }
+            let cell_truncated = rows.iter().any(|row| {
+                columns.iter().any(|column| {
+                    let value = &row[column];
+                    let raw = match value {
+                        serde_json::Value::String(text) => text.clone(),
+                        serde_json::Value::Null => String::new(),
+                        other => other.to_string(),
+                    };
+                    raw.chars().count() > 96
+                })
+            });
             let body: Vec<_> = rows
                 .iter()
                 .map(|row| {
@@ -239,6 +310,12 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 truncated
                     .then_some("\n> Row output was truncated by the global character budget; full rows remain in structuredContent.\n")
                     .unwrap_or_default()
+                    .to_owned()
+                    + if cell_truncated {
+                        "\n> Some cell values are shortened in this display; full values remain in structuredContent.\n"
+                    } else {
+                        ""
+                    }
             ))
         }
         "harness_sql" if data["columns"].is_array() => {
@@ -255,7 +332,12 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                                 Some(length) => length.to_string(),
                                 None => "-".into(),
                             },
-                            if column["nullable"] == true { "YES" } else { "NO" }.into(),
+                            if column["nullable"] == true {
+                                "YES"
+                            } else {
+                                "NO"
+                            }
+                            .into(),
                         ],
                     )
                 })
@@ -316,11 +398,17 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 cell(&data["path"], 160),
                 cell(&data["comparison"], 24),
                 data["totalLines"].as_u64().unwrap_or(0),
-                if data["truncated"] == true { " · truncated" } else { "" },
+                if data["truncated"] == true {
+                    " · truncated"
+                } else {
+                    ""
+                },
                 data["preview"].as_str().unwrap_or("")
             );
             if data["truncated"] == true {
-                text.push_str("\n> Diff preview truncated; the full patch is recoverable via detail.\n");
+                text.push_str(
+                    "\n> Diff preview truncated; the full patch is recoverable via detail.\n",
+                );
             }
             Some(text)
         }
@@ -361,7 +449,10 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                         ));
                     }
                     if group.len() > 64 {
-                        text.push_str(&format!("\n> {} more entries in structuredContent.\n", group.len() - 64));
+                        text.push_str(&format!(
+                            "\n> {} more entries in structuredContent.\n",
+                            group.len() - 64
+                        ));
                     }
                 }
             }
@@ -384,6 +475,72 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
             }
             Some(text)
         }
+        "harness_search" if data["kind"] == "file_size" && data["files"].is_array() => {
+            let files = data["files"].as_array().unwrap();
+            let rows: Vec<_> = files
+                .iter()
+                .map(|file| {
+                    (
+                        String::new(),
+                        vec![
+                            cell(&file["path"], 180),
+                            cell(&file["lines"], 24),
+                            cell(&file["bytes"], 24),
+                        ],
+                    )
+                })
+                .collect();
+            Some(format!(
+                "## File size search · {} file(s) over {} lines\n\n{}",
+                data["count"].as_u64().unwrap_or(files.len() as u64),
+                data["minLines"].as_u64().unwrap_or(0),
+                if rows.is_empty() {
+                    "No files matched the threshold.".to_owned()
+                } else {
+                    markdown_table(&["Path", "Lines", "Bytes"], &rows)
+                }
+            ))
+        }
+        "harness_search" if data["kind"] == "syntax" && data["matches"].is_array() => {
+            let matches = data["matches"].as_array().unwrap();
+            let rows: Vec<_> = matches
+                .iter()
+                .map(|item| {
+                    (
+                        String::new(),
+                        vec![
+                            cell(&item["file"], 140),
+                            item["range"][0]
+                                .as_u64()
+                                .or_else(|| item["start"].as_u64())
+                                .map(|line| line.to_string())
+                                .unwrap_or_default(),
+                            cell(&item["kind"], 32),
+                            cell(&item["name"], 80),
+                            cell(&item["signature"], 180),
+                            cell(&item["symbolId"], 140),
+                        ],
+                    )
+                })
+                .collect();
+            let mut text = format!(
+                "## Syntax search · {} declaration(s) · {}\n\n{}",
+                data["count"].as_u64().unwrap_or(matches.len() as u64),
+                cell(&data["selector"], 120),
+                if rows.is_empty() {
+                    "No declarations found in the scanned coverage.".to_owned()
+                } else {
+                    markdown_table(
+                        &["File", "Line", "Kind", "Name", "Signature", "Symbol ID"],
+                        &rows,
+                    )
+                }
+            );
+            if let Some(coverage) = data["coverage"].as_str() {
+                text.push_str(&format!("\n> Coverage: {}\n", clip(coverage, 300)));
+            }
+            Some(text)
+        }
         "harness_search"
             if data["matches"]
                 .as_array()
@@ -396,7 +553,9 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|row| row["file"].is_string() && row["text"].is_string() && row["line"].is_u64())
+                .filter(|row| {
+                    row["file"].is_string() && row["text"].is_string() && row["line"].is_u64()
+                })
                 .collect();
             if matches.is_empty() {
                 return None;
@@ -415,15 +574,11 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
             let shown: usize = files.iter().map(|(_, rows)| rows.len()).sum();
             let mut text = format!("## Search matches · {shown} shown\n");
             for (file, rows) in files {
-                let body = rows
-                    .iter()
-                    .map(|row| format!(
-                        "{} | {}",
-                        row["line"].as_u64().unwrap_or(0),
-                        row["text"].as_str().unwrap_or("")
-                    ))
+                let body = search_spans(&rows)
+                    .into_iter()
+                    .map(|(start, lines)| numbered_lines(&lines.join("\n"), start))
                     .collect::<Vec<_>>()
-                    .join("\n");
+                    .join("\n…\n");
                 let fence = fence_run(&body);
                 text.push_str(&format!(
                     "\n### {file}\n\n{fence}{}\n{body}\n{fence}\n",
@@ -439,7 +594,52 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
 fn lean_source(path: &str, text: &str, start: u64) -> String {
     let fence = fence_run(text);
     let tag = fence_tag(path);
-    format!("{fence}{tag}\n{numbered}\n{fence}\n", numbered = numbered_lines(text, start))
+    format!(
+        "{fence}{tag}\n{numbered}\n{fence}\n",
+        numbered = numbered_lines(text, start)
+    )
+}
+
+/// Render context snippets by absolute line, merging overlapping windows.
+/// Repeated line numbers come from one search snapshot, so the first copy is
+/// authoritative and all unique context lines remain visible.
+fn search_spans(rows: &[&serde_json::Value]) -> Vec<(u64, Vec<String>)> {
+    let mut lines = std::collections::BTreeMap::<u64, String>::new();
+    for row in rows {
+        let context = &row["context"];
+        let (start, body) = if context["text"].is_string() {
+            (
+                context["range"][0]
+                    .as_u64()
+                    .or_else(|| context["start"].as_u64()),
+                context["text"].as_str(),
+            )
+        } else {
+            (row["line"].as_u64(), row["text"].as_str())
+        };
+        let (Some(start), Some(body)) = (start, body) else {
+            continue;
+        };
+        for (offset, line) in body.split('\n').enumerate() {
+            lines
+                .entry(start + offset as u64)
+                .or_insert_with(|| line.trim_end_matches('\r').to_owned());
+        }
+    }
+    let mut spans = Vec::<(u64, Vec<String>)>::new();
+    for (line, text) in lines {
+        if let Some((start, body)) = spans.last_mut() {
+            let expected = *start + body.len() as u64;
+            if line <= expected {
+                if line == expected {
+                    body.push(text);
+                }
+                continue;
+            }
+        }
+        spans.push((line, vec![text]));
+    }
+    spans
 }
 
 // Source and graph tools retain their direct JSON text for existing clients and
@@ -574,7 +774,12 @@ pub(super) fn normalize_text_only_error(
         .content
         .iter()
         .filter_map(|block| serde_json::to_value(block).ok())
-        .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str).map(str::to_owned))
+        .filter_map(|block| {
+            block
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
         .collect::<Vec<_>>()
         .join("\n");
     if !message

@@ -3,16 +3,32 @@ use serde_json::Value;
 
 pub(super) fn with_notices(mut text: String, envelope: &Value) -> String {
     let data = &envelope["data"];
+    let mut seen = std::collections::BTreeSet::new();
     for diagnostics in [&envelope["diagnostics"], &data["warnings"]] {
         if let Some(items) = diagnostics.as_array() {
             for item in items {
                 let code = item["code"].as_str().unwrap_or("NOTICE");
-                let message = item.as_str().or_else(|| item["message"].as_str()).unwrap_or("");
-                text.push_str(&format!("\n> {}: {}\n", super::clip(code, 80), super::clip(message, 300)));
+                let message = item
+                    .as_str()
+                    .or_else(|| item["message"].as_str())
+                    .unwrap_or("");
+                if seen.insert((code.to_owned(), message.to_owned())) {
+                    text.push_str(&format!(
+                        "\n> {}: {}\n",
+                        super::clip(code, 80),
+                        super::clip(message, 300)
+                    ));
+                }
             }
         }
     }
-    let flags = ["truncated", "presentationTruncated", "contentTruncated", "hasMore", "snapshotOnly"];
+    let flags = [
+        "truncated",
+        "presentationTruncated",
+        "contentTruncated",
+        "hasMore",
+        "snapshotOnly",
+    ];
     let partial = flags.iter().any(|key| data[*key] == true)
         || data["scanComplete"] == false
         || data["complete"] == false
@@ -22,11 +38,22 @@ pub(super) fn with_notices(mut text: String, envelope: &Value) -> String {
             Value::Number(number) => number.as_u64().is_some_and(|n| n > 0),
             _ => false,
         });
-    if partial {
-        text.push_str("\n> Partial output; check structuredContent for limits, omissions and continuation.\n");
+    if data["previewTruncated"] == true {
+        text.push_str("\n> Batch preview shortened to fit the response budget; full child results are recoverable from the batch detail.\n");
+    } else if envelope["scope"]["tool"] == "harness_batch"
+        && (data["truncated"] == true || envelope["omitted"]["truncated"] == true)
+    {
+        text.push_str("\n> Child previews were shortened to fit the response budget; full results are recoverable from the batch detail.\n");
+    } else if partial {
+        text.push_str(
+            "\n> Partial output; check structuredContent for limits, omissions and continuation.\n",
+        );
     }
     if let Some(reference) = envelope["detail"]["ref"].as_str() {
-        text.push_str(&format!("\n> detail.ref: {}\n", super::clip(reference, 100)));
+        text.push_str(&format!(
+            "\n> detail.ref: {}\n",
+            super::clip(reference, 100)
+        ));
     }
     text
 }
@@ -37,15 +64,24 @@ pub(super) fn render(envelope: &Value) -> Option<String> {
 
 fn render_inner(envelope: &Value, depth: usize) -> Option<String> {
     let children = envelope["data"]["results"].as_array()?;
-    let failed = children.iter().filter(|child| child["state"] != "ok").count();
+    let failed = children
+        .iter()
+        .filter(|child| child["state"] != "ok")
+        .count();
     let mut text = format!("## Batch · {} results · {failed} failed\n", children.len());
     for (index, child) in children.iter().enumerate() {
         // Domain batches carry tool at the child root, rather than scope.tool.
-        let tool = child["tool"].as_str()
-            .or_else(|| child["scope"]["tool"].as_str()).unwrap_or("result");
+        let tool = child["tool"]
+            .as_str()
+            .or_else(|| child["scope"]["tool"].as_str())
+            .unwrap_or("result");
         let state = child["state"].as_str().unwrap_or("unknown");
-        text.push_str(&format!("\n---\n\n### {} · {} · {}\n\n",
-            index + 1, super::clip(tool, 80), super::clip(state, 40)));
+        text.push_str(&format!(
+            "\n---\n\n### {} · {} · {}\n\n",
+            index + 1,
+            super::clip(tool, 80),
+            super::clip(state, 40)
+        ));
         let body = if state == "ok" {
             if tool == "harness_batch" && depth < 4 {
                 render_inner(child, depth + 1)
@@ -92,10 +128,16 @@ mod tests {
         }));
         let text = wire["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("## Batch · 2 results · 0 failed"), "{text}");
-        assert!(text.contains("```csharp\n9 | return x;\n10 | return y;"), "{text}");
+        assert!(
+            text.contains("```csharp\n9 | return x;\n10 | return y;"),
+            "{text}"
+        );
         assert!(text.contains("```javascript\n2 | fetch('/x');"), "{text}");
         assert!(!text.contains("\\n"), "{text}");
-        assert_eq!(wire["structuredContent"]["data"]["results"][0]["data"]["text"], "return x;\nreturn y;");
+        assert_eq!(
+            wire["structuredContent"]["data"]["results"][0]["data"]["text"],
+            "return x;\nreturn y;"
+        );
         assert_ne!(wire["isError"], true);
     }
 
@@ -109,10 +151,20 @@ mod tests {
         });
         let wire = wire(envelope);
         let text = wire["content"][0]["text"].as_str().unwrap();
-        for expected in ["1 failed", "harness_read · error", "PATH", "missing file", "child-saved", "batch-saved"] {
+        for expected in [
+            "1 failed",
+            "harness_read · error",
+            "PATH",
+            "missing file",
+            "child-saved",
+            "batch-saved",
+        ] {
             assert!(text.contains(expected), "{text}");
         }
-        assert_eq!(wire["structuredContent"]["data"]["results"][0]["state"], "error");
+        assert_eq!(
+            wire["structuredContent"]["data"]["results"][0]["state"],
+            "error"
+        );
         assert_ne!(wire["isError"], true);
     }
 
@@ -125,9 +177,42 @@ mod tests {
                 "warnings":[{"code":"STALE","message":"source changed"}]}
         }));
         let text = wire["content"][0]["text"].as_str().unwrap();
-        for expected in ["STALE: source changed", "Partial output", "detail.ref: saved"] {
+        for expected in [
+            "STALE: source changed",
+            "Partial output",
+            "detail.ref: saved",
+        ] {
             assert!(text.contains(expected), "{text}");
         }
         assert_eq!(wire["structuredContent"]["omitted"]["lines"], 4);
+    }
+
+    #[test]
+    fn repeated_notices_are_deduplicated_and_batch_previews_explain_recovery() {
+        let envelope = json!({
+            "scope":{"tool":"harness_batch"},
+            "detail":{"ref":"batch-full"},
+            "omitted":{"truncated":true},
+            "diagnostics":[{"code":"BATCH_PARTIAL","message":"inspect results"}],
+            "data":{"warnings":[{"code":"BATCH_PARTIAL","message":"inspect results"}]}
+        });
+        let text = with_notices("Batch summary".into(), &envelope);
+        assert_eq!(
+            text.matches("BATCH_PARTIAL: inspect results").count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            text.contains("full results are recoverable from the batch detail"),
+            "{text}"
+        );
+        assert!(text.contains("detail.ref: batch-full"), "{text}");
+
+        let child = json!({"data":{"previewTruncated":true}});
+        let child_text = with_notices("Child source".into(), &child);
+        assert!(
+            child_text.contains("full child results are recoverable"),
+            "{child_text}"
+        );
     }
 }

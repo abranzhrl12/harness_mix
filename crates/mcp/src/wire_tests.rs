@@ -6,7 +6,7 @@
     }
 
     #[test]
-    fn read_drops_hash_and_anchors_and_pairs_the_range() {
+    fn read_keeps_hash_drops_anchors_and_pairs_the_range() {
         let mut envelope = read(json!({
             "path":"a.rs","start":3,"end":9,"totalLines":40,"hash":"abc","text":"x",
             "anchors":{"before":null,"after":null}
@@ -14,7 +14,7 @@
         shape_for_model(&mut envelope);
         assert_eq!(
             envelope["data"],
-            json!({"path":"a.rs","range":[3,9],"totalLines":40,"text":"x"})
+            json!({"path":"a.rs","range":[3,9],"totalLines":40,"hash":"abc","text":"x"})
         );
     }
 
@@ -53,7 +53,7 @@
             json!([10, 20])
         );
         assert!(search["data"]["matches"][0].get("start").is_none());
-        assert!(search["data"]["matches"][0].get("hash").is_none());
+        assert_eq!(search["data"]["matches"][0]["hash"], "fullsha");
         assert!(search["data"].get("scanned").is_none());
         assert!(search["data"].get("bytesRead").is_none());
         assert!(search["data"].get("skippedFiles").is_none());
@@ -125,11 +125,12 @@
     #[test]
     fn batch_children_are_shaped_individually() {
         let mut batch = json!({"scope":{"tool":"harness_batch"},"data":{"results":[
-            read(json!({"start":1,"end":1,"hash":"h","text":"a"})),
-            {"scope":{"tool":"harness_search"},"data":{"hash":"keep"}}
+            {"tool":"harness_read","state":"ok","data":{"start":1,"end":1,"hash":"h","text":"a"}},
+            {"tool":"harness_search","state":"ok","data":{"matches":[{"start":3,"end":3,"hash":"keep"}]}}
         ]}});
         shape_for_model(&mut batch);
-        assert_eq!(batch["data"]["results"][0]["data"], json!({"range":[1,1],"text":"a"}));
-        assert_eq!(batch["data"]["results"][1]["data"], json!({"hash":"keep"}));
+        assert_eq!(batch["data"]["results"][0]["data"], json!({"range":[1,1],"hash":"h","text":"a"}));
+        assert_eq!(batch["data"]["results"][1]["data"]["matches"][0]["range"], json!([3,3]));
+        assert_eq!(batch["data"]["results"][1]["data"]["matches"][0]["hash"], "keep");
     }
 

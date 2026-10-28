@@ -134,7 +134,7 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
         "tools/call",
         json!({"name":"harness_read","arguments":{"path":"a.txt","start":1,"lines":1}}),
     );
-    assert!(read["result"]["structuredContent"]["data"].get("hash").is_none());
+    assert!(read["result"]["structuredContent"]["data"]["hash"].is_string());
     let replaced = server.request(4, "tools/call", json!({"name":"harness_replace","arguments":{"path":"a.txt","oldText":"before","newText":"after"}}));
     assert_eq!(
         replaced["result"]["structuredContent"]["state"], "ok",
@@ -1113,8 +1113,8 @@ fn mcp_replace_publishes_and_rejects_a_stale_retry_without_node() {
         "tools/call",
         json!({"name":"harness_read","arguments":{"path":"edit.json","start":1,"end":1}}),
     );
-    // The read result carries no hash; a caller that wants stale protection hashes the bytes it saw.
-    assert!(read["result"]["structuredContent"]["data"].get("hash").is_none());
+    // The full source digest is retained for stale-write protection.
+    assert!(read["result"]["structuredContent"]["data"]["hash"].is_string());
     let hash = json!(harness_domain::hash(b"{\"x\":1}\r\n"));
     let arguments = json!({"path":"edit.json","hash":hash,"oldText":"1","newText":"2"});
     let edit = server.request(

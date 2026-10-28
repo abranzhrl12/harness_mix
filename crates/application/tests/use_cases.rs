@@ -39,6 +39,12 @@ impl harness_application::ports::workspace::SourceQueries for FakeWorkspace {
     }
     fn read(&self, args: &ReadArgs, _: &OperationContext) -> Result<Value, Failure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if args.path == "large" {
+            return Ok(json!({
+                "path":args.path,"hash":"full-sha256",
+                "text":format!("{}", "line;\n".repeat(6000)),"totalLines":6000
+            }));
+        }
         Ok(json!({"path":args.path,"text":"memory"}))
     }
     fn search(&self, args: &SearchArgs, _: &OperationContext) -> Result<Value, Failure> {
@@ -201,6 +207,30 @@ fn navigation_advice_survives_batch_compaction_and_application_clones() {
     assert_eq!(hints.len(), 1);
     assert_eq!(hints[0]["nextCall"]["arguments"]["filePath"], "a.rs");
     assert_eq!(calls.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn oversized_batch_keeps_each_child_preview_and_a_full_detail_reference() {
+    let app = Application::new(
+        FakeWorkspace {
+            calls: Arc::new(AtomicUsize::new(0)),
+        },
+        MemorySessions::default(),
+    );
+    let batch = app.execute(Request::Batch(
+        serde_json::from_value(json!({
+            "maxConcurrent":2,
+            "jobs":[{"tool":"harness_read","arguments":{"path":"large"}}]
+        }))
+        .unwrap(),
+    ));
+    assert_eq!(batch["state"], "ok", "{batch}");
+    let child = &batch["data"]["results"][0];
+    assert_eq!(child["tool"], "harness_read");
+    assert_eq!(child["data"]["previewTruncated"], true);
+    assert!(child["data"]["text"].as_str().unwrap().len() < 3000);
+    assert_eq!(child["data"]["hash"], "full-sha256");
+    assert!(batch["detail"]["ref"].is_string(), "{batch}");
 }
 impl SessionRepository for MemorySessions {
     fn record(&mut self, _: &str, _: &str, _: &Value, _: &Value) -> Result<Option<Value>, Failure> {
