@@ -108,6 +108,19 @@ pub(super) fn execute<'a>(
         .line_number(true)
         .bom_sniffing(false)
         .build();
+    let extractor = if args.only_matching.unwrap_or(false) && matches!(args.kind, Kind::Text) {
+        let pattern = if args.regex.unwrap_or(false) {
+            args.query.clone()
+        } else {
+            regex::escape(&args.query)
+        };
+        regex::RegexBuilder::new(&pattern)
+            .case_insensitive(!args.case_sensitive.unwrap_or(true))
+            .build()
+            .ok()
+    } else {
+        None
+    };
     let folder_stats = RefCell::new(BTreeMap::new());
     let builder = walk::build(&root, exclude_minified, explicit_scope)?;
     let mut match_results = MatchResults::default();
@@ -310,8 +323,8 @@ pub(super) fn execute<'a>(
                     }
                     continue;
                 }
-                let text = match std::str::from_utf8(&file) {
-                    Ok(text) => text,
+                let decoded = match harness_domain::encoding::decode_source(&file) {
+                    Ok(decoded) => decoded,
                     Err(_) if file_size => {
                         binary_skipped += 1;
                         continue;
@@ -322,6 +335,7 @@ pub(super) fn execute<'a>(
                         continue;
                     }
                 };
+                let text = decoded.as_ref();
                 if let Some((kind, name)) = selected {
                     let digest = harness_domain::hash(&file);
                     let collected = if entry
@@ -429,6 +443,8 @@ pub(super) fn execute<'a>(
                         &file,
                         args.context_lines.is_some() || term_retrieval,
                         context_lines,
+                        args.only_matching.unwrap_or(false),
+                        extractor.as_ref(),
                         matcher.as_ref().expect("text matcher is present"),
                         &mut text_searcher,
                         &mut state,

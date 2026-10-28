@@ -1,4 +1,7 @@
 //! Cross-layer data lineage / field tracing across Form -> JSON -> C# Model -> SP Parameter -> SQL Column.
+#[cfg(test)]
+#[path = "data_trace_tests.rs"]
+mod tests;
 use super::model::{
     CrossLayerDataTrace, DataTraceLayer, DataTraceLayerKind, DataTraceMatch, Node,
 };
@@ -23,6 +26,7 @@ const CHAIN_HEADER: &str =
 
 #[derive(Clone, Debug)]
 struct IdentifierVariants {
+    #[allow(dead_code)]
     raw: String,
     clean: String,
     normalized: String,
@@ -202,7 +206,8 @@ pub(super) fn trace(
         {
             continue;
         }
-        let Ok(raw) = project.bytes_with_limit(&path, context, 512 * 1024) else {
+        let Ok(raw) = project.bytes_with_limit(&path, context, 2 * 1024 * 1024) else {
+            truncated = true;
             continue;
         };
         if bytes_read.saturating_add(raw.len()) > MAX_TRACE_BYTES {

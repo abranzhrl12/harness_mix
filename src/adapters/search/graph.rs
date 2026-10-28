@@ -151,6 +151,7 @@ pub(super) fn language_of(relative: &str) -> Option<String> {
     Some(
         match extension.as_str() {
             "rs" => "rust",
+            "py" => "python",
             "cs" => "csharp",
             "ts" | "mts" | "cts" => "typescript",
             "tsx" => "tsx",

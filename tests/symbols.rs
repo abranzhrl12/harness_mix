@@ -172,7 +172,7 @@ fn bounds_selectors_and_parser_work_and_rejects_other_languages() {
     assert_eq!(missing["diagnostics"][0]["code"], "SESSION");
     let unsupported = app.execute(Request::Outline(OutlineArgs {
         external_scope: None,
-        path: "sample.py".into(),
+        path: "sample.unsupported".into(),
         query: None,
         max_chars: None,
         filter_kind: None,

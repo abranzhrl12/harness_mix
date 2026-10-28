@@ -22,6 +22,7 @@ use std::time::Instant;
 pub(super) enum PerFileFormat {
     JavaScript,
     TypeScript,
+    Python,
     Razor,
     Css,
     Scss,
@@ -45,6 +46,8 @@ impl PerFileFormat {
             || ext.eq_ignore_ascii_case("cts")
         {
             Some(Self::TypeScript)
+        } else if ext.eq_ignore_ascii_case("py") {
+            Some(Self::Python)
         } else if ext.eq_ignore_ascii_case("cshtml") || ext.eq_ignore_ascii_case("razor") {
             Some(Self::Razor)
         } else if ext.eq_ignore_ascii_case("css") {
@@ -66,6 +69,7 @@ impl PerFileFormat {
         match self {
             Self::JavaScript => "javascript",
             Self::TypeScript => "typescript",
+            Self::Python => "python",
             Self::Razor => "razor",
             Self::Css => "css",
             Self::Scss => "scss",
@@ -79,6 +83,7 @@ impl PerFileFormat {
         match self {
             Self::JavaScript => "javascript_fast_per_file",
             Self::TypeScript => "typescript_syntax_only",
+            Self::Python => "python_fast_per_file",
             Self::Razor => "razor_fast_per_file",
             Self::Css => "css_fast_per_file",
             Self::Scss => "scss_fast_per_file",
@@ -97,6 +102,7 @@ pub(super) struct PerFileTarget {
 
 #[derive(Debug, Clone)]
 pub(super) struct PerFileReport {
+    #[allow(dead_code)]
     pub(super) passed: bool,
     pub(super) language: String,
     pub(super) verification_mode: String,
@@ -121,6 +127,8 @@ fn supported_per_file_language(language: &str) -> bool {
         "js",
         "typescript",
         "ts",
+        "python",
+        "py",
         "razor",
         "cshtml",
         "dotnet",
@@ -242,11 +250,16 @@ pub(super) fn resolve_per_file_targets(
             if is_dedicated_per_file_lang || fast_engine || is_multi {
                 return Err((
                     "VERIFY_SCOPE",
-                    "Fast per-file verification supports .js, .mjs, .cjs, .jsx, .ts, .tsx, .mts, .cts, .cshtml, .razor, .css, .scss, .vue, .astro and .cs files",
+                    "Fast per-file verification supports .js, .mjs, .cjs, .jsx, .ts, .tsx, .mts, .cts, .py, .cshtml, .razor, .css, .scss, .vue, .astro and .cs files",
                 ));
             }
             return Ok(None);
         }
+    }
+
+    // Single Python file without engine=fast/syntax continues to use the stdlib py_compile / unittest runner in `python_plan`.
+    if !is_multi && parsed_formats[0].1 == PerFileFormat::Python && !fast_engine {
+        return Ok(None);
     }
 
     // Single JavaScript file with action == Test must use the Node test runner in `javascript_plan`.
@@ -596,7 +609,7 @@ fn verify_single_file(
     context.check()?;
     let path = &target.path;
     let max_bytes = match target.format {
-        PerFileFormat::JavaScript | PerFileFormat::TypeScript => 512 * 1024,
+        PerFileFormat::JavaScript | PerFileFormat::TypeScript | PerFileFormat::Python => 512 * 1024,
         PerFileFormat::Css => 256 * 1024,
         PerFileFormat::Razor | PerFileFormat::Vue | PerFileFormat::Astro | PerFileFormat::Scss => {
             2 * 1024 * 1024
@@ -891,6 +904,38 @@ fn verify_single_file(
                 pending,
                 "csharp-semantic-typecheck (skipped for fast per-file check)",
             );
+        }
+        PerFileFormat::Python => {
+            match parsers::python::syntax::validate_syntax(source, context) {
+                Ok(()) => {
+                    push_unique(validated, format!("python-syntax ({path})"));
+                    if let Ok(symbols) = parsers::python::symbols::collect(source, "", context) {
+                        push_unique(
+                            validated,
+                            format!("python-ast-structure ({path}: {} symbols)", symbols.len()),
+                        );
+                    }
+                }
+                Err(("SYNTAX_ERROR", message)) => {
+                    let (line, column) =
+                        parsers::python::syntax::first_error_location(source).unwrap_or((1, 1));
+                    push_unique(validated, format!("python-syntax ({path}: failed)"));
+                    diagnostics.push(json!({
+                        "code": "SYNTAX_ERROR",
+                        "message": format!("{message} ({path}:{line}:{column})"),
+                        "path": path,
+                        "line": line,
+                        "column": column,
+                        "severity": "error"
+                    }));
+                }
+                Err(err) => return Err(err),
+            }
+            push_unique(
+                pending,
+                "python-unit-tests (skipped for fast per-file check)",
+            );
+            push_unique(pending, "runtime-integration-verification");
         }
     }
 

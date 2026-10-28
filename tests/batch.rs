@@ -152,7 +152,7 @@ fn accepts_args_alias_and_requested_concurrency_and_rejects_invalid_values() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.txt"), "first").unwrap();
     let app = adapters::application(root.path()).unwrap();
-    for concurrency in [2, 3, 4] {
+    for concurrency in [1, 2, 3, 4] {
         let args: BatchArgs = serde_json::from_value(json!({
             "jobs": (0..4).map(|_| json!({"tool":"harness_read","args":{"path":"a.txt","start":1,"lines":1}})).collect::<Vec<_>>(),
             "maxConcurrent":concurrency
@@ -162,7 +162,7 @@ fn accepts_args_alias_and_requested_concurrency_and_rejects_invalid_values() {
         assert_eq!(result["data"]["maxConcurrentChildren"], concurrency);
         assert_eq!(result["data"]["results"].as_array().unwrap().len(), 4);
     }
-    for concurrency in [0, 1, 5] {
+    for concurrency in [0, 5] {
         let args: BatchArgs =
             serde_json::from_value(json!({"jobs":[job("a.txt")],"maxConcurrent":concurrency}))
                 .unwrap();
@@ -182,18 +182,31 @@ fn accepts_args_alias_and_requested_concurrency_and_rejects_invalid_values() {
 #[test]
 fn oversized_aggregate_is_saved_in_batch_detail() {
     let root = tempfile::tempdir().unwrap();
-    std::fs::write(root.path().join("a.txt"), "a".repeat(8000)).unwrap();
+    // Four children, each oversized: the aggregate exceeds the batch response
+    // budget and per-child budgets, so each child keeps a truncated preview.
+    // Per-line reads have their own budget, so use a bounded multi-line range.
+    let line = "a".repeat(300);
+    let source = (0..200).map(|_| line.clone()).collect::<Vec<_>>().join("\n");
+    std::fs::write(root.path().join("a.txt"), source).unwrap();
     let app = adapters::application(root.path()).unwrap();
-    let result = batch(
-        &app,
-        json!([job("a.txt"), job("a.txt"), job("a.txt"), job("a.txt")]),
-    );
+    let job = json!({"tool":"harness_read","arguments":{"path":"a.txt","start":1,"end":200}});
+    let jobs = (0..4).map(|_| job.clone()).collect::<Vec<_>>();
+    let result = batch(&app, serde_json::Value::Array(jobs));
     assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["omitted"]["truncated"], true, "{result}");
+    let first = &result["data"]["results"][0];
+    assert_eq!(first["state"], "ok", "{result}");
+    assert_eq!(first["data"]["previewTruncated"], true, "{result}");
+    let excerpt = first["data"]["text"].as_str().unwrap_or_default();
+    assert!(excerpt.chars().count() < 50_000, "{result}");
+    assert!(excerpt.ends_with('…'), "{result}");
+    assert!(result["detail"]["ref"].is_string(), "{result}");
+    assert_eq!(result["detail"]["complete"], true, "{result}");
     assert_eq!(
-        result["data"]["results"][0]["fullResultInBatchDetail"],
-        true
+        result["detail"]["nextCall"]["tool"],
+        "harness_detail",
+        "{result}"
     );
-    assert!(result["detail"]["ref"].is_string());
 }
 
 #[test]

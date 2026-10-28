@@ -1,7 +1,9 @@
 //! Filesystem-driven incremental index maintenance. No LLM requests.
 mod events;
+mod metadata;
 mod pending;
 mod report;
+pub(crate) mod supervisor;
 mod worker;
 
 #[cfg(test)]
@@ -10,6 +12,9 @@ mod semantic_policy_events;
 #[cfg(test)]
 #[path = "index_watch/tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "index_watch/coordination_tests.rs"]
+mod coordination_tests;
 
 use super::{edit_commit, project::Project};
 use harness_domain::{Failure, execution::OperationContext};
@@ -59,7 +64,7 @@ impl IndexWatch {
             .map_err(|error| if lock_contended(&error) {
                 (
                     "SYNC_WATCH_BUSY",
-                    "Another automatic index writer owns this project",
+                    "The automatic watcher lock is held by another handle; its owner and health are not verified. This instance did not start a watcher. A compatible existing index can still be queried with harness_explore; inspect freshness and coverage.",
                 )
             } else {
                 ("SYNC_WATCH", "Cannot open automatic index lock")

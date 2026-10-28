@@ -170,3 +170,22 @@ fn scss_extraction_projects_rules_variables_and_nesting() {
             && edge["source"].as_str() != edge["target"].as_str()
     }));
 }
+
+#[test]
+fn python_extraction_projects_classes_methods_functions_imports_and_calls() {
+    let source = "import sys\nfrom utils import run_helper\n\nclass Base:\n    def ping(self):\n        pass\n\nclass Service(Base):\n    def handle(self):\n        self.ping()\n        run_helper()\n\ndef main():\n    svc = Service()\n    svc.handle()\n";
+    let graph = extract("app.py", source, &OperationContext::default()).unwrap();
+    let nodes = graph["nodes"].as_array().unwrap();
+    assert!(nodes.iter().any(|n| n["name"] == "Service" && n["kind"] == "class" && n["language"] == "python"));
+    assert!(nodes.iter().any(|n| n["name"] == "handle" && n["kind"] == "method" && n["qualifiedName"] == "Service::handle"));
+    assert!(nodes.iter().any(|n| n["name"] == "main" && n["kind"] == "function" && n["language"] == "python"));
+    assert!(nodes.iter().any(|n| n["name"] == "sys" && n["kind"] == "import"));
+    assert!(nodes.iter().any(|n| n["name"] == "utils" && n["kind"] == "import"));
+
+    let refs = graph["unresolvedReferences"].as_array().unwrap();
+    assert!(refs.iter().any(|r| r["referenceKind"] == "extends" && r["referenceName"] == "Base"));
+    assert!(refs.iter().any(|r| r["referenceKind"] == "imports" && r["referenceName"] == "run_helper"));
+    assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "ping"));
+    assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "run_helper"));
+    assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "svc.handle"));
+}

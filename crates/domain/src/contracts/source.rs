@@ -205,6 +205,13 @@ pub struct SearchArgs {
     /// Surrounding lines per text match (0..20). Each match includes hash (full-file SHA-256) and context: {start, end, text}, with 1-based inclusive line bounds and exact source preserving original line endings. For a sufficient, untruncated context, pass matches[].file as harness_replace.path, matches[].context.text as oldText, and matches[].hash as hash without a redundant read; the hash detects concurrent changes.
     #[serde(rename = "contextLines", alias = "context_lines")]
     pub context_lines: Option<usize>,
+    #[serde(
+        default,
+        rename = "onlyMatching",
+        alias = "only_matching",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub only_matching: Option<bool>,
     pub session: Option<String>,
 }
 
@@ -234,6 +241,8 @@ impl<'de> Deserialize<'de> for SearchArgs {
             offset: Option<usize>,
             #[serde(rename = "contextLines", alias = "context_lines")]
             context_lines: Option<usize>,
+            #[serde(rename = "onlyMatching", alias = "only_matching")]
+            only_matching: Option<bool>,
             session: Option<String>,
         }
         let mut value = Value::deserialize(deserializer)?;
@@ -268,6 +277,7 @@ impl<'de> Deserialize<'de> for SearchArgs {
             cursor: input.cursor,
             offset: input.offset,
             context_lines: input.context_lines,
+            only_matching: input.only_matching,
             session: input.session,
         })
     }

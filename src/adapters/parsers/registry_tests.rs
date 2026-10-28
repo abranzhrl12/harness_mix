@@ -112,8 +112,8 @@ fn native_registry_routes_extensions_and_keeps_edit_policy_boundaries() {
     let registry = default_syntax_registry();
     let context = OperationContext::default();
     for path in [
-        "x.rs", "x.JS", "x.MJS", "x.CJS", "x.JSX", "x.TS", "x.TSX", "x.MTS", "x.CTS", "x.VUE",
-        "x.ASTRO", "x.CSHTML", "x.CS",
+        "x.rs", "x.py", "x.PY", "x.JS", "x.MJS", "x.CJS", "x.JSX", "x.TS", "x.TSX", "x.MTS",
+        "x.CTS", "x.VUE", "x.ASTRO", "x.CSHTML", "x.CS",
     ] {
         assert!(registry.validate(path, "", &context).is_ok(), "{path}");
     }
@@ -213,5 +213,25 @@ fn native_rust_parser_returns_the_existing_validation_shape() {
     assert_eq!(
         value,
         json!({"status":"valid","language":"rust","validation":"syntax_only"})
+    );
+}
+
+#[test]
+fn native_python_parser_accepts_valid_source_and_rejects_syntax_errors() {
+    let registry = default_syntax_registry();
+    let context = OperationContext::default();
+    let value = registry
+        .validate("x.py", "class Foo:\n    def bar(self, x: int) -> int:\n        return x + 1\n", &context)
+        .unwrap();
+    assert_eq!(
+        value,
+        json!({"status":"valid","language":"python","validation":"syntax_only"})
+    );
+    assert_eq!(
+        registry
+            .validate("x.py", "def broken(:\n    pass\n", &context)
+            .unwrap_err()
+            .0,
+        "SYNTAX_ERROR"
     );
 }

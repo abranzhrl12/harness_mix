@@ -166,6 +166,7 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                                 || args.scope.is_some()
                                 || args.limit.is_some()
                                 || args.context_lines.is_some()
+                                || args.only_matching.is_some()
                             {
                                 return Err((
                                     "ARGUMENT",

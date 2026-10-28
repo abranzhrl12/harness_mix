@@ -32,7 +32,7 @@ pub async fn serve_with_logging(
             })))),
         )
     } else if watch_enabled {
-        match crate::adapters::index_watch::IndexWatch::start(root) {
+        match crate::adapters::index_watch::supervisor::SupervisedWatch::start(root) {
             Ok(watch) => {
                 let status = watch.status.clone();
                 (Some(watch), Some(status))
@@ -40,11 +40,11 @@ pub async fn serve_with_logging(
             Err((code, message)) if watch_setting == Some(true) => {
                 return Err(format!("{code}: {message}").into());
             }
-            Err((code, _)) => (
+            Err((code, message)) => (
                 None,
                 Some(Arc::new(std::sync::Mutex::new(serde_json::json!({
                     "enabled":false,"state":"inactive","defaultEnabled":true,
-                    "lastError":code,"reason":"Existing index unavailable or automatic writer could not start; server remains available"
+                    "lastError":code,"reason":message
                 })))),
             ),
         }

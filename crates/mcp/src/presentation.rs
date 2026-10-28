@@ -41,6 +41,7 @@ pub(super) fn response_with_options(
             if envelope["state"] == "ok" {
                 if let Some(text) = lean_channel(lean, &envelope) {
                     let text = readable_batch::with_notices(text, &envelope);
+                    super::wire::dedup_search_wire_context(&mut envelope);
                     let mut result = CallToolResult::structured(envelope);
                     result.content = vec![rmcp::model::ContentBlock::text(text)];
                     return result;
@@ -64,6 +65,7 @@ pub(super) fn response_with_options(
                 }
             }
             if let Some(text) = readable_batch::render(&envelope) {
+                super::wire::dedup_search_wire_context(&mut envelope);
                 let mut result = if envelope["state"] == "ok" {
                     CallToolResult::structured(envelope)
                 } else {
@@ -610,8 +612,22 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
             } else {
                 format!("## Search matches · {shown} shown ({file_count} file(s))\n")
             };
+            if let Some(extracted) = data["extracted"]
+                .as_array()
+                .filter(|items| !items.is_empty())
+            {
+                text.push_str(&format!(
+                    "\n### Extracted unique matches ({})\n",
+                    extracted.len()
+                ));
+                for item in extracted.iter().take(120) {
+                    if let Some(val) = item.as_str() {
+                        text.push_str(&format!("- `{}`\n", clip(val, 200)));
+                    }
+                }
+            }
             for (file, rows) in files {
-                let body = search_spans(&rows)
+                let body = search_spans_bounded(&rows, text.len())
                     .into_iter()
                     .map(|(start, lines)| numbered_lines(&lines.join("\n"), start))
                     .collect::<Vec<_>>()
@@ -640,11 +656,11 @@ fn lean_source(path: &str, text: &str, start: u64) -> String {
 /// Render context snippets by absolute line, merging overlapping windows.
 /// Repeated line numbers come from one search snapshot, so the first copy is
 /// authoritative and all unique context lines remain visible.
-fn search_spans(rows: &[&serde_json::Value]) -> Vec<(u64, Vec<String>)> {
+fn search_spans_bounded(rows: &[&serde_json::Value], mut current_len: usize) -> Vec<(u64, Vec<String>)> {
     let mut lines = std::collections::BTreeMap::<u64, String>::new();
     for row in rows {
         let context = &row["context"];
-        let (start, body) = if context["text"].is_string() {
+        let (start, body) = if context["text"].is_string() && current_len < 24_000 {
             (
                 context["range"][0]
                     .as_u64()
@@ -658,6 +674,7 @@ fn search_spans(rows: &[&serde_json::Value]) -> Vec<(u64, Vec<String>)> {
             continue;
         };
         let body = body.strip_suffix('\n').unwrap_or(body);
+        current_len = current_len.saturating_add(body.len());
         for (offset, line) in body.split('\n').enumerate() {
             lines
                 .entry(start + offset as u64)
@@ -827,19 +844,104 @@ pub(super) fn normalize_text_only_error(
         return CallToolResponse::Complete(result);
     }
 
+    let (hint, details) = build_argument_schema_guidance(tool, &message);
+    let mut diag = serde_json::json!({
+        "code": "ARGUMENT",
+        "message": message,
+        "retryable": false,
+        "requiredAction": "correct_arguments_using_tool_schema",
+        "hint": hint
+    });
+    if let Some(details) = details {
+        diag["details"] = details;
+    }
+
     result.structured_content = Some(serde_json::json!({
         "state": "error",
         "scope": {"tool": tool},
-        "diagnostics": [{
-            "code": "ARGUMENT",
-            "message": message,
-            "retryable": false,
-            "requiredAction": "correct_arguments_using_tool_schema",
-            "hint": "Check the advertised input schema and examples for this tool."
-        }],
+        "diagnostics": [diag],
         "data": {}
     }));
     CallToolResponse::Complete(result)
+}
+
+fn build_argument_schema_guidance(
+    tool: &str,
+    message: &str,
+) -> (String, Option<serde_json::Value>) {
+    let missing_field = extract_backtick_token(message, "missing field `")
+        .or_else(|| extract_backtick_token(message, "Missing required field `"));
+    let unknown_field = extract_backtick_token(message, "unknown field `")
+        .or_else(|| extract_backtick_token(message, "Unknown field `"));
+
+    let cheatsheet = match tool {
+        "harness_sql" => {
+            "REQUIRED by action: describe -> {\"action\":\"describe\",\"name\":\"dbo.Object\"} (kind/objectType optional & auto-detected); search -> {\"action\":\"search\",\"query\":\"term\"}; query -> {\"sql\":\"SELECT ...\"}; map -> {\"action\":\"map\"}; status -> {\"action\":\"status\"}."
+        }
+        "harness_symbols" => {
+            "REQUIRED by action: read -> {\"action\":\"read\",\"path\":\"src/file.cs\",\"symbol\":\"MethodName\"}; outline -> {\"action\":\"outline\",\"path\":\"src/file.cs\"}."
+        }
+        "harness_search" => {
+            "REQUIRED: {\"query\":\"needle\"}. OPTIONAL: {\"kind\":\"text\"|\"files\"|\"file_size\"|\"syntax\", \"scope\":\"dir_or_file\", \"globs\":[\"*.cs\"], \"contextLines\":5, \"onlyMatching\":true, \"regex\":true}."
+        }
+        "harness_read" => {
+            "REQUIRED: {\"path\":\"src/file.cs\"}. OPTIONAL: {\"start\":1, \"end\":120} (or \"lines\":120; max 420 lines)."
+        }
+        "harness_replace" => {
+            "REQUIRED: {\"path\":\"src/file.cs\",\"oldText\":\"exact old\",\"newText\":\"new\"} (or \"chunks\":[{\"oldText\":\"...\",\"newText\":\"...\"}]). OPTIONAL: {\"line\":10, \"hash\":\"...\"}."
+        }
+        "harness_explore" => {
+            "REQUIRED: {\"filePath\":\"src/file.cs\",\"symbol\":\"Name\"} or {\"query\":\"identifier\"}. OPTIONAL: {\"view\":\"full\"|\"summary\"|\"impact\", \"direction\":\"both\"|\"inbound\"|\"outbound\"}."
+        }
+        "harness_git" => {
+            "REQUIRED by action: status -> {\"action\":\"status\"}; diff -> {\"action\":\"diff\"} (OPTIONAL: \"path\", \"staged\", \"comparison\")."
+        }
+        "harness_verify" => {
+            "OPTIONAL: {\"action\":\"check\"|\"test\"|\"build\", \"files\":[\"path/to/file.cs\"], \"profile\":\"fast\"}."
+        }
+        "harness_browser" => {
+            "REQUIRED: {\"action\":\"connect\"|\"targets\"|\"attach\"|\"inspect\"|\"screenshot\"|\"evaluate\"|\"click\"|\"type\"|\"navigate\"|\"wait\"|\"disconnect\"}. Start with {\"action\":\"connect\"} (endpoint auto-discovered)."
+        }
+        _ => "Check the advertised input schema and examples for this tool.",
+    };
+
+    let mut hint = String::new();
+    if let Some(ref field) = missing_field {
+        hint.push_str(&format!("Missing required field `{field}`. "));
+    }
+    if let Some(ref field) = unknown_field {
+        hint.push_str(&format!("Unknown field `{field}` for this tool/action. "));
+    }
+    hint.push_str(cheatsheet);
+    if !hint.contains("schema") {
+        hint.push_str(" Check the advertised input schema.");
+    }
+
+    let details = if missing_field.is_some() || unknown_field.is_some() {
+        let mut map = serde_json::Map::new();
+        if let Some(f) = missing_field {
+            map.insert("missingField".into(), serde_json::Value::String(f));
+        }
+        if let Some(f) = unknown_field {
+            map.insert("unknownField".into(), serde_json::Value::String(f));
+        }
+        Some(serde_json::Value::Object(map))
+    } else {
+        None
+    };
+
+    (hint, details)
+}
+
+fn extract_backtick_token(text: &str, marker: &str) -> Option<String> {
+    let (_, after) = text.split_once(marker)?;
+    let (token, _) = after.split_once('`')?;
+    let safe: String = token
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(48)
+        .collect();
+    (!safe.is_empty()).then_some(safe)
 }
 
 // Client presentation adapts selected payloads while preserving structured metadata.

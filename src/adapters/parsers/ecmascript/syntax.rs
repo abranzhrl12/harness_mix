@@ -11,9 +11,18 @@ pub(in crate::adapters) fn validate_syntax(
     source: &str,
     context: &OperationContext,
 ) -> Result<(), Failure> {
+    validate_syntax_with_limit(path, source, 512 * 1024, context)
+}
+
+pub(in crate::adapters) fn validate_syntax_with_limit(
+    path: &str,
+    source: &str,
+    limit: usize,
+    context: &OperationContext,
+) -> Result<(), Failure> {
     context.check()?;
-    if source.len() > 512 * 1024 {
-        return Err(("PARSER_LIMIT", "JS/TS parser limited to 512 KiB"));
+    if source.len() > limit {
+        return Err(("PARSER_LIMIT", "JS/TS parser size limit exceeded"));
     }
 
     // Oxc's path inference is case-sensitive on some platforms. Normalize only

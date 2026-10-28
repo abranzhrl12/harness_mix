@@ -90,6 +90,7 @@ fn session_alias_current_resolves_active_session_and_supports_full_workflow() {
     assert_eq!(read_res["data"]["text"], "hello world");
 
     let search_res = app.execute(Request::Search(SearchArgs {
+        only_matching: None,
         ast: None,
         regex: None,
         case_sensitive: None,

@@ -198,6 +198,55 @@ fn shape_search_matches(data: &mut Map<String, Value>) {
     }
 }
 
+pub(super) fn dedup_search_wire_context(envelope: &mut Value) {
+    if envelope["scope"]["tool"].as_str() == Some("harness_search") {
+        dedup_search_data_context(envelope.get_mut("data"));
+    } else if envelope["scope"]["tool"].as_str() == Some("harness_batch") {
+        if let Some(children) = envelope
+            .get_mut("data")
+            .and_then(|d| d.get_mut("results"))
+            .and_then(Value::as_array_mut)
+        {
+            for child in children {
+                let tool = child["tool"]
+                    .as_str()
+                    .or_else(|| child["scope"]["tool"].as_str());
+                if tool == Some("harness_search") {
+                    dedup_search_data_context(child.get_mut("data"));
+                }
+            }
+        }
+    }
+}
+
+fn dedup_search_data_context(data: Option<&mut Value>) {
+    let Some(data) = data.and_then(Value::as_object_mut) else {
+        return;
+    };
+    let Some(matches) = data.get_mut("matches").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let total_context_bytes: usize = matches
+        .iter()
+        .filter_map(|row| row.get("context")?.get("text")?.as_str())
+        .map(str::len)
+        .sum();
+    if total_context_bytes <= 4_096 {
+        return;
+    }
+    let mut deduplicated = 0usize;
+    for row in matches {
+        if let Some(context) = row.get_mut("context").and_then(Value::as_object_mut) {
+            if context.remove("text").is_some() {
+                deduplicated += 1;
+            }
+        }
+    }
+    if deduplicated > 0 {
+        data.insert("contextInReadableChannel".into(), Value::Bool(true));
+    }
+}
+
 #[cfg(test)]
 #[path = "wire_tests.rs"]
 mod tests;

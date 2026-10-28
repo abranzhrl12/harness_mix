@@ -264,14 +264,68 @@ impl Inner {
         // Output is bounded by the runner; each event is capped to one pipe read.
         let _ = self.emit_locked(&mut state, id, "output", json!({"stream":if stderr {"stderr"} else {"stdout"},"text":String::from_utf8_lossy(bytes),"textLossy":std::str::from_utf8(bytes).is_err()}));
     }
+    /// If `TASK_STORE_BUSY` occurred at startup because an earlier process was still
+    /// shutting down, retry acquiring the store lock once the previous writer exits.
+    fn try_recover_busy(&self, state: &mut State) {
+        if !matches!(state.persistence_error, Some(("TASK_STORE_BUSY", _)))
+            || state.store.is_some()
+            || state.closed
+        {
+            return;
+        }
+        match Store::open_existing(&self.root, self.pinner.as_ref()) {
+            Ok(Some(store)) => match store
+                .load()
+                .and_then(|snapshot| restore(snapshot, state))
+            {
+                Ok(()) => {
+                    state.store = Some(store);
+                    state.persistence_error = None;
+                    let ids: Vec<_> = state
+                        .tasks
+                        .iter()
+                        .filter(|t| !terminal(t.lifecycle.status()))
+                        .map(|t| t.id.clone())
+                        .collect();
+                    for id in ids {
+                        let task = state.tasks.iter_mut().find(|t| t.id == id).unwrap();
+                        if !task.lifecycle.interrupt_for_recovery() {
+                            continue;
+                        }
+                        task.result = Some(
+                            json!({"error":"TASK_INTERRUPTED","message":"Server restarted before task completion; task was not rerun"}),
+                        );
+                        let data = task.value();
+                        if self.emit_locked(state, &id, "state", data).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(error) => {
+                    state.tasks.clear();
+                    state.journal.clear();
+                    state.sequence = 0;
+                    state.store = Some(store);
+                    state.persistence_error = Some(error);
+                }
+            },
+            Ok(None) => {
+                state.persistence_error = None;
+            }
+            Err(error) => {
+                state.persistence_error = Some(error);
+            }
+        }
+    }
 }
 impl TaskManager {
     pub fn diagnostics(&self) -> Value {
-        let state = self
+        let mut state = self
             .inner
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        self.inner.try_recover_busy(&mut state);
         let read = state.store.as_ref().map(|store| store.load());
         let error = state.persistence_error.or_else(|| {
             read.as_ref()
@@ -289,11 +343,12 @@ impl TaskManager {
         if !(1..=20).contains(&limit) {
             return Err(("ARGUMENT", "limit: 1–20"));
         }
-        let state = self
+        let mut state = self
             .inner
             .state
             .lock()
             .map_err(|_| ("INTERNAL", "Task registry unavailable"))?;
+        self.inner.try_recover_busy(&mut state);
         let describe = |task: &Task| {
             let mut value = task.value();
             value["runId"] = json!(task.id);
@@ -474,21 +529,23 @@ impl TaskManager {
         match args.action {
             TaskAction::Start => self.start(args),
             TaskAction::List => {
-                let state = self
+                let mut state = self
                     .inner
                     .state
                     .lock()
                     .map_err(|_| ("INTERNAL", "Task registry unavailable"))?;
+                self.inner.try_recover_busy(&mut state);
                 Ok(
                     json!({"tasks":state.tasks.iter().map(|t| json!({"taskId":t.id,"status":t.lifecycle.status().as_str(),"attempt":t.lifecycle.attempt()})).collect::<Vec<_>>(),"cursor":state.sequence,"concurrency":2,"persistenceError":persistence_error(&state)}),
                 )
             }
             TaskAction::Events => {
-                let state = self
+                let mut state = self
                     .inner
                     .state
                     .lock()
                     .map_err(|_| ("INTERNAL", "Task registry unavailable"))?;
+                self.inner.try_recover_busy(&mut state);
                 let after = args.after.unwrap_or(0);
                 let oldest = state
                     .journal
@@ -572,6 +629,7 @@ impl TaskManager {
             if state.closed {
                 return Err(("TASK_SHUTDOWN", "Task service is shutting down"));
             }
+            self.inner.try_recover_busy(&mut state);
             if let Some(error) = state.persistence_error {
                 return Err(error);
             }

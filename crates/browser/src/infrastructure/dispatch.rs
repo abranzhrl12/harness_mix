@@ -6,9 +6,10 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chromiumoxide::{
     browser::Browser,
-    cdp::browser_protocol::target::{TargetId, TargetInfo},
+    cdp::browser_protocol::target::{GetTargetsParams, TargetId, TargetInfo},
 };
 use futures_util::StreamExt;
+use std::time::Duration;
 use uuid::Uuid;
 
 use harness_domain::{
@@ -66,13 +67,7 @@ pub(super) async fn dispatch(
         } => {
             let owner = required_session(session)?;
             validate_connect_endpoint(&endpoint)?;
-            if sessions.contains_key(&owner) {
-                return Err((
-                    "BROWSER_SESSION_EXISTS",
-                    "Esta sesión ya tiene una conexión de navegador",
-                ));
-            }
-            if connections.len() >= MAX_CONNECTIONS {
+            if !sessions.contains_key(&owner) && connections.len() >= MAX_CONNECTIONS {
                 return Err((
                     "BROWSER_LIMIT",
                     "Se alcanzó el límite de conexiones de navegador",
@@ -102,7 +97,7 @@ pub(super) async fn dispatch(
                 tasks: vec![handler_task],
             };
 
-            let mut available_tabs = match connection.browser.fetch_targets().await {
+            let mut available_tabs = match fetch_target_infos(&connection.browser).await {
                 Ok(raw_targets) => {
                     map_targets(raw_targets, discovered.effective_tab_filter.as_deref())
                         .unwrap_or_else(|_| discovered.targets.clone())
@@ -129,6 +124,9 @@ pub(super) async fn dispatch(
                 }
             }
 
+            if let Some(old_id) = sessions.remove(&owner) {
+                connections.remove(&old_id);
+            }
             let id = Uuid::new_v4().to_string();
             connections.insert(id.clone(), connection);
             sessions.insert(owner, id.clone());
@@ -146,9 +144,7 @@ pub(super) async fn dispatch(
         } => {
             let owner = required_session(session)?;
             let connection = owned_connection_mut(connections, &connection_id, &owner)?;
-            let targets = connection
-                .browser
-                .fetch_targets()
+            let targets = fetch_target_infos(&connection.browser)
                 .await
                 .map_err(|_| ("BROWSER_CDP", "No se pudieron listar las pestañas"))?;
             let mapped = map_targets(targets, tab.as_deref())?;
@@ -166,7 +162,7 @@ pub(super) async fn dispatch(
         } => {
             let owner = required_session(session)?;
             let connection = owned_connection_mut(connections, &connection_id, &owner)?;
-            let raw_targets = connection.browser.fetch_targets().await.map_err(|_| {
+            let raw_targets = fetch_target_infos(&connection.browser).await.map_err(|_| {
                 (
                     "BROWSER_CDP",
                     "No se pudieron descubrir las pestañas existentes",
@@ -202,7 +198,11 @@ pub(super) async fn dispatch(
             session,
         } => {
             let owner = required_session(session)?;
-            let page = owned_page(connections, &connection_id, &target_id, &owner)?;
+            let actual_target_id = {
+                let connection = owned_connection_mut(connections, &connection_id, &owner)?;
+                ensure_target_attached(connection, &target_id).await?
+            };
+            let page = owned_page(connections, &connection_id, &actual_target_id, &owner)?;
             let limit = inspect::html_limit(max_chars);
             let snapshot = inspect::inspect_page(page, selector.as_deref(), limit).await?;
             Ok(BrowserResult::Inspected { snapshot })
@@ -215,9 +215,15 @@ pub(super) async fn dispatch(
             session,
         } => {
             let owner = required_session(session)?;
+            let resolved_target_id = if let Some(tid) = target_id.as_deref() {
+                let connection = owned_connection_mut(connections, &connection_id, &owner)?;
+                Some(ensure_target_attached(connection, tid).await?)
+            } else {
+                None
+            };
             let connection = owned_connection(connections, &connection_id, &owner)?;
             if connection.pages.is_empty()
-                || target_id
+                || resolved_target_id
                     .as_ref()
                     .is_some_and(|id| !connection.pages.contains_key(id))
             {
@@ -232,7 +238,8 @@ pub(super) async fn dispatch(
                 .events
                 .lock()
                 .map_err(|_| ("BROWSER_RUNTIME", "No se pudo leer el búfer de eventos"))?;
-            let (records, next_cursor, dropped) = events.page(target_id.as_deref(), after, limit);
+            let (records, next_cursor, dropped) =
+                events.page(resolved_target_id.as_deref(), after, limit);
             Ok(BrowserResult::Errors {
                 events: records,
                 next_cursor,
@@ -246,7 +253,11 @@ pub(super) async fn dispatch(
             session,
         } => {
             let owner = required_session(session)?;
-            let page = owned_page(connections, &connection_id, &target_id, &owner)?;
+            let actual_target_id = {
+                let connection = owned_connection_mut(connections, &connection_id, &owner)?;
+                ensure_target_attached(connection, &target_id).await?
+            };
+            let page = owned_page(connections, &connection_id, &actual_target_id, &owner)?;
             let (bytes, width, height) =
                 inspect::capture_screenshot(page, selector.as_deref()).await?;
             Ok(BrowserResult::Screenshot {
@@ -269,6 +280,35 @@ pub(super) async fn dispatch(
     }
 }
 
+async fn fetch_target_infos(browser: &Browser) -> Result<Vec<TargetInfo>, chromiumoxide::error::CdpError> {
+    let response = browser.execute(GetTargetsParams { filter: None }).await?;
+    Ok(response.result.target_infos)
+}
+
+async fn ensure_target_attached(
+    connection: &mut BrowserConnection,
+    target_id_or_filter: &str,
+) -> Result<String, Failure> {
+    if connection.pages.contains_key(target_id_or_filter) {
+        return Ok(target_id_or_filter.to_owned());
+    }
+    let actual_target_id = if let Ok(raw_targets) = fetch_target_infos(&connection.browser).await
+        && let Ok(available_tabs) = map_targets(raw_targets, Some(target_id_or_filter))
+    {
+        if available_tabs.iter().any(|t| t.id == target_id_or_filter) {
+            target_id_or_filter.to_owned()
+        } else {
+            select_target(&available_tabs, Some(target_id_or_filter))
+                .map(|t| t.id.clone())
+                .unwrap_or_else(|| target_id_or_filter.to_owned())
+        }
+    } else {
+        target_id_or_filter.to_owned()
+    };
+    attach_target_to_connection(connection, &actual_target_id).await?;
+    Ok(actual_target_id)
+}
+
 async fn attach_target_to_connection(
     connection: &mut BrowserConnection,
     target_id: &str,
@@ -277,11 +317,17 @@ async fn attach_target_to_connection(
         if connection.pages.len() >= MAX_ATTACHED_PAGES {
             return Err(("BROWSER_LIMIT", "Se alcanzó el límite de pestañas adjuntas"));
         }
-        let page = connection
-            .browser
-            .get_page(TargetId::from(target_id.to_owned()))
-            .await
-            .map_err(|_| ("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
+        let tid = TargetId::from(target_id.to_owned());
+        let mut page_opt = None;
+        for _ in 0..40 {
+            if let Ok(found) = connection.browser.get_page(tid.clone()).await {
+                page_opt = Some(found);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let page = page_opt
+            .ok_or(("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
         let tasks = events::subscribe_events(
             &page,
             target_id,

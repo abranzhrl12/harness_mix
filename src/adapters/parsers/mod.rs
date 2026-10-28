@@ -4,6 +4,7 @@ pub(in crate::adapters) mod css;
 pub(in crate::adapters) mod ecmascript;
 pub(in crate::adapters) mod html;
 pub(in crate::adapters) mod model;
+pub(in crate::adapters) mod python;
 pub(in crate::adapters) mod razor;
 mod registry;
 pub(in crate::adapters) mod rust;

@@ -37,6 +37,21 @@ fn server_instances_keep_presentation_options_independent() {
 }
 
 #[test]
+fn server_guides_relationship_queries_when_watcher_lock_is_busy() {
+    let application = Application::new(
+        WaitingWorkspace { started: Mutex::new(None), finished: Mutex::new(None) },
+        TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
+    );
+    let server = McpServer::new(application, None);
+    let info = rmcp::ServerHandler::get_info(&server);
+    let instructions = info.instructions.unwrap();
+    assert!(instructions.contains("use harness_explore first"));
+    assert!(instructions.contains("SYNC_WATCH_BUSY"));
+    assert!(instructions.contains("owner and its health are unknown"));
+    assert!(instructions.contains("verify uncertain or missing relations against source"));
+}
+
+#[test]
 fn generated_tool_router_registers_browser_with_object_discriminator_schema() {
     let application = Application::new(
         WaitingWorkspace {

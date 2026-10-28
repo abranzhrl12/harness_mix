@@ -21,8 +21,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             return Err(("ARGUMENT", "Batch requires 1..4 independent read jobs"));
         }
         let max_concurrent = args.max_concurrent.unwrap_or(2);
-        if !(2..=4).contains(&max_concurrent) {
-            return Err(("ARGUMENT", "maxConcurrent must be between 2 and 4"));
+        if !(1..=4).contains(&max_concurrent) {
+            return Err(("ARGUMENT", "maxConcurrent must be between 1 and 4"));
         }
         // Decode every child before execution so callers see all input errors at once.
         let mut jobs = Vec::with_capacity(args.jobs.len());
@@ -72,17 +72,26 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         }
         let mut results: Vec<Option<Value>> =
             std::iter::repeat_with(|| None).take(jobs.len()).collect();
-        let mut jobs = jobs.into_iter();
+        let mut pending: std::collections::VecDeque<_> = jobs.into_iter().collect();
         std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::channel();
-            let mut active = 0;
-            let mut completed = 0;
+            let mut active = 0usize;
+            let mut active_searches = 0usize;
+            let mut completed = 0usize;
 
             while completed < results.len() {
-                while active < max_concurrent {
-                    let Some((index, tool, target, request)) = jobs.next() else {
+                let mut scanned = 0usize;
+                let pending_len = pending.len();
+                while active < max_concurrent && scanned < pending_len {
+                    let Some((index, tool, target, request)) = pending.pop_front() else {
                         break;
                     };
+                    scanned += 1;
+                    let is_search = matches!(&request, Request::Search(_));
+                    if is_search && active_searches >= crate::admission::MAX_SEARCHES && active > 0 {
+                        pending.push_back((index, tool, target, request));
+                        continue;
+                    }
                     let operation = match self.prepare(request, context.clone()) {
                         Ok(operation) => operation,
                         Err(result) => {
@@ -104,10 +113,15 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                             operation.run()
                         }))
                         .map_err(|_| ());
-                        let _ =
-                            worker_sender.send((index, tool, worker_target, request_id, result));
+                        let _ = worker_sender
+                            .send((index, tool, worker_target, request_id, is_search, result));
                     }) {
-                        Ok(_) => active += 1,
+                        Ok(_) => {
+                            active += 1;
+                            if is_search {
+                                active_searches += 1;
+                            }
+                        }
                         Err(_) => {
                             let mut result = self.failure(
                                 tool,
@@ -128,10 +142,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 if active == 0 {
                     continue;
                 }
-                let (index, tool, target, request_id, result) = receiver
+                let (index, tool, target, request_id, is_search, result) = receiver
                     .recv()
                     .expect("active batch workers always report completion");
                 active -= 1;
+                if is_search {
+                    active_searches = active_searches.saturating_sub(1);
+                }
                 completed += 1;
                 let mut result = result.unwrap_or_else(|_| {
                     self.failure(tool, &json!({}), ("INTERNAL", "Batch child worker failed"))

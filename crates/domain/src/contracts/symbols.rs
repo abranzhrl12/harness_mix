@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 pub struct OutlineArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
+    /// REQUIRED for `action=outline`: File path to outline.
     pub path: String,
+    /// OPTIONAL: Substring filter for symbol names.
     pub query: Option<String>,
     #[serde(rename = "maxChars")]
     pub max_chars: Option<usize>,
@@ -45,11 +47,16 @@ pub enum SymbolView {
 pub struct ReadSymbolArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
+    /// REQUIRED for `action=read`: File path containing the symbol.
     pub path: String,
+    /// REQUIRED for `action=read`: Exact symbol name (`symbol`, not `name`).
     pub symbol: String,
+    /// OPTIONAL: Enclosing class/type/module container to disambiguate homonyms.
     pub container: Option<String>,
+    /// OPTIONAL: Exact symbolId selector from outline.
     #[serde(rename = "symbolId")]
     pub symbol_id: Option<String>,
+    /// OPTIONAL: `full` (default, returns exact source) or `signature` (declaration only).
     pub view: Option<SymbolView>,
     /// Copy data.session from bootstrap.
     #[serde(alias = "sessionId")]
@@ -76,6 +83,9 @@ pub struct VueExtractPreviewArgs {
 }
 
 /// Local AST navigation and read-only Vue extraction planning.
+/// - `read`: REQUIRED `{action: "read", path: string, symbol: string}`. OPTIONAL `{container?, symbolId?, view?: "full"|"signature", session?}`.
+/// - `outline`: REQUIRED `{action: "outline", path: string}`. OPTIONAL `{query?, filterKind?: "method", view?: "compact", maxChars?, session?}`.
+/// - `extract_preview`: REQUIRED `{action: "extract_preview", path, expectedHash, symbolId, targetPath, componentName}`.
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(extend("type" = "object")))]

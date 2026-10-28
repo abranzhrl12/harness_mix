@@ -5,6 +5,9 @@ const FILES: &[&str] = &[
     "codegraph.db-wal",
     "codegraph.db-shm",
     "codegraph.db-journal",
+    "index-write.lock",
+    "autosync.lock",
+    "autosync.status",
     ".harness-owner",
 ];
 
@@ -33,6 +36,16 @@ pub(super) fn preflight_remove(root: &Path, id: &str) -> Result<(), String> {
         let relative = Path::new(".codegraph").join(&name);
         if !storage::safe_metadata(root, &relative)?.is_some_and(|m| m.is_file()) {
             return Err("unsafe index entry; preserved".into());
+        }
+        if name == "autosync.status" {
+            let contents = storage::read_safe_file(root, &relative)?
+                .ok_or("watcher status disappeared; index preserved")?;
+            if !contents.starts_with(b"harness-watch-status-v1\n") {
+                return Err("unrecognized watcher status; index preserved".into());
+            }
+        }
+        if name == "autosync.lock" && entry.metadata().map_err(|e| e.to_string())?.len() != 0 {
+            return Err("unrecognized watcher lock; index preserved".into());
         }
         #[cfg(windows)]
         {

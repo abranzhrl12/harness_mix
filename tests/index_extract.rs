@@ -187,7 +187,7 @@ fn parser_errors_and_unsupported_languages_do_not_publish_partial_graphs() {
         "EXTRACTION_DEFERRED"
     );
     assert_eq!(
-        extract("other.py", "def f(): pass", &OperationContext::default())
+        extract("other.lua", "function f() end", &OperationContext::default())
             .unwrap_err()
             .0,
         "SYNC_LANGUAGE"

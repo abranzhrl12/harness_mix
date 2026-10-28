@@ -99,6 +99,10 @@ pub(super) fn run(
             .unwrap_or(0);
         value["changedFilesCommitted"] =
             json!(value["changedFilesCommitted"].as_u64().unwrap_or(0) + changed);
+        if successful {
+            value["lastSuccessfulSyncUnixSeconds"] = json!(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+        }
         value["lastError"] = report["lastError"].clone();
         value["lastResult"] = report.clone();
         if full {

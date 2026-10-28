@@ -34,7 +34,7 @@ fn snapshot_selected(
     let language = SourceFormat::from_path(Path::new(path))
         .ok_or((
             "PARSER_UNAVAILABLE",
-            "Symbol navigation supports Rust, JavaScript, TypeScript, Vue, Astro, C#, CSS, SCSS and HTML",
+            "Symbol navigation supports Rust, Python, JavaScript, TypeScript, Vue, Astro, C#, CSS, SCSS and HTML",
         ))?
         .language();
     let lang = language.protocol_name();
@@ -48,6 +48,12 @@ fn snapshot_selected(
     let mut structure = None;
     let symbols = match language {
         SourceLanguage::Rust => rust_symbols::collect(&text, &digest, context)?,
+        SourceLanguage::Python => super::parsers::python::symbols::collect_with_limit(
+            &text,
+            &digest,
+            context,
+            super::project::MAX_SYMBOL_FILE as usize,
+        )?,
         SourceLanguage::CSharp => super::csharp_syntax::collect(&text, &digest, context)?,
         SourceLanguage::Razor => {
             let mut items = super::csharp_syntax::collect_cshtml(&text, &digest, context)?;
@@ -185,13 +191,16 @@ pub(super) fn outline(
         "rust" => {
             "declarations, inline modules, impl and trait members; no local items or macro expansion"
         }
+        "python" => {
+            "AST classes, functions and methods (including nested declarations and decorators); no runtime or dynamic attribute resolution"
+        }
         "vue" => {
             "native SFC/template structural parser, JS/TS AST declarations and conservative CSS/SCSS selector associations; not Vue compiler/type checking"
         }
         "astro" => {
             "frontmatter TypeScript/JavaScript declarations, Props types and imports; template markup not type-checked"
         }
-        _ => "declarations, classes, interfaces, types, enums and members; no local block items",
+        _ => "declarations, classes, interfaces, types, enums, members and named functions directly inside call callbacks; other local block items omitted",
     };
     let returned = selected.len();
     let mut result = json!({"path":args.path,"hash":digest,"items":selected,"omitted":omitted,"filtered":filtered,

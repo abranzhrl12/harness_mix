@@ -52,10 +52,13 @@ fn native_watcher_updates_only_changed_files_handles_rename_delete_and_releases_
     std::fs::write(root.path().join("b.rs"), "pub fn untouched() {}\n").unwrap();
     std::fs::write(root.path().join(".gitignore"), "ignored.rs\n").unwrap();
     let watch = IndexWatch::start(root.path()).unwrap();
-    assert!(
-        IndexWatch::start(root.path()).is_err(),
-        "one automatic writer per project"
-    );
+    let (code, message) = match IndexWatch::start(root.path()) {
+        Ok(_) => panic!("one automatic writer per project"),
+        Err(failure) => failure,
+    };
+    assert_eq!(code, "SYNC_WATCH_BUSY");
+    assert!(message.contains("harness_explore"));
+    assert!(message.contains("not verified"));
     wait(|| watch.status.lock().unwrap()["state"] == "idle");
     assert_eq!(count(root.path(), "SELECT count(*) FROM files"), 2);
     let untouched = count(

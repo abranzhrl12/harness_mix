@@ -132,7 +132,7 @@ fn plan(project: &Project, args: &VerifyArgs) -> Result<ProcessSpec, Failure> {
     {
         return javascript::javascript_plan(project, args);
     }
-    if args.language.eq_ignore_ascii_case("python") {
+    if args.language.eq_ignore_ascii_case("python") || args.language.eq_ignore_ascii_case("py") {
         return python::python_plan(project, args);
     }
     if args.language.eq_ignore_ascii_case("go") {

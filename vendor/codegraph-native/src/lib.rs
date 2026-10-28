@@ -11,6 +11,7 @@ mod csharp;
 pub mod csharp_receivers;
 mod docstring;
 mod ids;
+mod python;
 #[allow(unused_mut)] // Preserve the pinned upstream source unchanged.
 mod rustlang;
 mod stack;
@@ -25,12 +26,21 @@ mod langs {
             "typescript" => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
             "tsx" => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
             "javascript" | "jsx" => Some(tree_sitter_javascript::LANGUAGE.into()),
+            "python" => Some(tree_sitter_python::LANGUAGE.into()),
             _ => None,
         }
     }
 }
 
-pub const LANGUAGES: &[&str] = &["rust", "csharp", "typescript", "tsx", "javascript", "jsx"];
+pub const LANGUAGES: &[&str] = &[
+    "rust",
+    "csharp",
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "python",
+];
 
 /// Strict named-import subset for the harness resolver, not an upstream walker.
 /// None means the entire declaration is outside the supported runtime subset.
@@ -212,6 +222,7 @@ pub fn extract(path: &str, source: &str, language: &str) -> Result<buffers::Emit
         "rust" => rustlang::extract(path, source),
         "csharp" => csharp::extract(path, source),
         "typescript" | "tsx" | "javascript" | "jsx" => tsjs::extract(path, source, language),
+        "python" => python::extract(path, source),
         _ => Err("unsupported native extraction language".into()),
     })
 }

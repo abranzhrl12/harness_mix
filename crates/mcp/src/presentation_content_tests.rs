@@ -658,5 +658,75 @@ fn batch_with_explore_impact_sql_status_and_verify_renders_inline_summaries() {
         "> detail.ref: batch-ref",
     ] {
         assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
+        let mut matches = Vec::new();
+        let chunk = "    SqlConnection cn = new SqlConnection(cadena);\n    SqlCommand cmd = new SqlCommand(\"PA_Caja_Listar\", cn);\n    cmd.CommandType = CommandType.StoredProcedure;\n";
+        for idx in 0..40 {
+            let start = idx * 4 + 1;
+            matches.push(json!({
+                "file": "CapaDatos/P_Caja.cs",
+                "line": start + 1,
+                "text": "    SqlCommand cmd = new SqlCommand(\"PA_Caja_Listar\", cn);",
+                "hash": "sha256-full",
+                "context": {
+                    "start": start,
+                    "end": start + 2,
+                    "text": chunk
+                }
+            }));
+        }
+        let wire2 = wire_of(json!({
+            "state": "ok",
+            "scope": {"tool": "harness_search"},
+            "detail": {"ref": "search-snapshot-1"},
+            "data": {
+                "onlyMatching": true,
+                "extracted": ["PA_Caja_Listar"],
+                "matches": matches
+            }
+        }));
+        let text2 = wire2["content"][0]["text"].as_str().unwrap();
+        assert!(text2.contains("### Extracted unique matches (1)"), "{text2}");
+        assert!(text2.contains("- `PA_Caja_Listar`"), "{text2}");
+        assert!(text2.contains("SqlCommand(\"PA_Caja_Listar\", cn);"), "{text2}");
+        assert_eq!(
+            wire2["structuredContent"]["data"]["contextInReadableChannel"],
+            json!(true)
+        );
+        assert!(
+            wire2["structuredContent"]["data"]["matches"][0]["context"]
+                .get("text")
+                .is_none()
+        );
+        assert_eq!(
+            wire2["structuredContent"]["data"]["matches"][0]["context"]["range"],
+            json!([1, 3])
+        );
+        assert_eq!(
+            wire2["structuredContent"]["data"]["matches"][0]["hash"],
+            json!("sha256-full")
+        );
     }
+}
+
+
+#[test]
+fn normalize_text_only_error_extracts_missing_and_unknown_field_guidance() {
+    use rmcp::model::{CallToolResponse, CallToolResult, ContentBlock};
+    let raw = CallToolResponse::Complete(CallToolResult::error(vec![ContentBlock::text(
+        "Failed to deserialize parameters: Missing required field `name`. Invalid harness_sql describe.",
+    )]));
+    let normalized = super::normalize_text_only_error(raw, "harness_sql");
+    let CallToolResponse::Complete(res) = normalized else {
+        panic!("expected complete");
+    };
+    let sc = res.structured_content.unwrap();
+    let diag = &sc["diagnostics"][0];
+    assert_eq!(diag["code"], "ARGUMENT");
+    assert_eq!(diag["details"]["missingField"], "name");
+    assert!(
+        diag["hint"]
+            .as_str()
+            .unwrap()
+            .contains("Missing required field `name`. REQUIRED by action: describe ->")
+    );
 }

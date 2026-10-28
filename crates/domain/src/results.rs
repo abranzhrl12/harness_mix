@@ -433,6 +433,8 @@ impl Results {
                 "limits",
                 "selector",
                 "contextLines",
+                "onlyMatching",
+                "extracted",
                 "retrieval",
                 "ast",
                 "limited",
@@ -555,7 +557,7 @@ impl Results {
                     .map(|mut value| {
                         if let Some(collection) = search_collection.as_deref() {
                             let mut metadata = json!({"collection":collection});
-                            for key in ["kind", "coverage", "discovery", "language", "syntaxOnly", "indexFreshness", "limits", "selector", "contextLines", "retrieval", "ast", "limited", "timedOut", "scanIncompleteReasons"] {
+                            for key in ["kind", "coverage", "discovery", "language", "syntaxOnly", "indexFreshness", "limits", "selector", "contextLines", "onlyMatching", "extracted", "retrieval", "ast", "limited", "timedOut", "scanIncompleteReasons"] {
                                 if let Some(item) = map.get(key) {
                                     metadata[key] = item.clone();
                                 }

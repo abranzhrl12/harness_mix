@@ -83,6 +83,8 @@ pub(super) fn text_matches(
     file: &[u8],
     include_context: bool,
     context_lines: usize,
+    only_matching: bool,
+    extractor: Option<&regex::Regex>,
     matcher: &grep_regex::RegexMatcher,
     searcher: &mut grep_searcher::Searcher,
     state: &mut MatchState<'_>,
@@ -98,13 +100,64 @@ pub(super) fn text_matches(
     searcher
         .search_slice(
             matcher,
-            file,
+            source.as_bytes(),
             grep_searcher::sinks::UTF8(|number, text| {
                 if !state.check_budget() {
                     evaluation = Evaluation::Stop;
                     return Ok(false);
                 }
                 let line = number as usize - 1;
+                if only_matching {
+                    let line_str = text.trim_end_matches(['\r', '\n']);
+                    if let Some(re) = extractor {
+                        let mut emitted = false;
+                        for caps in re.captures_iter(line_str) {
+                            let extracted = caps
+                                .get(1)
+                                .or_else(|| caps.get(0))
+                                .map_or(line_str, |m| m.as_str());
+                            *state.truncated |= utf16_len(extracted) > 500;
+                            let mut row =
+                                json!({"file":state.relative,"line":line + 1,"text":extracted});
+                            if include_context {
+                                let offsets = offsets.get_or_insert_with(|| {
+                                    std::iter::once(0)
+                                        .chain(
+                                            source
+                                                .match_indices('\n')
+                                                .map(|(offset, _)| offset + 1),
+                                        )
+                                        .filter(|offset| *offset < source.len())
+                                        .collect()
+                                });
+                                let digest =
+                                    digest.get_or_insert_with(|| harness_domain::hash(file));
+                                let start = line.saturating_sub(context_lines);
+                                let end = (line + context_lines + 1).min(offsets.len());
+                                let end_offset = offsets.get(end).copied().unwrap_or(source.len());
+                                row["hash"] = json!(digest);
+                                row["context"] = json!({"start":start + 1,"end":end,
+                                "text":&source[offsets[start]..end_offset]});
+                            }
+                            if !state.add(row, false) {
+                                evaluation = Evaluation::Stop;
+                                return Ok(false);
+                            }
+                            emitted = true;
+                            if state.results.rows.len() >= 10000 {
+                                *state.bounded = true;
+                                state.skipped_files.push(
+                                    json!({"path":state.pending_path,"reason":"match_count_budget"}),
+                                );
+                                evaluation = Evaluation::Stop;
+                                return Ok(false);
+                            }
+                        }
+                        if emitted {
+                            return Ok(true);
+                        }
+                    }
+                }
                 *state.truncated |= utf16_len(text) > 500;
                 let mut row = json!({"file":state.relative,"line":line + 1,"text":text});
                 if include_context {

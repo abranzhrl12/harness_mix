@@ -109,12 +109,27 @@ fn text_mode_is_explicit_and_cannot_bypass_paths_or_parser_limits() {
         );
     }
     assert!(!root.path().join("deep").exists());
+    // An explicit opt-in tolerates parser budget limits: the write proceeds
+    // with syntax marked not_checked instead of blocking the caller.
     let oversized = write(
         &app,
         json!({"path":"too/deep/a.rs","content":" ".repeat(256 * 1024 + 1),"createParents":true,"allowUnvalidatedText":true}),
     );
-    assert_eq!(oversized["diagnostics"][0]["code"], "PARSER_LIMIT");
-    assert!(!root.path().join("too").exists());
+    assert_eq!(oversized["state"], "ok", "{oversized}");
+    assert_eq!(oversized["data"]["syntax"]["status"], "not_checked", "{oversized}");
+    assert_eq!(
+        oversized["data"]["syntax"]["reason"],
+        "parser_limit",
+        "{oversized}"
+    );
+    assert!(root.path().join("too/deep/a.rs").exists());
+    // Without the opt-in the parser budget still rejects the write outright.
+    let denied = write(
+        &app,
+        json!({"path":"big/a.rs","content":" ".repeat(256 * 1024 + 1),"createParents":true}),
+    );
+    assert_eq!(denied["diagnostics"][0]["code"], "PARSER_LIMIT", "{denied}");
+    assert!(!root.path().join("big").exists());
 }
 
 #[test]

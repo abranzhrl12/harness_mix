@@ -147,3 +147,40 @@ fn starts_a_queued_child_when_any_worker_finishes() {
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["results"][2]["index"], 2);
 }
+
+#[test]
+fn queues_extra_search_jobs_inside_batch_without_queue_full_error() {
+    let (first_started_tx, _first_started_rx) = mpsc::sync_channel(1);
+    let (_release_first_tx, release_first_rx) = mpsc::sync_channel(1);
+    let (third_started_tx, _third_started_rx) = mpsc::sync_channel(1);
+    let app = Application::new(
+        SchedulerWorkspace {
+            first_started: first_started_tx,
+            release_first: Mutex::new(release_first_rx),
+            third_started: third_started_tx,
+        },
+        TestSessions {
+            gate: Arc::default(),
+        },
+    );
+    let jobs: Vec<_> = (0..4)
+        .map(|i| {
+            json!({
+                "tool":"harness_search",
+                "arguments":{"kind":"text","query":format!("term_{i}")}
+            })
+        })
+        .collect();
+    let args: BatchArgs = serde_json::from_value(json!({
+        "maxConcurrent": 4,
+        "jobs": jobs
+    }))
+    .unwrap();
+    let result = app.execute(Request::Batch(args));
+    assert_eq!(result["state"], "ok", "{result}");
+    let children = result["data"]["results"].as_array().unwrap();
+    assert_eq!(children.len(), 4);
+    for child in children {
+        assert_eq!(child["state"], "ok", "{child}");
+    }
+}

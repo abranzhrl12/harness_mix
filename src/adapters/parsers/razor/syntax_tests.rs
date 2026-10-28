@@ -121,3 +121,32 @@ fn html_attributes_check_razor_transitions_and_nested_csharp_quotes() {
         );
     }
 }
+
+#[test]
+fn baseline_validation_allows_preexisting_unbalanced_html_while_catching_new_errors() {
+    let ctx = OperationContext::default();
+    let original = "<div><span></div><button id=\"old\">Old</button>";
+    let safe_edit = "<div><span></div><button id=\"new\">New</button>";
+    let res = crate::adapters::edit::syntax_with_baseline(
+        "x.cshtml",
+        Some(original),
+        safe_edit,
+        false,
+        &ctx,
+    )
+    .unwrap();
+    assert_eq!(res["status"], "valid_with_preexisting_warnings");
+    assert_eq!(res["validation"], "differential_razor");
+
+    let worse_html = "<div><span></div><section></div>";
+    assert!(
+        crate::adapters::edit::syntax_with_baseline(
+            "x.cshtml",
+            Some(original),
+            worse_html,
+            false,
+            &ctx
+        )
+        .is_err()
+    );
+}

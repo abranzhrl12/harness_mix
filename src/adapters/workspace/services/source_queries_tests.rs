@@ -63,6 +63,7 @@ fn text_search_works_without_index_maintenance_state() {
                 session: None,
             cursor: None,
             offset: None,
+            only_matching: None,
             },
             &OperationContext::default(),
         )

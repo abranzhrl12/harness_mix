@@ -59,7 +59,7 @@ fn schemas_advertise_the_parameters_accepted_by_the_runtime() {
             .contains(&json!("changed-files"))
     );
     let batch = serde_json::to_value(schemars::schema_for!(BatchArgs)).unwrap();
-    assert_eq!(batch["properties"]["maxConcurrent"]["minimum"], 2);
+    assert_eq!(batch["properties"]["maxConcurrent"]["minimum"], 1);
     assert_eq!(batch["properties"]["maxConcurrent"]["maximum"], 4);
     let job = &batch["$defs"]["BatchJob"];
     assert!(job["properties"]["arguments"].is_object());

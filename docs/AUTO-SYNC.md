@@ -25,6 +25,22 @@ En el modo automático por defecto, un índice ausente o un fallo de arranque de
 watcher se informa en doctor y el servidor sigue disponible; corregir la causa
 y reiniciar la conexión para activarlo. No se crea el índice implícitamente.
 Un valor distinto de 0 o 1 es inválido.
+
+Cada instancia activa un supervisor. Si otro proceso posee `autosync.lock`,
+el supervisor permanece en espera y reintenta cada dos segundos; cuando obtiene
+el bloqueo inicia su watcher y reconcilia el inventario para recuperar cambios
+ocurridos durante la transición. Solo el bloqueo del sistema operativo decide
+la propiedad. Si un propietario sigue vivo pero está bloqueado, nadie toma el
+control hasta que libere el bloqueo; no se terminan procesos automáticamente.
+
+El propietario publica telemetría acotada en `.codegraph/autosync.status`:
+PID, inicio, pulso, estado y última sincronización satisfactoria. Las demás
+instancias la muestran como `observedOwner`: es información no autenticada y
+puede estar desactualizada; no demuestra que el propietario esté sano. Un fallo
+de telemetría no detiene el watcher. Consulte el estado y el tiempo de la última
+sincronización, y no interprete el pulso como certificación global del índice.
+Los procesos antiguos pueden no publicar telemetría.
+
 El watcher nunca crea ni migra un índice y no edita archivos fuente. Vive mientras
 está abierto el servidor MCP; no instala un servicio Windows.
 

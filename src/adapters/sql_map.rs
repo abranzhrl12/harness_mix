@@ -28,6 +28,7 @@ pub(crate) fn normalize_sql_identifier(raw: &str) -> (String, String, String) {
 
 /// Checks whether two SQL/application identifiers match either directly (case-insensitively,
 /// ignoring `@`) or via their Hungarian-stripped stem.
+#[allow(dead_code)]
 pub(crate) fn sql_identifiers_match(a: &str, b: &str) -> bool {
     let (clean_a, norm_a, _) = normalize_sql_identifier(a);
     let (clean_b, norm_b, _) = normalize_sql_identifier(b);

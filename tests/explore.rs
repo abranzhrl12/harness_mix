@@ -995,8 +995,8 @@ fn cancellation_unknown_fields_and_unsupported_candidates_are_explicit() {
         serde_json::from_value::<ExploreArgs>(json!({"query":"target","sql":"DROP TABLE nodes"}))
             .is_err()
     );
-    std::fs::write(root.path().join("source.py"), "def target():\n    pass\n").unwrap();
-    db.execute("UPDATE nodes SET file_path='source.py' WHERE id='t'", [])
+    std::fs::write(root.path().join("source.lua"), "function target()\nend\n").unwrap();
+    db.execute("UPDATE nodes SET file_path='source.lua' WHERE id='t'", [])
         .unwrap();
     let result = explore(&app, "target");
     assert_eq!(

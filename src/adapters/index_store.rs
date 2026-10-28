@@ -65,6 +65,11 @@ mod razor_invalidation;
 #[path = "index_writer.rs"]
 mod writer;
 
+#[cfg(windows)]
+mod coordinator;
+#[cfg(all(test, windows))]
+mod coordinator_tests;
+
 #[path = "index_batches.rs"]
 mod batches;
 
@@ -133,7 +138,8 @@ pub fn sync_changed_paths(
     paths: &BTreeSet<String>,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
-    let mut port = changed_paths::NativeChangedPaths::new(root)?;
+    let guard = coordinator::WriteGuard::acquire(root, context)?;
+    let mut port = changed_paths::NativeChangedPaths::new(root, &guard)?;
     harness_application::indexing::changed_paths::sync_changed_paths(&mut port, paths, context)
 }
 
@@ -204,6 +210,19 @@ fn sync_workspace_with_limit(
     context: &OperationContext,
     max_files: usize,
     rebuild: bool,
+) -> Result<Value, Failure> {
+    let guard = coordinator::WriteGuard::acquire(root, context)?;
+    sync_workspace_with_limit_locked(root, context, max_files, rebuild, &guard)
+}
+
+// Called only while the outer operation owns the coordinator. Incremental
+// worktree fallback reuses that ownership instead of recursively acquiring it.
+fn sync_workspace_with_limit_locked(
+    root: &Path,
+    context: &OperationContext,
+    max_files: usize,
+    rebuild: bool,
+    _guard: &coordinator::WriteGuard,
 ) -> Result<Value, Failure> {
     let mut port = workspace::NativeWorkspace::new(root)?;
     let mut report = harness_application::indexing::workspace::sync_workspace(&mut port, context, max_files, rebuild)?;
@@ -376,6 +395,7 @@ fn sync_file_config_force(
     before_recheck: impl FnOnce(),
     force: bool,
 ) -> Result<Value, Failure> {
+    let _guard = coordinator::WriteGuard::acquire(root, context)?;
     context.report_progress("indexing", 0, Some(1), None);
     let result = sync_file_config_reuse(
         root,

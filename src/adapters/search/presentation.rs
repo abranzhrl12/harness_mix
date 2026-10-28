@@ -120,6 +120,23 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
     result["_detail"]["complete"] = json!(complete);
     result["_detail"]["scanIncompleteReasons"] = result["scanIncompleteReasons"].clone();
     result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":super::scan::SCAN_TIMEOUT.as_millis()});
+    if args.only_matching == Some(true) && matches!(args.kind, Kind::Text) {
+        let mut unique = Vec::<String>::new();
+        if let Some(rows) = result["_detail"]["matches"].as_array() {
+            for row in rows {
+                if let Some(text) = row["text"].as_str() {
+                    let trimmed = text.trim_end_matches(['\r', '\n']);
+                    if !trimmed.is_empty() && !unique.iter().any(|existing| existing == trimmed) {
+                        unique.push(trimmed.to_owned());
+                    }
+                }
+            }
+        }
+        result["onlyMatching"] = json!(true);
+        result["extracted"] = json!(unique);
+        result["_detail"]["onlyMatching"] = json!(true);
+        result["_detail"]["extracted"] = result["extracted"].clone();
+    }
     if args.context_lines.is_some() {
         result["contextLines"] = json!(context_lines);
         result["limits"]["contextLines"] = json!(20);

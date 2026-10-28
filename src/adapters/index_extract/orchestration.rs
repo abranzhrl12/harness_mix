@@ -13,6 +13,7 @@ pub fn language(path: &str) -> Option<&'static str> {
         "tsx" => Some("tsx"),
         "js" | "mjs" | "cjs" => Some("javascript"),
         "jsx" => Some("jsx"),
+        "py" => Some("python"),
         "scss" => Some("scss"),
         _ => None,
     }

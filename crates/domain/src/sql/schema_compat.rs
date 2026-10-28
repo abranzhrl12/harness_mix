@@ -24,6 +24,17 @@ pub(crate) fn describe_field_alias(schema: &mut schemars::Schema) {
         if let Some(kind) = properties.get("kind").cloned() {
             properties.insert("objectType".into(), kind);
         }
+        if let Some(name_prop) = properties
+            .get_mut("name")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            name_prop.insert(
+                "description".into(),
+                serde_json::json!(
+                    "REQUIRED for action=describe. Object name (e.g. 'dbo.Customer' or 'PA_Caja'). Aliases accepted: object, objectName, table, procedure, routine."
+                ),
+            );
+        }
     }
     // As with serde alias decoding, callers must choose one spelling.
     schema.insert(

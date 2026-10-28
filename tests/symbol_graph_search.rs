@@ -7,6 +7,7 @@ use std::path::Path;
 
 fn search(app: &NativeApplication, query: &str) -> Value {
     app.execute(Request::Search(SearchArgs {
+        only_matching: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -210,6 +211,7 @@ fn an_index_that_does_not_cover_the_scope_leaves_the_live_path_in_charge() {
     );
     let app = adapters::application(root.path()).unwrap();
     let scoped = app.execute(Request::Search(SearchArgs {
+        only_matching: None,
         ast: None,
         regex: None,
         case_sensitive: None,

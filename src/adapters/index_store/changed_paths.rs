@@ -4,15 +4,17 @@ use harness_application::ports::indexing::ChangedPathsPort;
 
 pub(super) struct NativeChangedPaths<'a> {
     root: &'a Path,
+    guard: &'a coordinator::WriteGuard,
     project: Project,
     scope: Option<scope::Snapshot>,
     scope_check_failed: bool,
     writer: Option<writer::Writer>,
 }
 impl<'a> NativeChangedPaths<'a> {
-    pub(super) fn new(root: &'a Path) -> Result<Self, Failure> {
+    pub(super) fn new(root: &'a Path, guard: &'a coordinator::WriteGuard) -> Result<Self, Failure> {
         Ok(Self {
             root,
+            guard,
             project: Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?,
             scope: None,
             scope_check_failed: false,
@@ -77,7 +79,7 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
     }
     fn sync_workspace(&mut self, context: &OperationContext) -> Result<Value, Failure> {
         self.writer.take();
-        sync_workspace_all(self.root, context)
+        sync_workspace_with_limit_locked(self.root, context, MAX_ROWS, false, self.guard)
     }
     fn apply_changed(
         &mut self,

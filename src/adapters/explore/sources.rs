@@ -95,6 +95,13 @@ pub(super) fn load(
             )
         };
         match read {
+            Ok(value) if value["ok"] == false => {
+                unresolved.push(json!({"path":file,"symbol":selected.name,
+                    "role":if related {"related"} else {"target"},
+                    "code":"AMBIGUOUS_SYMBOL",
+                    "message":"Multiple local declarations match; select an exact container or symbolId",
+                    "candidates":value["candidates"]}));
+            }
             Ok(value) => {
                 let identity = (
                     file.clone(),

@@ -166,7 +166,8 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
     let invalid = server.request(7, "tools/call", json!({"name":"harness_sql","arguments":{"action":"query","engine":42,"credentials":"DO_NOT_ECHO"}}));
     let message = invalid.to_string();
     assert!(
-        message.contains("Required: sql")
+        message.contains("Unknown field `credentials`")
+            && message.contains("REQUIRED: {sql: string}")
             && message.contains("parameters")
             && message.contains("engine"),
         "{message}"
@@ -188,13 +189,16 @@ fn replace_recovery_diagnostics_survive_mcp_without_publishing() {
             4,
             false,
             harness_domain::hash(original.as_bytes()),
-            "second  line",
+            // Not present in the file: match failure with a healthy hash is the
+            // recovery diagnostic path. Exact-looking but whitespace-shifted
+            // needles would match, because the matcher tolerates spacing.
+            "absent third line",
         ),
         (
             5,
             true,
             harness_domain::hash(original.as_bytes()),
-            "second  line",
+            "absent third line",
         ),
     ] {
         let response = server.request(
@@ -854,11 +858,13 @@ fn javascript_verification_reports_missing_runtime_without_node() {
     std::fs::write(root.path().join("example.js"), "const x=1;\n").unwrap();
     let mut server = Server::start(root.path());
     server.initialize();
+    // Fast per-file build validation runs in-process (no Node required); the Node
+    // test runner is the path that needs the runtime executable.
     let result = server.request(
         2,
         "tools/call",
         json!({"name":"harness_verify","arguments":{
-            "language":"javascript","scope":"example.js","action":"build"
+            "language":"javascript","scope":"example.js","action":"test"
         }}),
     );
     let result = &result["result"]["structuredContent"];

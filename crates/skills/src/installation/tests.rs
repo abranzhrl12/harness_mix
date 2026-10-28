@@ -1,5 +1,58 @@
 use super::*;
 
+#[test]
+fn owned_index_with_idle_writer_gate_can_be_uninstalled() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+    }
+    fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
+    fs::write(root.path().join(".codegraph/index-write.lock"), b"").unwrap();
+    fs::write(root.path().join(".codegraph/autosync.lock"), b"").unwrap();
+    fs::write(root.path().join(".codegraph/autosync.status"), b"harness-watch-status-v1\n{}").unwrap();
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+    assert!(!root.path().join(".codegraph").exists());
+}
+
+#[test]
+fn uninstall_preserves_unrecognized_watcher_status() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+    }
+    fs::write(root.path().join(".codegraph/codegraph.db"), b"index").unwrap();
+    let path = root.path().join(".codegraph/autosync.status");
+    fs::write(&path, b"foreign").unwrap();
+    assert!(uninstall(root.path()).is_err());
+    assert_eq!(fs::read(path).unwrap(), b"foreign");
+}
+
+#[cfg(windows)]
+#[test]
+fn active_writer_gate_prevents_uninstall() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+    }
+    fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
+    let gate = fs::OpenOptions::new().read(true).write(true).create(true)
+        .truncate(false).share_mode(3)
+        .open(root.path().join(".codegraph/index-write.lock")).unwrap();
+    gate.lock().unwrap();
+    assert!(uninstall(root.path()).is_err());
+    assert!(root.path().join(SKILLS[0].relative_path).exists());
+    assert_eq!(fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(), b"test index");
+    drop(gate);
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+}
+
 fn executable(root: &Path) -> PathBuf {
     let path = root.join("test-harness.exe");
     fs::write(&path, b"test executable placeholder").unwrap();

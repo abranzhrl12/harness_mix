@@ -277,7 +277,7 @@ fn oversized_batch_with_detail_ref_renders_inline_summaries_for_every_job() {
         }
     });
 
-    let result = response_with_presentation(envelope, false);
+    let result = response_with_compact(envelope, false);
     let wire = serde_json::to_value(result).unwrap();
     assert_eq!(wire["isError"], true);
     let text = wire["content"][0]["text"].as_str().unwrap();

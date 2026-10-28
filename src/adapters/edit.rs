@@ -49,6 +49,16 @@ pub(super) fn syntax_allowing_unvalidated(
     allow_unvalidated_text: bool,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    syntax_with_baseline(path, None, source, allow_unvalidated_text, context)
+}
+
+pub(super) fn syntax_with_baseline(
+    path: &str,
+    original: Option<&str>,
+    source: &str,
+    allow_unvalidated_text: bool,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
     match syntax(path, source, context) {
         Ok(value) => Ok(value),
         // Razor checks are lexical heuristics; an explicit opt-in must never block
@@ -58,6 +68,18 @@ pub(super) fn syntax_allowing_unvalidated(
             "reason":"explicitly_allowed","skippedSyntaxError":code,
             "explicitlyAllowed":true
         })),
+        // Legacy Razor views often contain pre-existing unbalanced HTML tags across conditional
+        // branches. Validate differentially against the baseline so safe edits succeed without
+        // requiring allowUnvalidatedText, while still rejecting newly introduced syntax errors.
+        Err(("RAZOR_HTML_UNBALANCED" | "RAZOR_HTML_UNCLOSED", _))
+            if extension(path) == "cshtml" && original.is_some() =>
+        {
+            super::parsers::razor::syntax::validate_against_baseline(
+                original.unwrap_or_default(),
+                source,
+                context,
+            )
+        }
         // SCSS validation is syntactic only, but a parser gap must never block a
         // valid edit when the caller explicitly accepts an unvalidated candidate.
         Err((code, _)) if allow_unvalidated_text && extension(path) == "scss" => Ok(json!({
@@ -69,6 +91,10 @@ pub(super) fn syntax_allowing_unvalidated(
             "status":"not_checked","validation":"none",
             "reason":"parser_unavailable","explicitlyAllowed":true
         })),
+        Err(("PARSER_LIMIT", _)) if allow_unvalidated_text => Ok(json!({
+            "status":"not_checked","validation":"none",
+            "reason":"parser_limit","explicitlyAllowed":true
+        })),
         Err(other) => Err(other),
     }
 }
@@ -79,6 +105,12 @@ fn syntax_error_position(path: &str, source: &str, message: &str) -> String {
         "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts"
     ) && let Some((line, column)) =
         super::parsers::ecmascript::syntax::first_error_location(path, source)
+    {
+        return format!("{message} (line {line}, column {column})");
+    }
+    if extension(path) == "py"
+        && let Some((line, column)) =
+            super::parsers::python::syntax::first_error_location(source)
     {
         return format!("{message} (line {line}, column {column})");
     }
@@ -126,8 +158,9 @@ pub(super) fn replace(
         }
         Err(failure) => return Err(failure),
     };
-    let syntax = match syntax_allowing_unvalidated(
+    let syntax = match syntax_with_baseline(
         &args.path,
+        std::str::from_utf8(&bytes).ok(),
         &updated,
         args.allow_unvalidated_text,
         context,
@@ -195,8 +228,9 @@ pub(super) fn preview(
         Err(failure) => return Err(failure),
     };
     let original = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "File must be UTF-8"))?;
-    let syntax = match syntax_allowing_unvalidated(
+    let syntax = match syntax_with_baseline(
         &args.path,
+        std::str::from_utf8(&bytes).ok(),
         &updated,
         args.allow_unvalidated_text,
         context,

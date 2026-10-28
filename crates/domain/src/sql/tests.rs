@@ -261,3 +261,46 @@ fn sql_stays_read_only_with_no_ddl_channel() {
     assert!(assert_sql_read_only("ALTER TABLE dbo.x DROP COLUMN c").is_err());
     assert!(assert_sql_read_only("DROP PROCEDURE dbo.x").is_err());
 }
+
+
+#[test]
+fn describe_reports_exact_missing_or_unknown_field_and_accepts_name_aliases() {
+    let missing_name = parse(json!({"action":"describe"}))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        missing_name.contains("Missing required field `name`."),
+        "{missing_name}"
+    );
+
+    let unknown_field = parse(json!({"action":"describe","name":"PA_Caja","query":"SELECT 1"}))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        unknown_field.contains("Unknown field `query`"),
+        "{unknown_field}"
+    );
+    assert!(!unknown_field.contains("SELECT 1"));
+
+    for alias in ["object", "objectName", "object_name", "table", "procedure", "routine"] {
+        let mut payload = json!({"action":"describe"});
+        payload[alias] = json!("dbo.PA_Caja");
+        let SqlArgs::Describe(args) = parse(payload).unwrap() else {
+            panic!("expected describe for alias {alias}");
+        };
+        assert_eq!(args.name, "dbo.PA_Caja");
+    }
+
+    for sp_alias in ["sp", "stored_procedure", "storedProcedure", "proc", "fn", "func"] {
+        let SqlArgs::Describe(args) = parse(json!({
+            "action": "describe",
+            "name": "dbo.PA_Caja",
+            "objectType": sp_alias
+        }))
+        .unwrap()
+        else {
+            panic!("expected describe for kind alias {sp_alias}");
+        };
+        assert!(matches!(args.kind, Some(SqlDescribeKind::Routine)));
+    }
+}

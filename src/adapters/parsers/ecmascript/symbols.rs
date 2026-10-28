@@ -116,6 +116,26 @@ impl<'a> TsCollector<'a> {
     fn visit_statement(&mut self, stmt: &Statement, container: &str) -> Result<(), Failure> {
         self.context.check()?;
         match stmt {
+            Statement::ExpressionStatement(statement) => {
+                // Named declarations in an immediately supplied callback are
+                // addressable even though callback-local variables are not.
+                if let oxc_ast::ast::Expression::CallExpression(call) = &statement.expression {
+                    for argument in &call.arguments {
+                        let body = match argument {
+                            oxc_ast::ast::Argument::FunctionExpression(function) => function.body.as_ref(),
+                            _ => None,
+                        };
+                        if let Some(body) = body {
+                            let callback = format!("callback@{}", argument.span().start);
+                            for inner in body.statements.iter() {
+                                if matches!(inner, Statement::FunctionDeclaration(_)) {
+                                    self.visit_statement(inner, &callback)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Statement::FunctionDeclaration(func) => {
                 if let Some(ident) = &func.id {
                     let body_start = func.body.as_ref().map(|b| b.span.start);

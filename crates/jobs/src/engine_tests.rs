@@ -823,6 +823,14 @@ async fn writer_conflict_disables_jobs_without_failing_manager_creation() {
             .is_err()
     );
     drop(store);
+    // Once the previous writer releases the lock, lazy recovery clears TASK_STORE_BUSY
+    let list_after = manager
+        .handle(args(json!({"action":"list"})))
+        .await
+        .unwrap();
+    assert!(list_after["persistenceError"].is_null(), "{list_after}");
+    let diag = manager.diagnostics();
+    assert!(diag["persistenceError"].is_null(), "{diag}");
 }
 #[tokio::test]
 async fn failed_commit_cancels_work_and_does_not_publish_or_advance_cursor() {

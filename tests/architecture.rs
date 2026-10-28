@@ -434,7 +434,17 @@ fn portable_layers_cannot_gain_unreviewed_infrastructure_dependencies() {
             "harness-domain",
             // The domain owns the pure, deterministic UTF-8/Windows-1252
             // source decoding policy; this codec is not an I/O dependency.
-            &["serde", "serde_json", "sha2", "uuid", "schemars", "encoding_rs"][..],
+            // `aho-corasick` is likewise a pure in-memory multi-pattern string
+            // matching algorithm (reviewed 2026-10-28); no I/O capabilities.
+            &[
+                "serde",
+                "serde_json",
+                "sha2",
+                "uuid",
+                "schemars",
+                "encoding_rs",
+                "aho-corasick",
+            ][..],
         ),
         ("harness-application", &["harness-domain", "serde_json"][..]),
     ] {

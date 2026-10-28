@@ -1,6 +1,6 @@
-use super::{astro, csharp, ecmascript, razor, rust, vue};
+use super::{astro, csharp, ecmascript, python, razor, rust, vue};
 use harness_application::ports::parsing::SyntaxParser;
-use harness_domain::{Failure, execution::OperationContext, parsing::SourceFormat};
+use harness_domain::{Failure, editing, execution::OperationContext, parsing::SourceFormat};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -56,6 +56,26 @@ impl SyntaxParser for RustParser {
     }
 }
 
+struct PythonParser;
+impl SyntaxParser for PythonParser {
+    fn supports(&self, path: &str) -> bool {
+        matches!(
+            SourceFormat::from_path(Path::new(path)),
+            Some(SourceFormat::Python)
+        )
+    }
+
+    fn validate(
+        &self,
+        _path: &str,
+        source: &str,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        python::syntax::validate_syntax(source, context)?;
+        Ok(json!({"status":"valid","language":"python","validation":"syntax_only"}))
+    }
+}
+
 struct EcmascriptParser;
 impl SyntaxParser for EcmascriptParser {
     fn supports(&self, path: &str) -> bool {
@@ -80,7 +100,7 @@ impl SyntaxParser for EcmascriptParser {
         source: &str,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        ecmascript::syntax::validate_syntax(path, source, context)?;
+        ecmascript::syntax::validate_syntax_with_limit(path, source, editing::MAX_FILE, context)?;
         let language = SourceFormat::from_path(Path::new(path))
             .expect("supports checked the source format")
             .language()
@@ -170,11 +190,12 @@ impl SyntaxParser for RazorParser {
 /// registry so edit policy can continue handling them separately.
 pub(in crate::adapters) fn default_syntax_registry() -> ParserRegistry<'static> {
     static RUST: RustParser = RustParser;
+    static PYTHON: PythonParser = PythonParser;
     static ECMASCRIPT: EcmascriptParser = EcmascriptParser;
     static VUE: VueParser = VueParser;
     static ASTRO: AstroParser = AstroParser;
     static CSHARP: CSharpParser = CSharpParser;
     static RAZOR: RazorParser = RazorParser;
 
-    ParserRegistry::new(&[&RUST, &ECMASCRIPT, &VUE, &ASTRO, &CSHARP, &RAZOR])
+    ParserRegistry::new(&[&RUST, &PYTHON, &ECMASCRIPT, &VUE, &ASTRO, &CSHARP, &RAZOR])
 }

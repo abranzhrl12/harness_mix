@@ -591,6 +591,40 @@ pub(in crate::adapters) fn validate(
     diagnose(source, context)
 }
 
+pub(in crate::adapters) fn validate_against_baseline(
+    original: &str,
+    updated: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    let updated_findings = scan(updated, context)?;
+    if updated_findings.is_empty() {
+        return diagnose(updated, context);
+    }
+    if let Some(strict) = updated_findings.iter().find(|f| {
+        !matches!(
+            f.code,
+            "RAZOR_HTML_UNBALANCED" | "RAZOR_HTML_UNCLOSED"
+        )
+    }) {
+        return Err((strict.code, strict.message));
+    }
+    let original_findings = scan(original, context)?;
+    let orig_unbalanced = original_findings
+        .iter()
+        .filter(|f| matches!(f.code, "RAZOR_HTML_UNBALANCED" | "RAZOR_HTML_UNCLOSED"))
+        .count();
+    let upd_unbalanced = updated_findings.len();
+    if orig_unbalanced > 0 && upd_unbalanced <= orig_unbalanced {
+        let mut diag = diagnose(updated, context)?;
+        diag["status"] = json!("valid_with_preexisting_warnings");
+        diag["validation"] = json!("differential_razor");
+        diag["preexistingHtmlBalanceWarnings"] = json!(upd_unbalanced);
+        return Ok(diag);
+    }
+    let first = &updated_findings[0];
+    Err((first.code, first.message))
+}
+
 #[cfg(test)]
 #[path = "syntax_tests.rs"]
 mod tests;

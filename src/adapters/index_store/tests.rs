@@ -555,3 +555,42 @@ fn import_source_changed_after_resolution_rolls_back_target_update() {
         1
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn python_workspace_sync_resolves_calls_and_inheritance_edges() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    std::fs::write(
+        root.join("helpers.py"),
+        "def compute_total(x: int) -> int:\n    return x + 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("app.py"),
+        "from helpers import compute_total\n\nclass BaseRunner:\n    def prepare(self) -> None:\n        pass\n\nclass TaskRunner(BaseRunner):\n    def run(self) -> int:\n        self.prepare()\n        return compute_total(5)\n",
+    )
+    .unwrap();
+    let report = sync_workspace_all(root, &context).unwrap();
+    assert_eq!(report["changedFilesCommitted"], 2);
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let call_edges: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='calls' AND s.qualified_name='TaskRunner::run' AND t.name IN ('prepare','compute_total')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(call_edges, 2);
+    let extends_edges: i64 = db
+        .query_row(
+            "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE e.kind='extends' AND s.name='TaskRunner' AND t.name='BaseRunner'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(extends_edges, 1);
+}

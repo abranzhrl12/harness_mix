@@ -47,6 +47,7 @@ pub(super) fn search_alias_schema(schema: &mut schemars::Schema) {
     add_schema_property_alias(schema, "scope", "path");
     add_schema_alias(schema, "globs", "includes");
     add_schema_alias(schema, "contextLines", "context_lines");
+    add_schema_alias(schema, "onlyMatching", "only_matching");
 }
 
 #[cfg(feature = "schema")]

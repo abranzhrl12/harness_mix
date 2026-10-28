@@ -6,6 +6,8 @@ use std::path::Path;
 fn classifies_supported_extensions_without_losing_dialects() {
     let cases = [
         ("a.RS", SourceFormat::Rust, SourceLanguage::Rust),
+        ("a.py", SourceFormat::Python, SourceLanguage::Python),
+        ("a.PY", SourceFormat::Python, SourceLanguage::Python),
         ("a.js", SourceFormat::JavaScript, SourceLanguage::JavaScript),
         (
             "a.MJS",
@@ -44,6 +46,7 @@ fn classifies_supported_extensions_without_losing_dialects() {
         );
         assert_eq!(format.language(), language, "{path}");
     }
+    assert_eq!(SourceFormat::Python.language().protocol_name(), "python");
     assert_eq!(SourceFormat::Jsx.language().protocol_name(), "javascript");
     assert_eq!(SourceFormat::Tsx.language().protocol_name(), "typescript");
 }

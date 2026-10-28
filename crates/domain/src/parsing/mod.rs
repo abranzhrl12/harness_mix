@@ -12,6 +12,7 @@ use std::path::Path;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceFormat {
     Rust,
+    Python,
     JavaScript,
     JavaScriptModule,
     CommonJs,
@@ -35,6 +36,8 @@ impl SourceFormat {
         let extension = path.extension()?.to_str()?;
         if extension.eq_ignore_ascii_case("rs") {
             Some(Self::Rust)
+        } else if extension.eq_ignore_ascii_case("py") {
+            Some(Self::Python)
         } else if extension.eq_ignore_ascii_case("js") {
             Some(Self::JavaScript)
         } else if extension.eq_ignore_ascii_case("mjs") {
@@ -74,6 +77,7 @@ impl SourceFormat {
     pub const fn language(self) -> SourceLanguage {
         match self {
             Self::Rust => SourceLanguage::Rust,
+            Self::Python => SourceLanguage::Python,
             Self::JavaScript | Self::JavaScriptModule | Self::CommonJs | Self::Jsx => {
                 SourceLanguage::JavaScript
             }
@@ -95,6 +99,7 @@ impl SourceFormat {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceLanguage {
     Rust,
+    Python,
     JavaScript,
     TypeScript,
     Vue,
@@ -111,6 +116,7 @@ impl SourceLanguage {
     pub const fn protocol_name(self) -> &'static str {
         match self {
             Self::Rust => "rust",
+            Self::Python => "python",
             Self::JavaScript => "javascript",
             Self::TypeScript => "typescript",
             Self::Vue => "vue",

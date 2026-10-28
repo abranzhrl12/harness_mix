@@ -42,9 +42,9 @@ pub struct BatchJob {
 #[serde(deny_unknown_fields)]
 pub struct BatchArgs {
     pub jobs: Vec<BatchJob>,
-    /// Concurrent independent reads, from 2 to 4 (default 2).
+    /// Concurrent independent reads, from 1 to 4 (default 2).
     #[serde(rename = "maxConcurrent")]
-    #[cfg_attr(feature = "schema", schemars(range(min = 2, max = 4)))]
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 4)))]
     pub max_concurrent: Option<usize>,
     pub session: Option<String>,
 }

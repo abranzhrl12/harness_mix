@@ -392,6 +392,7 @@ fn honors_ignore_secrets_and_compacts_without_losing_detail() {
         session: None,
         cursor: None,
         offset: None,
+        only_matching: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
@@ -419,6 +420,7 @@ fn files_are_literal_and_unsafe_scope_is_rejected() {
         session: None,
         cursor: None,
         offset: None,
+        only_matching: None,
     };
     assert_eq!(
         search(&p, &args).unwrap()["paths"]
@@ -472,6 +474,7 @@ fn large_files_make_results_explicitly_incomplete() {
         session: None,
         cursor: None,
         offset: None,
+        only_matching: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
@@ -516,6 +519,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
             session: None,
             cursor: None,
             offset: None,
+            only_matching: None,
         },
     )
     .unwrap();
@@ -542,6 +546,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
             session: None,
             cursor: None,
             offset: None,
+            only_matching: None,
         },
     )
     .unwrap();
@@ -563,6 +568,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
             session: None,
             cursor: None,
             offset: None,
+            only_matching: None,
         },
     )
     .unwrap();
@@ -598,6 +604,7 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
         session: None,
         cursor: None,
         offset: None,
+        only_matching: None,
     };
     let result = search(&p, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 2);
@@ -633,6 +640,7 @@ fn text_args(scope: Option<&str>) -> SearchArgs {
         session: None,
         cursor: None,
         offset: None,
+        only_matching: None,
     }
 }
 
@@ -768,4 +776,51 @@ fn match_metadata_budget_rejects_an_oversized_row_without_cutting_saved_source()
     assert_eq!(detail_matches[0]["text"], quote_heavy_line);
     assert_eq!(result["skippedFiles"][0]["path"], "b.txt");
     assert_eq!(result["skippedFiles"][0]["reason"], "metadata_budget");
+}
+
+#[test]
+fn only_matching_extracts_matched_tokens_and_capture_groups_with_deduplicated_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = concat!(
+        "using (var cmd = new SqlCommand(\"PA_Caja_Apertura\", cn)) {}\n",
+        "using (var cmd = new SqlCommand(\"PA_Caja_Cierre\", cn)) {}\n",
+        "using (var cmd = new SqlCommand(\"PA_Caja_Apertura\", cn)) {}\n",
+    );
+    fs::write(dir.path().join("P_Caja.cs"), source).unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({
+        "kind": "text",
+        "query": r#"SqlCommand\("([^"]+)""#,
+        "regex": true,
+        "onlyMatching": true
+    }))
+    .unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["onlyMatching"], true);
+    assert_eq!(
+        result["extracted"],
+        json!(["PA_Caja_Apertura", "PA_Caja_Cierre"])
+    );
+    let matches = result["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[0]["text"], "PA_Caja_Apertura");
+    assert_eq!(matches[1]["text"], "PA_Caja_Cierre");
+    assert_eq!(matches[2]["text"], "PA_Caja_Apertura");
+}
+
+#[test]
+fn diacritic_and_windows1252_fallback_matches_accents_entities_and_unaccented_text() {
+    let dir = tempfile::tempdir().unwrap();
+    // 1. Unaccented text in source matched by accented query ("Garantías" -> "Garantias")
+    fs::write(dir.path().join("view.cshtml"), "<label>Garantias</label>\n<label>Tipo &oacute;peracion</label>\n").unwrap();
+    // 2. Windows-1252 encoded file with accented text ("Tipo operación")
+    fs::write(dir.path().join("legacy.js"), b"// Tipo operaci\xf3n\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+
+    let res1 = search(&project, &serde_json::from_value(json!({"kind":"text","query":"Garantías"})).unwrap()).unwrap();
+    assert_eq!(res1["matches"].as_array().unwrap().len(), 1, "{res1}");
+    assert_eq!(res1["matches"][0]["file"], "view.cshtml");
+
+    let res2 = search(&project, &serde_json::from_value(json!({"kind":"text","query":"Tipo operación"})).unwrap()).unwrap();
+    assert_eq!(res2["matches"].as_array().unwrap().len(), 2, "{res2}");
 }

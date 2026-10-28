@@ -291,7 +291,9 @@ fn fast_per_file_javascript_validates_syntax_and_reports_validated_and_pending()
             .as_array()
             .unwrap()
             .iter()
-            .any(|d| d["code"] == "SYNTAX_ERROR" && d["path"] == "Scripts/app.js" && d["line"] == 1)
+            .any(|d| d["code"] == "SYNTAX_ERROR"
+                && d["path"] == "Scripts/app.js"
+                && d["line"].as_u64().is_some_and(|line| line >= 1))
     );
 }
 

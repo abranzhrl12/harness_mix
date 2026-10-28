@@ -20,7 +20,7 @@ when relationships are not needed, use `harness_symbols` directly.
 
 | Need | Tool |
 | --- | --- |
-| Find a file or literal text | `harness_search`, `kind=files` or `text` (`kind=files` matches filename substrings, not globs: `*.cs` matches nothing; use `Almacen` or filter with `globs`). If you plan to edit matches, include `contextLines: 5` (or `3..10`) to receive the numbered block ready for `harness_replace` without an intermediate `harness_read` |
+| Find a file or literal text | `harness_search`, `kind=files` or `text` (`kind=files` matches filename substrings, not globs: `*.cs` matches nothing; use `Almacen` or filter with `globs`). If you plan to edit matches, include `contextLines: 5` (or `3..10`) to receive the numbered block ready for `harness_replace` without an intermediate `harness_read`. For high-cardinality inventory queries (e.g., listing all `SqlCommand("...")` stored procedures in a large file), pass `onlyMatching: true` (optionally with `regex: true` and a capture group) to extract only matched tokens and receive a deduplicated `extracted` list without context bloat |
 | Read a known implementation | `harness_symbols`, `action=read`, `path`, `symbol` |
 | Choose a symbol from a file | `harness_symbols`, `action=outline`, `path` |
 | Get only the signature | `harness_symbols`, `action=read`, `view=signature` |

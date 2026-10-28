@@ -45,6 +45,68 @@ pub(super) fn build_fallback<'a>(
     build_with_matcher(project, args, Some(matcher))
 }
 
+pub(super) fn build_diacritic_fallback<'a>(
+    project: &Project,
+    args: &'a SearchArgs,
+    matcher: grep_regex::RegexMatcher,
+) -> Result<SearchPlan<'a>, Failure> {
+    let mut plan = build_with_matcher(project, args, Some(matcher))?;
+    plan.term_retrieval = false;
+    plan.context_lines = args.context_lines.unwrap_or(0);
+    Ok(plan)
+}
+
+pub(super) fn diacritic_matcher(
+    args: &SearchArgs,
+) -> Result<Option<grep_regex::RegexMatcher>, Failure> {
+    if !matches!(args.kind, Kind::Text) || args.ast.is_some() || args.regex.unwrap_or(false) {
+        return Ok(None);
+    }
+    let mut pattern = String::with_capacity(args.query.len() * 3);
+    let mut has_foldable = false;
+    for ch in args.query.chars() {
+        let class = match ch {
+            'a' | 'á' | 'à' | 'ä' | 'â' | 'ã' => Some("[aáàäâã]|&#(?:225|x0*e1);|&aacute;|\\\\u00e1"),
+            'A' | 'Á' | 'À' | 'Ä' | 'Â' | 'Ã' => Some("[AÁÀÄÂÃ]|&#(?:193|x0*c1);|&Aacute;|\\\\u00c1"),
+            'e' | 'é' | 'è' | 'ë' | 'ê' => Some("[eéèëê]|&#(?:233|x0*e9);|&eacute;|\\\\u00e9"),
+            'E' | 'É' | 'È' | 'Ë' | 'Ê' => Some("[EÉÈËÊ]|&#(?:201|x0*c9);|&Eacute;|\\\\u00c9"),
+            'i' | 'í' | 'ì' | 'ï' | 'î' => Some("[iíìïî]|&#(?:237|x0*ed);|&iacute;|\\\\u00ed"),
+            'I' | 'Í' | 'Ì' | 'Ï' | 'Î' => Some("[IÍÌÏÎ]|&#(?:205|x0*cd);|&Iacute;|\\\\u00cd"),
+            'o' | 'ó' | 'ò' | 'ö' | 'ô' | 'õ' => Some("[oóòöôõ]|&#(?:243|x0*f3);|&oacute;|\\\\u00f3"),
+            'O' | 'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' => Some("[OÓÒÖÔÕ]|&#(?:211|x0*d3);|&Oacute;|\\\\u00d3"),
+            'u' | 'ú' | 'ù' | 'ü' | 'û' => Some("[uúùüû]|&#(?:250|252|x0*fa|x0*fc);|&[uU](?:acute|uml);|\\\\u00f[ac]"),
+            'U' | 'Ú' | 'Ù' | 'Ü' | 'Û' => Some("[UÚÙÜÛ]|&#(?:218|220|x0*da|x0*dc);|&[uU](?:acute|uml);|\\\\u00d[ac]"),
+            'n' | 'ñ' => Some("[nñ]|&#(?:241|x0*f1);|&ntilde;|\\\\u00f1"),
+            'N' | 'Ñ' => Some("[NÑ]|&#(?:209|x0*d1);|&Ntilde;|\\\\u00d1"),
+            _ => None,
+        };
+        if let Some(group) = class {
+            has_foldable = true;
+            pattern.push_str("(?:");
+            pattern.push_str(group);
+            pattern.push(')');
+            continue;
+        }
+        let mut buf = [0u8; 4];
+        pattern.push_str(&regex::escape(ch.encode_utf8(&mut buf)));
+    }
+    if !has_foldable {
+        return Ok(None);
+    }
+    // Preserve case sensitivity unless caseSensitive=false was explicitly requested
+    let case_sensitive = args.case_sensitive.unwrap_or(true);
+    matcher_cache::get(
+        &pattern,
+        Options {
+            literal: false,
+            case_sensitive,
+            multi_line: true,
+        },
+    )
+    .map(Some)
+    .map_err(|_| ("INTERNAL", "could not compile diacritic fallback matcher"))
+}
+
 fn build_with_matcher<'a>(
     project: &Project,
     args: &'a SearchArgs,
@@ -79,8 +141,15 @@ fn build_with_matcher<'a>(
             "ast requires kind text and cannot combine with regex or caseSensitive",
         ));
     }
-    if !matches!(args.kind, Kind::Text) && (args.regex.is_some() || args.case_sensitive.is_some()) {
-        return Err(("ARGUMENT", "regex and caseSensitive require kind text"));
+    if !matches!(args.kind, Kind::Text)
+        && (args.regex.is_some()
+            || args.case_sensitive.is_some()
+            || args.only_matching.is_some())
+    {
+        return Err((
+            "ARGUMENT",
+            "regex, caseSensitive and onlyMatching require kind text",
+        ));
     }
     let min_lines = args.min_lines.unwrap_or(500);
     if min_lines > 10000000
@@ -125,20 +194,46 @@ fn build_with_matcher<'a>(
     let matcher = if matches!(args.kind, Kind::Text) && structural.is_none() {
         Some(match fallback_matcher {
             Some(matcher) => matcher,
-            None => matcher_cache::get(
-                &args.query,
-                Options {
-                    literal: !args.regex.unwrap_or(false),
-                    case_sensitive: args.case_sensitive.unwrap_or(true),
-                    multi_line: true,
-                },
-            )
-            .map_err(|_| {
-                (
-                    "ARGUMENT",
-                    "invalid or unsupported text regex; use single-line Rust regex syntax",
-                )
-            })?,
+            None => {
+                // When the query contains non-ASCII accented characters (e.g. "Garantías",
+                // "Tipo operación") in a literal text search, use diacritic-folded matching
+                // directly so both accented, unaccented, and HTML-entity variants match in one pass.
+                if !args.regex.unwrap_or(false) && !args.query.is_ascii() {
+                    if let Some(diacritic) = diacritic_matcher(args)? {
+                        diacritic
+                    } else {
+                        matcher_cache::get(
+                            &args.query,
+                            Options {
+                                literal: true,
+                                case_sensitive: args.case_sensitive.unwrap_or(true),
+                                multi_line: true,
+                            },
+                        )
+                        .map_err(|_| {
+                            (
+                                "ARGUMENT",
+                                "invalid or unsupported text regex; use single-line Rust regex syntax",
+                            )
+                        })?
+                    }
+                } else {
+                    matcher_cache::get(
+                        &args.query,
+                        Options {
+                            literal: !args.regex.unwrap_or(false),
+                            case_sensitive: args.case_sensitive.unwrap_or(true),
+                            multi_line: true,
+                        },
+                    )
+                    .map_err(|_| {
+                        (
+                            "ARGUMENT",
+                            "invalid or unsupported text regex; use single-line Rust regex syntax",
+                        )
+                    })?
+                }
+            }
         })
     } else {
         None

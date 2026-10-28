@@ -525,6 +525,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-c-sharp",
  "tree-sitter-javascript",
+ "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
 ]

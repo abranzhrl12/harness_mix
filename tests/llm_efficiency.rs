@@ -138,31 +138,50 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
     ));
     assert_eq!(warm["state"], "ok", "{warm}");
     assert_eq!(warm["data"]["catalogUnchanged"], true);
-    assert_eq!(warm["data"]["rulesUnchanged"], true);
+    assert!(warm["data"].get("rulesUnchanged").is_none());
     assert!(warm["data"].get("supportedTools").is_none());
     assert_eq!(
         project(&app, &warm, "catalog.toolContract"),
         first["data"]["toolContract"]
     );
+    // `includeRules` no longer resends policy text: rules live in skills, so the
+    // reuse stays compact and the recoverable catalog keeps routing and rules.
     let refreshed = app.execute(Request::Bootstrap(
         serde_json::from_value(json!({"session":session,"includeRules":true})).unwrap(),
     ));
     assert_eq!(refreshed["state"], "ok", "{refreshed}");
+    assert_eq!(refreshed["data"]["catalogUnchanged"], true, "{refreshed}");
     assert_eq!(
-        project(&app, &warm, "catalog.toolContract"),
-        refreshed["data"]["toolContract"]
+        refreshed["data"]["toolContract"]["contractVersion"],
+        "3.3.0",
+        "{refreshed}"
     );
+    assert_eq!(
+        refreshed["data"]["toolContract"]["unchanged"],
+        true,
+        "{refreshed}"
+    );
+    assert_eq!(
+        project(&app, &refreshed, "catalog.toolContract"),
+        first["data"]["toolContract"],
+        "{refreshed}"
+    );
+    let routing = project(&app, &refreshed, "catalog.routing");
     assert!(
-        refreshed["data"]["routing"]
+        routing
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["tool"] == "harness_explore" && r["defaults"]["view"] == "full")
+            .any(|r| r["tool"] == "harness_explore" && r["defaults"]["view"] == "full"),
+        "{routing}"
     );
-    assert!(units(&warm) < units(&refreshed) / 2);
+    let usage_rules = project(&app, &refreshed, "catalog.usageRules");
+    assert!(units(&usage_rules) > 200, "{usage_rules}");
+    assert!(units(&warm) < units(&first) / 2);
+    assert!(units(&refreshed) < units(&first) / 2);
     println!(
         "{}",
-        json!({"scenario":"session-context-reuse","fullRefreshUtf16":units(&refreshed),"compactReuseUtf16":units(&warm),"reductionPercent":100.0*(1.0-units(&warm) as f64/units(&refreshed) as f64),"catalogRecoveredEqual":true,"unit":"canonical envelope UTF-16, not model tokens"})
+        json!({"scenario":"session-context-reuse","fullRefreshUtf16":units(&first),"compactReuseUtf16":units(&warm),"reductionPercent":100.0*(1.0-units(&warm) as f64/units(&first) as f64),"catalogRecoveredEqual":true,"unit":"canonical envelope UTF-16, not model tokens"})
     );
 }
 

@@ -100,8 +100,13 @@ fn pin_websocket_to_peer(
 ) -> Result<String, Failure> {
     validate_endpoint(endpoint)?;
     let mut url = Url::parse(endpoint).map_err(|_| connect_failure())?;
-    if url.port() != Some(discovery_port) {
-        return Err(connect_failure());
+    match url.port() {
+        Some(port) if port == discovery_port => {}
+        None => {
+            url.set_port(Some(discovery_port))
+                .map_err(|_| connect_failure())?;
+        }
+        _ => return Err(connect_failure()),
     }
 
     // Pin the WebSocket connection to the loopback address used for discovery, so
@@ -431,7 +436,7 @@ async fn http_get(
         .and_then(|host| host.strip_suffix(']'))
         .unwrap_or(host);
     let port = url.port().ok_or_else(invalid_endpoint)?;
-    let addresses = lookup_host((host_for_lookup, port))
+    let mut addresses = lookup_host((host_for_lookup, port))
         .await
         .map_err(|_| connect_failure())?
         .collect::<Vec<_>>();
@@ -440,6 +445,12 @@ async fn http_get(
         || addresses.iter().any(|address| !address.ip().is_loopback())
     {
         return Err(invalid_endpoint());
+    }
+    // When resolving "localhost", prefer IPv4 (127.0.0.1) first because Chrome's
+    // --remote-debugging-port binds to 127.0.0.1 by default on Windows and trying
+    // [::1] first incurs a 1-2s TCP SYN timeout.
+    if host_for_lookup.eq_ignore_ascii_case("localhost") {
+        addresses.sort_by_key(|addr| if addr.is_ipv4() { 0u8 } else { 1u8 });
     }
 
     let mut stream = None;
@@ -466,11 +477,51 @@ async fn http_get(
         .write_all(request.as_bytes())
         .await
         .map_err(|_| connect_failure())?;
-    stream
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut response)
-        .await
-        .map_err(|_| connect_failure())?;
+
+    // Chrome's internal DevTools HTTP server ignores `Connection: close` and keeps
+    // the TCP socket open after sending the Content-Length body. Stop reading as soon
+    // as all declared Content-Length body bytes arrive instead of waiting for TCP EOF.
+    let mut chunk = [0u8; 4096];
+    let mut expected_total: Option<usize> = None;
+    loop {
+        if response.len() > MAX_RESPONSE_BYTES {
+            return Err(connect_failure());
+        }
+        if let Some(total) = expected_total
+            && response.len() >= total
+        {
+            break;
+        }
+        let n = tokio::time::timeout(connect_timeout, stream.read(&mut chunk))
+            .await
+            .map_err(|_| connect_failure())?
+            .map_err(|_| connect_failure())?;
+        if n == 0 {
+            break;
+        }
+        response.extend_from_slice(&chunk[..n]);
+        if expected_total.is_none()
+            && let Some(header_end) = response.windows(4).position(|w| w == b"\r\n\r\n")
+        {
+            let headers =
+                std::str::from_utf8(&response[..header_end]).map_err(|_| connect_failure())?;
+            for line in headers.split("\r\n").skip(1) {
+                if let Some((name, value)) = line.split_once(':')
+                    && name.trim().eq_ignore_ascii_case("content-length")
+                {
+                    let len = value
+                        .trim()
+                        .parse::<usize>()
+                        .map_err(|_| connect_failure())?;
+                    if len > MAX_RESPONSE_BYTES {
+                        return Err(connect_failure());
+                    }
+                    expected_total = Some(header_end + 4 + len);
+                    break;
+                }
+            }
+        }
+    }
 
     let body = response_body(&response)?.to_vec();
     Ok((peer, port, body))

@@ -35,6 +35,23 @@ pub fn search_with_context(
         && !outcome.cancelled
         && outcome.skipped == 0
     {
+        if let Some(matcher) = plan::diacritic_matcher(args)? {
+            let fallback = plan::build_diacritic_fallback(project, args, matcher)?;
+            let first_started = outcome.started;
+            let first_bytes = outcome.bytes;
+            let first_visited = outcome.visited;
+            outcome = scan::execute(project, args, &context, fallback)?;
+            outcome.started = first_started;
+            outcome.bytes += first_bytes;
+            outcome.visited += first_visited;
+        }
+    }
+    if outcome.all.is_empty()
+        && !outcome.bounded
+        && !outcome.timed_out
+        && !outcome.cancelled
+        && outcome.skipped == 0
+    {
         if let Some(matcher) = ranking::fallback_matcher(args)? {
             let fallback = plan::build_fallback(project, args, matcher)?;
             let first_started = outcome.started;
