@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "title": "Mapa del proyecto Harness",
+  "date": "2026-10-28",
+  "root": "E:/harness_mix",
+  "head": "f738853aaf1980e7b0ea1b944fdfaa4512918e04",
+  "workingTree": "Incluye cambios locales de browser sin commit; el mapa describe el código fuente, no el servidor instalado.",
+  "scope": "Paquetes propios del workspace y dependencias internas directas declaradas en Cargo. No es inventario completo de símbolos ni prueba de comportamiento.",
+  "graphEvidence": "Cargo.toml; flecha A -> B significa A declara dependencia directa de B.",
+  "index": {
+    "freshness": "not_certified",
+    "observedFiles": "matches_observed_files",
+    "reindexed": false,
+    "limitations": "Explore fue acotado a main; su traza genérica entre capas no se usa para inferir arquitectura Rust."
+  },
+  "nodes": [
+    {
+      "id": "host",
+      "name": "agent-harness",
+      "path": ".",
+      "description": "Ejecutables, composición y adaptadores nativos de archivos, índices, bases de datos y verificación.",
+      "evidence": "Cargo.toml",
+      "hash": "73876e9b75e14f8d62873817476e88d39d4173fab5fd5b5758c38c1fb23ee312",
+      "dependsOn": [
+        "domain",
+        "application",
+        "browser",
+        "mcp",
+        "cli",
+        "config",
+        "skills",
+        "jobs"
+      ],
+      "optionalDependencies": [
+        "browser"
+      ]
+    },
+    {
+      "id": "domain",
+      "name": "harness-domain",
+      "path": "crates/domain",
+      "description": "Contratos independientes del transporte, hashes y políticas de resultados.",
+      "evidence": "crates/domain/Cargo.toml",
+      "hash": "be95ce2978a5c3a27cf316b6728df9e585a1ed11b0e40cc2376fe16ff05716b5",
+      "dependsOn": []
+    },
+    {
+      "id": "application",
+      "name": "harness-application",
+      "path": "crates/application",
+      "description": "Orquestación de casos de uso, sesiones, admisión y puertos.",
+      "evidence": "crates/application/Cargo.toml",
+      "hash": "9472b1189e4549f569c675f7f70764cda4de96897703b43d872e78ed4a32fc98",
+      "dependsOn": [
+        "domain"
+      ]
+    },
+    {
+      "id": "browser",
+      "name": "harness-browser",
+      "path": "crates/browser",
+      "description": "Adaptador Chromium/CDP y casos de uso de inspección e interacción.",
+      "evidence": "crates/browser/Cargo.toml",
+      "hash": "4e2b08dcab06e836e16df59a359211f28b029b50140d796a9e989dd478e64b26",
+      "dependsOn": [
+        "application",
+        "domain"
+      ]
+    },
+    {
+      "id": "mcp",
+      "name": "harness-mcp",
+      "path": "crates/mcp",
+      "description": "Transporte MCP, catálogo, presentación, cancelación y límites de operaciones.",
+      "evidence": "crates/mcp/Cargo.toml",
+      "hash": "e99a76bfd48d2c8ae0f0387ef49ff5bb48b6ebfbf824bc7ea9c56d782dedbe1b",
+      "dependsOn": [
+        "application",
+        "domain"
+      ]
+    },
+    {
+      "id": "cli",
+      "name": "harness-cli",
+      "path": "crates/cli",
+      "description": "Comandos, argumentos, despacho y flujos de terminal interactiva.",
+      "evidence": "crates/cli/Cargo.toml",
+      "hash": "0a4260fcd71f7107b0130f625b6d26133c34a3f8e5bb04ecb67b13f5de34f390",
+      "dependsOn": [
+        "domain",
+        "application",
+        "skills"
+      ]
+    },
+    {
+      "id": "config",
+      "name": "harness-config",
+      "path": "crates/config",
+      "description": "Configuración del runtime a partir de valores y entorno.",
+      "evidence": "crates/config/Cargo.toml",
+      "hash": "02b698f630f6b702af06c407a787c81bd7e34b74e4d5f134d7de6e9cb3298b19",
+      "dependsOn": [
+        "domain"
+      ]
+    },
+    {
+      "id": "skills",
+      "name": "harness-skills",
+      "path": "crates/skills",
+      "description": "Catálogo embebido y sincronización de skills con control de propiedad.",
+      "evidence": "crates/skills/Cargo.toml",
+      "hash": "98af1e701bb7884c315337550cac35dc4e5677747bdf6776da723a72da7d15e2",
+      "dependsOn": [
+        "domain"
+      ]
+    },
+    {
+      "id": "jobs",
+      "name": "harness-jobs",
+      "path": "crates/jobs",
+      "description": "Trabajos de verificación persistentes: admisión, ejecución y observación.",
+      "evidence": "crates/jobs/Cargo.toml",
+      "hash": "f916ba210446e07eebdebd1d40d829cf352c3722bf4616593224b3a893a33032",
+      "dependsOn": [
+        "application",
+        "domain"
+      ]
+    }
+  ],
+  "manifestSources": [
+    {
+      "path": "crates/domain/Cargo.toml",
+      "sha256": "be95ce2978a5c3a27cf316b6728df9e585a1ed11b0e40cc2376fe16ff05716b5",
+      "text": "[package]\r\nname = \"harness-domain\"\r\nversion = \"0.1.0\"\r\nedition = \"2024\"\r\nrust-version = \"1.99\"\r\npublish = false\r\n\r\n[features]\r\nschema = [\"dep:schemars\"]\r\n\r\n[dependencies]\r\nencoding_rs = \"0.8.42\"\r\naho-corasick = \"=1.1.5\"\r\nserde = { version = \"1\", features = [\"derive\"] }\r\nserde_json = \"1\"\r\nsha2 = \"0.10\"\r\nuuid = { version = \"1\", features = [\"v4\"] }\r\nschemars = { version = \"1\", optional = true }\r\n",
+      "returnedTextSha256": "be95ce2978a5c3a27cf316b6728df9e585a1ed11b0e40cc2376fe16ff05716b5",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/application/Cargo.toml",
+      "sha256": "9472b1189e4549f569c675f7f70764cda4de96897703b43d872e78ed4a32fc98",
+      "text": "[package]\r\nname = \"harness-application\"\r\nversion = \"0.1.0\"\r\nedition = \"2024\"\r\nrust-version = \"1.99\"\r\npublish = false\r\n\r\n[dependencies]\r\nharness-domain = { path = \"../domain\" }\r\nserde_json = \"1\"\r\n",
+      "returnedTextSha256": "9472b1189e4549f569c675f7f70764cda4de96897703b43d872e78ed4a32fc98",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/browser/Cargo.toml",
+      "sha256": "4e2b08dcab06e836e16df59a359211f28b029b50140d796a9e989dd478e64b26",
+      "text": "[package]\r\nname = \"harness-browser\"\r\nversion = \"0.1.0\"\r\nedition = \"2024\"\r\nrust-version = \"1.99\"\r\npublish = false\r\n\r\n[dependencies]\r\nbase64 = \"=0.22.1\"\r\nchromiumoxide = { version = \"=0.9.1\", default-features = false }\r\nfutures-util = \"0.3\"\r\nharness-application = { path = \"../application\" }\r\nharness-domain = { path = \"../domain\" }\r\nserde = { version = \"1\", features = [\"derive\"] }\r\nserde_json = \"1\"\r\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"time\", \"sync\", \"net\", \"io-util\", \"macros\"] }\r\nurl = \"2\"\r\nuuid = { version = \"1\", features = [\"v4\"] }\r\n",
+      "returnedTextSha256": "4e2b08dcab06e836e16df59a359211f28b029b50140d796a9e989dd478e64b26",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/mcp/Cargo.toml",
+      "sha256": "e99a76bfd48d2c8ae0f0387ef49ff5bb48b6ebfbf824bc7ea9c56d782dedbe1b",
+      "text": "[package]\nname = \"harness-mcp\"\nversion = \"0.8.9\"\nedition = \"2024\"\nrust-version = \"1.99\"\npublish = false\n\n[dependencies]\nharness-application = { path = \"../application\" }\nharness-domain = { path = \"../domain\", features = [\"schema\"] }\nrmcp = { version = \"=3.5.1\", default-features = false, features = [\"server\", \"macros\"] }\nserde_json = \"1\"\ntokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\", \"sync\", \"io-util\"] }\n",
+      "returnedTextSha256": "e99a76bfd48d2c8ae0f0387ef49ff5bb48b6ebfbf824bc7ea9c56d782dedbe1b",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/cli/Cargo.toml",
+      "sha256": "0a4260fcd71f7107b0130f625b6d26133c34a3f8e5bb04ecb67b13f5de34f390",
+      "text": "[package]\r\nname = \"harness-cli\"\r\nversion = \"0.1.0\"\r\nedition = \"2024\"\r\nrust-version = \"1.99\"\r\npublish = false\r\n\r\n[dependencies]\r\nharness-domain = { path = \"../domain\" }\r\nharness-application = { path = \"../application\" }\r\nharness-skills = { path = \"../skills\" }\r\nserde = { version = \"1\", features = [\"derive\"] }\r\nserde_json = \"1\"\r\nfutures-util = { version = \"0.3\", features = [\"io\"] }\r\ntokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\", \"sync\", \"io-util\", \"io-std\", \"process\", \"signal\"] }\r\nrustyline-async = { path = \"../../vendor/rustyline-async\" }\r\ntermimad = \"=0.35.4\"\r\nimage = { version = \"=0.25.8\", default-features = false, features = [\"bmp\", \"png\"] }\r\n\r\n[target.'cfg(windows)'.dependencies]\r\nwindows = { version = \"=0.62.2\", features = [\"Win32_Foundation\", \"Win32_System_DataExchange\", \"Win32_System_Memory\"] }\r\n\r\n[dev-dependencies]\r\nregex = \"1\"\r\ntempfile = \"3\"\r\n",
+      "returnedTextSha256": "a5ed7cea7bc8eb1a6e5efb6bc6f359eb7e16e3b6b1e087d696849e1da190816b",
+      "byteRoundTripVerified": false
+    },
+    {
+      "path": "crates/config/Cargo.toml",
+      "sha256": "02b698f630f6b702af06c407a787c81bd7e34b74e4d5f134d7de6e9cb3298b19",
+      "text": "[package]\nname = \"harness-config\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.99\"\npublish = false\n\n[dependencies]\nharness-domain = { path = \"../domain\" }\n",
+      "returnedTextSha256": "02b698f630f6b702af06c407a787c81bd7e34b74e4d5f134d7de6e9cb3298b19",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/skills/Cargo.toml",
+      "sha256": "98af1e701bb7884c315337550cac35dc4e5677747bdf6776da723a72da7d15e2",
+      "text": "[package]\nname = \"harness-skills\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.99\"\npublish = false\n\n[dependencies]\nharness-domain = { path = \"../domain\", features = [\"schema\"] }\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\ntoml_edit = \"=0.25.14\"\nuuid = { version = \"1\", features = [\"v4\"] }\n\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n\n[dev-dependencies]\ntempfile = \"3\"\n",
+      "returnedTextSha256": "98af1e701bb7884c315337550cac35dc4e5677747bdf6776da723a72da7d15e2",
+      "byteRoundTripVerified": true
+    },
+    {
+      "path": "crates/jobs/Cargo.toml",
+      "sha256": "f916ba210446e07eebdebd1d40d829cf352c3722bf4616593224b3a893a33032",
+      "text": "[package]\nname = \"harness-jobs\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.99\"\npublish = false\n\n[dependencies]\nharness-application = { path = \"../application\" }\nharness-domain = { path = \"../domain\", features = [\"schema\"] }\nserde_json = \"1\"\ntokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\", \"sync\"] }\nuuid = { version = \"1\", features = [\"v4\"] }\nregex = \"1\"\nrusqlite = { version = \"=0.40.2\", features = [\"bundled\", \"hooks\", \"limits\"] }\n\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n\n[target.'cfg(windows)'.dependencies]\nwindows = { version = \"=0.62.2\", features = [\"Win32_Foundation\", \"Win32_Storage_FileSystem\"] }\n\n[dev-dependencies]\ntempfile = \"3\"\n",
+      "returnedTextSha256": "f916ba210446e07eebdebd1d40d829cf352c3722bf4616593224b3a893a33032",
+      "byteRoundTripVerified": true
+    }
+  ],
+  "onboarding": [
+    {
+      "task": "Cambiar parámetros o contratos de herramientas",
+      "start": "crates/domain/src",
+      "then": "crates/application y crates/mcp",
+      "check": "cargo test -p harness-domain --features schema"
+    },
+    {
+      "task": "Cambiar presentación o catálogo MCP",
+      "start": "crates/mcp/src",
+      "then": "crates/domain para contratos; host para composición",
+      "check": "cargo test -p harness-mcp"
+    },
+    {
+      "task": "Cambiar búsqueda, edición, parsing o índices",
+      "start": "src/adapters",
+      "then": "crates/application/src/ports y casos de uso",
+      "check": "Elegir tests de la capacidad en tests/; no reindexar sin autorización."
+    },
+    {
+      "task": "Cambiar interacción con navegador",
+      "start": "crates/browser/src",
+      "then": "crates/domain/src/browser.rs y crates/mcp/src/server.rs",
+      "check": "cargo test -p harness-browser; pruebas Chromium ignoradas requieren entorno real."
+    },
+    {
+      "task": "Cambiar trabajos de verificación",
+      "start": "crates/jobs/src",
+      "then": "Puertos de application y src/adapters/verification",
+      "check": "cargo test -p harness-jobs"
+    },
+    {
+      "task": "Cambiar comandos o terminal",
+      "start": "crates/cli/src",
+      "then": "src/cli.rs para el host",
+      "check": "cargo test -p harness-cli"
+    },
+    {
+      "task": "Cambiar distribución de skills",
+      "start": "crates/skills/src/catalog.rs",
+      "then": ".agents/skills y reglas de sincronización",
+      "check": "cargo test -p harness-skills"
+    }
+  ],
+  "unknowns": [
+    "No se trazaron todas las rutas de ejecución, macros ni invocaciones dinámicas.",
+    "No se verificaron despliegues ni configuración externa de clientes.",
+    "Las dependencias externas, vendor y experiments quedan fuera del diagrama interno.",
+    "No se ejecutan builds ni tests para generar este documento; los comandos son recomendaciones.",
+    "En crates/cli/Cargo.toml el hash de archivo informado por Harness difiere del texto retornado; se conservan ambos hashes y no se certifica equivalencia de bytes."
+  ],
+  "tools": [
+    [
+      "Harness MCP",
+      "Recuperar manifiestos, símbolos, relaciones y hashes."
+    ],
+    [
+      "Mermaid",
+      "Diagrama editable en Markdown, sin servicio externo."
+    ],
+    [
+      "curl / documentación web",
+      "Opcional, solo si una duda requiere fuentes externas; no usado aquí."
+    ]
+  ]
+}

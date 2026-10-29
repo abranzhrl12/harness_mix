@@ -1,9 +1,11 @@
 mod actor;
 mod cdp;
 mod connection;
-mod dispatch;
 mod discovery;
+mod dispatch;
 mod events;
 mod inspect;
 
 pub(crate) use cdp::CdpBrowserBackend;
+
+mod interaction;

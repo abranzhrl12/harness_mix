@@ -31,10 +31,7 @@ connected. Do not edit code until the task authorizes a fix.
    its URL/title.
 3. Query `errors` scoped to `targetId` and save `nextCursor`. Reproduce the
    affected route and interaction, including a page reload when the failure
-   occurs on initial load or hydration. `harness_browser` does not perform
-   arbitrary navigation, reloads, clicks, or script execution: ask the user to
-   trigger the action or use another available, authorized capability without
-   inventing parameters.
+   occurs on initial load or hydration. `harness_browser` supports `snapshot`, `click`, `fill`, and bounded `wait` for selectors. Use interactions only within the authorized task. It does not perform arbitrary navigation, reloads, or script execution; use another authorized capability for those actions.
 
 Event capture starts on attach; prior errors are not guaranteed to be present.
 Never conclude there are no errors unless the issue was reproduced while capture

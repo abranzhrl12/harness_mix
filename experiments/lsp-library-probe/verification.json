@@ -1,0 +1,65 @@
+{
+  "state": "ok",
+  "scope": {
+    "tool": "harness_verify",
+    "path": "experiments/lsp-library-probe",
+    "language": "rust"
+  },
+  "requestId": "92f89b1e-8c81-4030-9b37-1a18c2126353",
+  "data": {
+    "workspaceObservation": {
+      "status": "unknown",
+      "beforeError": "PATH",
+      "afterError": "PATH",
+      "coverage": {
+        "kind": "local_workspace_content_v2",
+        "excludedDirectories": [
+          "target",
+          "node_modules",
+          ".git",
+          ".hg",
+          ".svn",
+          ".agents/harness/.state",
+          ".agents/harness/logs",
+          ".agents/harness/native-logs",
+          ".agents/harness/jobs",
+          ".agents/harness/proposals"
+        ],
+        "externalDependenciesTracked": false,
+        "environmentTracked": false,
+        "current": null
+      }
+    },
+    "scope": "experiments/lsp-library-probe",
+    "action": "test",
+    "package": null,
+    "command": {
+      "program": "cargo",
+      "arguments": [
+        "test",
+        "--manifest-path",
+        "\\\\?\\E:\\harness_mix\\experiments\\lsp-library-probe\\Cargo.toml",
+        "--color",
+        "never"
+      ]
+    },
+    "code": 0,
+    "passed": true,
+    "validated": [
+      "cargo-test (experiments/lsp-library-probe: passed)"
+    ],
+    "milliseconds": 13012,
+    "limited": false,
+    "summary": "Verification PASSED: validated [cargo-test (experiments/lsp-library-probe: passed)]; pending [end-to-end-runtime-verification].",
+    "pending": [
+      "end-to-end-runtime-verification"
+    ],
+    "treeTerminationConfirmed": true,
+    "output": "\nrunning 2 tests\ntest serena_rs_resolves_go_definition_and_references ... ok\ntest serena_rs_resolves_rust_definition_and_references ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.75s\n\n\n   Compiling harness-lsp-library-probe v0.1.0 (E:\\harness_mix\\experiments\\lsp-library-probe)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.70s\n     Running tests\\navigation.rs (\\\\?\\E:\\harness_mix\\experiments\\lsp-library-probe\\target\\debug\\deps\\navigation-a9ab3ed0ae01d721.exe)\n2026-10-28T22:29:23.3089387-05:00  WARN notify error: Input watch path is neither a file nor a directory.\n2026-10-28T22:29:24.4395726-05:00  WARN notify error: Input watch path is neither a file nor a directory.\n",
+    "stdoutTail": "\nrunning 2 tests\ntest serena_rs_resolves_go_definition_and_references ... ok\ntest serena_rs_resolves_rust_definition_and_references ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.75s\n\n",
+    "stderrTail": "   Compiling harness-lsp-library-probe v0.1.0 (E:\\harness_mix\\experiments\\lsp-library-probe)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.70s\n     Running tests\\navigation.rs (\\\\?\\E:\\harness_mix\\experiments\\lsp-library-probe\\target\\debug\\deps\\navigation-a9ab3ed0ae01d721.exe)\n2026-10-28T22:29:23.3089387-05:00  WARN notify error: Input watch path is neither a file nor a directory.\n2026-10-28T22:29:24.4395726-05:00  WARN notify error: Input watch path is neither a file nor a directory.\n",
+    "complete": true,
+    "fastPerFile": false,
+    "verificationFreshness": "not_tracked"
+  }
+}

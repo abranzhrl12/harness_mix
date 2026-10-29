@@ -1,0 +1,75 @@
+{
+  "schema": "mcpls-core-probe-success-v1",
+  "sourceHash": "ff98a0ada94b10ba1d36ca9799786c1149cc1af5bc0424dd4661a00c1c691692",
+  "notes": [
+    "Harness workspaceObservation unknown/PATH and verificationFreshness not_tracked; result certifies this command on the current experimental sources only.",
+    "mcpls-core 0.3.8 completes handshake while client state remains Initializing; test uses bounded positive semantic queries, not that state as indexing readiness.",
+    "Fixtures: valid Cargo package with cross-module call; Go module with correct root. Location and LocationLink replies normalized; notification channel drained.",
+    "Codex harness_mix.tool_timeout_sec set to 3600. Existing MCP connection requires reconnection; no claim that live timeout changed."
+  ],
+  "result": {
+    "state": "ok",
+    "scope": {
+      "tool": "harness_verify",
+      "path": "experiments/mcpls-core-probe",
+      "language": "rust"
+    },
+    "requestId": "0298f8e2-5654-4ac2-bbc7-f38b0d9b4df3",
+    "data": {
+      "workspaceObservation": {
+        "status": "unknown",
+        "beforeError": "PATH",
+        "afterError": "PATH",
+        "coverage": {
+          "kind": "local_workspace_content_v2",
+          "excludedDirectories": [
+            "target",
+            "node_modules",
+            ".git",
+            ".hg",
+            ".svn",
+            ".agents/harness/.state",
+            ".agents/harness/logs",
+            ".agents/harness/native-logs",
+            ".agents/harness/jobs",
+            ".agents/harness/proposals"
+          ],
+          "externalDependenciesTracked": false,
+          "environmentTracked": false,
+          "current": null
+        }
+      },
+      "scope": "experiments/mcpls-core-probe",
+      "action": "test",
+      "package": null,
+      "command": {
+        "program": "cargo",
+        "arguments": [
+          "test",
+          "--manifest-path",
+          "\\\\?\\E:\\harness_mix\\experiments\\mcpls-core-probe\\Cargo.toml",
+          "--color",
+          "never"
+        ]
+      },
+      "code": 0,
+      "passed": true,
+      "validated": [
+        "cargo-test (experiments/mcpls-core-probe: passed)"
+      ],
+      "milliseconds": 11535,
+      "limited": false,
+      "summary": "Verification PASSED: validated [cargo-test (experiments/mcpls-core-probe: passed)]; pending [end-to-end-runtime-verification].",
+      "pending": [
+        "end-to-end-runtime-verification"
+      ],
+      "treeTerminationConfirmed": true,
+      "output": "\nrunning 2 tests\ntest tests::gopls_definition_and_references ... ok\ntest tests::rust_analyzer_definition_and_references ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.13s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\n   Compiling mcpls-core-probe v0.1.0 (E:\\harness_mix\\experiments\\mcpls-core-probe)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.65s\n     Running unittests src\\lib.rs (\\\\?\\E:\\harness_mix\\experiments\\mcpls-core-probe\\target\\debug\\deps\\mcpls_core_probe-3908d92a8ba012ba.exe)\n   Doc-tests mcpls_core_probe\n",
+      "stdoutTail": "\nrunning 2 tests\ntest tests::gopls_definition_and_references ... ok\ntest tests::rust_analyzer_definition_and_references ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.13s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderrTail": "   Compiling mcpls-core-probe v0.1.0 (E:\\harness_mix\\experiments\\mcpls-core-probe)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.65s\n     Running unittests src\\lib.rs (\\\\?\\E:\\harness_mix\\experiments\\mcpls-core-probe\\target\\debug\\deps\\mcpls_core_probe-3908d92a8ba012ba.exe)\n   Doc-tests mcpls_core_probe\n",
+      "complete": true,
+      "fastPerFile": false,
+      "verificationFreshness": "not_tracked"
+    }
+  }
+}

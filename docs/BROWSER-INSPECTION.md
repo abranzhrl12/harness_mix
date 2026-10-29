@@ -39,3 +39,9 @@ cargo build -p agent-harness --no-default-features --features browser-cdp --rele
 ```
 
 The workspace includes the `harness-browser` crate even when the executable feature is disabled. Run its tests in isolation with `cargo test -p harness-browser`; `cargo test --workspace` includes the crate's tests as well. The feature controls whether the CDP backend is included; it does not imply that Chromium is running or reachable, and no runtime speed improvement is promised. Bootstrap reports whether the backend was compiled, not whether a browser connection was probed.
+
+## Interactions
+
+Use `snapshot` with `connectionId`, `targetId`, and optional `limit` (1..100, default 50) to list interactive elements. Each entry has a CSS selector, tag, heuristic role and name, visibility and disabled state. Names are approximations from aria-label, aria-labelledby, labels, title, placeholder or text, not the browser accessibility tree. `truncated` reports omitted elements or shortened names; selectors describe the current DOM and can become stale. Input values are not returned.
+
+`click` takes `selector`; `fill` takes `selector` and `value` and supports text-like inputs, textareas and contenteditable elements, emitting bubbling input and change events. These actions modify the page. `click` invokes the DOM click method even for hidden elements, without scrolling or hit testing; it does not synthesize trusted pointer events. Native disabled elements are rejected. `wait` takes `selector`, optional `state` (`present`, `visible`, or `hidden`; default `visible`) and `timeoutMs` (1..15000, default 5000). Hidden includes an absent element. Visibility is based on layout and CSS visibility, not occlusion. Selectors are limited to 4096 bytes and fill values to 100000 bytes. All actions use the same session and target ownership as inspection.

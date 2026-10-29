@@ -164,7 +164,7 @@ where
         self.call(Request::Config(args), context).await
     }
     #[tool(
-        description = "Conecta o inspecciona un navegador Chromium: action=connect|targets|attach|inspect|errors|screenshot|disconnect. connect acepta http://localhost:9222 (descubre /json/version) o WebSocket CDP directo ws://loopback:puerto/devtools/browser/.... Ejemplo: {\"action\":\"connect\",\"endpoint\":\"http://localhost:9222\",\"session\":\"<data.session>\"}. El navegador debe estar ejecutándose con depuración remota; solo loopback, sin redirects. Devuelve errores de consola/red, DOM y medidas del elemento seleccionado."
+        description = "Conecta o inspecciona un navegador Chromium: action=connect|discover|targets|attach|inspect|snapshot|click|fill|wait|errors|screenshot|disconnect. connect acepta http://localhost:9222 (descubre /json/version) o WebSocket CDP directo ws://loopback:puerto/devtools/browser/.... Ejemplo: {\"action\":\"connect\",\"endpoint\":\"http://localhost:9222\",\"session\":\"<data.session>\"}. El navegador debe estar ejecutándose con depuración remota; solo loopback, sin redirects. snapshot devuelve controles interactivos acotados; click y fill modifican la pagina, wait espera un selector. Devuelve errores de consola/red, DOM y medidas del elemento seleccionado."
     )]
     async fn harness_browser(
         &self,

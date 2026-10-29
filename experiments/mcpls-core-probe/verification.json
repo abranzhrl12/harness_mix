@@ -1,0 +1,50 @@
+{
+  "schema": "mcpls-core-probe-verification-v1",
+  "workspaceRoot": "E:\\harness_mix",
+  "harness": {
+    "tool": "harness_verify",
+    "request": {
+      "language": "rust",
+      "action": "test",
+      "scope": "experiments/mcpls-core-probe",
+      "timeoutSeconds": 900,
+      "session": "be9d6a2b-aa74-4a61-817d-42f5acd65664"
+    },
+    "rpcOutcome": "Client call timed out awaiting tools/call after 300s. harness_doctor logs subsequently showed the verification worker had completed at 303.041361s with VERIFY_FAILED.",
+    "workerOutcome": {
+      "state": "error",
+      "code": "VERIFY_FAILED",
+      "command": "cargo test --manifest-path \\\\?\\E:\\harness_mix\\experiments\\mcpls-core-probe\\Cargo.toml --color never",
+      "compile": "Finished test profile successfully; mcpls-core v0.3.8 and mcpls-core-probe compiled.",
+      "durationSeconds": 303.041361,
+      "stdoutTail": "running 2 tests\ntest tests::gopls_definition_and_references ... FAILED\ntest tests::rust_analyzer_definition_and_references has been running for over 60 seconds\ntest tests::rust_analyzer_definition_and_references ... FAILED\n\nfailures:\n\n---- tests::gopls_definition_and_references stdout ----\nthread 'tests::gopls_definition_and_references' panicked at src\\lib.rs:121:9:\nassertion `left == right` failed\n  left: Number(2)\n right: 0\n\n---- tests::rust_analyzer_definition_and_references stdout ----\nthread 'tests::rust_analyzer_definition_and_references' panicked at src\\lib.rs:117:13:\nrust definition not ready; last response: []\n\ntest result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 180.23s",
+      "stderrTailNotice": "Harness doctor returned a bounded stderrTail ending after the dependency compilation sequence and cargo test failure notice; the complete raw stderr was not available in the doctor response."
+    },
+    "diagnosis": {
+      "go": "The test incorrectly asserted that Go's definition begins on line 0; its fixture declaration is on line 2.",
+      "rust": "The caller query column 17 was after the marker identifier, producing empty definition results.",
+      "appliedCorrections": "Changed caller query positions to the identifier and asserted each language's expected target line and column."
+    },
+    "postCorrectionStatus": "Pending: no equivalent verify retry after Harness transport timeout. Corrected test source has Harness syntax validation only; runtime behavior is not verified.",
+    "correctedSourceHash": "678c833b7254eb94a7df60d99278bb219e8d41ca10dc08ebdebf89cab8b405c4",
+    "postCorrectionSyntaxCheck": {
+      "tool": "harness_doctor",
+      "action": "syntax",
+      "status": "no_errors_in_checked_scope",
+      "complete": true,
+      "errors": 0,
+      "coverage": "Syntax only; no type checking, lint, or semantic analysis."
+    },
+    "directDependencyAddedAfterFailure": "futures 0.3 for catch_unwind cleanup; existing lockfile dependency entries were updated to include it.",
+    "harnessDiagnostics": {
+      "tool": "harness_doctor",
+      "action": "process",
+      "observed": "persistenceError TASK_STORE_BUSY (another background job writer owns the project); no runs listed."
+    },
+    "freshness": {
+      "verificationFreshness": "not available in returned diagnostic data",
+      "workspaceObservation": "not available in returned diagnostic data",
+      "omissions": "Result recovered from bounded native doctor log history, not from the original full verify response."
+    }
+  }
+}

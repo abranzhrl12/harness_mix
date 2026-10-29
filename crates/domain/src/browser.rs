@@ -37,10 +37,7 @@ pub enum BrowserArgs {
     Discover {
         /// Optional CDP endpoint or `"auto"` / `"localhost"` to probe local debugging ports
         /// and `DevToolsActivePort` files.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none"
-        )]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         endpoint: Option<String>,
         /// Optional tab selector (URL substring, port, title, or targetId) to rank and
         /// highlight the best matching tab.
@@ -74,7 +71,12 @@ pub enum BrowserArgs {
         #[serde(rename = "connectionId")]
         connection_id: String,
         /// Target ID, `"auto"` / `"localhost"`, or a URL/port/title filter to select and attach.
-        #[serde(rename = "targetId", alias = "tab", alias = "target", alias = "urlFilter")]
+        #[serde(
+            rename = "targetId",
+            alias = "tab",
+            alias = "target",
+            alias = "urlFilter"
+        )]
         target_id: String,
         session: Option<String>,
     },
@@ -87,6 +89,42 @@ pub enum BrowserArgs {
         #[serde(rename = "maxChars")]
         #[cfg_attr(feature = "schema", schemars(extend("maximum" = 100000)))]
         max_chars: Option<u32>,
+        session: Option<String>,
+    },
+    Click {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        #[serde(rename = "targetId")]
+        target_id: String,
+        selector: String,
+        session: Option<String>,
+    },
+    Fill {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        #[serde(rename = "targetId")]
+        target_id: String,
+        selector: String,
+        value: String,
+        session: Option<String>,
+    },
+    Wait {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        #[serde(rename = "targetId")]
+        target_id: String,
+        selector: String,
+        state: Option<BrowserWaitState>,
+        #[serde(rename = "timeoutMs")]
+        timeout_ms: Option<u32>,
+        session: Option<String>,
+    },
+    Snapshot {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        #[serde(rename = "targetId")]
+        target_id: String,
+        limit: Option<u32>,
         session: Option<String>,
     },
     Errors {
@@ -131,6 +169,10 @@ impl BrowserArgs {
             | Self::Targets { session, .. }
             | Self::Attach { session, .. }
             | Self::Inspect { session, .. }
+            | Self::Click { session, .. }
+            | Self::Fill { session, .. }
+            | Self::Wait { session, .. }
+            | Self::Snapshot { session, .. }
             | Self::Errors { session, .. }
             | Self::Screenshot { session, .. }
             | Self::Disconnect { session, .. } => *session = Some(resolved_session),
@@ -144,6 +186,10 @@ impl BrowserArgs {
             | Self::Targets { session, .. }
             | Self::Attach { session, .. }
             | Self::Inspect { session, .. }
+            | Self::Click { session, .. }
+            | Self::Fill { session, .. }
+            | Self::Wait { session, .. }
+            | Self::Snapshot { session, .. }
             | Self::Errors { session, .. }
             | Self::Screenshot { session, .. }
             | Self::Disconnect { session, .. } => session.as_deref(),
@@ -153,9 +199,23 @@ impl BrowserArgs {
     pub fn is_mutating(&self) -> bool {
         matches!(
             self,
-            Self::Connect { .. } | Self::Attach { .. } | Self::Disconnect { .. }
+            Self::Connect { .. }
+                | Self::Attach { .. }
+                | Self::Disconnect { .. }
+                | Self::Click { .. }
+                | Self::Fill { .. }
         )
     }
+}
+
+/// Wait condition: present in the DOM, visible, or absent/hidden.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserWaitState {
+    Present,
+    Visible,
+    Hidden,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,6 +274,13 @@ pub enum BrowserResult {
     Inspected {
         snapshot: BrowserElementSnapshot,
     },
+    Clicked {},
+    Filled {},
+    Waited {},
+    Snapshot {
+        elements: Vec<BrowserInteractiveElement>,
+        truncated: bool,
+    },
     Errors {
         events: Vec<BrowserEventRecord>,
         #[serde(rename = "nextCursor")]
@@ -266,6 +333,16 @@ impl BrowserTarget {
             is_localhost,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserInteractiveElement {
+    pub selector: String,
+    pub tag: String,
+    pub role: String,
+    pub name: String,
+    pub visible: bool,
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -338,9 +415,14 @@ mod tests {
         let schema = serde_json::to_value(schemars::schema_for!(BrowserArgs)).unwrap();
         assert_eq!(schema["type"], "object", "{schema}");
         assert!(schema["oneOf"].is_array(), "{schema}");
-        assert!(schema["oneOf"].as_array().unwrap().iter().all(|variant| {
-            variant["properties"]["action"]["type"] == "string"
-        }), "{schema}");
+        assert!(
+            schema["oneOf"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|variant| { variant["properties"]["action"]["type"] == "string" }),
+            "{schema}"
+        );
     }
 
     #[test]
@@ -417,6 +499,48 @@ mod tests {
             serde_json::json!({"action":"disconnect"}),
         ] {
             assert!(serde_json::from_value::<BrowserArgs>(value).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod interaction_contract_tests {
+    use super::BrowserArgs;
+    #[cfg(feature = "schema")]
+    #[test]
+    fn schema_exposes_interaction_actions() {
+        let schema = serde_json::to_value(schemars::schema_for!(BrowserArgs)).unwrap();
+        let variants = schema["oneOf"].as_array().unwrap();
+        for action in ["click", "fill", "wait", "snapshot"] {
+            assert!(variants.iter().any(|v| v["properties"]["action"]["const"] == action), "missing {action}: {schema}");
+        }
+    }
+
+    #[test]
+    fn interaction_actions_accept_requests_and_mark_writes() {
+        for (action, extra, mutating) in [
+            ("click", serde_json::json!({"selector":"#save"}), true),
+            (
+                "fill",
+                serde_json::json!({"selector":"#name", "value":"Ada"}),
+                true,
+            ),
+            (
+                "wait",
+                serde_json::json!({"selector":"#save", "state":"visible", "timeoutMs":500}),
+                false,
+            ),
+            ("snapshot", serde_json::json!({"limit":10}), false),
+        ] {
+            let mut value = serde_json::json!({"action": action, "connectionId":"c", "targetId":"t", "session":"s"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let mut args: BrowserArgs = serde_json::from_value(value).unwrap();
+            assert_eq!(args.is_mutating(), mutating);
+            args.with_session("resolved".into());
+            assert_eq!(args.session(), Some("resolved"));
         }
     }
 }

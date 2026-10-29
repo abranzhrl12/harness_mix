@@ -104,7 +104,10 @@ pub(crate) fn parse_connect_input(
                 if STANDARD_CDP_PORTS.contains(&port) {
                     return Ok((Some(format!("http://127.0.0.1:{port}")), explicit_tab));
                 }
-                return Ok((None, Some(explicit_tab.unwrap_or_else(|| trimmed.to_owned()))));
+                return Ok((
+                    None,
+                    Some(explicit_tab.unwrap_or_else(|| trimmed.to_owned())),
+                ));
             }
         }
     }
@@ -130,14 +133,14 @@ pub(crate) fn parse_connect_input(
             {
                 if let Some(port) = url.port() {
                     if STANDARD_CDP_PORTS.contains(&port)
-                        && matches!(url.path(), "" | "/" | "/json/version" | "/json" | "/json/list")
+                        && matches!(
+                            url.path(),
+                            "" | "/" | "/json/version" | "/json" | "/json/list"
+                        )
                         && url.query().is_none()
                         && url.fragment().is_none()
                     {
-                        return Ok((
-                            Some(format!("http://{host}:{port}")),
-                            explicit_tab,
-                        ));
+                        return Ok((Some(format!("http://{host}:{port}")), explicit_tab));
                     }
                     // Localhost app URL/port shorthand like `localhost:5173/dashboard`
                     return Ok((
@@ -213,7 +216,11 @@ pub(crate) fn validate_request(args: &BrowserArgs) -> Result<(), Failure> {
                 "El endpoint excede 4096 bytes",
             )?;
             if let Some(tab) = tab {
-                bounded(tab, MAX_ARGUMENT_BYTES, "El filtro de pestaña excede 256 bytes")?;
+                bounded(
+                    tab,
+                    MAX_ARGUMENT_BYTES,
+                    "El filtro de pestaña excede 256 bytes",
+                )?;
             }
             validate_connect_endpoint(endpoint)?;
         }
@@ -232,7 +239,11 @@ pub(crate) fn validate_request(args: &BrowserArgs) -> Result<(), Failure> {
                 validate_connect_endpoint(endpoint)?;
             }
             if let Some(tab) = tab {
-                bounded(tab, MAX_ARGUMENT_BYTES, "El filtro de pestaña excede 256 bytes")?;
+                bounded(
+                    tab,
+                    MAX_ARGUMENT_BYTES,
+                    "El filtro de pestaña excede 256 bytes",
+                )?;
             }
         }
         BrowserArgs::Targets {
@@ -243,7 +254,11 @@ pub(crate) fn validate_request(args: &BrowserArgs) -> Result<(), Failure> {
             validate_session(session.as_deref())?;
             validate_ids(connection_id, None)?;
             if let Some(tab) = tab {
-                bounded(tab, MAX_ARGUMENT_BYTES, "El filtro de pestaña excede 256 bytes")?;
+                bounded(
+                    tab,
+                    MAX_ARGUMENT_BYTES,
+                    "El filtro de pestaña excede 256 bytes",
+                )?;
             }
         }
         BrowserArgs::Disconnect {
@@ -279,6 +294,61 @@ pub(crate) fn validate_request(args: &BrowserArgs) -> Result<(), Failure> {
             }
             if max_chars.is_some_and(|value| !(1..=MAX_HTML_CHARS as u32).contains(&value)) {
                 return Err(("ARGUMENT", "maxChars debe estar entre 1 y 100000"));
+            }
+        }
+        BrowserArgs::Click {
+            connection_id,
+            target_id,
+            selector,
+            session,
+        }
+        | BrowserArgs::Fill {
+            connection_id,
+            target_id,
+            selector,
+            session,
+            ..
+        }
+        | BrowserArgs::Wait {
+            connection_id,
+            target_id,
+            selector,
+            session,
+            ..
+        } => {
+            validate_session(session.as_deref())?;
+            validate_ids(connection_id, Some(target_id))?;
+            if selector.trim().is_empty() {
+                return Err(("ARGUMENT", "selector no puede estar vacío"));
+            }
+            bounded(
+                selector,
+                MAX_SELECTOR_BYTES,
+                "El selector excede 4096 bytes",
+            )?;
+            if let BrowserArgs::Fill { value, .. } = args {
+                bounded(value, MAX_HTML_CHARS, "value excede 100000 bytes")?;
+            }
+            if let BrowserArgs::Wait {
+                timeout_ms: Some(ms),
+                ..
+            } = args
+            {
+                if !(1..=15000).contains(ms) {
+                    return Err(("ARGUMENT", "timeoutMs debe estar entre 1 y 15000"));
+                }
+            }
+        }
+        BrowserArgs::Snapshot {
+            connection_id,
+            target_id,
+            limit,
+            session,
+        } => {
+            validate_session(session.as_deref())?;
+            validate_ids(connection_id, Some(target_id))?;
+            if limit.is_some_and(|n| !(1..=100).contains(&n)) {
+                return Err(("ARGUMENT", "limit debe estar entre 1 y 100"));
             }
         }
         BrowserArgs::Errors {
@@ -362,6 +432,21 @@ mod tests {
     }
 
     #[test]
+    fn interaction_request_bounds_reject_invalid_inputs() {
+        for value in [
+            serde_json::json!({"action":"click","connectionId":"c","targetId":"t","session":"s","selector":""}),
+            serde_json::json!({"action":"fill","connectionId":"c","targetId":"t","session":"s","selector":"#x","value":"x".repeat(100001)}),
+            serde_json::json!({"action":"wait","connectionId":"c","targetId":"t","session":"s","selector":"#x","timeoutMs":15001}),
+            serde_json::json!({"action":"snapshot","connectionId":"c","targetId":"t","session":"s","limit":101}),
+            serde_json::json!({"action":"snapshot","connectionId":"c","targetId":"t","session":"s","limit":0}),
+            serde_json::json!({"action":"wait","connectionId":"c","targetId":"t","session":"s","selector":"#x","timeoutMs":0}),
+        ] {
+            let args = serde_json::from_value(value).unwrap();
+            assert_eq!(validate_request(&args).unwrap_err().0, "ARGUMENT");
+        }
+    }
+
+    #[test]
     fn endpoint_policy_accepts_only_local_browser_websockets() {
         assert!(validate_endpoint("ws://localhost:9222/devtools/browser/abc").is_ok());
         assert!(validate_endpoint("ws://127.0.0.1:9222/devtools/browser/abc").is_ok());
@@ -400,10 +485,7 @@ mod tests {
 
     #[test]
     fn parse_connect_input_distinguishes_cdp_endpoints_from_tab_filters() {
-        assert_eq!(
-            parse_connect_input("auto", None).unwrap(),
-            (None, None)
-        );
+        assert_eq!(parse_connect_input("auto", None).unwrap(), (None, None));
         assert_eq!(
             parse_connect_input("localhost:5173", None).unwrap(),
             (None, Some("localhost:5173".into()))

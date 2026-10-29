@@ -1,5 +1,7 @@
 # Agent Harness
 
+Para orientarte en este repositorio, consulta la sección relevante del [mapa del proyecto](PROJECT_MAP.md). Usa la [skill project-map](docs/project-map/skill/SKILL.md) cuando necesites ampliar o actualizar el mapa; no hace falta cargarla completa para cada tarea.
+
 Servidor MCP nativo en Rust para investigar, leer, editar y verificar proyectos. La distribución preparada es Windows x64. El ejecutable directo no necesita Node; la instalación npm utiliza un lanzador Node.
 
 ## Instalación rápida

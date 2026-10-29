@@ -26,7 +26,7 @@ use crate::{
     infrastructure::{
         cdp::{MAX_ATTACHED_PAGES, MAX_CONNECTIONS, MAX_TARGETS},
         connection::{BrowserConnection, owned_connection, owned_connection_mut, owned_page},
-        discovery, events, inspect,
+        discovery, events, inspect, interaction,
     },
 };
 
@@ -75,12 +75,13 @@ pub(super) async fn dispatch(
             }
             let discovered = discovery::discover_session(Some(&endpoint), tab.as_deref()).await?;
             let ws_endpoint = discovered.ws_endpoint.clone();
-            let (browser, mut handler) = Browser::connect(ws_endpoint.clone()).await.map_err(|_| {
-                (
-                    "BROWSER_CONNECT",
-                    "No se pudo conectar al endpoint CDP local",
-                )
-            })?;
+            let (browser, mut handler) =
+                Browser::connect(ws_endpoint.clone()).await.map_err(|_| {
+                    (
+                        "BROWSER_CONNECT",
+                        "No se pudo conectar al endpoint CDP local",
+                    )
+                })?;
             let handler_task = tokio::spawn(async move {
                 while let Some(message) = handler.next().await {
                     if message.is_err() {
@@ -108,11 +109,8 @@ pub(super) async fn dispatch(
                 available_tabs = discovered.targets;
             }
 
-            let candidate_tab = select_target(
-                &available_tabs,
-                discovered.effective_tab_filter.as_deref(),
-            )
-            .cloned();
+            let candidate_tab =
+                select_target(&available_tabs, discovered.effective_tab_filter.as_deref()).cloned();
 
             let mut selected_tab = None;
             if let Some(target) = candidate_tab {
@@ -207,6 +205,92 @@ pub(super) async fn dispatch(
             let snapshot = inspect::inspect_page(page, selector.as_deref(), limit).await?;
             Ok(BrowserResult::Inspected { snapshot })
         }
+        BrowserArgs::Click {
+            connection_id,
+            target_id,
+            selector,
+            session,
+        } => {
+            let owner = required_session(session)?;
+            let id = ensure_target_attached(
+                owned_connection_mut(connections, &connection_id, &owner)?,
+                &target_id,
+            )
+            .await?;
+            interaction::click(
+                owned_page(connections, &connection_id, &id, &owner)?,
+                &selector,
+            )
+            .await?;
+            Ok(BrowserResult::Clicked {})
+        }
+        BrowserArgs::Fill {
+            connection_id,
+            target_id,
+            selector,
+            value,
+            session,
+        } => {
+            let owner = required_session(session)?;
+            let id = ensure_target_attached(
+                owned_connection_mut(connections, &connection_id, &owner)?,
+                &target_id,
+            )
+            .await?;
+            interaction::fill(
+                owned_page(connections, &connection_id, &id, &owner)?,
+                &selector,
+                &value,
+            )
+            .await?;
+            Ok(BrowserResult::Filled {})
+        }
+        BrowserArgs::Wait {
+            connection_id,
+            target_id,
+            selector,
+            state,
+            timeout_ms,
+            session,
+        } => {
+            let owner = required_session(session)?;
+            let id = ensure_target_attached(
+                owned_connection_mut(connections, &connection_id, &owner)?,
+                &target_id,
+            )
+            .await?;
+            interaction::wait(
+                owned_page(connections, &connection_id, &id, &owner)?,
+                &selector,
+                state,
+                timeout_ms,
+                &context,
+            )
+            .await?;
+            Ok(BrowserResult::Waited {})
+        }
+        BrowserArgs::Snapshot {
+            connection_id,
+            target_id,
+            limit,
+            session,
+        } => {
+            let owner = required_session(session)?;
+            let id = ensure_target_attached(
+                owned_connection_mut(connections, &connection_id, &owner)?,
+                &target_id,
+            )
+            .await?;
+            let (elements, truncated) = interaction::snapshot(
+                owned_page(connections, &connection_id, &id, &owner)?,
+                limit.unwrap_or(50),
+            )
+            .await?;
+            Ok(BrowserResult::Snapshot {
+                elements,
+                truncated,
+            })
+        }
         BrowserArgs::Errors {
             connection_id,
             target_id,
@@ -280,7 +364,9 @@ pub(super) async fn dispatch(
     }
 }
 
-async fn fetch_target_infos(browser: &Browser) -> Result<Vec<TargetInfo>, chromiumoxide::error::CdpError> {
+async fn fetch_target_infos(
+    browser: &Browser,
+) -> Result<Vec<TargetInfo>, chromiumoxide::error::CdpError> {
     let response = browser.execute(GetTargetsParams { filter: None }).await?;
     Ok(response.result.target_infos)
 }
@@ -326,8 +412,8 @@ async fn attach_target_to_connection(
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        let page = page_opt
-            .ok_or(("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
+        let page =
+            page_opt.ok_or(("BROWSER_TARGET", "La pestaña no existe o aún no está lista"))?;
         let tasks = events::subscribe_events(
             &page,
             target_id,
