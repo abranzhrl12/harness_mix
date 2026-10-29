@@ -24,6 +24,24 @@ Las llamadas también se detectan dentro de regiones C# en línea (`@{ ... }`,
 vistas legacy: `@{ Html.RenderPartial("_Orders"); }`. Una llamada escrita dentro
 de una cadena C# no es evidencia y se descarta.
 
+## Formularios y JavaScript legacy
+
+El enlace estático de formularios admite un único `<form id="...">` con
+campos `<input name="...">` únicos y un botón con `onclick="handler()"`.
+El handler debe ser una función inline única. Una referencia del handler al
+campo solo se emite cuando el AST encuentra `document.querySelector('[name=campo]').value`
+dentro de `JSON.stringify(...)` en `body` de una llamada `fetch`.
+Las aristas incluyen `resolvedBy`, procedencia heurística y confianza;
+no prueban el comportamiento en ejecución. Se omiten vistas con transiciones
+Razor o comentarios en el markup anterior al script, formularios múltiples,
+selectores dinámicos y scripts que declaran `document`, `JSON` o `fetch`.
+
+Cuando el parser nativo rechaza un archivo JavaScript, la recuperación solo
+reconoce sentencias completas independientes con URL literal y marca cada
+referencia como `recovered` con confianza 0.5. No recupera el grafo completo,
+los handlers ni expresiones dinámicas. Una extracción parcial no certifica
+frescura y no debe sustituir un grafo completo anterior.
+
 ## Cómo se localiza una vista por nombre
 
 Para una vista `Views/Orders/Index.cshtml` (o `Areas/Admin/Views/Orders/…`):

@@ -138,6 +138,60 @@ function load() {
 }
 
 #[test]
+fn does_not_link_selector_outside_body_or_when_globals_are_shadowed() {
+    for script in [
+        "function save() { fetch(JSON.stringify({customer: document.querySelector('[name=customer]').value})); }",
+        "function save(document) { fetch('/save', {body: JSON.stringify({customer: document.querySelector('[name=customer]').value})}); }",
+    ] {
+        let source = format!("<form id=\"order\"><input name=\"customer\"><button onclick=\"save()\"></button></form>\n<script>{script}</script>");
+        let mut output = graph("Views/Orders/Index.cshtml", 2);
+        enrich("Views/Orders/Index.cshtml", &source, &mut output, &OperationContext::default()).unwrap();
+        assert!(!output["edges"].as_array().unwrap().iter().any(|e|
+            e["metadata"]["resolvedBy"] == "razor-json-selector-v1"));
+    }
+}
+
+#[test]
+fn links_static_form_handler_and_payload_field() {
+    let source = r#"<form id="order"><input name="customer"><button onclick="save()">Save</button></form>
+<script>
+function save() { fetch('/Orders/Save', { method: 'POST', body: JSON.stringify({customer: document.querySelector('[name=customer]').value}) }); }
+</script>"#;
+    let mut output = graph("Views/Orders/Index.cshtml", 4);
+    enrich("Views/Orders/Index.cshtml", source, &mut output, &OperationContext::default()).unwrap();
+    let nodes = output["nodes"].as_array().unwrap();
+    let form = nodes.iter().find(|n| n["name"] == "order" && n["kind"] == "form").unwrap();
+    let field = nodes.iter().find(|n| n["name"] == "customer" && n["kind"] == "property").unwrap();
+    let handler = nodes.iter().find(|n| n["name"] == "save" && n["kind"] == "function").unwrap();
+    let edges = output["edges"].as_array().unwrap();
+    assert!(edges.iter().any(|e| e["source"] == form["id"] && e["target"] == field["id"]));
+    assert!(edges.iter().any(|e| e["source"] == form["id"] && e["target"] == handler["id"]));
+    assert!(edges.iter().any(|e| e["source"] == handler["id"] && e["target"] == field["id"]));
+}
+
+#[test]
+fn malformed_many_script_regions_report_work_limit_instead_of_dropping_routes() {
+    let mut source = format!("<script>function broken( {{</script>\n{}", " ".repeat(140_000));
+    for _ in 0..250 { source.push_str("<script>fetch('/valid');</script>\n"); }
+    let mut output = graph("Views/Home/Index.cshtml", 252);
+    let failure = enrich("Views/Home/Index.cshtml", &source, &mut output, &OperationContext::default()).unwrap_err();
+    assert_eq!(failure.0, "EXTRACTION_LIMIT");
+}
+
+#[test]
+fn malformed_inline_script_does_not_hide_a_later_valid_script() {
+    let source = "<script>function broken( {</script>\n<script>fetch('/valid');</script>";
+    let mut output = graph("Views/Home/Index.cshtml", 2);
+    enrich("Views/Home/Index.cshtml", source, &mut output, &OperationContext::default()).unwrap();
+    let references = routes(&output);
+    assert_eq!(references.len(), 1);
+    assert_eq!(parsed(&references[0])["url"], "/valid");
+    assert_eq!(references[0]["line"], 2);
+    assert_eq!(output["coverage"]["complete"], false);
+    assert_eq!(output["coverage"]["reason"], "invalid_inline_script");
+}
+
+#[test]
 fn does_not_extract_script_text_inside_html_or_razor_comments() {
     let source = r#"<!-- <script>fetch('/html-comment')</script> -->
 @* <script>fetch('/razor-comment')</script> *@

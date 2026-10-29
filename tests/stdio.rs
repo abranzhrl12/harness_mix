@@ -1780,16 +1780,14 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
     let diagnosis = &doctor["result"]["structuredContent"];
     assert_eq!(diagnosis["state"], "ok", "{doctor}");
     assert_eq!(diagnosis["data"]["versionsRequested"], false);
-    assert_eq!(diagnosis["data"]["counts"]["warning"], 8);
     let auto_sync = diagnosis["data"]["checks"]
         .as_array()
         .unwrap()
         .iter()
         .find(|check| check["id"] == "index-auto-sync")
         .unwrap();
-    assert_eq!(auto_sync["details"]["enabled"], false);
-    assert_eq!(auto_sync["details"]["reason"], "index_missing");
-    assert!(!root.path().join(".codegraph").exists());
+    assert_eq!(auto_sync["details"]["enabled"], true);
+    assert!(root.path().join(".codegraph/codegraph.db").exists());
     assert_eq!(diagnosis["data"]["allToolsVerified"], false);
     assert_eq!(diagnosis["data"]["mcpRegistry"]["status"], "verified");
     let coverage = diagnosis["data"]["checks"]
@@ -1898,11 +1896,12 @@ fn mcp_handshake_discovery_bootstrap_and_safe_read() {
         "tools/call",
         json!({"name":"harness_explore","arguments":{"sessionId":session,"query":"main"}}),
     );
-    // No index in this fixture: an application error, not a JSON-RPC argument rejection.
+    // The fixture has a bootstrap-initialized empty index: expect the plain
+    // application outcome (unresolved target), not a JSON-RPC argument rejection.
     assert!(alias_explore.get("error").is_none(), "{alias_explore}");
     assert_eq!(
-        direct_tool_payload(&alias_explore)["state"],
-        "error"
+        direct_tool_payload(&alias_explore)["unresolved"][0]["code"],
+        "TARGET_NOT_RESOLVED"
     );
     let read = server.request(4, "tools/call", json!({"name":"harness_read","arguments":{"session":session,"path":"example.txt","start":1,"end":2}}));
     assert_eq!(

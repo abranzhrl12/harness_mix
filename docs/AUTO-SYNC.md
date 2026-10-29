@@ -1,13 +1,8 @@
 # Índice automático en segundo plano
 
-Windows x64. Activado por defecto en el perfil MCP `full`, con índice nativo
-compatible ya existente. No necesita variables de entorno ni llamadas de sincronización del LLM.
-
-Para un proyecto nuevo, crear primero el índice:
-
-```powershell
-.\agent-harness.exe --root E:\proyecto --init-index
-```
+Windows x64. Activado por defecto en el perfil MCP `full`. Si no existe
+`.codegraph`, crea un índice nativo vacío y lo llena mediante la reconciliación
+inicial en segundo plano. No necesita llamadas de sincronización del LLM.
 
 La entrada MCP habitual basta; reiniciar la conexión después de actualizar el ejecutable:
 
@@ -19,12 +14,12 @@ La entrada MCP habitual basta; reiniciar la conexión después de actualizar el 
 ```
 
 `HARNESS_INDEX_WATCH=0` lo desactiva. Sin variable, los perfiles restringidos no
-inician el watcher. `HARNESS_INDEX_WATCH=1` exige iniciarlo: un índice ausente,
-un fallo de watcher o un perfil restringido impiden arrancar en ese modo explícito.
-En el modo automático por defecto, un índice ausente o un fallo de arranque del
-watcher se informa en doctor y el servidor sigue disponible; corregir la causa
-y reiniciar la conexión para activarlo. No se crea el índice implícitamente.
-Un valor distinto de 0 o 1 es inválido.
+inician el watcher. `HARNESS_INDEX_WATCH=1` lo habilita explícitamente; los
+fallos de inicio se informan, y un perfil restringido no admite ese modo.
+Un valor distinto de 0 o 1 es inválido. La creación solo reclama un directorio
+`.codegraph` ausente: no sobrescribe ni migra un índice o directorio existente.
+Si otro proceso está inicializando, el supervisor reintenta hasta cinco veces;
+un fallo persistente queda en estado `degraded` con su causa en doctor.
 
 Cada instancia activa un supervisor. Si otro proceso posee `autosync.lock`,
 el supervisor permanece en espera y reintenta cada dos segundos; cuando obtiene
@@ -41,8 +36,10 @@ de telemetría no detiene el watcher. Consulte el estado y el tiempo de la últi
 sincronización, y no interprete el pulso como certificación global del índice.
 Los procesos antiguos pueden no publicar telemetría.
 
-El watcher nunca crea ni migra un índice y no edita archivos fuente. Vive mientras
-está abierto el servidor MCP; no instala un servicio Windows.
+El watcher no migra índices ni edita archivos fuente. Vive mientras está abierto
+el servidor MCP; no instala un servicio Windows. Una extracción parcial
+se informa como `SYNC_PARTIAL` y no se publica como grafo completo; se conserva
+la última versión confirmada mientras se corrige la fuente.
 
 ## Trabajo incremental
 

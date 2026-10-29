@@ -21,7 +21,7 @@ fn identifier(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-fn attribute(attrs: &str, wanted: &str) -> Option<String> {
+pub(super) fn attribute(attrs: &str, wanted: &str) -> Option<String> {
     let bytes = attrs.as_bytes();
     let mut at = 0;
     while at < bytes.len() {
@@ -390,10 +390,39 @@ pub(super) fn enrich(
     if regions.is_empty() {
         return Ok(());
     }
-    let (projected, map) = transformed(source, &regions, razor, context)?;
+    if enrich_script(path, source, graph, context, razor, &regions)? {
+        if razor {
+            super::razor_forms::link(path, source, graph, context, &regions)?;
+        }
+        return Ok(());
+    }
+    if source.len().saturating_mul(regions.len()) > 32 * 1024 * 1024 {
+        return Err(LIMIT);
+    }
+    let mut incomplete = false;
+    for region in regions {
+        if !enrich_script(path, source, graph, context, razor, &[region])? {
+            incomplete = true;
+        }
+    }
+    if incomplete {
+        graph["coverage"] = json!({"complete":false,"status":"partial","reason":"invalid_inline_script"});
+    }
+    Ok(())
+}
+
+fn enrich_script(
+    path: &str,
+    source: &str,
+    graph: &mut Value,
+    context: &OperationContext,
+    razor: bool,
+    regions: &[Range<usize>],
+) -> Result<bool, Failure> {
+    let (projected, map) = transformed(source, regions, razor, context)?;
     let raw = match codegraph_native::extract(path, &projected, "javascript") {
         Ok(raw) => raw,
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(false),
     };
     let mut js_graph = super::decode::decode(&raw, path, "javascript", context)?;
     let reference_start = js_graph["unresolvedReferences"]
@@ -518,7 +547,7 @@ pub(super) fn enrich(
         .as_array_mut()
         .ok_or(CONTRACT)?
         .extend(references);
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

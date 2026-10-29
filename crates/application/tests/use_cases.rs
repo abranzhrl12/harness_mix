@@ -359,6 +359,7 @@ fn session_admission_runs_before_any_io_for_reads_and_searches() {
     assert_eq!(read["diagnostics"][0]["code"], "SESSION");
     assert_eq!(read["scope"], json!({"tool":"harness_read","path":"a.txt"}));
     let search = app.execute(Request::Search(SearchArgs {
+            override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,
@@ -539,6 +540,7 @@ fn search_snapshot_cursor_pages_without_rescanning_and_rejects_filters() {
 
 fn search_request() -> Request {
     Request::Search(SearchArgs {
+            override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,

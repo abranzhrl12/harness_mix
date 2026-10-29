@@ -42,4 +42,7 @@ impl SourceQueries for NativeWorkspace {
     fn search(&self, args: &SearchArgs, context: &OperationContext) -> Result<Value, Failure> {
         self.source_queries.search(args, context)
     }
+    fn resume_search(&self, args: &SearchArgs, checkpoint: &Value, context: &OperationContext) -> Result<Value, Failure> {
+        self.source_queries.resume_search(args, checkpoint, context)
+    }
 }

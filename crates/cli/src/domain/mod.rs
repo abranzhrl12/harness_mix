@@ -31,6 +31,9 @@ pub enum Command {
     InitIndex {
         root: Root,
     },
+    IndexProject {
+        root: Root,
+    },
     SyncWorkspace {
         root: Root,
     },

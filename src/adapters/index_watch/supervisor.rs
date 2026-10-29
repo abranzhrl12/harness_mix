@@ -22,7 +22,7 @@ impl SupervisedWatch {
     pub(crate) fn start_with_status(root: &Path, status: Status) -> Result<Self, Failure> {
         let initial = match IndexWatch::start(root) {
             Ok(watch) => Some(watch),
-            Err(("SYNC_WATCH_BUSY", _)) => None,
+            Err(("SYNC_WATCH_BUSY" | "PATH" | "INIT_EXISTS", _)) => None,
             Err(error) => return Err(error),
         };
         *status
@@ -40,14 +40,16 @@ impl SupervisedWatch {
             .spawn(move || {
                 let mut active = initial;
                 let mut started = epoch_seconds();
+                let mut failures = 0_u32;
                 loop {
                     if active.as_ref().is_some_and(|w| w.worker.as_ref().is_some_and(|t| t.is_finished())) {
                         active = None;
                     }
-                    if active.is_none() {
+                    if active.is_none() && failures < 5 {
                         match IndexWatch::start(&root) {
-                            Ok(watch) => { active = Some(watch); started = epoch_seconds(); }
+                            Ok(watch) => { active = Some(watch); started = epoch_seconds(); failures = 0; }
                             Err(("SYNC_WATCH_BUSY", _)) => {
+                                failures = 0;
                                 let observed = super::metadata::observe(&root);
                                 *thread_status.lock().unwrap_or_else(|e| e.into_inner()) = json!({
                                     "enabled":true, "role":"standby", "state":"waiting_for_owner",
@@ -57,9 +59,12 @@ impl SupervisedWatch {
                                 });
                             }
                             Err((code, message)) => {
+                                failures += 1;
                                 *thread_status.lock().unwrap_or_else(|e| e.into_inner()) = json!({
-                                    "enabled":true, "role":"standby", "state":"retrying",
-                                    "lastError":code, "reason":message, "globalFreshnessCertified":false
+                                    "enabled":true, "role":"standby",
+                                    "state":if failures < 5 { "retrying" } else { "degraded" },
+                                    "attempts":failures, "lastError":code, "reason":message,
+                                    "globalFreshnessCertified":false
                                 });
                             }
                         }

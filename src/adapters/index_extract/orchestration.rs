@@ -59,7 +59,11 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     } else {
         source.to_owned()
     };
-    let raw = codegraph_native::extract(path, &prepared, lang).map_err(|error| {
+    let extracted = codegraph_native::extract(path, &prepared, lang);
+    if extracted.is_err() && lang == "javascript" {
+        return super::http_frontend::recover_legacy(path, source, context);
+    }
+    let raw = extracted.map_err(|error| {
         let mut diagnostic = serde_json::json!({"file":path,"language":lang,"stage":"native_extract","message":error});
         if lang == "rust" {
             let parsed = ra_ap_syntax::SourceFile::parse(source, ra_ap_syntax::Edition::Edition2024);

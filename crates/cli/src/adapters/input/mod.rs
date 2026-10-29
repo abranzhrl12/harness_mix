@@ -65,6 +65,12 @@ pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     if args.first().is_some_and(|arg| arg == "init") {
         return parse_init_command(&args[1..], None);
     }
+    if args.first().is_some_and(|arg| arg == "index") {
+        return match parse_init_command(&args[1..], None)? {
+            Command::InitProject { root } => Ok(Command::IndexProject { root }),
+            _ => unreachable!(),
+        };
+    }
     if args.first().is_some_and(|arg| arg == "uninstall") {
         return parse_uninstall_command(&args[1..], None);
     }
@@ -73,6 +79,12 @@ pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     }
     if args.len() >= 3 && args[0] == "--root" && args[2] == "init" {
         return parse_init_command(&args[3..], Some(PathBuf::from(args[1].clone())));
+    }
+    if args.len() >= 3 && args[0] == "--root" && args[2] == "index" {
+        return match parse_init_command(&args[3..], Some(PathBuf::from(args[1].clone())))? {
+            Command::InitProject { root } => Ok(Command::IndexProject { root }),
+            _ => unreachable!(),
+        };
     }
 
     let auto_root = needs_workspace_root(&args);

@@ -3,11 +3,14 @@ use super::super::plan::excluded;
 use std::path::Path;
 
 pub(super) fn build(
+    project_root: &Path,
     root: &Path,
     exclude_minified: bool,
     explicit_scope: bool,
 ) -> Result<ignore::WalkBuilder, Failure> {
-    let mut builder = ignore::WalkBuilder::new(root);
+    let walk_root = if explicit_scope { root } else { project_root };
+    let selected = root.to_owned();
+    let mut builder = ignore::WalkBuilder::new(walk_root);
     builder
         .follow_links(false)
         .hidden(true)
@@ -18,6 +21,10 @@ pub(super) fn build(
         .require_git(false)
         .sort_by_file_path(|a, b| a.cmp(b))
         .filter_entry(move |entry| {
+            let path = entry.path();
+            if !path.starts_with(&selected) && !selected.starts_with(path) {
+                return false;
+            }
             !entry.file_name().to_str().is_none_or(|name| {
                 excluded(name)
                     || (exclude_minified
@@ -32,7 +39,7 @@ pub(super) fn build(
         });
 
     // Overrides prevent project ignore rules from re-enabling default exclusions.
-    let mut overrides = ignore::overrides::OverrideBuilder::new(root);
+    let mut overrides = ignore::overrides::OverrideBuilder::new(walk_root);
     overrides
         .add("!node_modules/")
         .map_err(|_| ("INTERNAL", "Invalid default exclusion"))?;

@@ -14,6 +14,8 @@ mod clients;
 mod index;
 const RECEIPT: &str = ".agents/harness-installation.json";
 const DATABASE: &str = ".agents/harness.config.json";
+const CODEGRAPH: &str = "codegraph.json";
+const IGNORE: &str = ".harnessignore";
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,8 +46,10 @@ pub struct Installation {
 }
 
 fn allowed(path: &str) -> bool {
-    matches!(path, DATABASE | manifest::PATH | preferences::PATH)
-        || SKILLS.iter().any(|skill| skill.relative_path == path)
+    matches!(
+        path,
+        DATABASE | CODEGRAPH | IGNORE | manifest::PATH | preferences::PATH
+    ) || SKILLS.iter().any(|skill| skill.relative_path == path)
 }
 
 fn read_receipt(root: &Path) -> Result<Option<Receipt>, String> {
@@ -81,6 +85,23 @@ fn read_receipt(root: &Path) -> Result<Option<Receipt>, String> {
 }
 
 impl Installation {
+    /// Open an existing installation for ownership of an explicitly requested index.
+    pub fn existing(root: &Path) -> Result<Option<Self>, String> {
+        let root = storage::checked_root(root)?;
+        if read_receipt(&root)?.is_none() {
+            return Ok(None);
+        }
+        let lock = SyncLock::acquire(&root)?;
+        let bytes = storage::read_safe_file(&root, Path::new(RECEIPT))?
+            .ok_or("installation receipt disappeared")?;
+        let receipt = read_receipt(&root)?.ok_or("installation receipt disappeared")?;
+        Ok(Some(Self {
+            root,
+            receipt,
+            receipt_hash: Some(hash(&bytes)),
+            _lock: lock,
+        }))
+    }
     pub fn begin(root: &Path, executable: &Path) -> Result<Self, String> {
         let root = storage::checked_root(root)?;
         let executable =
@@ -170,11 +191,30 @@ impl Installation {
                 serde_json::to_vec_pretty(&json!({"database":{"autoDetect":true}})).unwrap(),
             ));
         }
+        for (path, bytes) in [
+            (
+                CODEGRAPH,
+                b"{\n  \"include\": [],\n  \"exclude\": []\n}\n".as_slice(),
+            ),
+            (
+                IGNORE,
+                b"# Add project-specific ignore patterns here.\n".as_slice(),
+            ),
+        ] {
+            if storage::read_safe_file(&install.root, Path::new(path))?.is_none() {
+                desired.push((path.into(), bytes.to_vec()));
+            }
+        }
         // Record ownership/intended hashes before any file changes. A failed
         // installation can be resumed or uninstalled without guessing ownership.
         let mut expected_files = BTreeMap::new();
         for (path, bytes) in &desired {
             let current = storage::read_safe_file(&install.root, Path::new(path))?;
+            if matches!(path.as_str(), CODEGRAPH | IGNORE) && current.is_some() {
+                return Err(format!(
+                    "configuration appeared during installation: {path}"
+                ));
+            }
             expected_files.insert(path.clone(), current.as_deref().map(hash));
             if current.as_deref() == Some(bytes.as_slice()) {
                 continue;

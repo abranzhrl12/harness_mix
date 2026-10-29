@@ -99,6 +99,7 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
         "PATH"
     );
     let search = app.execute(Request::Search(SearchArgs {
+        override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,
@@ -111,14 +112,15 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
         scope: None,
         limit: None,
         session: Some(id.clone()),
-            cursor: None,
-            offset: None,
+        cursor: None,
+        offset: None,
         external_scope: Some(scope.into()),
     }));
     assert_eq!(search["state"], "ok", "{search}");
     assert_eq!(search["data"]["paths"], json!(["a.rs"]));
     assert!(!search.to_string().contains("private neighbor"));
     let syntax = app.execute(Request::Search(SearchArgs {
+        override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,
@@ -131,8 +133,8 @@ fn single_file_scope_never_authorizes_its_neighbors_and_defaults_search_to_that_
         scope: None,
         limit: None,
         session: Some(id),
-            cursor: None,
-            offset: None,
+        cursor: None,
+        offset: None,
         external_scope: Some(scope.into()),
     }));
     assert_eq!(syntax["state"], "ok", "{syntax}");

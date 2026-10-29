@@ -69,7 +69,6 @@ pub(super) fn sync_report(result: &Result<Value, Failure>, full: bool) -> Value 
                 | "SYNC_INTEGRITY"
                 | "SYNC_COMMIT_UNCERTAIN"
                 | "ENCODING"
-                | "PATH"
                 | "LIMIT"
                 | "CANCELLED"
         );

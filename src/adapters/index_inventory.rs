@@ -45,16 +45,48 @@ pub(super) fn scan(
 ) -> Result<Inventory, Failure> {
     context.check()?;
     let scope = super::index_store::scope::Snapshot::load(project, context)?;
+    let ignore_path = project.target_optional(".harnessignore")?;
+    let ignore_bytes = match std::fs::symlink_metadata(&ignore_path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(("SYNC_IGNORE", "Cannot inspect .harnessignore")),
+        Ok(_) => Some(ignore_bytes(project, context)?),
+    };
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(&project.root);
+    if let Some(bytes) = &ignore_bytes {
+        let source = std::str::from_utf8(bytes)
+            .map_err(|_| ("SYNC_IGNORE", "Invalid .harnessignore encoding"))?;
+        for line in source.lines() {
+            builder
+                .add_line(Some(ignore_path.clone()), line)
+                .map_err(|_| ("SYNC_IGNORE", "Invalid .harnessignore pattern"))?;
+        }
+    }
+    let ignore = builder
+        .build()
+        .map_err(|_| ("SYNC_IGNORE", "Invalid .harnessignore rules"))?;
     harness_application::indexing::inventory::scan(
-        &NativeInventory { project, scope },
+        &NativeInventory {
+            project,
+            scope,
+            ignore,
+            ignore_bytes,
+        },
         tracked,
         context,
     )
 }
 
+fn ignore_bytes(project: &Project, context: &OperationContext) -> Result<Vec<u8>, Failure> {
+    let mut guarded = project.clone();
+    guarded.external = true;
+    guarded.bytes_with_limit(".harnessignore", context, 256 * 1024)
+}
+
 struct NativeInventory<'a> {
     project: &'a Project,
     scope: super::index_store::scope::Snapshot,
+    ignore: ignore::gitignore::Gitignore,
+    ignore_bytes: Option<Vec<u8>>,
 }
 impl InventoryPort for NativeInventory<'_> {
     fn scope(&self) -> serde_json::Value {
@@ -65,6 +97,10 @@ impl InventoryPort for NativeInventory<'_> {
     }
     fn excluded(&self, path: &str) -> bool {
         self.scope.excluded(path)
+            || self
+                .ignore
+                .matched_path_or_any_parents(self.project.root.join(path), false)
+                .is_ignore()
     }
     fn included(&self, path: &str) -> bool {
         self.scope.included(path)
@@ -129,18 +165,22 @@ impl InventoryPort for NativeInventory<'_> {
         limit: u64,
         context: &OperationContext,
     ) -> Result<Vec<u8>, Failure> {
-        #[cfg(windows)]
-        let _pins = {
-            let path = self.project.target_optional(relative)?;
-            super::edit_commit::pin_directory(
-                self.project,
-                path.parent().ok_or(("PATH", "Missing source parent"))?,
-            )?
-        };
-        self.project.bytes_with_limit(relative, context, limit)
+        self.project
+            .index_source_bytes(relative, context, limit)?
+            .ok_or(("PATH", "Missing source file"))
     }
     fn recheck(&self, context: &OperationContext) -> Result<(), Failure> {
-        self.scope.recheck(self.project, context)
+        self.scope.recheck(self.project, context)?;
+        let path = self.project.target_optional(".harnessignore")?;
+        let current = match std::fs::symlink_metadata(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(("SYNC_IGNORE", "Cannot inspect .harnessignore")),
+            Ok(_) => Some(ignore_bytes(self.project, context)?),
+        };
+        if current != self.ignore_bytes {
+            return Err(("STALE", ".harnessignore changed during indexing"));
+        }
+        Ok(())
     }
 }
 

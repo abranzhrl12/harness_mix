@@ -49,6 +49,7 @@ fn text_search_works_without_index_maintenance_state() {
     let result = service
         .search(
             &SearchArgs {
+                override_project_exclusions: None,
                 ast: None,
                 regex: None,
                 case_sensitive: None,
@@ -61,9 +62,9 @@ fn text_search_works_without_index_maintenance_state() {
                 limit: None,
                 context_lines: None,
                 session: None,
-            cursor: None,
-            offset: None,
-            only_matching: None,
+                cursor: None,
+                offset: None,
+                only_matching: None,
             },
             &OperationContext::default(),
         )
@@ -116,11 +117,13 @@ fn symbol_navigation_accepts_js_over_global_limit_and_rejects_over_symbol_budget
             &context,
         )
         .unwrap();
-    assert!(outline["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|item| item["name"] == "target"));
+    assert!(
+        outline["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["name"] == "target")
+    );
 
     let symbol = service
         .read_symbol(

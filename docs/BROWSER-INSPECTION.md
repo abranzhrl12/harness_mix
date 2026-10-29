@@ -4,7 +4,9 @@
 
 The `harness-browser` crate implements the application `BrowserInspection` port and owns CDP/runtime details. Its default `BrowserService` connects lazily; `BrowserService::with_backend` accepts an injected `BrowserBackend` for alternate implementations and isolated tests. The domain and application contracts do not depend on Chromiumoxide or Tokio.
 
-Start a separate Chrome profile with remote debugging enabled, then use the browser tool in this order:
+Use `connect` with `endpoint: "auto"` and `tab: "http://localhost:PORT/path"` to prepare the browser automatically. Harness discovers local CDP sessions first; if none exists, it launches an installed Chromium browser with a separate temporary profile and an ephemeral loopback debugging port. It creates and attaches a blank tab before opening the requested application, capturing initial-load exceptions. Existing tabs are preserved; if the application is already open, it attaches that tab. The separate profile may require signing in again. Without an application URL, the newly launched browser has an attached blank tab for manual navigation. No shell command or fixed debugging port is required. Explicit CDP endpoints retain connection-only behavior; `discover` never launches a browser. `BROWSER_LAUNCH` reports missing Chromium or launch failures.
+
+For an existing explicit CDP endpoint, use the browser tool in this order:
 
 1. `connect` with either the direct DevTools WebSocket URL or the local HTTP debugging address shown by Chrome; for HTTP, Harness discovers the WebSocket from `/json/version`. Keep the returned `connectionId`.
 2. `targets` with that ID to list open pages and their `targetId` values.

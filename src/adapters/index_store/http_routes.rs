@@ -166,12 +166,15 @@ pub(super) fn resolve(
                 .insert(file.to_owned());
         }
     }
+    let confidence = request["confidence"].as_f64()
+        .filter(|value| value.is_finite() && *value >= 0.0 && *value <= 0.9)
+        .unwrap_or(0.9);
     let metadata = json!({
         "transport":"http", "refKind":"http_route", "refName":name,
         "url":request["url"], "httpMethod":method.to_ascii_uppercase(),
         "route":route, "resolvedBy":"native-http-literal-v1",
         "sourceHash":source_digest, "targetHash":target_digest,
-        "confidence":0.9
+        "extraction":request.get("extraction"), "confidence":confidence
     })
     .to_string();
     sql(db.execute(

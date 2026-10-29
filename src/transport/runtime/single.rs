@@ -20,18 +20,7 @@ pub async fn serve_with_logging(
     let watch_enabled = config.index_watch_enabled;
 
     #[cfg(windows)]
-    let (index_watch, watch_status) = if watch_enabled
-        && watch_setting.is_none()
-        && matches!(root.join(".codegraph/codegraph.db").try_exists(), Ok(false))
-    {
-        (
-            None,
-            Some(Arc::new(std::sync::Mutex::new(serde_json::json!({
-                "enabled":false,"state":"inactive","defaultEnabled":true,
-                "lastError":null,"reason":"index_missing"
-            })))),
-        )
-    } else if watch_enabled {
+    let (index_watch, watch_status) = if watch_enabled {
         match crate::adapters::index_watch::supervisor::SupervisedWatch::start(root) {
             Ok(watch) => {
                 let status = watch.status.clone();

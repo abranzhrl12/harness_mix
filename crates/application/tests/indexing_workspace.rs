@@ -207,7 +207,6 @@ fn legacy_script_semantic_failure_is_reported_as_warning_and_does_not_stop_works
 fn all_systemic_failure_codes_stop_later_publications() {
     for code in [
         "SYNC_SCHEMA",
-        "SYNC_INDEX",
         "SYNC_INDEX_BUSY",
         "SYNC_INTEGRITY",
         "SYNC_COMMIT_UNCERTAIN",
@@ -234,6 +233,7 @@ fn isolated_budget_and_source_failures_do_not_starve_other_files() {
         "SYNC_LIMIT",
         "LIMIT",
         "PARSER_LIMIT",
+        "SYNC_INDEX",
         "SYNTAX_ERROR",
         "ENCODING",
         "STALE",
@@ -366,7 +366,7 @@ fn no_changes_revisits_one_module_to_detect_configuration_changes() {
 #[test]
 fn event_local_failure_preserves_prior_commits_and_continues() {
     let mut f = Fake::new(&[]);
-    f.failures.insert("c.rs".into(), ("TEST", "error"));
+    f.failures.insert("c.rs".into(), ("SYNC_INDEX", "error"));
     let paths = ["a.rs", "b.skip", "c.rs", "d.rs"]
         .map(String::from)
         .into_iter()
@@ -385,7 +385,6 @@ fn event_local_failure_preserves_prior_commits_and_continues() {
 fn event_systemic_or_workspace_scope_failure_stops_later_files() {
     for code in [
         "SYNC_SCHEMA",
-        "SYNC_INDEX",
         "SYNC_INDEX_BUSY",
         "SYNC_INTEGRITY",
         "SYNC_COMMIT_UNCERTAIN",

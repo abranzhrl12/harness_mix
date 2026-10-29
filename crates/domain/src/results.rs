@@ -386,6 +386,11 @@ impl Results {
             .transpose()
             .map_err(|_| ("DETAIL", "metadatos de búsqueda dañados en snapshot"))?
             .unwrap_or_else(|| json!({}));
+        if offset == ranges.len() {
+            if let Some(continuation) = metadata.get("continuation").filter(|value| value.is_object()) {
+                return Ok(json!({"_resume":continuation}));
+            }
+        }
         let mut content_truncated = false;
         if collection == "matches" {
             for row in &mut page {
@@ -398,7 +403,7 @@ impl Results {
                 }
             }
         }
-        let has_more = end < ranges.len();
+        let has_more = end < ranges.len() || metadata.get("continuation").is_some_and(Value::is_object);
         let next_offset = has_more.then_some(end);
         let cursor = json!({"tool":"harness_search","arguments":{
             "cursor":id,"offset":end,"session":session
@@ -409,10 +414,11 @@ impl Results {
             "hasMore":has_more,
             "complete":complete,
             "scanComplete":complete,
-            "snapshotOnly":!complete,
+            "snapshotOnly":!complete && metadata.get("continuation").is_none(),
+            "continuationMode":if metadata.get("continuation").is_some() { json!("live") } else { Value::Null },
             "_complete":complete,
             "contentTruncated":content_truncated,
-            "presentationTruncated":has_more,
+            "presentationTruncated":end < ranges.len(),
             "truncated":has_more || content_truncated || !complete,
             "omitted":ranges.len().saturating_sub(page.len()),
             "scanIncompleteReasons":metadata.get("scanIncompleteReasons").cloned().unwrap_or_else(|| json!([])),
@@ -562,6 +568,9 @@ impl Results {
                                     metadata[key] = item.clone();
                                 }
                             }
+                            if let Some(continuation) = value.get("_continuation") {
+                                metadata["continuation"] = continuation.clone();
+                            }
                             value["_searchSnapshot"] = metadata;
                         }
                         let session = args
@@ -595,12 +604,12 @@ impl Results {
                                 detail.get("ref").and_then(Value::as_str),
                             ) {
                                 if self.has_search_index(id) {
-                                    let has_more = search_total > search_page_count;
+                                    let has_more = search_total > search_page_count || value.get("_continuation").is_some_and(Value::is_object);
                                     map.insert("offset".into(), json!(0));
                                     map.insert("nextOffset".into(), if has_more { json!(search_page_count) } else { Value::Null });
                                     map.insert("hasMore".into(), json!(has_more));
                                     map.insert("scanComplete".into(), json!(complete));
-                                    map.insert("snapshotOnly".into(), json!(!complete));
+                                    map.insert("snapshotOnly".into(), json!(!complete && value.get("_continuation").is_none()));
                                     map.insert("nextCall".into(), if has_more { json!({
                                         "tool":"harness_search",
                                         "arguments":{"cursor":id,"offset":search_page_count,"session":args.get("session")}

@@ -22,9 +22,16 @@ connected. Do not edit code until the task authorizes a fix.
      (`ws://127.0.0.1:<port>/devtools/browser/<id>`). Application URLs and
      `/devtools/page/` endpoints are not valid explicit browser WebSocket URLs;
      only loopback endpoints are allowed.
-   - If no active debugging session is found, ask the user for the endpoint or
-     browser setup; never guess IDs, expose public debugging ports, or alter the
-     user's default browser profile.
+   - If no active debugging session is found, `connect` in automatic mode starts
+     an installed Chromium browser with a separate profile and a local ephemeral
+     debugging port. Use `endpoint: "auto", tab: "http://localhost:PORT/path"`
+     to open the application and attach capture before navigation. If a connected
+     browser has no matching tab, this creates a new tab without changing existing
+     tabs. Without an application URL it opens and attaches a blank page; the user
+     can navigate there. Do not ask for a PowerShell launch command as the default
+     setup. Explicit CDP endpoints never trigger automatic launch. `discover` only
+     probes existing sessions. Report `BROWSER_LAUNCH` if Chromium is unavailable;
+     never expose public debugging ports or alter the default browser profile.
 2. Inspect `selectedTab` / `availableTabs` (or call `targets`), verify the tab
    by URL and title, and call `attach` before reproducing if not already
    attached to the right tab. Never blindly pick the first tab without checking

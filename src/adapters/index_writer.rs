@@ -131,7 +131,7 @@ impl Writer {
         // after closing; this is a valid SQLite WAL layout, not source modification.
         let mut sidecar_pins = Vec::new();
         for suffix in ["-wal", "-shm", "-journal"] {
-            let sidecar = project.target_optional(&format!(".codegraph/codegraph.db{suffix}"))?;
+            let sidecar = project.target_optional(&format!(".codegraph/codegraph.db{suffix}")).map_err(|_| INDEX)?;
             let options = || {
                 let mut options = File::options();
                 options

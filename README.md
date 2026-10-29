@@ -36,11 +36,10 @@ El perfil `full` anuncia **22 herramientas MCP**, algunas con varias acciones. L
 Leer archivos y buscar texto no requieren índice. Para crear uno en un proyecto nuevo:
 
 ~~~powershell
-agent-harness --root "C:/proyectos/mi-app" --index init
-agent-harness --root "C:/proyectos/mi-app" --index rebuild
+agent-harness --root "C:/proyectos/mi-app" index
 ~~~
 
-Estas operaciones escriben en `.codegraph/`. `init` exige que esa carpeta no exista; `rebuild` utiliza un índice compatible y puede dejar commits por archivo si se interrumpe. No borra las fuentes ni certifica cobertura global.
+El comando crea un índice ausente o sincroniza uno compatible existente. Escribe en `.codegraph/` y puede dejar commits por archivo si se interrumpe. Revisa `codegraph.json` y `.harnessignore` antes de ejecutarlo. No borra las fuentes ni certifica cobertura global.
 
 `sync` y `rebuild` preparan las fuentes en paralelo (hasta cuatro trabajadores según los procesadores disponibles) y publican en SQLite con un único escritor. Para comparar con la ejecución secuencial o limitar el consumo:
 
@@ -53,7 +52,7 @@ El informe incluye `extractionWorkers`, `databaseWriters`, `indexingDurationMs` 
 
 `inventoryDiagnostics` explica los archivos que no pudieron leerse o comprobarse; `uncheckedFilePaths` enumera el trabajo pendiente y `skippedFileReports` conserva las limitaciones del proveedor por archivo.
 
-En Windows, con perfil `full` e índice existente compatible, el mantenimiento automático está habilitado por defecto. `HARNESS_INDEX_WATCH=0` lo desactiva.
+En Windows, con perfil `full`, el mantenimiento automático está habilitado por defecto y crea el índice inicial cuando `.codegraph` no existe. `HARNESS_INDEX_WATCH=0` lo desactiva; los índices y directorios existentes se conservan.
 
 ## Documentación
 

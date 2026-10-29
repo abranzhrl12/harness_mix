@@ -7,6 +7,7 @@ use std::path::Path;
 
 fn search(app: &NativeApplication, query: &str) -> Value {
     app.execute(Request::Search(SearchArgs {
+            override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,
@@ -95,6 +96,21 @@ fn razor_selectors_work_live_and_repair_stale_graph_declarations() {
         stale["data"]["matches"].as_array().unwrap().is_empty(),
         "{stale}"
     );
+}
+
+#[test]
+fn graph_search_respects_project_ignore() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("ignored")).unwrap();
+    let source = "@section Scripts { }\n";
+    std::fs::write(root.path().join("ignored/Index.cshtml"), source).unwrap();
+    std::fs::write(root.path().join(".harnessignore"), "ignored/\n").unwrap();
+    let db = index(root.path(), &[("ignored/Index.cshtml", source)], &[("section", "Scripts", "module", "ignored/Index.cshtml", 1)]);
+    db.execute("UPDATE nodes SET language='razor';", []).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let result = search(&app, "razor_section:Scripts");
+    assert_eq!(result["state"], "ok", "{result}");
+    assert!(result["data"]["matches"].as_array().unwrap().is_empty(), "{result}");
 }
 
 #[test]
@@ -211,6 +227,7 @@ fn an_index_that_does_not_cover_the_scope_leaves_the_live_path_in_charge() {
     );
     let app = adapters::application(root.path()).unwrap();
     let scoped = app.execute(Request::Search(SearchArgs {
+            override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,

@@ -36,6 +36,7 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         omitted_folders,
         walk_and_other_micros,
         custom_patterns,
+        continuation,
         ..
     } = outcome;
     let key = if file_size {
@@ -89,7 +90,7 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         "unvisitedFiles": bounded || timed_out || cancelled,
         "limited": bounded,
         "warnings": if explicit_scope {
-            json!([{"code":"SCOPE_OVERRIDES_EXCLUSIONS","message":"An explicit scope bypasses project .harnessignore patterns; VCS metadata, secrets and defaults remain excluded"}])
+            json!([{"code":"SCOPE_OVERRIDES_EXCLUSIONS","message":"The requested override bypasses .harnessignore patterns; VCS metadata, secrets and defaults remain excluded"}])
         } else {
             json!([])
         },
@@ -117,6 +118,10 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
     result[key] = json!(compact);
     result["_detail"][key] = json!(all);
     // Snapshot pages must retain the scan's coverage, not imply a new scan ran.
+    if let Some(checkpoint) = continuation {
+        result["_detail"]["_continuation"] = json!({"checkpoint":checkpoint,"arguments":args});
+        result["continuationMode"] = json!("live");
+    }
     result["_detail"]["complete"] = json!(complete);
     result["_detail"]["scanIncompleteReasons"] = result["scanIncompleteReasons"].clone();
     result["limits"] = json!({"files":10000,"fileBytes":2*1024*1024,"totalBytes":64*1024*1024,"metadataBytes":4*1024*1024,"scanMs":super::scan::SCAN_TIMEOUT.as_millis()});
@@ -211,7 +216,12 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         result["reservedBytes"] = json!(reserved_bytes);
     }
     if !complete {
-        result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":"La exploración quedó incompleta; scanIncompleteReasons indica el límite o error. Las páginas solo recorren los resultados ya capturados.","reasons":result["scanIncompleteReasons"]}]);
+        let message = if result["continuationMode"] == "live" {
+            "La exploración quedó incompleta; la continuación recorre archivos vivos y valida el archivo de reanudación."
+        } else {
+            "La exploración quedó incompleta; scanIncompleteReasons indica el límite o error. Las páginas solo recorren los resultados ya capturados."
+        };
+        result["diagnostics"] = json!([{"code":"SEARCH_INCOMPLETE","message":message,"reasons":result["scanIncompleteReasons"]}]);
     }
     if !index_diagnostics.is_empty() {
         let mut diagnostics = result["diagnostics"]

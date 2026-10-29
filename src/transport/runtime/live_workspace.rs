@@ -324,13 +324,6 @@ impl LiveWorkspace {
             return Ok((None, None));
         }
         let status = previous_status.unwrap_or_else(|| Arc::new(Mutex::new(json!({}))));
-        if self.config.index_watch_setting.is_none()
-            && !root.join(".codegraph/codegraph.db").exists()
-        {
-            *status.lock().unwrap_or_else(|e| e.into_inner()) =
-                json!({"enabled":false,"state":"inactive","reason":"index_missing"});
-            return Ok((None, Some(status)));
-        }
         match adapters::index_watch::supervisor::SupervisedWatch::start_with_status(
             root,
             status.clone(),

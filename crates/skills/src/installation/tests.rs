@@ -72,6 +72,48 @@ fn executable(root: &Path) -> PathBuf {
 }
 
 #[test]
+fn init_creates_scope_configs_and_uninstall_removes_unchanged_owned_files() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    let config: Value =
+        serde_json::from_slice(&fs::read(root.path().join("codegraph.json")).unwrap()).unwrap();
+    assert_eq!(config["include"], json!([]));
+    assert_eq!(config["exclude"], json!([]));
+    assert!(root.path().join(".harnessignore").is_file());
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+    assert!(!root.path().join("codegraph.json").exists());
+    assert!(!root.path().join(".harnessignore").exists());
+}
+
+#[test]
+fn init_preserves_existing_and_modified_scope_configs() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    fs::write(root.path().join("codegraph.json"), b"user config").unwrap();
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    fs::write(root.path().join(".harnessignore"), b"user-pattern/\n").unwrap();
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    let report = uninstall(root.path()).unwrap();
+    assert_eq!(report["complete"], false);
+    assert_eq!(
+        fs::read(root.path().join("codegraph.json")).unwrap(),
+        b"user config"
+    );
+    assert_eq!(
+        fs::read(root.path().join(".harnessignore")).unwrap(),
+        b"user-pattern/\n"
+    );
+    assert!(
+        report["preservedModified"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(".harnessignore"))
+    );
+}
+
+#[test]
 fn init_is_complete_idempotent_and_uninstall_removes_only_owned_content() {
     let root = tempfile::tempdir().unwrap();
     let exe = executable(root.path());

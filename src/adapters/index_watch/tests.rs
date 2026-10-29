@@ -45,6 +45,75 @@ fn watcher_busy_means_windows_sharing_or_lock_violation() {
 }
 
 #[test]
+fn enabling_watcher_initializes_and_indexes_a_new_project() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("initial.rs"), "pub fn initial() {}\n").unwrap();
+    let watch = IndexWatch::start(root.path()).unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "idle");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='initial'"), 1);
+}
+
+#[test]
+fn supervisor_waits_for_an_existing_incomplete_namespace_without_overwriting_it() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join(".codegraph");
+    std::fs::create_dir(&directory).unwrap();
+    let marker = directory.join("incomplete-marker");
+    std::fs::write(&marker, b"preserve").unwrap();
+    std::fs::write(root.path().join("initial.rs"), "pub fn initial() {}\n").unwrap();
+    let watch = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "retrying");
+    assert_eq!(std::fs::read(&marker).unwrap(), b"preserve");
+    std::fs::remove_file(marker).unwrap();
+    std::fs::remove_dir(directory).unwrap();
+    wait(|| count(root.path(), "SELECT count(*) FROM nodes WHERE name='initial'") == 1);
+}
+
+#[test]
+fn malformed_razor_script_does_not_replace_previous_indexed_source() {
+    let root = tempfile::tempdir().unwrap();
+    index_store::initialize(root.path(), &OperationContext::default()).unwrap();
+    let source = root.path().join("page.cshtml");
+    std::fs::write(&source, "<script>fetch('/before');</script>").unwrap();
+    let watch = IndexWatch::start(root.path()).unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "idle");
+    let db = rusqlite::Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    let previous: String = db.query_row("SELECT content_hash FROM files WHERE path='page.cshtml'", [], |row| row.get(0)).unwrap();
+    std::fs::write(&source, "<script>function broken( {</script>\n<script>fetch('/valid');</script>").unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "retrying");
+    let current: String = db.query_row("SELECT content_hash FROM files WHERE path='page.cshtml'", [], |row| row.get(0)).unwrap();
+    assert_eq!(current, previous);
+    assert_eq!(watch.status.lock().unwrap()["lastError"], "SYNC_PARTIAL");
+}
+
+#[test]
+fn partial_javascript_is_not_published_as_a_complete_new_file() {
+    let root = tempfile::tempdir().unwrap();
+    index_store::initialize(root.path(), &OperationContext::default()).unwrap();
+    std::fs::write(root.path().join("legacy.js"), "function broken( {\nfetch('/valid');\n").unwrap();
+    let watch = IndexWatch::start(root.path()).unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "retrying");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM files WHERE path='legacy.js'"), 0);
+    assert_eq!(watch.status.lock().unwrap()["lastError"], "SYNC_PARTIAL");
+    assert_eq!(watch.status.lock().unwrap()["globalFreshnessCertified"], false);
+}
+
+#[test]
+fn partial_javascript_recovery_preserves_previous_complete_graph() {
+    let root = tempfile::tempdir().unwrap();
+    index_store::initialize(root.path(), &OperationContext::default()).unwrap();
+    let source = root.path().join("legacy.js");
+    std::fs::write(&source, "function previous() {}\n").unwrap();
+    let watch = IndexWatch::start(root.path()).unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "idle");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='previous'"), 1);
+    std::fs::write(&source, "function broken( {\nfetch('/valid');\n").unwrap();
+    wait(|| watch.status.lock().unwrap()["state"] == "retrying");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='previous'"), 1);
+    assert_eq!(watch.status.lock().unwrap()["globalFreshnessCertified"], false);
+}
+
+#[test]
 fn native_watcher_updates_only_changed_files_handles_rename_delete_and_releases_lease() {
     let root = tempfile::tempdir().unwrap();
     index_store::initialize(root.path(), &OperationContext::default()).unwrap();

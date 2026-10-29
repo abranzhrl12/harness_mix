@@ -96,6 +96,15 @@ fn parses_workspace_manifest_server_option() {
 }
 
 #[test]
+fn parses_explicit_project_index_without_changing_maintenance_commands() {
+    assert!(matches!(parse_args(&["index"]), Ok(Command::IndexProject { root: Root::DetectOrCurrent })));
+    for args in [vec!["index", "--root", "project"], vec!["--root", "project", "index"]] {
+        assert!(matches!(parse_args(&args), Ok(Command::IndexProject { root: Root::Explicit(root) }) if root == PathBuf::from("project")));
+    }
+    assert!(parse_args(&["index", "unexpected"]).is_err());
+}
+
+#[test]
 fn parses_index_aliases_and_unified_actions() {
     for args in [
         vec!["--root", "w", "--init-index"],

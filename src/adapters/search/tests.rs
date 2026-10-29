@@ -297,7 +297,7 @@ fn configured_ignore_filename_is_reported_even_without_a_policy_file() {
     assert!(result["_detail"]["exclusionPolicy"]["customPatterns"].is_null());
     args.scope = Some("visible.txt".into());
     let scoped = search(&project, &args).unwrap();
-    assert!(scoped["_detail"]["exclusionPolicy"]["customFile"].is_null());
+    assert_eq!(scoped["_detail"]["exclusionPolicy"]["customFile"], ".harnessignore");
     assert!(scoped["_detail"]["exclusionPolicy"]["customPatterns"].is_null());
 }
 
@@ -378,6 +378,7 @@ fn honors_ignore_secrets_and_compacts_without_losing_detail() {
     }
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+            override_project_exclusions: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -406,6 +407,7 @@ fn files_are_literal_and_unsafe_scope_is_rejected() {
     fs::write(dir.path().join("a[1].txt"), "text").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let mut args = SearchArgs {
+            override_project_exclusions: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -460,6 +462,7 @@ fn large_files_make_results_explicitly_incomplete() {
     fs::write(dir.path().join("small.txt"), "needle\n").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+            override_project_exclusions: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -482,9 +485,10 @@ fn large_files_make_results_explicitly_incomplete() {
     assert_eq!(result["_complete"], false);
     assert_eq!(result["skipped"], 1);
     assert_eq!(result["skippedFiles"][0]["path"], "large.txt");
-    assert_eq!(result["skippedFiles"][0]["reason"], "read_error");
+    assert_eq!(result["skippedFiles"][0]["reason"], "file_size_limit");
     for scope in [None, Some("."), Some("")] {
         let rooted = SearchArgs {
+            override_project_exclusions: None,
             scope: scope.map(str::to_owned),
             query: args.query.clone(),
             ..serde_json::from_value(json!({"kind":"text","query":"needle"})).unwrap()
@@ -505,6 +509,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let files = search(
         &p,
         &SearchArgs {
+            override_project_exclusions: None,
             ast: None,
             regex: None,
             case_sensitive: None,
@@ -532,6 +537,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let sizes = search(
         &p,
         &SearchArgs {
+            override_project_exclusions: None,
             ast: None,
             regex: None,
             case_sensitive: None,
@@ -554,6 +560,7 @@ fn globs_filter_files_and_file_size_without_skipping() {
     let text = search(
         &p,
         &SearchArgs {
+            override_project_exclusions: None,
             ast: None,
             regex: None,
             case_sensitive: None,
@@ -590,6 +597,7 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
     fs::write(dir.path().join("node_modules/vendor.cshtml"), "needle\n").unwrap();
     let p = Project::new(dir.path()).unwrap();
     let args = SearchArgs {
+            override_project_exclusions: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -614,6 +622,7 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
     let scoped = search(
         &p,
         &SearchArgs {
+            override_project_exclusions: None,
             scope: Some("Views/Orders".into()),
             globs: Some(vec!["Views/**/*.cshtml".into()]),
             ..args
@@ -626,6 +635,7 @@ fn text_globs_filter_extensions_before_reading_and_preserve_exclusions() {
 
 fn text_args(scope: Option<&str>) -> SearchArgs {
     SearchArgs {
+            override_project_exclusions: None,
         ast: None,
         regex: None,
         case_sensitive: None,
@@ -680,7 +690,9 @@ fn explicit_scope_overrides_harnessignore_with_warning() {
     fs::write(dir.path().join("generated/drop.txt"), "needle\n").unwrap();
     fs::write(dir.path().join(".harnessignore"), "generated/\n").unwrap();
     let project = Project::new(dir.path()).unwrap();
-    let result = search(&project, &text_args(Some("generated"))).unwrap();
+    let mut args = text_args(Some("generated"));
+    args.override_project_exclusions = Some(true);
+    let result = search(&project, &args).unwrap();
     assert_eq!(result["matches"].as_array().unwrap().len(), 1);
     assert_eq!(result["warnings"][0]["code"], "SCOPE_OVERRIDES_EXCLUSIONS");
     assert_eq!(
@@ -688,6 +700,33 @@ fn explicit_scope_overrides_harnessignore_with_warning() {
         Value::Null
     );
     assert_eq!(result["complete"], true);
+}
+
+#[test]
+fn explicit_scope_respects_project_ignore_unless_override_requested() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("generated")).unwrap();
+    fs::write(dir.path().join("generated/drop.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join(".harnessignore"), "generated/\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args = serde_json::from_value(json!({"query":"needle", "scope":"generated"})).unwrap();
+    let result = search(&project, &args).unwrap();
+    assert!(result["matches"].as_array().unwrap().is_empty());
+    assert!(result["warnings"].as_array().unwrap().is_empty());
+    let args = serde_json::from_value(json!({"query":"needle", "scope":"generated", "overrideProjectExclusions":true})).unwrap();
+    let result = search(&project, &args).unwrap();
+    assert_eq!(result["matches"].as_array().unwrap().len(), 1);
+    assert_eq!(result["warnings"][0]["code"], "SCOPE_OVERRIDES_EXCLUSIONS");
+}
+
+#[test]
+fn scope_inside_hard_excluded_directory_is_rejected_even_with_override() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("node_modules/nested")).unwrap();
+    fs::write(dir.path().join("node_modules/nested/file.txt"), "needle").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let args: SearchArgs = serde_json::from_value(json!({"query":"needle", "scope":"node_modules/nested", "overrideProjectExclusions":true})).unwrap();
+    assert_eq!(search(&project, &args).unwrap_err().0, "PATH");
 }
 
 #[test]

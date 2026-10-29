@@ -24,6 +24,7 @@ fn serialized_size(value: &Value) -> usize {
 #[derive(Default)]
 pub(super) struct MatchResults {
     pub(super) rows: Vec<Value>,
+    pub(super) skip_remaining: usize,
     metadata_bytes: usize,
 }
 
@@ -39,6 +40,10 @@ impl MatchResults {
     /// Accounts for the candidate row before applying the metadata and optional
     /// row-count limits, matching the scan's historical admission order.
     pub(super) fn add(&mut self, row: Value, enforce_row_limit: bool) -> bool {
+        if self.skip_remaining > 0 {
+            self.skip_remaining -= 1;
+            return true;
+        }
         self.metadata_bytes = self.metadata_bytes.saturating_add(serialized_size(&row));
         if self.metadata_bytes > 4 * 1024 * 1024 || (enforce_row_limit && self.rows.len() >= 10000)
         {

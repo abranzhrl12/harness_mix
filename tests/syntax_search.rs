@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 fn search(app: &NativeApplication, query: &str, limit: usize) -> Value {
     app.execute(Request::Search(SearchArgs {
+            override_project_exclusions: None,
         only_matching: None,
         ast: None,
         regex: None,

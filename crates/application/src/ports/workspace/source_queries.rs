@@ -33,4 +33,7 @@ pub trait SourceQueries: Send + Sync {
     }
     fn read(&self, args: &ReadArgs, context: &OperationContext) -> Result<Value, Failure>;
     fn search(&self, args: &SearchArgs, context: &OperationContext) -> Result<Value, Failure>;
+    fn resume_search(&self, _args: &SearchArgs, _checkpoint: &Value, _context: &OperationContext) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Search continuation unavailable"))
+    }
 }

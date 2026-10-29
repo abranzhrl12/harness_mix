@@ -128,6 +128,21 @@ fn razor_csharp_projection_with_eof_endregion_still_extracts_members() {
 }
 
 #[test]
+fn malformed_legacy_javascript_recovers_literal_requests_with_explicit_confidence() {
+    let source = "function broken( {\nfetch('/valid');\n";
+    let graph = extract("legacy.js", source, &OperationContext::default()).unwrap();
+    let references = graph["unresolvedReferences"].as_array().unwrap();
+    let reference = references.iter().find(|r| r["referenceKind"] == "http_route").unwrap();
+    let evidence: serde_json::Value =
+        serde_json::from_str(reference["referenceName"].as_str().unwrap()).unwrap();
+    assert_eq!(evidence["url"], "/valid");
+    assert_eq!(evidence["method"], "GET");
+    assert_eq!(evidence["extraction"], "recovered");
+    assert!(evidence["confidence"].as_f64().unwrap() < 1.0);
+    assert_eq!(reference["line"], 2);
+}
+
+#[test]
 fn malformed_buffers_and_cancellation_fail_closed() {
     let raw = EmitOut {
         meta: vec![],

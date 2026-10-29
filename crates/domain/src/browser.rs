@@ -18,6 +18,9 @@ pub enum BrowserArgs {
         /// `ws://loopback:port/devtools/browser/id` URL, `"auto"` / `"localhost"`
         /// to auto-discover an active debugging session, or a localhost tab
         /// URL/port filter (e.g. `http://localhost:3000` or `:5173`).
+        /// Automatic mode launches installed Chromium with a separate profile
+        /// if discovery finds no session. Set tab to the local application URL
+        /// to open it with event capture attached before navigation.
         #[serde(default = "default_connect_endpoint")]
         endpoint: String,
         /// Optional tab selector (URL substring, port like `:3000`, title, or targetId)

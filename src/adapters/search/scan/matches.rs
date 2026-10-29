@@ -139,19 +139,11 @@ pub(super) fn text_matches(
                                 row["context"] = json!({"start":start + 1,"end":end,
                                 "text":&source[offsets[start]..end_offset]});
                             }
-                            if !state.add(row, false) {
+                            if !state.add(row, true) {
                                 evaluation = Evaluation::Stop;
                                 return Ok(false);
                             }
                             emitted = true;
-                            if state.results.rows.len() >= 10000 {
-                                *state.bounded = true;
-                                state.skipped_files.push(
-                                    json!({"path":state.pending_path,"reason":"match_count_budget"}),
-                                );
-                                evaluation = Evaluation::Stop;
-                                return Ok(false);
-                            }
                         }
                         if emitted {
                             return Ok(true);
@@ -175,16 +167,7 @@ pub(super) fn text_matches(
                     row["context"] = json!({"start":start + 1,"end":end,
                     "text":&source[offsets[start]..end_offset]});
                 }
-                if !state.add(row, false) {
-                    evaluation = Evaluation::Stop;
-                    return Ok(false);
-                }
-                // Bound stored results and a single file containing millions of lines.
-                if state.results.rows.len() >= 10000 {
-                    *state.bounded = true;
-                    state
-                        .skipped_files
-                        .push(json!({"path":state.pending_path,"reason":"match_count_budget"}));
+                if !state.add(row, true) {
                     evaluation = Evaluation::Stop;
                     return Ok(false);
                 }

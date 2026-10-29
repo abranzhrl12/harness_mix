@@ -11,6 +11,7 @@ mod http_razor;
 mod orchestration;
 mod preview;
 mod razor;
+mod razor_forms;
 mod rust;
 mod scss;
 mod vue;

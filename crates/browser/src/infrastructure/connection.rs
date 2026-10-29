@@ -8,6 +8,7 @@ use super::events;
 pub(super) struct BrowserConnection {
     pub(super) owner: String,
     pub(super) browser: Browser,
+    pub(super) launched: bool,
     pub(super) pages: HashMap<String, Page>,
     pub(super) events: events::EventSink,
     pub(super) request_urls: events::RequestUrls,
@@ -19,7 +20,8 @@ impl Drop for BrowserConnection {
         for task in self.tasks.drain(..) {
             task.abort();
         }
-        // Dropping a connected Browser closes only CDP; never send Browser.close to external Chrome.
+        // External browsers are never closed. Owned browsers are closed explicitly
+        // on disconnect/replacement; Chromiumoxide owns their process lifetime.
     }
 }
 

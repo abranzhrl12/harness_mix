@@ -62,6 +62,14 @@ Después ejecuta `harness_bootstrap` con `{}` o `{"compact":true}`, comprueba `d
 
 ## 3. Índice y configuración opcionales
 
+`agent-harness --root "C:/proyectos/mi-app" init` crea, si faltan,
+`codegraph.json` con alcance vacío y `.harnessignore` sin exclusiones propias.
+Conserva los archivos existentes. Al desinstalar, elimina los archivos creados
+que no se hayan modificado y conserva los modificados.
+`init` no crea ni modifica el índice. Revisa ambos archivos y ejecuta
+`agent-harness --root "C:/proyectos/mi-app" index` para crear o sincronizar
+el índice explícitamente.
+
 ~~~powershell
 agent-harness --root "C:/proyectos/mi-app" --index init
 agent-harness --root "C:/proyectos/mi-app" --index rebuild
@@ -81,7 +89,7 @@ Configura las variables en el entorno del servidor, según el formato de tu clie
 | Variable | Valor predeterminado | Uso |
 | --- | --- | --- |
 | `HARNESS_TOOL_PROFILE` | `full` | `investigate`, `edit` o `full`; limita catálogo y operaciones |
-| `HARNESS_INDEX_WATCH` | Automático en Windows/full con índice existente | `0` desactiva; `1` exige arranque del watcher |
+| `HARNESS_INDEX_WATCH` | Automático en Windows/full | `0` desactiva; `1` habilita el watcher |
 | `HARNESS_MCP_EAGER_TOOLS` | Activado | `0` desactiva la sugerencia de carga inicial al cliente |
 
 `investigate` restringe operaciones mutantes aunque una herramienta también tenga acciones de escritura. `edit` añade edición y verificación; `full` ofrece todo el catálogo. Un cambio de perfil requiere reiniciar el servidor y no concede autorización para modificar un proyecto.

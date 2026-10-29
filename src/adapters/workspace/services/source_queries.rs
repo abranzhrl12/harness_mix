@@ -91,6 +91,22 @@ impl SourceQueries for SourceQueryService {
             },
         )
     }
+    fn resume_search(&self, args: &SearchArgs, checkpoint: &Value, context: &OperationContext) -> Result<Value, Failure> {
+        super::read_scoped_project(
+            &self.project, &self.external_scopes, args.external_scope.as_deref(),
+            args.session.as_deref(), context,
+            |project, default_scope| {
+                if args.scope.is_none() && default_scope.is_some() {
+                    let mut value = serde_json::to_value(args).map_err(|_| ("INTERNAL", "Cannot encode search arguments"))?;
+                    value["scope"] = json!(default_scope);
+                    let scoped = serde_json::from_value(value).map_err(|_| ("INTERNAL", "Cannot scope search arguments"))?;
+                    search::search_with_resume(project, &scoped, context, Some(checkpoint))
+                } else {
+                    search::search_with_resume(project, args, context, Some(checkpoint))
+                }
+            },
+        )
+    }
     fn search(&self, args: &SearchArgs, context: &OperationContext) -> Result<Value, Failure> {
         super::read_scoped_project(
             &self.project,

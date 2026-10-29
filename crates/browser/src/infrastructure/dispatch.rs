@@ -5,7 +5,7 @@ use std::{
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chromiumoxide::{
-    browser::Browser,
+    browser::{Browser, BrowserConfig},
     cdp::browser_protocol::target::{GetTargetsParams, TargetId, TargetInfo},
 };
 use futures_util::StreamExt;
@@ -20,8 +20,8 @@ use harness_domain::{
 
 use crate::{
     domain::{
-        MAX_EVENT_MESSAGE, is_localhost_url, rank_targets, required_session, select_target,
-        validate_connect_endpoint,
+        MAX_EVENT_MESSAGE, is_localhost_url, parse_connect_input, rank_targets, required_session,
+        select_target, validate_connect_endpoint,
     },
     infrastructure::{
         cdp::{MAX_ATTACHED_PAGES, MAX_CONNECTIONS, MAX_TARGETS},
@@ -73,15 +73,41 @@ pub(super) async fn dispatch(
                     "Se alcanzó el límite de conexiones de navegador",
                 ));
             }
-            let discovered = discovery::discover_session(Some(&endpoint), tab.as_deref()).await?;
+            let (explicit_endpoint, filter) = parse_connect_input(&endpoint, tab.as_deref())?;
+            let (discovered, mut browser, mut handler, launch_url) =
+                match discovery::discover_session(Some(&endpoint), tab.as_deref()).await {
+                    Ok(discovered) => {
+                        let url = local_launch_url(filter.as_deref());
+                        let open_tab = (explicit_endpoint.is_none()
+                            && url != "about:blank"
+                            && select_target(&discovered.targets, filter.as_deref()).is_none())
+                        .then_some(url);
+                        let (browser, handler) = Browser::connect(discovered.ws_endpoint.clone())
+                            .await
+                            .map_err(|_| {
+                                (
+                                    "BROWSER_CONNECT",
+                                    "No se pudo conectar al endpoint CDP local",
+                                )
+                            })?;
+                        (discovered, browser, handler, open_tab)
+                    }
+                    Err(("BROWSER_CONNECT", _)) if explicit_endpoint.is_none() => {
+                        context.check()?;
+                        let (browser, handler) = launch_browser().await?;
+                        let launch_url = local_launch_url(filter.as_deref());
+                        let discovered = discovery::DiscoveredSession {
+                            ws_endpoint: browser.websocket_address().clone(),
+                            http_endpoint: None,
+                            targets: Vec::new(),
+                            effective_tab_filter: filter,
+                        };
+                        (discovered, browser, handler, Some(launch_url))
+                    }
+                    Err(error) => return Err(error),
+                };
+            let launched = browser.get_mut_child().is_some();
             let ws_endpoint = discovered.ws_endpoint.clone();
-            let (browser, mut handler) =
-                Browser::connect(ws_endpoint.clone()).await.map_err(|_| {
-                    (
-                        "BROWSER_CONNECT",
-                        "No se pudo conectar al endpoint CDP local",
-                    )
-                })?;
             let handler_task = tokio::spawn(async move {
                 while let Some(message) = handler.next().await {
                     if message.is_err() {
@@ -92,10 +118,37 @@ pub(super) async fn dispatch(
             let mut connection = BrowserConnection {
                 owner: owner.clone(),
                 browser,
+                launched,
                 pages: HashMap::new(),
                 events: Arc::new(Mutex::new(events::EventBuffer::default())),
                 request_urls: Arc::new(Mutex::new(HashMap::new())),
                 tasks: vec![handler_task],
+            };
+
+            // Attach on a blank page before navigation, so initial-load exceptions
+            // are captured too. Existing external tabs are never navigated.
+            let launched_target = if let Some(url) = launch_url {
+                let page = connection
+                    .browser
+                    .new_page("about:blank")
+                    .await
+                    .map_err(|_| {
+                        (
+                            "BROWSER_LAUNCH",
+                            "No se pudo crear la pestana de diagnostico",
+                        )
+                    })?;
+                let id = page.target_id().as_ref().to_owned();
+                attach_target_to_connection(&mut connection, &id).await?;
+                page.goto(url.as_str()).await.map_err(|_| {
+                    (
+                        "BROWSER_NAVIGATION",
+                        "No se pudo abrir la aplicacion en el navegador de diagnostico",
+                    )
+                })?;
+                Some(id)
+            } else {
+                None
             };
 
             let mut available_tabs = match fetch_target_infos(&connection.browser).await {
@@ -109,8 +162,13 @@ pub(super) async fn dispatch(
                 available_tabs = discovered.targets;
             }
 
-            let candidate_tab =
-                select_target(&available_tabs, discovered.effective_tab_filter.as_deref()).cloned();
+            let candidate_tab = launched_target
+                .as_ref()
+                .and_then(|id| available_tabs.iter().find(|target| &target.id == id))
+                .or_else(|| {
+                    select_target(&available_tabs, discovered.effective_tab_filter.as_deref())
+                })
+                .cloned();
 
             let mut selected_tab = None;
             if let Some(target) = candidate_tab {
@@ -123,7 +181,11 @@ pub(super) async fn dispatch(
             }
 
             if let Some(old_id) = sessions.remove(&owner) {
-                connections.remove(&old_id);
+                if let Some(mut old) = connections.remove(&old_id) {
+                    if old.launched {
+                        let _ = old.browser.kill().await;
+                    }
+                }
             }
             let id = Uuid::new_v4().to_string();
             connections.insert(id.clone(), connection);
@@ -357,10 +419,104 @@ pub(super) async fn dispatch(
         } => {
             let owner = required_session(session)?;
             owned_connection(connections, &connection_id, &owner)?;
+            if let Some(connection) = connections.get_mut(&connection_id) {
+                if connection.launched {
+                    let _ = connection.browser.kill().await;
+                }
+            }
             connections.remove(&connection_id);
             sessions.remove(&owner);
             Ok(BrowserResult::Disconnected { connection_id })
         }
+    }
+}
+
+async fn launch_browser() -> Result<(Browser, chromiumoxide::Handler), Failure> {
+    let config = BrowserConfig::builder()
+        .with_head()
+        .respect_https_errors()
+        .port(0)
+        .arg("--remote-debugging-address=127.0.0.1")
+        .user_data_dir(std::env::temp_dir().join(format!("harness-browser-{}", Uuid::new_v4())))
+        .launch_timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| {
+            (
+                "BROWSER_LAUNCH",
+                "No se encontro Chromium instalado para iniciar el navegador automaticamente",
+            )
+        })?;
+    Browser::launch(config).await.map_err(|_| {
+        (
+            "BROWSER_LAUNCH",
+            "No se pudo iniciar el navegador local con un perfil separado",
+        )
+    })
+}
+
+fn local_launch_url(filter: Option<&str>) -> String {
+    let filter = filter.unwrap_or_default().trim();
+    let candidate = if let Ok(port) = filter.trim_start_matches(':').parse::<u16>() {
+        format!("http://localhost:{port}/")
+    } else if filter.contains("://") {
+        filter.to_owned()
+    } else {
+        format!("http://{filter}")
+    };
+    if is_localhost_url(&candidate)
+        && let Ok(url) = url::Url::parse(&candidate)
+        && url.username().is_empty()
+        && url.password().is_none()
+    {
+        return url.into();
+    }
+    "about:blank".into()
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    #[test]
+    fn only_local_application_selectors_become_navigation_urls() {
+        assert_eq!(local_launch_url(Some(":5173")), "http://localhost:5173/");
+        assert_eq!(
+            local_launch_url(Some("localhost:3000/app")),
+            "http://localhost:3000/app"
+        );
+        assert_eq!(
+            local_launch_url(Some("https://localhost:443/app")),
+            "https://localhost/app"
+        );
+        for selector in [
+            "https://example.com",
+            "file:///secret",
+            "javascript:alert(1)",
+            "http://user:secret@localhost:3000",
+            "My tab title",
+        ] {
+            assert_eq!(local_launch_url(Some(selector)), "about:blank");
+        }
+        assert_eq!(local_launch_url(None), "about:blank");
+    }
+
+    #[tokio::test]
+    #[ignore = "launches installed Chromium; no existing debugging session required"]
+    async fn smoke_launches_installed_browser_on_ephemeral_loopback_port() {
+        let (mut browser, mut handler) = launch_browser().await.unwrap();
+        let task = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let endpoint = browser.websocket_address().clone();
+        crate::domain::validate_endpoint(&endpoint).unwrap();
+        assert!(browser.get_mut_child().is_some());
+        let page = browser.new_page("about:blank").await.unwrap();
+        assert!(
+            page.url()
+                .await
+                .unwrap()
+                .is_some_and(|url| url == "about:blank")
+        );
+        browser.kill().await.unwrap().unwrap();
+        task.abort();
     }
 }
 

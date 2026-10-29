@@ -311,6 +311,18 @@ impl SourceQueries for MultiNativeWorkspace {
         qualify_paths(&mut result, &self.projects[i].0.name, self.workspace_mode);
         Ok(result)
     }
+    fn resume_search(&self, args: &harness_domain::contracts::SearchArgs, checkpoint: &Value, ctx: &OperationContext) -> Result<Value, Failure> {
+        if !self.workspace_mode { return self.projects[0].1.resume_search(args, checkpoint, ctx); }
+        let (i, local) = self.one(args, &["scope"])?;
+        let mut result = self.projects[i].1.resume_search(&local, checkpoint, ctx)?;
+        if result["_detail"]["_continuation"].is_object() {
+            result["_detail"]["_continuation"]["arguments"] = serde_json::to_value(args).map_err(|_| ("INTERNAL", "Cannot encode search arguments"))?;
+        }
+        let continuation = result["_detail"].as_object_mut().and_then(|detail| detail.remove("_continuation"));
+        qualify_paths(&mut result, &self.projects[i].0.name, true);
+        if let Some(continuation) = continuation { result["_detail"]["_continuation"] = continuation; }
+        Ok(result)
+    }
     fn search(
         &self,
         args: &harness_domain::contracts::SearchArgs,
@@ -324,9 +336,13 @@ impl SourceQueries for MultiNativeWorkspace {
             .as_deref()
             .is_some_and(|scope| !scope.is_empty() && scope != ".")
         {
+            let original = serde_json::to_value(args).map_err(|_| ("INTERNAL", "Cannot encode search arguments"))?;
             let (i, args) = self.one(args, &["scope"])?;
             let mut result = self.projects[i].1.search(&args, ctx)?;
+            if result["_detail"]["_continuation"].is_object() { result["_detail"]["_continuation"]["arguments"] = original; }
+            let continuation = result["_detail"].as_object_mut().and_then(|detail| detail.remove("_continuation"));
             qualify_paths(&mut result, &self.projects[i].0.name, self.workspace_mode);
+            if let Some(continuation) = continuation { result["_detail"]["_continuation"] = continuation; }
             return Ok(result);
         }
         let mut combined = json!({"matches":[],"files":[],"paths":[],"skippedFiles":[],"projects":[],"complete":true,"_complete":true,"scanned":0,"bytesRead":0,"skipped":0,"omitted":0});
@@ -351,6 +367,7 @@ impl SourceQueries for MultiNativeWorkspace {
                 }
             };
             let name = project.name.clone();
+            if let Some(detail) = result.get_mut("_detail").and_then(Value::as_object_mut) { detail.remove("_continuation"); }
             qualify_paths(&mut result, &name, self.workspace_mode);
             for key in ["matches", "files", "paths", "skippedFiles"] {
                 if let Some(items) = result.get_mut(key).and_then(Value::as_array_mut) {

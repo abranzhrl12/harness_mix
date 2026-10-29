@@ -3,6 +3,23 @@ use super::*;
 use harness_application::indexing::inventory::MAX_BYTES;
 use std::collections::BTreeMap;
 #[test]
+fn harnessignore_excludes_discovered_and_tracked_sources_even_with_wildcard() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".harnessignore"), "*\n!keep.rs\n").unwrap();
+    std::fs::write(dir.path().join("keep.rs"), "fn keep() {}\n").unwrap();
+    std::fs::write(dir.path().join("ignored.rs"), "fn ignored() {}\n").unwrap();
+    let project = Project::new(dir.path()).unwrap();
+    let inventory = scan(
+        &project,
+        &["ignored.rs".into()],
+        &OperationContext::default(),
+    )
+    .unwrap();
+    assert!(inventory.observations.contains_key("keep.rs"));
+    assert!(!inventory.observations.contains_key("ignored.rs"));
+    assert_eq!(inventory.scope_excluded, vec!["ignored.rs"]);
+}
+#[test]
 fn unreadable_encoding_has_a_file_diagnostic_and_is_not_missing() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe]).unwrap();
@@ -79,6 +96,10 @@ fn aggregate_budget_never_turns_an_existing_source_into_a_deletion() {
                 &OperationContext::default(),
             )
             .unwrap(),
+            ignore: ignore::gitignore::GitignoreBuilder::new(&project.root)
+                .build()
+                .unwrap(),
+            ignore_bytes: None,
         },
         "source.rs",
         &OperationContext::default(),

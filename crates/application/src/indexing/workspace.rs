@@ -16,7 +16,6 @@ pub fn systemic_failure(code: &str) -> bool {
     matches!(
         code,
         "SYNC_SCHEMA"
-            | "SYNC_INDEX"
             | "SYNC_INDEX_BUSY"
             | "SYNC_INTEGRITY"
             | "SYNC_COMMIT_UNCERTAIN"

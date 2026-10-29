@@ -33,6 +33,7 @@ agent-harness /config
 | `--help`, `-h` | Mostrar ayuda y terminar |
 | `--version` | Mostrar la versión y terminar |
 | `--init-config` | Crear configuración opcional sin sobrescribir |
+| `index` | Crear un índice ausente y sincronizar las fuentes, o sincronizar uno compatible existente |
 | `--index init` | Crear esquema vacío; exige que no exista `.codegraph/` |
 | `--index plan` | Inspeccionar el plan de sincronización de un índice existente |
 | `--index plan --summary` | Devolver conteos exactos por categoría y hasta cinco rutas de muestra por categoría |

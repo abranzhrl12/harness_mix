@@ -309,6 +309,75 @@ pub(super) fn enrich(
         .extend(references);
     Ok(())
 }
+/// Recover complete standalone request statements after native JavaScript parsing
+/// fails. This deliberately omits dynamic expressions and ambiguous fragments.
+pub(super) fn recover_legacy(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    let file = super::framework::file_node(path, source, "javascript");
+    let file_id = file["id"].as_str().ok_or(CONTRACT)?.to_owned();
+    let positions = super::framework::Positions::new(source);
+    let mut references = Vec::new();
+    let mut offset = 0usize;
+    let mut block_comment = false;
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    for line in source.split_inclusive('\n') {
+        context.check()?;
+        let trimmed = line.trim_start();
+        if !block_comment && quote.is_none()
+            && ["fetch(", "axios.", "$."].iter().any(|prefix| trimmed.starts_with(prefix))
+        {
+            let allocator = Allocator::default();
+            let parsed = Parser::new(&allocator, trimmed, SourceType::default()).parse();
+            if !parsed.diagnostics.has_errors() {
+                let semantic = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+                let clients = super::http_angular::Clients::new(&parsed.program, &semantic);
+                let mut calls = Calls { source: trimmed, requests: Vec::new(), count: 0 };
+                for node in semantic.nodes().iter() {
+                    if let AstKind::CallExpression(call) = node.kind() {
+                        calls.add(call, &clients);
+                    }
+                }
+                if calls.count > 20_000 { return Err(LIMIT); }
+                for call in calls.requests {
+                    let at = offset + line.len() - trimmed.len() + call.at;
+                    let (row, column) = positions.position(at)?;
+                    let name = json!({"url":call.url,"method":call.method,
+                        "extraction":"recovered","confidence":0.5}).to_string();
+                    references.push(json!({"fromNodeId":file_id,"referenceName":name,
+                        "referenceKind":"http_route","line":row,"column":column,"filePath":path}));
+                    if references.len() > 20_000 { return Err(LIMIT); }
+                }
+            }
+        }
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if block_comment {
+                if bytes.get(i..i + 2) == Some(b"*/") { block_comment = false; i += 2; } else { i += 1; }
+            } else if let Some(active) = quote {
+                if escaped { escaped = false; }
+                else if bytes[i] == b'\\' { escaped = true; }
+                else if bytes[i] == active { quote = None; }
+                i += 1;
+            } else if bytes.get(i..i + 2) == Some(b"//") {
+                break;
+            } else if bytes.get(i..i + 2) == Some(b"/*") {
+                block_comment = true; i += 2;
+            } else if matches!(bytes[i], b'\'' | b'"' | b'`') {
+                quote = Some(bytes[i]); i += 1;
+            } else { i += 1; }
+        }
+        offset += line.len();
+    }
+    Ok(json!({"nodes":[file],"edges":[],"unresolvedReferences":references,
+        "errors":[{"message":"JavaScript parsing failed; only standalone literal requests were recovered"}],
+        "coverage":{"status":"partial","reason":"legacy_javascript_recovery"}}))
+}
+
 fn contains(n: &Value, line: usize, col: usize) -> bool {
     let sl = n["startLine"].as_u64().unwrap_or(0) as usize;
     let el = n["endLine"].as_u64().unwrap_or(0) as usize;

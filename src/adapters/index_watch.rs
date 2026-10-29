@@ -48,7 +48,15 @@ impl IndexWatch {
         };
 
         let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-        // Existing index only; enabling maintenance never initializes/migrates it.
+        // Claim only a missing namespace; never replace a partial or existing index.
+        let directory = project.target_optional(".codegraph")?;
+        match std::fs::symlink_metadata(&directory) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                super::index_store::initialize(root, &OperationContext::without_deadline())?;
+            }
+            Err(_) => return Err(("PATH", "Cannot inspect index directory")),
+            Ok(_) => {}
+        }
         project.target(".codegraph/codegraph.db")?;
         let directory = project.target(".codegraph")?;
         let pins = edit_commit::pin_directory(&project, &directory)?;

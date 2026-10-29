@@ -24,12 +24,22 @@ pub fn search_with_context(
     args: &SearchArgs,
     context: &OperationContext,
 ) -> Result<Value, Failure> {
+    search_with_resume(project, args, context, None)
+}
+
+pub fn search_with_resume(
+    project: &Project,
+    args: &SearchArgs,
+    context: &OperationContext,
+    resume: Option<&Value>,
+) -> Result<Value, Failure> {
     context.check()?;
     let plan = plan::build(project, args)?;
     let context = context.with_execution_timeout(Some(scan::SCAN_TIMEOUT));
-    let mut outcome = scan::execute(project, args, &context, plan)?;
+    let mut outcome = scan::execute(project, args, &context, plan, resume)?;
     let mut ranked = false;
-    if outcome.all.is_empty()
+    if resume.is_none()
+        && outcome.all.is_empty()
         && !outcome.bounded
         && !outcome.timed_out
         && !outcome.cancelled
@@ -40,13 +50,14 @@ pub fn search_with_context(
             let first_started = outcome.started;
             let first_bytes = outcome.bytes;
             let first_visited = outcome.visited;
-            outcome = scan::execute(project, args, &context, fallback)?;
+            outcome = scan::execute(project, args, &context, fallback, None)?;
             outcome.started = first_started;
             outcome.bytes += first_bytes;
             outcome.visited += first_visited;
         }
     }
-    if outcome.all.is_empty()
+    if resume.is_none()
+        && outcome.all.is_empty()
         && !outcome.bounded
         && !outcome.timed_out
         && !outcome.cancelled
@@ -57,7 +68,7 @@ pub fn search_with_context(
             let first_started = outcome.started;
             let first_bytes = outcome.bytes;
             let first_visited = outcome.visited;
-            outcome = scan::execute(project, args, &context, fallback)?;
+            outcome = scan::execute(project, args, &context, fallback, None)?;
             outcome.started = first_started;
             outcome.bytes += first_bytes;
             outcome.visited += first_visited;

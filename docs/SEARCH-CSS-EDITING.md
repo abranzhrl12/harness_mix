@@ -46,11 +46,17 @@ CRLF y espacios. El contexto se calcula de los mismos bytes que el hash.
 
 `limit` selecciona una página compacta. Si hay más resultados guardados,
 `nextCall` incluye una llamada a `harness_search` con `cursor` y `offset`; esa
-continuación pagina el snapshot del primer scan y no vuelve a recorrer el árbol.
+continuación primero pagina las filas capturadas en el scan.
 El cursor comparte la retención de `detail` (10 minutos o hasta cerrar su sesión).
-Los snapshots parciales también se pueden recorrer, pero cada página conserva
-`scanComplete=false` y `snapshotOnly=true`: las páginas siguientes solo contienen
-filas encontradas antes del presupuesto, no descubren archivos que quedaron fuera.
+Cuando una búsqueda literal de texto alcanza el límite de coincidencias, el
+cursor continúa el recorrido en vivo tras entregar las filas capturadas. La
+continuación verifica el hash del archivo de reanudación y devuelve `STALE` si
+cambió o dejó de ser elegible. El árbol restante puede cambiar entre llamadas;
+`continuationMode="live"` no representa un snapshot global. Otros límites,
+regex, búsqueda estructural y resultados clasificados siguen siendo snapshots
+parciales: `scanComplete=false` y `snapshotOnly=true`, sin reanudar el scan.
+Por defecto los scopes respetan `.harnessignore`; `overrideProjectExclusions=true`
+omite esas reglas y avisa, sin omitir exclusiones permanentes.
 `complete` describe si terminó el scan; `contentTruncated` indica texto recortado
 en las filas visibles y `presentationTruncated` indica filas que siguen en otras
 páginas. `truncated` conserva la señal combinada por compatibilidad. La búsqueda

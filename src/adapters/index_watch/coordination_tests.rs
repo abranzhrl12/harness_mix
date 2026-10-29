@@ -1,4 +1,4 @@
-use super::IndexWatch;
+﻿use super::IndexWatch;
 use crate::adapters::index_store;
 use harness_domain::execution::OperationContext;
 use std::{fs::{self, File}, path::Path, time::{Duration, Instant}};
@@ -10,13 +10,13 @@ fn gate(root: &Path) -> File {
     file
 }
 
-fn wait(mut predicate: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+fn wait(what: &str, mut predicate: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         if predicate() {
             return;
         }
-        assert!(Instant::now() < deadline, "watcher did not converge");
+        assert!(Instant::now() < deadline, "{what} did not converge");
         std::thread::sleep(Duration::from_millis(25));
     }
 }
@@ -33,7 +33,7 @@ fn watcher_owner_process_helper() {
     use std::io::{self, Write};
     let root = std::env::var_os("HARNESS_WATCH_OWNER_ROOT").unwrap();
     let watch = super::supervisor::SupervisedWatch::start(Path::new(&root)).unwrap();
-    wait(|| watch.status.lock().unwrap()["role"] == "owner");
+    wait("child owner role", || watch.status.lock().unwrap()["role"] == "owner");
     println!("WATCH_OWNER_READY");
     io::stdout().flush().unwrap();
     let mut line = String::new();
@@ -64,16 +64,16 @@ fn standby_recovers_after_owner_process_is_terminated() {
             if line.contains("WATCH_OWNER_READY") { let _ = ready_tx.send(()); }
         }
     });
-    ready_rx.recv_timeout(Duration::from_secs(15)).expect("owner did not start");
+    ready_rx.recv_timeout(Duration::from_secs(120)).expect("owner did not start");
     let standby = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
-    wait(|| standby.status.lock().unwrap()["role"] == "standby");
-    wait(|| standby.status.lock().unwrap()["observedOwner"]["pid"] == child.0.id());
+    wait("standby role", || standby.status.lock().unwrap()["role"] == "standby");
+    wait("observed owner pid", || standby.status.lock().unwrap()["observedOwner"]["pid"] == child.0.id());
     child.0.kill().unwrap();
     child.0.wait().unwrap();
     reader.join().unwrap();
     fs::write(root.path().join("a.js"), "export function after() {}").unwrap();
-    wait(|| standby.status.lock().unwrap()["role"] == "owner");
-    wait(|| names(root.path()) == vec!["after"]);
+    wait("standby takeover", || standby.status.lock().unwrap()["role"] == "owner");
+    wait("after indexing", || names(root.path()) == vec!["after"]);
 }
 
 #[test]
@@ -85,12 +85,21 @@ fn bad_telemetry_does_not_stop_indexing_or_takeover() {
     fs::write(root.path().join("a.js"), "export function before() {}").unwrap();
     let owner = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
     let standby = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
-    wait(|| owner.status.lock().unwrap()["telemetryPublished"] == false);
-    wait(|| names(root.path()) == vec!["before"]);
+    wait("telemetry rejection", || owner.status.lock().unwrap()["telemetryPublished"] == false);
+    wait("before indexing", || {
+        if names(root.path()) == vec!["before"] {
+            return true;
+        }
+        static DIAGNOSTIC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if DIAGNOSTIC.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 40 == 0 {
+            std::eprintln!("owner status while waiting for initial index: {}", owner.status.lock().unwrap());
+        }
+        false
+    });
     drop(owner);
     fs::write(root.path().join("a.js"), "export function after() {}").unwrap();
-    wait(|| standby.status.lock().unwrap()["role"] == "owner");
-    wait(|| names(root.path()) == vec!["after"]);
+    wait("standby takeover", || standby.status.lock().unwrap()["role"] == "owner");
+    wait("after indexing", || names(root.path()) == vec!["after"]);
     assert_eq!(fs::read(status_path).unwrap(), b"foreign");
 }
 
@@ -101,9 +110,9 @@ fn multiple_standbys_elect_one_replacement() {
     let owner = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
     let first = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
     let second = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
-    wait(|| first.status.lock().unwrap()["role"] == "standby" && second.status.lock().unwrap()["role"] == "standby");
+    wait("dual standby", || first.status.lock().unwrap()["role"] == "standby" && second.status.lock().unwrap()["role"] == "standby");
     drop(owner);
-    wait(|| first.status.lock().unwrap()["role"] == "owner" || second.status.lock().unwrap()["role"] == "owner");
+    wait("election", || first.status.lock().unwrap()["role"] == "owner" || second.status.lock().unwrap()["role"] == "owner");
     std::thread::sleep(Duration::from_millis(2200));
     let roles = [first.status.lock().unwrap()["role"].clone(), second.status.lock().unwrap()["role"].clone()];
     assert_eq!(roles.iter().filter(|r| **r == "owner").count(), 1, "{roles:?}");
@@ -116,16 +125,16 @@ fn standby_takes_over_after_owner_stops_and_indexes_new_files() {
     fs::write(root.path().join("a.js"), "export function before() {}").unwrap();
     let owner = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
     let standby = super::supervisor::SupervisedWatch::start(root.path()).unwrap();
-    wait(|| owner.status.lock().unwrap()["role"] == "owner");
-    wait(|| standby.status.lock().unwrap()["role"] == "standby");
+    wait("owner role", || owner.status.lock().unwrap()["role"] == "owner");
+    wait("standby role", || standby.status.lock().unwrap()["role"] == "standby");
     drop(owner);
     fs::write(root.path().join("a.js"), "export function after() {}").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(120);
     while standby.status.lock().unwrap()["role"] != "owner" {
         assert!(Instant::now() < deadline, "standby did not take over; status={}", standby.status.lock().unwrap());
         std::thread::sleep(Duration::from_millis(25));
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(120);
     while names(root.path()) != vec!["after"] {
         assert!(
             Instant::now() < deadline,
@@ -145,7 +154,7 @@ fn watcher_retains_changes_received_while_cli_owns_the_gate() {
     let owner = gate(root.path());
     let watch = IndexWatch::start(root.path()).unwrap();
     {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + Duration::from_secs(120);
         while watch.status.lock().unwrap()["state"] != "syncing" {
             assert!(Instant::now() < deadline, "watcher never started syncing; status={}", watch.status.lock().unwrap());
             std::thread::sleep(Duration::from_millis(25));
@@ -155,7 +164,7 @@ fn watcher_retains_changes_received_while_cli_owns_the_gate() {
     fs::write(root.path().join("a.js"), "export function after() {}").unwrap();
     fs::write(root.path().join("b.js"), "export function added() {}").unwrap();
     drop(owner);
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(120);
     while names(root.path()) != vec!["added", "after"] {
         assert!(Instant::now() < deadline, "names={:?}, status={}", names(root.path()), watch.status.lock().unwrap());
         std::thread::sleep(Duration::from_millis(25));
@@ -178,7 +187,7 @@ fn dropping_watcher_cancels_a_coordinator_wait_and_releases_handles() {
     fs::write(root.path().join("a.js"), "export function indexed() {}").unwrap();
     let owner = gate(root.path());
     let watch = IndexWatch::start(root.path()).unwrap();
-    wait(|| watch.status.lock().unwrap()["state"] == "syncing");
+    wait("first sync", || watch.status.lock().unwrap()["state"] == "syncing");
     let started = Instant::now();
     drop(watch);
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());

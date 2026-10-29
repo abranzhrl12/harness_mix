@@ -88,6 +88,40 @@ pub(super) fn external_restricted_reason(relative: &str) -> Option<&'static str>
     })
 }
 
+pub(crate) fn path_starts_with(path: &Path, base: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::path::Component;
+        let mut path_comps = path.components();
+        let mut base_comps = base.components();
+        loop {
+            match (path_comps.next(), base_comps.next()) {
+                (_, None) => return true,
+                (Some(Component::Normal(p)), Some(Component::Normal(b))) => {
+                    if !p.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()) {
+                        return false;
+                    }
+                }
+                (Some(Component::Prefix(p)), Some(Component::Prefix(b))) => {
+                    if !format!("{:?}", p.kind()).eq_ignore_ascii_case(&format!("{:?}", b.kind())) {
+                        return false;
+                    }
+                }
+                (Some(p), Some(b)) => {
+                    if p != b {
+                        return false;
+                    }
+                }
+                (None, Some(_)) => return false,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        path.starts_with(base)
+    }
+}
+
 #[derive(Clone)]
 pub struct Project {
     pub root: PathBuf,
@@ -148,7 +182,11 @@ impl Project {
             Ok(())
         })?;
         let existing = if allow_missing && !target.exists() {
-            target.ancestors().skip(1).find(|path| path.exists())
+            target
+                .ancestors()
+                .skip(1)
+                .take_while(|path| path_starts_with(path, &self.root))
+                .find(|path| path.exists())
                 .ok_or(("PATH", "directorio no accesible"))?
         } else {
             target.as_path()
@@ -157,7 +195,7 @@ impl Project {
         if self.single_file.as_ref().is_some_and(|single| *single != real) {
             return Err(("PATH", "Scope authorizes only its registered file"));
         }
-        if !real.starts_with(&self.root) {
+        if !path_starts_with(&real, &self.root) {
             return Err(("PATH", "destino fuera del proyecto"));
         }
         Ok(target)
@@ -405,7 +443,7 @@ impl Project {
             return Err(("PATH", "Opened source identity unavailable"));
         }
         let opened = PathBuf::from(OsString::from_wide(&buffer[..length]));
-        if !opened.starts_with(&self.root) {
+        if !path_starts_with(&opened, &self.root) {
             return Err(("PATH", "Opened source is outside the project"));
         }
         Ok(())

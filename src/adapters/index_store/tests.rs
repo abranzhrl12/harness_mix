@@ -1,3 +1,23 @@
+#[test]
+fn static_razor_form_handler_and_payload_edges_survive_publication() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(dir.path(), &context).unwrap();
+    let source = r#"<form id="order"><input name="customer"><button onclick="save()">Save</button></form>
+<script>
+function save() { fetch('/Orders/Save', { method: 'POST', body: JSON.stringify({customer: document.querySelector('[name=customer]').value}) }); }
+</script>"#;
+    std::fs::write(dir.path().join("page.cshtml"), source).unwrap();
+    sync_file(dir.path(), "page.cshtml", &context).unwrap();
+    let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+    let count: i64 = db.query_row(
+        "SELECT count(*) FROM edges e JOIN nodes s ON e.source=s.id JOIN nodes t ON e.target=t.id WHERE s.name='save' AND t.name='customer' AND e.kind='references' AND json_extract(e.metadata,'$.resolvedBy')='razor-json-selector-v1' AND json_extract(e.metadata,'$.confidence')=0.7",
+        [], |row| row.get(0)
+    ).unwrap();
+    assert_eq!(count, 1);
+}
+
 #[cfg(windows)]
 #[test]
 fn local_only_importer_retries_after_global_candidate_ceiling_is_removed() {

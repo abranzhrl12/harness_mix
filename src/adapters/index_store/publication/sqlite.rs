@@ -136,6 +136,12 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
                 index_extract::extract(path, text.as_ref(), context)
             })
             .transpose()?;
+        if extracted_value.as_ref().is_some_and(|graph| {
+            graph["coverage"]["status"] == "partial"
+                || graph["coverage"]["complete"] == false
+        }) {
+            return Err(("SYNC_PARTIAL", "Partial extraction cannot be published as a complete index; previous graph preserved"));
+        }
         Ok(extracted_value)
     }
 

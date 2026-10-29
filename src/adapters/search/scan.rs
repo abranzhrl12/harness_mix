@@ -79,6 +79,7 @@ pub(super) struct ScanOutcome<'a> {
     pub(super) omitted_folders: usize,
     pub(super) walk_and_other_micros: u64,
     pub(super) custom_patterns: Option<usize>,
+    pub(super) continuation: Option<Value>,
 }
 
 pub(super) fn execute<'a>(
@@ -86,6 +87,7 @@ pub(super) fn execute<'a>(
     args: &'a SearchArgs,
     context: &OperationContext,
     plan: SearchPlan<'a>,
+    resume: Option<&Value>,
 ) -> Result<ScanOutcome<'a>, Failure> {
     let SearchPlan {
         file_size,
@@ -122,8 +124,16 @@ pub(super) fn execute<'a>(
         None
     };
     let folder_stats = RefCell::new(BTreeMap::new());
-    let builder = walk::build(&root, exclude_minified, explicit_scope)?;
+    let builder = walk::build(&project.root, &root, exclude_minified, explicit_scope)?;
     let mut match_results = MatchResults::default();
+    let resume_path = resume.and_then(|value| value["path"].as_str());
+    let resume_hash = resume.and_then(|value| value["hash"].as_str());
+    let resume_ordinal = resume.and_then(|value| value["ordinal"].as_u64()).unwrap_or(0) as usize;
+    if resume.is_some() && (resume_path.is_none() || resume_hash.is_none() || resume.and_then(|value| value["ordinal"].as_u64()).is_none() || resume.and_then(|value| value["version"].as_u64()) != Some(1)) {
+        return Err(("DETAIL", "invalid search continuation"));
+    }
+    let mut seeking = resume_path.is_some();
+    let mut last_read: Option<(String, String)> = None;
     let mut visited = 0;
     let mut bytes = 0;
     let mut reserved_bytes = 0_u64;
@@ -146,7 +156,35 @@ pub(super) fn execute<'a>(
     if syntax {
         let (canonical, name) = selected.expect("syntax selector is present");
         match symbol_graph::discover(project, canonical, name, scope, limit, context) {
-            Ok(Some(candidates)) => {
+            Ok(Some(mut candidates)) => {
+                // Apply the same traversal policy before certifying indexed files.
+                let mut wanted: BTreeSet<String> = candidates.iter().map(|candidate| candidate.file_path.replace('\\', "/")).collect();
+                let mut allowed = BTreeSet::new();
+                // Missing indexed files remain candidates so freshness can report them.
+                for path in wanted.clone() {
+                    if project.target_optional(&path).is_ok_and(|target| !target.exists()) {
+                        allowed.insert(path.clone());
+                        wanted.remove(&path);
+                    }
+                }
+                if !wanted.is_empty() {
+                    let policy_walk = walk::build(&project.root, &root, exclude_minified, explicit_scope)?;
+                    let mut count = 0usize;
+                    for entry in policy_walk.build() {
+                        context.check()?;
+                        let entry = entry.map_err(|_| ("SEARCH_INCOMPLETE", "Unable to apply exclusion policy to indexed candidates"))?;
+                        if entry.error().is_some() { return Err(("SEARCH_INCOMPLETE", "Unable to read exclusion policy")); }
+                        if !entry.file_type().is_some_and(|kind| kind.is_file()) { continue; }
+                        count += 1;
+                        if count > 10000 { return Err(("SEARCH_INCOMPLETE", "Exclusion policy scan reached its file budget")); }
+                        if let Ok(relative) = entry.path().strip_prefix(&project.root) {
+                            let path = relative.to_string_lossy().replace('\\', "/");
+                            if wanted.remove(&path) { allowed.insert(path); }
+                            if wanted.is_empty() { break; }
+                        }
+                    }
+                }
+                candidates.retain(|candidate| allowed.contains(&candidate.file_path.replace('\\', "/")));
                 let verdicts = symbol_graph::certify(project, &candidates, context);
                 graph_outcome = Some(graph::graph_rows(
                     project,
@@ -203,12 +241,6 @@ pub(super) fn execute<'a>(
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
-        visited += 1;
-        if visited > 10000 {
-            bounded = true;
-            skipped_files.push(json!({"path":pending_path,"reason":"file_count_budget"}));
-            break;
-        }
         let relative = match entry
             .path()
             .strip_prefix(&project.root)
@@ -228,6 +260,9 @@ pub(super) fn execute<'a>(
             continue;
         }
         let normalized = relative.replace('\\', "/");
+        if seeking && Some(normalized.as_str()) != resume_path {
+            continue;
+        }
         if structural
             .as_ref()
             .is_some_and(|search| !search.accepts(entry.path()))
@@ -239,6 +274,23 @@ pub(super) fn execute<'a>(
                 continue;
             }
         }
+        if syntax
+            && !entry.path().extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("rs") || ext.eq_ignore_ascii_case("cshtml")
+            })
+        {
+            continue;
+        }
+        if seeking {
+            seeking = false;
+            match_results.skip_remaining = resume_ordinal;
+        }
+        visited += 1;
+        if visited > 10000 {
+            bounded = true;
+            skipped_files.push(json!({"path":pending_path,"reason":"file_count_budget"}));
+            break;
+        }
         let folder = normalized
             .rsplit_once('/')
             .map(|(parent, _)| parent.split('/').take(2).collect::<Vec<_>>().join("/"))
@@ -249,16 +301,14 @@ pub(super) fn execute<'a>(
             started: Instant::now(),
             bytes: 0,
         };
-        if syntax
-            && !entry.path().extension().is_some_and(|ext| {
-                ext.eq_ignore_ascii_case("rs") || ext.eq_ignore_ascii_case("cshtml")
-            })
-        {
-            continue;
-        }
         match args.kind {
             Kind::Files => {
                 if args.query.is_empty() || relative.contains(&args.query) {
+                    if match_results.rows.len() >= 10000 {
+                        bounded = true;
+                        skipped_files.push(json!({"path":pending_path,"reason":"match_count_budget"}));
+                        break 'scan;
+                    }
                     match_results.rows.push(json!(relative));
                 }
             }
@@ -302,12 +352,20 @@ pub(super) fn execute<'a>(
                         skipped_files.push(json!({"path":pending_path,"reason":if cancelled { "cancelled" } else { "time_budget" }}));
                         break 'scan;
                     }
-                    Err(_) => {
+                    Err((code, _)) => {
                         skipped += 1;
-                        skipped_files.push(json!({"path":pending_path,"reason":"read_error"}));
+                        let reason = match code {
+                            "SIZE" => "file_size_limit",
+                            "PATH" => "path_rejected",
+                            _ => "read_error",
+                        };
+                        skipped_files.push(json!({"path":pending_path,"reason":reason}));
                         continue;
                     }
                 };
+                if resume_path == Some(normalized.as_str()) && resume_hash != Some(harness_domain::hash(&file).as_str()) {
+                    return Err(("STALE", "search continuation file changed"));
+                }
                 bytes += file.len();
                 file_timing.bytes = file.len();
                 if bytes > 64 * 1024 * 1024 {
@@ -321,6 +379,10 @@ pub(super) fn execute<'a>(
                         skipped += 1;
                         skipped_files.push(json!({"path":pending_path,"reason":"binary"}));
                     }
+                    continue;
+                }
+                if file_size && std::str::from_utf8(&file).is_err() {
+                    binary_skipped += 1;
                     continue;
                 }
                 let decoded = match harness_domain::encoding::decode_source(&file) {
@@ -451,16 +513,30 @@ pub(super) fn execute<'a>(
                     )?
                 };
                 if evaluation == Evaluation::Stop {
+                    if matches!(args.kind, Kind::Text) && args.ast.is_none() && args.regex != Some(true) && args.only_matching != Some(true)
+                        && skipped_files.last().is_some_and(|row| row["reason"] == "match_count_budget") {
+                        last_read = Some((normalized.clone(), harness_domain::hash(&file)));
+                    }
                     break 'scan;
                 }
             }
         }
-        if match_results.rows.len() >= 10000 {
-            bounded = true;
-            skipped_files.push(json!({"path":pending_path,"reason":"match_count_budget"}));
-            break;
-        }
     }
+    if seeking && !timed_out && !cancelled {
+        return Err(("STALE", "search continuation file is no longer available"));
+    }
+    if resume.is_some() && !seeking && match_results.skip_remaining != 0 && !timed_out && !cancelled {
+        return Err(("STALE", "search continuation position is no longer available"));
+    }
+    let continuation = if bounded && skipped == 0 && !timed_out && !cancelled
+        && skipped_files.last().is_some_and(|row| row["reason"] == "match_count_budget")
+    {
+        last_read.as_ref().and_then(|(path, hash)| {
+            let count = match_results.rows.iter().rev().take_while(|row| row["file"].as_str().is_some_and(|file| file.replace('\\', "/") == *path)).count();
+            Some(json!({"version":1,"path":path,"hash":hash,
+                "ordinal":count + if resume_path == Some(path.as_str()) { resume_ordinal } else { 0 }}))
+        })
+    } else { None };
     Ok(ScanOutcome {
         file_size,
         syntax,
@@ -494,6 +570,7 @@ pub(super) fn execute<'a>(
         omitted_folders: 0,
         walk_and_other_micros: 0,
         custom_patterns: None,
+        continuation,
     })
 }
 

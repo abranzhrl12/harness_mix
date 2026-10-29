@@ -169,20 +169,24 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                                 || args.limit.is_some()
                                 || args.context_lines.is_some()
                                 || args.only_matching.is_some()
+                                || args.override_project_exclusions.is_some()
                             {
                                 return Err((
                                     "ARGUMENT",
                                     "cursor no admite filtros; usa solo cursor, offset y session",
                                 ));
                             }
-                            self.results
+                            let page = self.results
                                 .lock()
                                 .map_err(|_| ("INTERNAL", "almacén de resultados no disponible"))?
-                                .search_page(
-                                    cursor,
-                                    args.offset.unwrap_or(0),
-                                    args.session.as_deref(),
-                                )
+                                .search_page(cursor, args.offset.unwrap_or(0), args.session.as_deref())?;
+                            if let Some(resume) = page.get("_resume") {
+                                let original: harness_domain::contracts::SearchArgs = serde_json::from_value(resume["arguments"].clone())
+                                    .map_err(|_| ("DETAIL", "invalid saved search arguments"))?;
+                                self.workspace.resume_search(&original, &resume["checkpoint"], context)
+                            } else {
+                                Ok(page)
+                            }
                         } else if args.offset.is_some() {
                             Err(("ARGUMENT", "offset requiere cursor de una página anterior"))
                         } else {

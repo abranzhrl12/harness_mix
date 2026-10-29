@@ -238,20 +238,16 @@ fn build_with_matcher<'a>(
     } else {
         None
     };
-    let explicit_scope = args
-        .scope
-        .as_deref()
-        .is_some_and(|scope| !scope.is_empty() && scope != ".");
+    let explicit_scope = args.override_project_exclusions.unwrap_or(false);
     let scope = args
         .scope
         .as_deref()
         .filter(|scope| !scope.is_empty())
         .unwrap_or(".");
     let root = project.target(scope)?;
-    if root
-        .file_name()
-        .is_some_and(|name| scope_excluded(&name.to_string_lossy()))
-    {
+    if root.strip_prefix(&project.root).ok().is_some_and(|relative| {
+        relative.components().any(|component| scope_excluded(&component.as_os_str().to_string_lossy()))
+    }) {
         return Err(("PATH", "scope excluido de búsquedas"));
     }
     Ok(SearchPlan {

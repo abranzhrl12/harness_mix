@@ -195,6 +195,9 @@ pub struct SearchArgs {
     #[serde(alias = "path")]
     pub scope: Option<String>,
     pub limit: Option<usize>,
+    /// Explicitly bypass project .harnessignore rules; hard exclusions remain enforced.
+    #[serde(rename = "overrideProjectExclusions", alias = "override_project_exclusions", skip_serializing_if = "Option::is_none")]
+    pub override_project_exclusions: Option<bool>,
     /// Continue through a saved harness_search result snapshot. Use the cursor
     /// and offset supplied by the preceding page's nextCall; this does not
     /// rescan the working tree. When cursor is supplied, pass only cursor,
@@ -237,6 +240,8 @@ impl<'de> Deserialize<'de> for SearchArgs {
             scope: Option<String>,
             path: Option<String>,
             limit: Option<usize>,
+            #[serde(rename = "overrideProjectExclusions", alias = "override_project_exclusions")]
+            override_project_exclusions: Option<bool>,
             cursor: Option<String>,
             offset: Option<usize>,
             #[serde(rename = "contextLines", alias = "context_lines")]
@@ -274,6 +279,7 @@ impl<'de> Deserialize<'de> for SearchArgs {
             globs: input.globs,
             scope,
             limit: input.limit,
+            override_project_exclusions: input.override_project_exclusions,
             cursor: input.cursor,
             offset: input.offset,
             context_lines: input.context_lines,
