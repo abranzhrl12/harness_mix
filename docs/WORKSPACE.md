@@ -4,6 +4,35 @@ Harness puede exponer varios proyectos por una sola conexión MCP. Cada raíz ma
 
 ## Manifiesto
 
+### Configuración desde la terminal
+
+Instala el ejecutable global una sola vez. Desde la carpeta que agrupa tus proyectos:
+
+~~~powershell
+agent-harness workspace init
+agent-harness workspace add frontend ./frontend
+agent-harness workspace add backend ./backend
+agent-harness workspace add services ./services
+agent-harness workspace list
+agent-harness workspace check
+~~~
+
+Estos comandos administran `harness-workspace.json` y no crean índices ni modifican la configuración de los clientes MCP. `init` conserva un manifiesto existente; `add` rechaza reemplazar un alias con otra raíz. Las rutas de `add` se interpretan desde la carpeta del workspace. Usa `--root <carpeta>` al final de cualquiera de estos comandos para seleccionar esa carpeta explícitamente.
+
+Por defecto, `workspace init` también crea `harness-workspace.example.json`, con ejemplos de frontend, backend y servicios, y `HARNESS-WORKSPACE.md`, con instrucciones para personas y agentes de IA. Conserva esos archivos si ya existen. Los ejemplos no se activan: edita el manifiesto activo con las rutas reales o usa `workspace add`. La guía se incluye dentro del ejecutable y no requiere descargar documentación.
+
+El servidor recarga el manifiesto entre llamadas MCP, sin reiniciar. Comprueba cambios al recibir herramientas, como máximo cada 250 ms; no mantiene un sondeo de disco en reposo. Cada operación conserva su configuración inicial. Si el JSON es inválido o una raíz no existe, conserva la última configuración válida y expone el error en `workspaceReload` del bootstrap y en stderr. Los manifiestos se limitan a 1 MiB. Confirma los proyectos activos con `harness_bootstrap` reutilizando tu sesión.
+
+Para disponer del flujo de Superpowers en cada repositorio, instala sus skills con `agent-harness --root <proyecto> skills sync --enable-auto` cuando esté autorizado. Este comando no crea índices ni configura clientes. El arranque multiproyecto y la incorporación de proyectos ejecutan la sincronización si ese proyecto ya tiene `auto_sync` activado; sin preferencia o con ella desactivada no escriben skills. Los conflictos conservan las ediciones locales y se informan por stderr sin impedir el acceso al proyecto. Evita usar el `init` de proyecto como sustituto: además prepara el índice y registra entradas MCP de un solo proyecto. El cliente debe descubrir las skills por separado; el bootstrap no las activa por sí mismo.
+
+Al retirar un proyecto se rechazan operaciones nuevas dirigidas a él y se detiene su watcher de índices. Las operaciones ya admitidas usan su configuración anterior. Sus trabajos siguen disponibles por ID para consultar o cancelar, y los recursos se conservan en caché durante la conexión para permitir recuperarlos al volver a registrar la raíz. El cierre del servidor drena los gestores de trabajos de todos los proyectos que utilizó. El almacén de sesiones, logs y navegador queda anclado al primer proyecto inicial, aunque después cambie el orden del manifiesto.
+
+Sin argumentos, el servidor busca `harness-workspace.json` desde el directorio actual hacia sus padres y utiliza el más cercano. `--persist-logs` también permite este descubrimiento. Un manifiesto inválido produce un error; no se ignora para abrir otro proyecto. `--root <proyecto>` mantiene la selección explícita de un solo proyecto; `--workspace-config <archivo>` mantiene la selección explícita de un manifiesto.
+
+El cliente MCP debe iniciar `agent-harness` con el directorio de trabajo del workspace. Si el cliente no permite fijarlo o no transmite esa carpeta, configura `--workspace-config` con la ruta absoluta. La ubicación del ejecutable global y la selección del workspace son independientes; no se deduce el proyecto desde la carpeta del ejecutable.
+
+`workspace check` comprueba los alias y que sus carpetas existan. Informa si encuentra `.codegraph/codegraph.db`, pero no certifica compatibilidad ni frescura de los grafos. Un workspace vacío necesita al menos un `workspace add` antes de servirlo.
+
 Crea un archivo JSON, por ejemplo E:/work/noctalia/harness-workspace.json:
 
 ~~~json

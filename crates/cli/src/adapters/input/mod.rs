@@ -21,6 +21,9 @@ use subcommands::{
 };
 
 pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
+    if args.first().is_some_and(|arg| arg == "workspace") {
+        return subcommands::parse_workspace_command(&args[1..]);
+    }
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(Command::Help);
     }

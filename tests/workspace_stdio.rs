@@ -94,6 +94,114 @@ impl Server {
 }
 
 #[test]
+fn workspace_stdio_reloads_projects_keeps_session_and_preserves_last_valid_config() {
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["backend", "frontend"] {
+        std::fs::create_dir(temp.path().join(name)).unwrap();
+        std::fs::write(temp.path().join(name).join("sample.txt"), name).unwrap();
+        std::fs::create_dir(temp.path().join(name).join(".agents")).unwrap();
+        std::fs::write(
+            temp.path()
+                .join(name)
+                .join(".agents/harness-skills-sync.json"),
+            r#"{"format_version":1,"auto_sync":true}"#,
+        )
+        .unwrap();
+    }
+    let manifest = temp.path().join("workspace.json");
+    std::fs::write(&manifest, r#"{"projects":{"backend":"backend"}}"#).unwrap();
+    let mut server = Server::start(&manifest);
+    let bootstrap = server.call("harness_bootstrap", json!({}));
+    let session = bootstrap["data"]["session"].as_str().unwrap();
+    std::fs::write(temp.path().join("backend/sample-extra.txt"), "extra").unwrap();
+    let search = server.call(
+        "harness_search",
+        json!({"kind":"files","query":"sample","limit":1,"session":session}),
+    );
+    let detail = search["detail"]["ref"].clone();
+    assert!(detail.is_string(), "{search}");
+    assert!(
+        temp.path()
+            .join("backend/.agents/skills/harness-workflow/SKILL.md")
+            .is_file()
+    );
+    std::fs::write(
+        &manifest,
+        r#"{"projects":{"backend":"backend","frontend":"frontend"}}"#,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    let read = server.call(
+        "harness_read",
+        json!({"path":"frontend:/sample.txt","start":1,"end":1,"session":session}),
+    );
+    assert_eq!(read["data"]["text"], "frontend");
+    server.call("harness_detail", json!({"ref":detail,"session":session}));
+    assert!(
+        temp.path()
+            .join("frontend/.agents/skills/harness-workflow/SKILL.md")
+            .is_file()
+    );
+    std::fs::write(&manifest, b"{ incomplete").unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    server.call(
+        "harness_read",
+        json!({"path":"backend:/sample.txt","start":1,"end":1,"session":session}),
+    );
+    let rejected = server.call("harness_bootstrap", json!({"session":session}));
+    assert!(
+        rejected["data"]["workspaceReload"]["lastError"].is_string(),
+        "{rejected}"
+    );
+    std::fs::write(&manifest, r#"{"projects":{"frontend":"frontend"}}"#).unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    let response = server.request("tools/call", json!({"name":"harness_read","arguments":{"path":"backend:/sample.txt","start":1,"end":1,"session":session}}));
+    assert_eq!(response["result"]["structuredContent"]["state"], "error");
+    server.call(
+        "harness_read",
+        json!({"path":"frontend:/sample.txt","start":1,"end":1,"session":session}),
+    );
+    std::fs::write(
+        &manifest,
+        r#"{"projects":{"backend":"backend","frontend":"frontend"}}"#,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    server.call(
+        "harness_read",
+        json!({"path":"backend:/sample.txt","start":1,"end":1,"session":session}),
+    );
+}
+
+#[test]
+fn workspace_reload_retains_old_jobs_and_rejects_new_work_on_removed_projects() {
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["backend", "frontend"] {
+        std::fs::create_dir(temp.path().join(name)).unwrap();
+        std::fs::write(temp.path().join(name).join("test_wait.py"),
+            "import unittest, time\nclass Wait(unittest.TestCase):\n def test_wait(self): time.sleep(3)\n").unwrap();
+    }
+    let manifest = temp.path().join("workspace.json");
+    std::fs::write(&manifest, r#"{"projects":{"backend":"backend"}}"#).unwrap();
+    let mut server = Server::start(&manifest);
+    let started = server.call("harness_jobs", json!({"action":"start","verify":{"language":"python","action":"test","scope":"backend:/test_wait.py"}}));
+    let task = started["data"]["taskId"].as_str().unwrap();
+    std::fs::write(&manifest, r#"{"projects":{"frontend":"frontend"}}"#).unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    let old = server.call("harness_jobs", json!({"action":"status","taskId":task}));
+    assert_eq!(old["data"]["project"], "backend");
+    server.call("harness_jobs", json!({"action":"cancel","taskId":task}));
+    let response = server.request("tools/call", json!({"name":"harness_jobs","arguments":{"action":"start","verify":{"language":"python","action":"test","scope":"backend:/test_wait.py"}}}));
+    assert_eq!(response["result"]["structuredContent"]["state"], "error");
+    let new_job = server.call("harness_jobs", json!({"action":"start","verify":{"language":"python","action":"build","scope":"frontend:/test_wait.py"}}));
+    assert_eq!(new_job["data"]["project"], "frontend");
+    assert!(
+        !temp.path().join("frontend/.agents/skills").exists(),
+        "sync must remain opt-in"
+    );
+}
+
+#[test]
 fn workspace_stdio_reuses_session_for_both_roots_and_edits_search_paths() {
     let temp = tempfile::tempdir().unwrap();
     for name in ["backend", "frontend"] {

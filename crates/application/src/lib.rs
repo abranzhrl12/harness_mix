@@ -115,6 +115,13 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         self.tool_profile = profile;
         self
     }
+    /// Replace routing for future operations while retaining sessions, result
+    /// handles, admission and metrics. Existing operations keep their snapshot.
+    pub fn with_workspace(&self, workspace: W) -> Self {
+        let mut application = self.clone();
+        application.workspace = Arc::new(workspace);
+        application
+    }
     pub fn tool_profile(&self) -> harness_domain::tool_contract::ToolProfile {
         self.tool_profile
     }

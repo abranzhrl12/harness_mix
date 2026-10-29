@@ -30,6 +30,7 @@ dependencies = [
  "harness-domain",
  "harness-jobs",
  "harness-mcp",
+ "harness-skills",
  "ignore",
  "jmespath",
  "libc",

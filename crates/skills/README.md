@@ -1,7 +1,7 @@
 # harness-skills
 
 Reusable skill synchronization for Harness projects. The crate embeds seven
-Harness skills and seven workflow skills, including supporting documents and
+Harness skills, a local workflow integration, and seven upstream workflow skills, including supporting documents and
 licenses. It tracks every managed file with a SHA-256 manifest, preserves local
 edits, and supports preview/check and opt-in startup synchronization.
 
@@ -21,6 +21,14 @@ tool contract version; it has no CLI, MCP, application, or async-runtime
 dependency.
 
 ## Bundled workflow skills
+
+`harness-workflow` connects the three local Superpowers skills to Harness
+operations. harness-read links to it for bug investigations; harness-edit links
+to it for behavioral changes. It resolves upstream `superpowers:...` names to
+local files, respects project test scopes and execution permissions, and loads
+stages as needed. The integration analysis is bundled as
+`.agents/skills/harness-workflow/SUPERPOWERS.md`. Upstream source and licenses
+remain unchanged. This is not an installation of the full Superpowers plugin.
 
 | Source | Skills |
 | --- | --- |

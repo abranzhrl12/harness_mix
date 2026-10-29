@@ -5,6 +5,8 @@ use harness_skills::{
 use std::{fs, path::Path};
 
 const REQUIRED_FILES: &[&str] = &[
+    "harness-workflow/SKILL.md",
+    "harness-workflow/SUPERPOWERS.md",
     "systematic-debugging/SKILL.md",
     "systematic-debugging/root-cause-tracing.md",
     "systematic-debugging/defense-in-depth.md",

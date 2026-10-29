@@ -53,6 +53,8 @@ pub(crate) const SKILLS: &[SkillSource] = &[
         content: include_str!("../../../.agents/skills/harness-setup/SKILL.md"),
     },
     // Workflow skills and their upstream support files are embedded for offline init.
+    skill_file!("harness-workflow", "SKILL.md"),
+    skill_file!("harness-workflow", "SUPERPOWERS.md"),
     skill_file!("systematic-debugging", "SKILL.md"),
     skill_file!("systematic-debugging", "LICENSE"),
     skill_file!("systematic-debugging", "root-cause-tracing.md"),

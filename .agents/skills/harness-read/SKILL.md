@@ -5,6 +5,10 @@ description: Investigate code, read symbols, and query dependencies with Harness
 
 # Read and Investigate
 
+When investigating a bug or unexpected behavior, also read
+[harness-workflow](../harness-workflow/SKILL.md) for the local Superpowers
+debugging route. Ordinary source questions need only this reading guide.
+
 Use the tool names and schemas advertised by the connection; never invent parameters.
 This guide covers reading and investigation, not installation or initial setup.
 If the issue occurs in a web application (visual, interaction, console, or

@@ -1,6 +1,7 @@
 {
   "projects": {
-    "harness": "D:/Nueva carpeta/harness_mix",
-    "backoffice": "D:/backoffice/SWSMA PRODUCCION"
+    "frontend": "./frontend",
+    "backend": "./backend",
+    "services": "./services"
   }
 }

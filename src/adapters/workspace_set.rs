@@ -8,8 +8,8 @@ use crate::adapters::NativeWorkspace;
 use harness_application::ports::browser::BrowserInspection;
 use harness_application::ports::workspace::{
     ArtifactQueries, IgnoreManagement, LogPersistence, SessionPersistence, SourceEditing,
-    SourcePreviews, SourceQueries, SqlAccess, Verification, VersionControl,
-    WorkspaceDiagnostics, WorkspaceMetadata,
+    SourcePreviews, SourceQueries, SqlAccess, Verification, VersionControl, WorkspaceDiagnostics,
+    WorkspaceMetadata,
 };
 use harness_domain::{Failure, execution::OperationContext};
 use serde::{Serialize, de::DeserializeOwned};
@@ -27,8 +27,10 @@ pub struct WorkspaceProject {
 /// application keeps one result store and one session repository; this adapter
 /// routes workspace operations to the owning project.
 pub struct MultiNativeWorkspace {
-    pub projects: Vec<(WorkspaceProject, NativeWorkspace)>,
+    pub projects: Vec<(WorkspaceProject, std::sync::Arc<NativeWorkspace>)>,
     pub workspace_mode: bool,
+    pub anchor: Option<std::sync::Arc<NativeWorkspace>>,
+    pub reload_status: Option<std::sync::Arc<std::sync::Mutex<Value>>>,
 }
 
 // A browser connection is session-owned, not tied to a project's filesystem.
@@ -39,15 +41,14 @@ impl BrowserInspection for MultiNativeWorkspace {
         args: &harness_domain::browser::BrowserArgs,
         context: &OperationContext,
     ) -> Result<harness_domain::browser::BrowserResult, Failure> {
-        self.projects
-            .first()
-            .ok_or(("WORKSPACE", "No workspace is configured"))?
-            .1
-            .browser(args, context)
+        self.primary().browser(args, context)
     }
 }
 
 impl MultiNativeWorkspace {
+    fn primary(&self) -> &NativeWorkspace {
+        self.anchor.as_deref().unwrap_or(&self.projects[0].1)
+    }
     fn route<A: Serialize + DeserializeOwned>(
         &self,
         args: &A,
@@ -147,7 +148,7 @@ impl WorkspaceMetadata for MultiNativeWorkspace {
         args: &harness_domain::contracts::ExternalScopeArgs,
         ctx: &OperationContext,
     ) -> Result<Value, Failure> {
-        self.projects[0].1.external_scope(args, ctx)
+        self.primary().external_scope(args, ctx)
     }
     fn config(
         &self,
@@ -161,7 +162,11 @@ impl WorkspaceMetadata for MultiNativeWorkspace {
         if !self.workspace_mode {
             return self.projects[0].1.info();
         }
-        json!({"workspace":true,"projects":self.projects.iter().map(|(p,w)| json!({"name":p.name,"root":p.root,"info":w.info()})).collect::<Vec<_>>()})
+        let mut info = json!({"workspace":true,"projects":self.projects.iter().map(|(p,w)| json!({"name":p.name,"root":p.root,"info":w.info()})).collect::<Vec<_>>()});
+        if let Some(status) = &self.reload_status {
+            info["workspaceReload"] = status.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        }
+        info
     }
     fn rules(&self, ctx: &OperationContext) -> Result<String, Failure> {
         if !self.workspace_mode {
@@ -476,7 +481,7 @@ impl SourcePreviews for MultiNativeWorkspace {
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["path", "targetPath"])?;
-        let mut v = SourcePreviews::vue_extract_preview(&self.projects[i].1, &a, c)?;
+        let mut v = SourcePreviews::vue_extract_preview(self.projects[i].1.as_ref(), &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
@@ -486,7 +491,7 @@ impl SourcePreviews for MultiNativeWorkspace {
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["path"])?;
-        let mut v = SourcePreviews::patch_preview(&self.projects[i].1, &a, c)?;
+        let mut v = SourcePreviews::patch_preview(self.projects[i].1.as_ref(), &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
@@ -573,7 +578,7 @@ impl IgnoreManagement for MultiNativeWorkspace {
         c: &OperationContext,
     ) -> Result<Value, Failure> {
         let (i, a) = self.one(a, &["scope"])?;
-        let mut v = IgnoreManagement::ignore(&self.projects[i].1, &a, c)?;
+        let mut v = IgnoreManagement::ignore(self.projects[i].1.as_ref(), &a, c)?;
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
@@ -847,7 +852,7 @@ impl SessionPersistence for MultiNativeWorkspace {
             let (i, a) = self.one(a, &["targetFile"])?;
             self.projects[i].1.handover(&a, snapshot, c)
         } else {
-            self.projects[0].1.handover(a, snapshot, c)
+            self.primary().handover(a, snapshot, c)
         }
     }
     fn persist_session(
@@ -856,19 +861,19 @@ impl SessionPersistence for MultiNativeWorkspace {
         snapshot: &Value,
         c: &OperationContext,
     ) -> Result<(), Failure> {
-        self.projects[0].1.persist_session(id, snapshot, c)
+        self.primary().persist_session(id, snapshot, c)
     }
 }
 
 impl LogPersistence for MultiNativeWorkspace {
     fn log_persistence_enabled(&self) -> bool {
-        self.projects[0].1.log_persistence_enabled()
+        self.primary().log_persistence_enabled()
     }
     fn load_log_archive(&self) -> Result<Option<Value>, Failure> {
-        self.projects[0].1.load_log_archive()
+        self.primary().load_log_archive()
     }
     fn persist_log_archive(&self, archive: &Value) -> Result<u64, Failure> {
-        self.projects[0].1.persist_log_archive(archive)
+        self.primary().persist_log_archive(archive)
     }
 }
 
@@ -894,7 +899,11 @@ struct ProjectRoot {
 impl WorkspaceProject {
     pub fn from_manifest(path: &Path) -> std::io::Result<Vec<Self>> {
         let bytes = fs::read(path)?;
-        let manifest: Manifest = serde_json::from_slice(&bytes)
+        Self::from_manifest_bytes(path, &bytes)
+    }
+
+    pub fn from_manifest_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<Vec<Self>> {
+        let manifest: Manifest = serde_json::from_slice(bytes)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         let mut projects = Vec::with_capacity(manifest.projects.len());
@@ -1146,24 +1155,26 @@ mod tests {
                             name: "backend".into(),
                             root: backend.canonicalize().unwrap(),
                         },
-                        backend_workspace,
+                        std::sync::Arc::new(backend_workspace),
                     ),
                     (
                         WorkspaceProject {
                             name: "frontend".into(),
                             root: frontend.canonicalize().unwrap(),
                         },
-                        frontend_workspace,
+                        std::sync::Arc::new(frontend_workspace),
                     ),
                     (
                         WorkspaceProject {
                             name: "unindexed".into(),
                             root: unindexed.canonicalize().unwrap(),
                         },
-                        unindexed_workspace,
+                        std::sync::Arc::new(unindexed_workspace),
                     ),
                 ],
                 workspace_mode: true,
+                anchor: None,
+                reload_status: None,
             },
             sessions,
         );

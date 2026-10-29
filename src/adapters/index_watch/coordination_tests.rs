@@ -160,8 +160,10 @@ fn watcher_retains_changes_received_while_cli_owns_the_gate() {
         assert!(Instant::now() < deadline, "names={:?}, status={}", names(root.path()), watch.status.lock().unwrap());
         std::thread::sleep(Duration::from_millis(25));
     }
-    while watch.status.lock().unwrap()["state"] == "syncing" {
-        assert!(Instant::now() < deadline, "syncing never finished; names={:?}, status={}", names(root.path()), watch.status.lock().unwrap());
+    // Committed rows may become visible before a retry scheduled during the
+    // coordinator handoff has completed. Wait for the required terminal state.
+    while watch.status.lock().unwrap()["state"] != "idle" {
+        assert!(Instant::now() < deadline, "watcher did not become idle; names={:?}, status={}", names(root.path()), watch.status.lock().unwrap());
         std::thread::sleep(Duration::from_millis(25));
     }
     let final_state = watch.status.lock().unwrap()["state"].clone();

@@ -9,6 +9,7 @@ than assuming older versions.
 
 | Task | Local Skill |
 | --- | --- |
+| Coordinate a feature or bug fix with debugging, TDD and evidence | `.agents/skills/harness-workflow/SKILL.md` |
 | Search, read code, or trace relationships across layers | `.agents/skills/harness-read/SKILL.md` |
 | Replace, write, move, and verify code | `.agents/skills/harness-edit/SKILL.md` |
 | Diagnose web apps via console, network, DOM, and screenshots | `.agents/skills/harness-browser/SKILL.md` |

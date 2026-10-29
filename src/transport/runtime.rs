@@ -1,5 +1,6 @@
 mod coordinator;
 mod jobs;
+mod live_workspace;
 mod single;
 mod workspace;
 

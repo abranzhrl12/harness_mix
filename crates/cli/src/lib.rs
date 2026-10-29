@@ -13,4 +13,4 @@ pub mod terminal;
 pub use adapters::input::{needs_workspace_root, parse};
 pub use application::{ArgumentParser, CliApplication, WorkspaceLocator};
 pub use composition::{prepare_command, resolve_root};
-pub use domain::{Command, Root};
+pub use domain::{Command, Root, WorkspaceOperation};

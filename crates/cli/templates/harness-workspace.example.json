@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "frontend": "./frontend",
+    "backend": "./backend",
+    "services": "./services"
+  }
+}

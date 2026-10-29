@@ -13,6 +13,8 @@ Configura el cliente MCP para iniciar el ejecutable con `--root` apuntando a tu 
 
 [Instalación y configuración completas](docs/INSTALLATION.md), incluidas compilación desde código fuente y configuración sin npm.
 
+Para frontend, backend y servicios en una sola conexión, ejecuta `agent-harness workspace init` en su carpeta común y registra cada uno con `agent-harness workspace add <alias> <ruta>`. El arranque sin argumentos descubre `harness-workspace.json` desde la carpeta actual. Cada proyecto conserva su propio índice. Consulta la [guía de workspaces](docs/WORKSPACE.md) para configurar el directorio de arranque del cliente o pasar un manifiesto explícito.
+
 ## Qué ofrece
 
 - Búsqueda de texto/archivos, navegación de símbolos y relaciones de un índice existente.

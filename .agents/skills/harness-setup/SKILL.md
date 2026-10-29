@@ -44,6 +44,28 @@ interactive terminal as a substitute for registering it in the client config.
 
 ## First Connection and Session
 
+For several projects, use `agent-harness workspace init` in their common folder.
+It creates `harness-workspace.json`, `harness-workspace.example.json` and
+`HARNESS-WORKSPACE.md`, preserving existing files. Register real roots with
+`workspace add <alias> <path>` or edit `projects`, then run `workspace check`.
+Relative roots are resolved from the manifest's directory. The example is not
+active configuration and an empty manifest cannot serve projects.
+
+Workspace initialization does not install project skills, configure MCP clients
+or create indexes. If only skills are requested, use
+`agent-harness --root <project> skills sync` for each authorized project instead
+of project `init`. The latter also registers single-project MCP entries and
+prepares the index; do not run it as a shortcut for multiproject configuration.
+
+For the multiproject MCP entry, use `args: ["--workspace-config",
+"ABSOLUTE_MANIFEST_PATH"]`. Alternatively, no arguments discover the nearest
+`harness-workspace.json` from the process working directory towards its parents.
+This works only when the client launches from the intended workspace. Explicit
+`--root` always selects a single project. Manifest changes reload between MCP
+tool calls, checked at most every 250 ms, without restarting. Invalid changes
+preserve the last valid configuration; inspect bootstrap's `workspaceReload`
+status and stderr. Refresh bootstrap with the existing session to confirm roots.
+
 After connecting, call `harness_bootstrap`: verify `root` and reuse
 `data.session` in subsequent tool calls. In the current implementation,
 bootstrap opens or restores a session; it does not initialize the code index. Do
@@ -52,6 +74,14 @@ restoring a known one via `session`. Never claim the MCP connection is
 operational without a successful `harness_bootstrap` call. If client reload is
 required to pick up new MCP config or skills, inform the user of that pending
 step.
+
+In workspace mode, verify the registered project list and each root rather than
+requiring a single top-level `root`. Keep aliases with source evidence and use
+`alias:/path` to route operations. Multiproject startup and newly registered
+projects sync skills only when that project's `auto_sync` preference is enabled.
+Use `--root <project> skills sync --enable-auto` only when authorized. Missing or
+disabled preferences leave files untouched, and conflicts preserve local edits. A client
+may need to refresh skill discovery independently of reconnecting MCP.
 
 ## Initial Index (Relationships Only)
 

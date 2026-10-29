@@ -114,6 +114,13 @@ pub struct NativeWorkspace {
 }
 pub type NativeApplication = Application<workspace_set::MultiNativeWorkspace, sessions::Sessions>;
 
+pub(crate) fn workspace_dependencies(
+    root: &Path,
+    options: NativeApplicationOptions,
+) -> std::io::Result<(NativeWorkspace, sessions::Sessions)> {
+    composition::dependencies(root, options)
+}
+
 /// Optional infrastructure supplied by the native composition root.
 /// Defaults preserve the lightweight constructors used by library callers.
 #[derive(Default)]
@@ -177,41 +184,12 @@ pub(crate) fn application_with_options(
     };
     Ok(Application::new(
         workspace_set::MultiNativeWorkspace {
-            projects: vec![(project, workspace)],
+            projects: vec![(project, std::sync::Arc::new(workspace))],
             workspace_mode: false,
+            anchor: None,
+            reload_status: None,
         },
         sessions,
-    ))
-}
-
-pub(crate) fn application_with_projects(
-    projects: &[workspace_set::WorkspaceProject],
-    persist_logs: bool,
-    tasks: &[tasks::TaskManager],
-    index_watches: &[Option<std::sync::Arc<std::sync::Mutex<Value>>>],
-) -> std::io::Result<NativeApplication> {
-    let mut workspaces = Vec::with_capacity(projects.len());
-    let mut sessions = None;
-    for (index, project) in projects.iter().enumerate() {
-        let options = NativeApplicationOptions {
-            persist_logs,
-            tasks: tasks.get(index).cloned(),
-            index_watch: index_watches.get(index).cloned().flatten(),
-            ..NativeApplicationOptions::default()
-        };
-        let (workspace, project_sessions) = composition::dependencies(&project.root, options)?;
-        if sessions.is_none() {
-            sessions = Some(project_sessions);
-        }
-        workspaces.push((project.clone(), workspace));
-    }
-    let workspace = workspace_set::MultiNativeWorkspace {
-        projects: workspaces,
-        workspace_mode: true,
-    };
-    Ok(Application::new(
-        workspace,
-        sessions.expect("nonempty workspace set"),
     ))
 }
 

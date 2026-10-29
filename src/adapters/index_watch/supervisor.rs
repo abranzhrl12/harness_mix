@@ -16,15 +16,21 @@ pub(crate) struct SupervisedWatch {
 
 impl SupervisedWatch {
     pub(crate) fn start(root: &Path) -> Result<Self, Failure> {
+        Self::start_with_status(root, Arc::new(Mutex::new(json!({}))))
+    }
+
+    pub(crate) fn start_with_status(root: &Path, status: Status) -> Result<Self, Failure> {
         let initial = match IndexWatch::start(root) {
             Ok(watch) => Some(watch),
             Err(("SYNC_WATCH_BUSY", _)) => None,
             Err(error) => return Err(error),
         };
-        let status = Arc::new(Mutex::new(json!({
+        *status
+            .lock()
+            .map_err(|_| ("INTERNAL", "Index watch status unavailable"))? = json!({
             "enabled": true, "role": if initial.is_some() { "owner" } else { "standby" },
             "state": "starting", "globalFreshnessCertified": false
-        })));
+        });
         let stop = Arc::new((Mutex::new(false), Condvar::new()));
         let thread_stop = stop.clone();
         let thread_status = status.clone();
@@ -76,12 +82,19 @@ impl SupervisedWatch {
                 drop(active);
             })
             .map_err(|_| ("SYNC_WATCH", "Cannot start index watch supervisor"))?;
-        Ok(Self { status, stop, thread: Some(thread) })
+        Ok(Self {
+            status,
+            stop,
+            thread: Some(thread),
+        })
     }
 }
 
 fn epoch_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 impl Drop for SupervisedWatch {
@@ -89,6 +102,8 @@ impl Drop for SupervisedWatch {
         let (mutex, wake) = &*self.stop;
         *mutex.lock().unwrap_or_else(|e| e.into_inner()) = true;
         wake.notify_one();
-        if let Some(thread) = self.thread.take() { let _ = thread.join(); }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }

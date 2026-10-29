@@ -5,6 +5,12 @@ description: Edit code and verify changes with Harness MCP. Not for read-only in
 
 # Edit and Verify
 
+For a feature or behavioral fix, read
+[harness-workflow](../harness-workflow/SKILL.md) to select the local Superpowers
+stages: cause investigation for bugs, TDD before implementation, and fresh
+verification before completion. Load only the applicable stage; documentation
+and configuration-only edits do not need an artificial runtime test.
+
 Reuse a session whose workspace root was verified via `harness_bootstrap`. Check
 Git status and preserve unrelated changes. Fetch any missing exact source via
 Harness; do not re-read valid context or load another skill if you already have

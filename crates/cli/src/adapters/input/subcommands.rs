@@ -115,3 +115,29 @@ pub(super) fn parse_uninstall_command(
         _ => unreachable!(),
     }
 }
+
+pub(super) fn parse_workspace_command(args: &[OsString]) -> Result<Command, String> {
+    use crate::WorkspaceOperation;
+    let usage =
+        "usage: agent-harness workspace <init|list|check|add <name> <path>> [--root <directory>]";
+    let (args, root) = if args.len() >= 2 && args[args.len() - 2] == "--root" {
+        let path = PathBuf::from(args.last().unwrap());
+        if path.as_os_str().is_empty() {
+            return Err(usage.into());
+        }
+        (&args[..args.len() - 2], Root::Explicit(path))
+    } else {
+        (args, Root::DetectOrCurrent)
+    };
+    let operation = match args {
+        [action] if action == "init" => WorkspaceOperation::Init,
+        [action] if action == "list" => WorkspaceOperation::List,
+        [action] if action == "check" => WorkspaceOperation::Check,
+        [action, name, path] if action == "add" && !path.is_empty() => WorkspaceOperation::Add {
+            name: name.to_str().ok_or(usage)?.to_owned(),
+            path: PathBuf::from(path),
+        },
+        _ => return Err(usage.into()),
+    };
+    Ok(Command::Workspace { root, operation })
+}

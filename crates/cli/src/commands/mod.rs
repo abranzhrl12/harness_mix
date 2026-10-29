@@ -7,6 +7,7 @@
 mod active;
 mod plan_summary;
 mod skills_sync;
+mod workspace;
 
 use std::{
     ffi::OsString,
@@ -86,15 +87,36 @@ impl<T> Host for T where
 {
 }
 
+fn prepare_in_directory(args: Vec<OsString>, cwd: &Path) -> Result<Command, String> {
+    let automatic = args.is_empty() || (args.len() == 1 && args[0] == "--persist-logs");
+    let manifest = if automatic {
+        workspace::discover(cwd)?
+    } else {
+        None
+    };
+    if let Some(manifest) = manifest {
+        Ok(Command::Serve {
+            root: crate::Root::DetectOrCurrent,
+            workspace_config: Some(manifest),
+            persist_logs: !args.is_empty(),
+        })
+    } else {
+        prepare_command(args)
+    }
+}
+
 /// Parse and execute one CLI invocation using the supplied host services.
 pub async fn run(
     args: impl IntoIterator<Item = OsString>,
     host: &impl Host,
     package_version: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let command =
-        prepare_command(args).map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+    let command = prepare_in_directory(args.into_iter().collect(), &std::env::current_dir()?)?;
     match command {
+        Command::Workspace { root, operation } => {
+            let report = workspace::execute(&installation_root(root)?, operation)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::Help => print_help(),
         Command::Version => println!("agent-harness {package_version}"),
         Command::Config => active::config(host.agent_executable().as_deref())?,
@@ -315,6 +337,9 @@ fn run_index(
 
 fn print_help() {
     println!(
+        "Workspace: workspace init | workspace add <alias> <ruta> | workspace list | workspace check [--root <carpeta>].\nSin argumentos: descubre harness-workspace.json desde la carpeta actual hacia sus padres. --root selecciona un solo proyecto."
+    );
+    println!(
         "Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n"
     );
     println!(
@@ -332,6 +357,29 @@ fn print_help() {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn startup_discovers_workspace_and_explicit_root_bypasses_invalid_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("harness-workspace.json");
+        std::fs::write(&path, br#"{"projects":{"backend":"."}}"#).unwrap();
+        for (args, logs) in [
+            (vec![], false),
+            (vec![OsString::from("--persist-logs")], true),
+        ] {
+            assert!(matches!(
+                prepare_in_directory(args, temp.path()).unwrap(),
+                Command::Serve { workspace_config: Some(config), persist_logs, .. }
+                    if config == path.canonicalize().unwrap() && persist_logs == logs
+            ));
+        }
+        std::fs::write(&path, b"invalid").unwrap();
+        assert!(prepare_in_directory(vec![], temp.path()).is_err());
+        assert!(matches!(
+            prepare_in_directory(vec![OsString::from("--root"), temp.path().as_os_str().to_owned()], temp.path()).unwrap(),
+            Command::Serve { root: crate::Root::Explicit(root), workspace_config: None, .. } if root == temp.path()
+        ));
+    }
 
     #[test]
     fn source_publication_accepts_graph_warnings_but_not_unprocessed_files() {
@@ -397,6 +445,104 @@ mod tests {
     impl ExecutableHost for FakeHost {
         fn current_executable(&self) -> Result<PathBuf, String> {
             Ok(PathBuf::from("agent-harness"))
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_registration_preserves_projects_and_rejects_alias_replacement() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["frontend", "backend", "services"] {
+            std::fs::create_dir(temp.path().join(name)).unwrap();
+        }
+        let host = FakeHost::default();
+        let root = temp.path().to_str().unwrap();
+        for args in [
+            vec!["workspace", "init", "--root", root],
+            vec!["workspace", "add", "frontend", "frontend", "--root", root],
+            vec!["workspace", "add", "backend", "backend", "--root", root],
+            vec!["workspace", "add", "services", "services", "--root", root],
+            vec!["workspace", "init", "--root", root],
+            vec!["workspace", "check", "--root", root],
+        ] {
+            run(args.into_iter().map(OsString::from), &host, "test")
+                .await
+                .unwrap();
+        }
+        let path = temp.path().join("harness-workspace.json");
+        let before = std::fs::read(&path).unwrap();
+        let manifest: Value = serde_json::from_slice(&before).unwrap();
+        assert_eq!(manifest["projects"].as_object().unwrap().len(), 3);
+        assert_eq!(manifest["projects"]["frontend"], "frontend");
+        assert!(
+            run(
+                ["workspace", "add", "frontend", "backend", "--root", root]
+                    .into_iter()
+                    .map(OsString::from),
+                &host,
+                "test"
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(std::fs::read(path).unwrap(), before);
+        assert_eq!(*host.index_call.lock().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn workspace_check_reports_missing_roots_without_modifying_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("harness-workspace.json");
+        let bytes = br#"{"projects":{"backend":"missing"}}"#;
+        std::fs::write(&path, bytes).unwrap();
+        let host = FakeHost::default();
+        assert!(
+            run(
+                [
+                    "workspace",
+                    "check",
+                    "--root",
+                    temp.path().to_str().unwrap()
+                ]
+                .into_iter()
+                .map(OsString::from),
+                &host,
+                "test"
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn workspace_add_rejects_invalid_alias_and_missing_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let host = FakeHost::default();
+        let root = temp.path().to_str().unwrap();
+        run(
+            ["workspace", "init", "--root", root]
+                .into_iter()
+                .map(OsString::from),
+            &host,
+            "test",
+        )
+        .await
+        .unwrap();
+        let path = temp.path().join("harness-workspace.json");
+        let before = std::fs::read(&path).unwrap();
+        for (alias, directory) in [("bad/name", "."), ("backend", "missing")] {
+            assert!(
+                run(
+                    ["workspace", "add", alias, directory, "--root", root]
+                        .into_iter()
+                        .map(OsString::from),
+                    &host,
+                    "test"
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
         }
     }
 

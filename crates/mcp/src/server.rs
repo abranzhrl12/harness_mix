@@ -19,9 +19,9 @@ use execution::execute;
 use harness_domain::contracts::{
     BootstrapArgs, BrowserArgs, DetailArgs, ReadArgs, Request, SearchArgs, VerifyArgs,
 };
+use presentation::response_with_options as present_response;
 #[cfg(test)]
 use presentation::{response_with_compact, response_with_presentation};
-use presentation::response_with_options as present_response;
 use rmcp::{
     RoleServer, ServerHandler,
     handler::server::wrapper::Parameters,
@@ -36,6 +36,7 @@ use std::sync::{
 
 pub struct McpServer<W, S> {
     application: Application<W, S>,
+    application_source: Option<Arc<dyn Fn() -> Application<W, S> + Send + Sync>>,
     tasks: Option<Arc<dyn JobService>>,
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
@@ -47,6 +48,7 @@ impl<W, S> Clone for McpServer<W, S> {
     fn clone(&self) -> Self {
         Self {
             application: self.application.clone(),
+            application_source: self.application_source.clone(),
             tasks: self.tasks.clone(),
             task_notifications: self.task_notifications.clone(),
             task_forwarding: self.task_forwarding.clone(),
@@ -61,12 +63,22 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
     pub fn new(application: Application<W, S>, tasks: Option<Arc<dyn JobService>>) -> Self {
         Self {
             application,
+            application_source: None,
             tasks,
             task_notifications: Arc::new(AtomicBool::new(true)),
             task_forwarding: Arc::new(AtomicBool::new(false)),
             eager_tools: true,
             context_presentation: false,
         }
+    }
+
+    /// Supplies a fresh routing snapshot before each operational request.
+    pub fn with_application_source(
+        mut self,
+        source: impl Fn() -> Application<W, S> + Send + Sync + 'static,
+    ) -> Self {
+        self.application_source = Some(Arc::new(source));
+        self
     }
 
     /// Enables eager-load metadata for always-load tools (default: `true`).
@@ -82,11 +94,35 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
     }
 
     fn profile_router(&self) -> rmcp::handler::server::router::tool::ToolRouter<Self> {
-        profile::router(Self::tool_router(), self.application.tool_profile(), self.eager_tools)
+        profile::router(
+            Self::tool_router(),
+            self.application.tool_profile(),
+            self.eager_tools,
+        )
     }
     async fn call(&self, request: Request, context: RequestContext<RoleServer>) -> CallToolResult {
+        let application = match &self.application_source {
+            Some(source) => {
+                let source = source.clone();
+                match tokio::task::spawn_blocking(move || source()).await {
+                    Ok(application) => application,
+                    Err(_) => {
+                        return present_response(
+                            harness_domain::results::Results::default().envelope(
+                                request.name(),
+                                &request.arguments(),
+                                Err(("INTERNAL", "Workspace snapshot provider failed")),
+                            ),
+                            false,
+                            self.context_presentation,
+                        );
+                    }
+                }
+            }
+            None => self.application.clone(),
+        };
         execute(
-            &self.application,
+            &application,
             request,
             context.ct.cancelled(),
             self.context_presentation,
@@ -101,7 +137,9 @@ where
     W: Workspace + 'static,
     S: SessionRepository + 'static,
 {
-    #[tool(description = "Verificación en segundo plano: action=start|status|list|events|observe|cancel. Ejemplos: {\"action\":\"start\",\"verify\":{\"language\":\"rust\",\"action\":\"test\"}}, {\"action\":\"list\"}, {\"action\":\"observe\",\"taskId\":\"<id devuelto>\"}. status, observe y cancel requieren taskId; start requiere verify.")]
+    #[tool(
+        description = "Verificación en segundo plano: action=start|status|list|events|observe|cancel. Ejemplos: {\"action\":\"start\",\"verify\":{\"language\":\"rust\",\"action\":\"test\"}}, {\"action\":\"list\"}, {\"action\":\"observe\",\"taskId\":\"<id devuelto>\"}. status, observe y cancel requieren taskId; start requiere verify."
+    )]
     async fn harness_jobs(
         &self,
         Parameters(args): Parameters<harness_domain::tasks::TaskArgs>,
@@ -178,7 +216,9 @@ where
         }
         result
     }
-    #[tool(description = "Git de solo lectura: action=status|diff. diff tomará path=. (workspace completo) si lo omites; usa path para un archivo o carpeta.")]
+    #[tool(
+        description = "Git de solo lectura: action=status|diff. diff tomará path=. (workspace completo) si lo omites; usa path para un archivo o carpeta."
+    )]
     async fn harness_git(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::GitArgs>,
@@ -186,7 +226,9 @@ where
     ) -> CallToolResult {
         self.call(args.into_request(), context).await
     }
-    #[tool(description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. structuredContent contiene el sobre canónico con data, frescura, límites y detalle; content conserva el JSON textual compatible. Ejemplo: {\"filePath\":\"src/main.rs\",\"symbol\":\"main\",\"view\":\"summary\"}. Requiere un índice compatible; no lo crea.")]
+    #[tool(
+        description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. structuredContent contiene el sobre canónico con data, frescura, límites y detalle; content conserva el JSON textual compatible. Ejemplo: {\"filePath\":\"src/main.rs\",\"symbol\":\"main\",\"view\":\"summary\"}. Requiere un índice compatible; no lo crea."
+    )]
     async fn harness_explore(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ExploreArgs>,

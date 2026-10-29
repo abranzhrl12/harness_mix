@@ -9,6 +9,10 @@ pub enum Root {
 
 /// Parsed CLI request, independent of the host that executes it.
 pub enum Command {
+    Workspace {
+        root: Root,
+        operation: WorkspaceOperation,
+    },
     Help,
     Version,
     Active {
@@ -56,4 +60,11 @@ pub enum Command {
     UninstallProject {
         root: Root,
     },
+}
+
+pub enum WorkspaceOperation {
+    Init,
+    Add { name: String, path: PathBuf },
+    List,
+    Check,
 }

@@ -83,6 +83,7 @@ harness-browser = { path = "crates/browser", optional = true }
 harness-cli = { path = "crates/cli" }
 harness-mcp = { path = "crates/mcp" }
 harness-config = { path = "crates/config" }
+harness-skills = { path = "crates/skills" }
 harness-jobs = { path = "crates/jobs" }
 tempfile = "3"
 ignore = "0.4"
