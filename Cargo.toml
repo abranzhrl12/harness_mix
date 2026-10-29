@@ -47,6 +47,7 @@ members = [
     "crates/domain",
     "crates/application",
     "crates/browser",
+    "crates/lsp",
     "crates/cli",
     "crates/mcp",
     "crates/config",
@@ -79,6 +80,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"
 uuid = { version = "1", features = ["v4"] }
 harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
+harness-lsp = { path = "crates/lsp" }
 harness-browser = { path = "crates/browser", optional = true }
 harness-cli = { path = "crates/cli" }
 harness-mcp = { path = "crates/mcp" }

@@ -15,6 +15,7 @@ mod source_queries;
 
 pub(in crate::adapters) struct SourceQueryService {
     pub(in crate::adapters) project: Project,
+    pub(in crate::adapters) lsp: std::sync::OnceLock<Result<harness_lsp::Client, Failure>>,
     pub(in crate::adapters) external_scopes: Arc<Mutex<external_scopes::Registry>>,
 }
 
@@ -25,6 +26,7 @@ impl SourceQueryService {
     ) -> Self {
         Self {
             project,
+            lsp: std::sync::OnceLock::new(),
             external_scopes,
         }
     }

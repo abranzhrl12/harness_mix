@@ -192,6 +192,23 @@ impl WorkspaceMetadata for MultiNativeWorkspace {
 }
 
 impl SourceQueries for MultiNativeWorkspace {
+    fn lsp(&self, args: &harness_domain::lsp::LspArgs, context: &OperationContext) -> Result<Value, Failure> {
+        let (owner, args) = self.route(args, &["path"])?;
+        let mut result = self.projects[owner].1.lsp(&args, context)?;
+        if self.workspace_mode {
+            let name = &self.projects[owner].0.name;
+            result["project"] = json!(name);
+            result["path"] = json!(format!("{name}:/{}", args.path));
+            if let Some(locations) = result["locations"].as_array_mut() {
+                for location in locations {
+                    if let Some(path) = location["path"].as_str() {
+                        location["path"] = json!(format!("{name}:/{path}"));
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
     fn explore(
         &self,
         args: &harness_domain::contracts::ExploreArgs,

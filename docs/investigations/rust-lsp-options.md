@@ -2,7 +2,15 @@
 
 Investigación iniciada: 2026-10-28; ampliada con la prueba mcpls-core. Resultado: **serena-rs y mcpls-core permiten consultas reales desde Rust contra rust-analyzer y gopls** en los fixtures probados. No se integró una nueva capacidad productiva. Se amplió a una hora el plazo por herramienta de harness_mix en Codex; requiere reconexión.
 
-## Opciones comparadas
+## Actualización de integración
+
+Se incorporó el adaptador Rust `harness_lsp` con **mcpls-core 0.8.0**, disponible en crates.io. La conclusión anterior de que los tags posteriores no estaban publicados era incorrecta. Las pruebas reales TS/JS expusieron desconexiones intermitentes en 0.3.8; el lector de protocolo podía cancelarse dentro del select del cliente. 0.8 separa ese lector y contiene regresiones del framing. Se descartó 0.3.9 porque conserva el diseño anterior.
+
+La [guía de navegación LSP](../LSP-NAVIGATION.md) documenta la integración y `HARNESS_LSP_SERVERS`. La primera suite real adaptada a 0.8 pasó 5 pruebas (0 fallos, 0 ignoradas), incluidas definiciones/referencias TS/JS entre archivos, emoji y frescura tras guardar el llamador. Rust y Go conservan evidencia histórica con 0.3.8; esa evidencia no certifica 0.8.
+
+Fuentes de la corrección: [registro oficial](https://crates.io/api/v1/crates/mcpls-core), [lector 0.8](https://docs.rs/crate/mcpls-core/0.8.0/source/src/lsp/transport.rs) y [cliente 0.8](https://docs.rs/crate/mcpls-core/0.8.0/source/src/lsp/client.rs).
+
+## Opciones comparadas (investigación inicial)
 
 | Opción | Qué aporta | Licencia observada | Evaluación |
 |---|---|---|---|
@@ -81,7 +89,7 @@ El siguiente paso productivo sería una interfaz pequeña de definición, refere
 - [Serena: clientes MCP y transportes](https://oraios.github.io/serena/02-usage/030_clients.html).
 - [serena-rs: paquete, historial y licencia](https://docs.rs/crate/serena-rs/latest).
 - [serena-rs: interfaz LspClient](https://docs.rs/serena-rs/latest/serena_rs/lsp/struct.LspClient.html) y [fuente del cliente](https://docs.rs/serena-rs/latest/src/serena_rs/lsp/client.rs.html).
-- [mcpls-core 0.3.8: crate y arquitectura](https://docs.rs/mcpls-core/0.3.8/mcpls_core/) y [API LspServer](https://docs.rs/mcpls-core/0.3.8/mcpls_core/lsp/struct.LspServer.html), [API ServerState](https://docs.rs/mcpls-core/0.3.8/mcpls_core/lsp/enum.ServerState.html). docs.rs `latest` también resolvió a 0.3.8; repositorio y changelog contienen tags posteriores, que no se trataron como versiones publicadas.
+- [mcpls-core 0.3.8: crate y arquitectura](https://docs.rs/mcpls-core/0.3.8/mcpls_core/) y [API LspServer](https://docs.rs/mcpls-core/0.3.8/mcpls_core/lsp/struct.LspServer.html), [API ServerState](https://docs.rs/mcpls-core/0.3.8/mcpls_core/lsp/enum.ServerState.html). La afirmación inicial sobre versiones posteriores se corrigió arriba: 0.8.0 sí está publicado y es la versión integrada.
 - [mcpls: historial de capacidades/readiness](https://github.com/bug-ops/mcpls/blob/main/CHANGELOG.md) y [manifiesto](https://github.com/bug-ops/mcpls/blob/main/Cargo.toml).
 - [async-lsp: roles cliente/servidor y licencia](https://docs.rs/crate/async-lsp/0.2.4).
 - [lsp-types: alcance de la biblioteca](https://docs.rs/lsp-types/latest/lsp_types/).

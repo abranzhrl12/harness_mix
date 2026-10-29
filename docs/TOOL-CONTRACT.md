@@ -6,6 +6,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.3.0.
 | --- | --- |
 | harness_batch | node, rust |
 | harness_bootstrap | node, rust |
+| harness_lsp | rust |
 | harness_browser | node, rust |
 | harness_config | node, rust |
 | harness_data_query | rust |

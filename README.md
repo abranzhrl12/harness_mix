@@ -4,6 +4,8 @@ Para orientarte en este repositorio, consulta la sección relevante del [mapa de
 
 Servidor MCP nativo en Rust para investigar, leer, editar y verificar proyectos. La distribución preparada es Windows x64. El ejecutable directo no necesita Node; la instalación npm utiliza un lanzador Node.
 
+La [navegación semántica LSP](docs/LSP-NAVIGATION.md) añade definiciones y referencias mediante servidores instalados para Rust, Go, TypeScript y JavaScript.
+
 ## Instalación rápida
 
 ~~~powershell

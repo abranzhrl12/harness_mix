@@ -8,6 +8,9 @@ use harness_domain::{
 use serde_json::Value;
 
 impl SourceQueries for NativeWorkspace {
+    fn lsp(&self, args: &harness_domain::lsp::LspArgs, context: &OperationContext) -> Result<Value, Failure> {
+        self.source_queries.lsp(args, context)
+    }
     fn explore(
         &self,
         args: &harness_domain::contracts::ExploreArgs,

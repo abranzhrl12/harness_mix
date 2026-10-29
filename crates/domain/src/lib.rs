@@ -15,6 +15,7 @@ pub mod hashing;
 pub mod indexing;
 pub mod jobs;
 pub mod log_archive;
+pub mod lsp;
 pub mod navigation;
 pub mod parsing;
 pub mod process;

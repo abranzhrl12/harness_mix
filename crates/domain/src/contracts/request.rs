@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub enum Request {
     Browser(BrowserArgs),
+    Lsp(crate::lsp::LspArgs),
     PatchPreview(ReplaceArgs),
     Explore(ExploreArgs),
     ExternalScope(ExternalScopeArgs),
@@ -90,6 +91,7 @@ impl Request {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Browser(_) => "harness_browser",
+            Self::Lsp(_) => "harness_lsp",
             Self::PatchPreview(_) => "harness_patch_preview",
             Self::Explore(_) => "harness_explore",
             Self::ExternalScope(_) => "harness_external_scope",
@@ -129,6 +131,7 @@ impl Request {
     pub fn arguments(&self) -> Value {
         match self {
             Self::Browser(args) => serde_json::to_value(args),
+            Self::Lsp(args) => serde_json::to_value(args),
             Self::PatchPreview(args) => serde_json::to_value(args),
             Self::Explore(args) => serde_json::to_value(args),
             Self::ExternalScope(args) => serde_json::to_value(args),

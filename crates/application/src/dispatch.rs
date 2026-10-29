@@ -26,6 +26,8 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
         let mut lease = None;
         let result = context.check().and_then(|()| match request {
             Request::Explore(args) => queries::explore(self, args, context, &mut lease),
+            Request::Lsp(args) => self.lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.lsp(&args, context)),
             Request::Bootstrap(args) => sessions::bootstrap(self, args, context, &mut lease),
             Request::ExternalScope(args) => {
                 sessions::external_scope(self, args, context, &mut lease)

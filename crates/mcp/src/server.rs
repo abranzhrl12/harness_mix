@@ -147,6 +147,15 @@ where
         jobs::handle(self.tasks.as_deref(), args, self.context_presentation).await
     }
 
+    #[tool(description = "Navegación semántica mediante servidores LSP instalados: action=definition|references, path, line y character base 0 en UTF-16. Rust: rust-analyzer; Go: gopls; TypeScript/JavaScript: typescript-language-server. Ejecuta el servidor configurado por el operador; no instala herramientas. Un resultado vacío no demuestra ausencia ni carga completa.")]
+    async fn harness_lsp(
+        &self,
+        Parameters(args): Parameters<harness_domain::lsp::LspArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        self.call(Request::Lsp(args), context).await
+    }
+
     #[tool(description = "Scope externo de solo lectura: action=grant|list|revoke.")]
     async fn harness_external_scope(
         &self,

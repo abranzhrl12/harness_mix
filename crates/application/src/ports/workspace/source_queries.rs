@@ -7,6 +7,9 @@ use serde_json::Value;
 
 /// Read-only source and graph queries; callers need no mutation or database ports.
 pub trait SourceQueries: Send + Sync {
+    fn lsp(&self, _args: &harness_domain::lsp::LspArgs, _context: &OperationContext) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "LSP adapter unavailable"))
+    }
     fn explore(
         &self,
         _args: &harness_domain::contracts::ExploreArgs,

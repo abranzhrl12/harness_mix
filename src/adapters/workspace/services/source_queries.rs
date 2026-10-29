@@ -13,6 +13,28 @@ use serde_json::{Value, json};
 mod tests;
 
 impl SourceQueries for SourceQueryService {
+    fn lsp(&self, args: &harness_domain::lsp::LspArgs, context: &OperationContext) -> Result<Value, Failure> {
+        context.check()?;
+        harness_lsp::language(&args.path)?;
+        let bytes = self.project.symbol_bytes_with_context(&args.path, context)?;
+        if bytes.len() > 2 * 1024 * 1024 { return Err(("SIZE", "LSP document exceeds 2 MiB")); }
+        let text = String::from_utf8(bytes).map_err(|_| ("ENCODING", "LSP requires UTF-8 source"))?;
+        let client = self.lsp.get_or_init(|| {
+            let commands = match std::env::var("HARNESS_LSP_SERVERS") {
+                Ok(value) => serde_json::from_str::<harness_lsp::Commands>(&value)
+                    .map_err(|_| ("LSP_CONFIG", "HARNESS_LSP_SERVERS must be a JSON object mapping languages to command/args"))?,
+                Err(std::env::VarError::NotPresent) => harness_lsp::default_commands(),
+                Err(_) => return Err(("LSP_CONFIG", "HARNESS_LSP_SERVERS must be valid Unicode")),
+            };
+            if commands.len() > 4 || commands.iter().any(|(language, command)| {
+                !matches!(language.as_str(), "rust" | "go" | "typescript" | "javascript")
+                    || command.command.is_empty() || command.command.len() > 4096 || command.command.contains(['\r', '\n', '\0'])
+                    || command.args.len() > 32 || command.args.iter().any(|arg| arg.len() > 4096 || arg.contains('\0'))
+            }) { return Err(("LSP_CONFIG", "Invalid operator LSP command configuration")); }
+            Ok(harness_lsp::Client::new(&self.project.root, commands))
+        }).as_ref().map_err(|failure| *failure)?;
+        client.query(args, text, context)
+    }
     fn explore(
         &self,
         args: &harness_domain::contracts::ExploreArgs,

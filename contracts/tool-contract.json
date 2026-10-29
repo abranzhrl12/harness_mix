@@ -441,6 +441,10 @@
       ]
     },
     {
+      "name": "harness_lsp",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_browser",
       "backends": [
         "node",
