@@ -1,4 +1,4 @@
-use super::{astro, csharp, ecmascript, python, razor, rust, vue};
+use super::{astro, csharp, ecmascript, go, python, razor, rust, vue};
 use harness_application::ports::parsing::SyntaxParser;
 use harness_domain::{Failure, editing, execution::OperationContext, parsing::SourceFormat};
 use serde_json::{Value, json};
@@ -73,6 +73,26 @@ impl SyntaxParser for PythonParser {
     ) -> Result<Value, Failure> {
         python::syntax::validate_syntax(source, context)?;
         Ok(json!({"status":"valid","language":"python","validation":"syntax_only"}))
+    }
+}
+
+struct GoParser;
+impl SyntaxParser for GoParser {
+    fn supports(&self, path: &str) -> bool {
+        matches!(
+            SourceFormat::from_path(Path::new(path)),
+            Some(SourceFormat::Go)
+        )
+    }
+
+    fn validate(
+        &self,
+        _path: &str,
+        source: &str,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        go::syntax::validate_syntax(source, context)?;
+        Ok(json!({"status":"valid","language":"go","validation":"syntax_only"}))
     }
 }
 
@@ -191,11 +211,21 @@ impl SyntaxParser for RazorParser {
 pub(in crate::adapters) fn default_syntax_registry() -> ParserRegistry<'static> {
     static RUST: RustParser = RustParser;
     static PYTHON: PythonParser = PythonParser;
+    static GO: GoParser = GoParser;
     static ECMASCRIPT: EcmascriptParser = EcmascriptParser;
     static VUE: VueParser = VueParser;
     static ASTRO: AstroParser = AstroParser;
     static CSHARP: CSharpParser = CSharpParser;
     static RAZOR: RazorParser = RazorParser;
 
-    ParserRegistry::new(&[&RUST, &PYTHON, &ECMASCRIPT, &VUE, &ASTRO, &CSHARP, &RAZOR])
+    ParserRegistry::new(&[
+        &RUST,
+        &PYTHON,
+        &GO,
+        &ECMASCRIPT,
+        &VUE,
+        &ASTRO,
+        &CSHARP,
+        &RAZOR,
+    ])
 }

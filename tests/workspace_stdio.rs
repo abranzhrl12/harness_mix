@@ -99,14 +99,6 @@ fn workspace_stdio_reloads_projects_keeps_session_and_preserves_last_valid_confi
     for name in ["backend", "frontend"] {
         std::fs::create_dir(temp.path().join(name)).unwrap();
         std::fs::write(temp.path().join(name).join("sample.txt"), name).unwrap();
-        std::fs::create_dir(temp.path().join(name).join(".agents")).unwrap();
-        std::fs::write(
-            temp.path()
-                .join(name)
-                .join(".agents/harness-skills-sync.json"),
-            r#"{"format_version":1,"auto_sync":true}"#,
-        )
-        .unwrap();
     }
     let manifest = temp.path().join("workspace.json");
     std::fs::write(&manifest, r#"{"projects":{"backend":"backend"}}"#).unwrap();
@@ -141,6 +133,17 @@ fn workspace_stdio_reloads_projects_keeps_session_and_preserves_last_valid_confi
         temp.path()
             .join("frontend/.agents/skills/harness-workflow/SKILL.md")
             .is_file()
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(
+            &std::fs::read(
+                temp.path()
+                    .join("frontend/.agents/harness-skills-sync.json")
+            )
+            .unwrap()
+        )
+        .unwrap()["auto_sync"],
+        true
     );
     std::fs::write(&manifest, b"{ incomplete").unwrap();
     std::thread::sleep(Duration::from_millis(400));
@@ -196,8 +199,8 @@ fn workspace_reload_retains_old_jobs_and_rejects_new_work_on_removed_projects() 
     let new_job = server.call("harness_jobs", json!({"action":"start","verify":{"language":"python","action":"build","scope":"frontend:/test_wait.py"}}));
     assert_eq!(new_job["data"]["project"], "frontend");
     assert!(
-        !temp.path().join("frontend/.agents/skills").exists(),
-        "sync must remain opt-in"
+        temp.path().join("frontend/.agents/skills").exists(),
+        "registered projects initialize skills"
     );
 }
 

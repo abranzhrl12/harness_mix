@@ -250,14 +250,89 @@ pub(super) fn execute(root: &Path, operation: WorkspaceOperation) -> Result<Valu
     } else {
         Vec::new()
     };
+    let mut skills = Vec::new();
+    for (name, entry) in &manifest.projects {
+        if !matches!(operation, WorkspaceOperation::Init)
+            && !matches!(&operation, WorkspaceOperation::Add { name: added, .. } if added == name)
+        {
+            continue;
+        }
+        let result = (|| -> Result<Value, String> {
+            let project = directory(&root, Path::new(entry.path()))?;
+            let Some(report) =
+                harness_skills::project_support::initialize_workspace_project(&project)?
+            else {
+                return Ok(json!({"project":name,"status":"disabled"}));
+            };
+            if report.conflicts > 0 || report.errors > 0 {
+                return Ok(json!({"project":name,"status":"error","report":report}));
+            }
+            Ok(json!({"project":name,"status":"enabled","report":report}))
+        })();
+        skills.push(match result {
+            Ok(result) => result,
+            Err(error) => json!({"project":name,"status":"error","error":error}),
+        });
+    }
     Ok(
-        json!({"manifest":path,"changed":changed,"projects":projects,"indexesModified":false,"supportFiles":support_files}),
+        json!({"manifest":path,"changed":changed,"projects":projects,"indexesModified":false,"supportFiles":support_files,"skills":skills}),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn init_prepares_existing_project_and_preserves_conflicting_skill() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("backend");
+        let clean = temp.path().join("frontend");
+        fs::create_dir(&clean).unwrap();
+        let skill = project.join(".agents/skills/harness-read/SKILL.md");
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        fs::write(&skill, b"local instructions").unwrap();
+        fs::write(temp.path().join(MANIFEST), br#"{"projects":{"backend":"backend","frontend":"frontend"}}"#).unwrap();
+        let result = execute(temp.path(), WorkspaceOperation::Init).unwrap();
+        assert_eq!(result["skills"][0]["status"], "error");
+        assert_eq!(fs::read(skill).unwrap(), b"local instructions");
+        assert!(!project.join(".agents/harness-skills-sync.json").exists());
+        assert!(clean.join(".agents/skills/harness-read/SKILL.md").is_file());
+        assert_eq!(result["skills"][1]["status"], "enabled");
+    }
+
+    #[test]
+    fn adding_project_enables_and_installs_skills_without_overriding_disabled_preference() {
+        let temp = tempfile::tempdir().unwrap();
+        execute(temp.path(), WorkspaceOperation::Init).unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir_all(second.join(".agents")).unwrap();
+        let disabled = br#"{"format_version":1,"auto_sync":false}"#;
+        fs::write(second.join(".agents/harness-skills-sync.json"), disabled).unwrap();
+        for name in ["first", "second"] {
+            execute(
+                temp.path(),
+                WorkspaceOperation::Add {
+                    name: name.into(),
+                    path: name.into(),
+                },
+            )
+            .unwrap();
+        }
+        assert!(first.join(".agents/skills/harness-read/SKILL.md").is_file());
+        let prefs: Value = serde_json::from_slice(
+            &fs::read(first.join(".agents/harness-skills-sync.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prefs["auto_sync"], true);
+        assert_eq!(
+            fs::read(second.join(".agents/harness-skills-sync.json")).unwrap(),
+            disabled
+        );
+        assert!(!second.join(".agents/skills/harness-read/SKILL.md").exists());
+    }
 
     #[test]
     fn init_creates_example_and_agent_guide_without_activating_examples_or_overwriting_edits() {

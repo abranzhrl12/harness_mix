@@ -23,6 +23,8 @@ Para frontend, backend y servicios en una sola conexión, ejecuta `agent-harness
 - Git de solo lectura, sesiones, configuración redactada y diagnóstico.
 - Catálogos SQL Server/PostgreSQL; lectura de XLSX, SVG y proyecciones JSON.
 
+Go dispone de navegación de símbolos, validación sintáctica de ediciones y un grafo de declaraciones e imports, además de compilación y tests. Consulta la [cobertura y los límites de Go](docs/go-native-support.md); el grafo todavía no resuelve llamadas ni paquetes importados.
+
 El perfil `full` anuncia **22 herramientas MCP**, algunas con varias acciones. Los nombres y parámetros vigentes están en la [referencia de comandos](docs/REFERENCE.md). Consulta también el catálogo real del cliente después de actualizar: el contrato puede variar entre versiones.
 
 ## Índice opcional

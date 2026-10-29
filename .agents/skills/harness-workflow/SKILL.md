@@ -61,14 +61,4 @@ installs the catalog without creating an index or changing client configuration.
 Do not run project `init` merely to obtain a skill; it also configures clients
 and prepares an index. Do not silently replace user-modified skill files.
 
-Workspace `init` creates a manifest, example and guide. It does not install
-skills in all registered projects. Multiproject startup and project registration
-run skill synchronization only for projects with their existing `auto_sync`
-preference enabled. Enable it via authorized `skills sync --enable-auto`.
-Manifest changes reload between calls without losing the session; inspect
-bootstrap's `workspaceReload` status if a new project is not available.
-Clients discover skill files separately from MCP tool discovery. Confirm their
-availability instead of assuming bootstrap activates the Markdown workflow.
-
-See [SUPERPOWERS.md](SUPERPOWERS.md) when explaining this integration or deciding
-whether to add another upstream workflow. Do not load it for routine edits.
+Workspace `init` creates a manifest, example and guide, and prepares skills for registered projects. `workspace add`, multiproject startup and project registration via manifest reload also prepare skills. Existing `auto_sync: false` preferences are respected; absent preferences are created enabled. Conflicts preserve local edits and are reported. Example projects are never activated. Clients discover skill files separately from MCP tool discovery; confirm their availability.

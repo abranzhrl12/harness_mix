@@ -21,6 +21,55 @@ fn modest_multiline_symbol_returns_exact_body_in_one_call() {
     assert_eq!(result["data"]["hash"], hash(text.as_bytes()));
 }
 
+#[test]
+fn go_outline_and_read_return_receiver_methods_types_and_exact_utf8_source() {
+    use harness_domain::contracts::{OutlineArgs, ReadSymbolArgs, SymbolsArgs};
+    let root = tempfile::tempdir().unwrap();
+    let source = "package demo\n// 😀\ntype Box[T any] struct { Value T }\nfunc (b *Box[T]) Read() string { return \"café\" }\n";
+    std::fs::write(root.path().join("sample.go"), source).unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let outline = app.execute(
+        SymbolsArgs::Outline(OutlineArgs {
+            external_scope: None,
+            path: "sample.go".into(),
+            query: None,
+            max_chars: Some(16000),
+            filter_kind: None,
+            view: None,
+            session: None,
+        })
+        .into_request(),
+    );
+    assert_eq!(outline["state"], "ok", "{outline}");
+    let items = outline["data"]["items"].as_array().unwrap();
+    assert!(
+        items
+            .iter()
+            .any(|item| item["name"] == "Box" && item["kind"] == "struct")
+    );
+    let method = items
+        .iter()
+        .find(|item| item["name"] == "Read" && item["container"] == "Box")
+        .unwrap();
+    let read = app.execute(
+        SymbolsArgs::Read(ReadSymbolArgs {
+            external_scope: None,
+            path: "sample.go".into(),
+            symbol: "Read".into(),
+            container: Some("Box".into()),
+            symbol_id: method["symbolId"].as_str().map(str::to_owned),
+            view: None,
+            session: None,
+        })
+        .into_request(),
+    );
+    assert_eq!(read["state"], "ok", "{read}");
+    assert_eq!(
+        read["data"]["text"],
+        "func (b *Box[T]) Read() string { return \"café\" }"
+    );
+}
+
 fn outline(app: &NativeApplication, query: Option<&str>, max: usize) -> Value {
     app.execute(
         SymbolsArgs::Outline(OutlineArgs {

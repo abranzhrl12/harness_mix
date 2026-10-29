@@ -43,9 +43,7 @@ the actual edited revision.
 
 Project initialization, workspace initialization and skill synchronization have
 different side effects. Project init installs skills, client entries and an
-index. Workspace init writes configuration and documentation only. Skills sync
-installs the catalog independently. Single- and multiproject startup perform
-opt-in sync; adding a project also respects its existing preference. Workspace
+index. Workspace init writes configuration and documentation and prepares registered projects. Skills sync installs the catalog independently. Workspace startup and registration prepare projects with absent preferences; an explicit disabled preference is respected. Workspace
 manifests reload between MCP calls, retaining the last valid configuration on
 errors. These mechanisms do not activate skills inside the client automatically.
 Confirm roots and reload status in bootstrap instead of assuming a JSON edit

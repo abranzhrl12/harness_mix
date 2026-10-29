@@ -14,6 +14,7 @@ pub fn language(path: &str) -> Option<&'static str> {
         "js" | "mjs" | "cjs" => Some("javascript"),
         "jsx" => Some("jsx"),
         "py" => Some("python"),
+        "go" => Some("go"),
         "scss" => Some("scss"),
         _ => None,
     }
@@ -49,6 +50,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     }
     if lang == "scss" {
         return super::scss::extract(path, source, context);
+    }
+    if lang == "go" {
+        return super::go::extract(path, source, context);
     }
     let prepared = if lang == "csharp" {
         super::csharp::blank_csharp(source)?

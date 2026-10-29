@@ -111,6 +111,24 @@ fn publishes_valid_rust_json_and_text_preserving_bytes() {
 }
 
 #[test]
+fn go_replace_validates_package_and_rejects_malformed_candidate_without_writing() {
+    let root = tempfile::tempdir().unwrap();
+    let app = adapters::application(root.path()).unwrap();
+    let before = "package demo\nfunc Run() { println(1) }\n";
+    std::fs::write(root.path().join("sample.go"), before).unwrap();
+    let good = replace(&app, "sample.go", before, "1", "2");
+    assert_eq!(good["state"], "ok", "{good}");
+    let updated = std::fs::read_to_string(root.path().join("sample.go")).unwrap();
+    let bad = replace(&app, "sample.go", &updated, "2", "{");
+    assert_eq!(bad["state"], "error", "{bad}");
+    assert_eq!(bad["diagnostics"][0]["code"], "SYNTAX_ERROR");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("sample.go")).unwrap(),
+        updated
+    );
+}
+
+#[test]
 fn validation_stale_and_cancellation_leave_original_untouched() {
     let root = tempfile::tempdir().unwrap();
     let app = adapters::application(root.path()).unwrap();

@@ -117,6 +117,11 @@ fn native_registry_routes_extensions_and_keeps_edit_policy_boundaries() {
     ] {
         assert!(registry.validate(path, "", &context).is_ok(), "{path}");
     }
+    assert!(registry.validate("x.go", "package p\n", &context).is_ok());
+    assert_eq!(
+        registry.validate("x.go", "", &context).unwrap_err().0,
+        "SYNTAX_ERROR"
+    );
     for path in ["x.json", "x.md", "x.txt", "x.sql", "x.xml", "x.css"] {
         assert_eq!(
             registry.validate(path, "", &context).unwrap_err().0,
@@ -221,7 +226,11 @@ fn native_python_parser_accepts_valid_source_and_rejects_syntax_errors() {
     let registry = default_syntax_registry();
     let context = OperationContext::default();
     let value = registry
-        .validate("x.py", "class Foo:\n    def bar(self, x: int) -> int:\n        return x + 1\n", &context)
+        .validate(
+            "x.py",
+            "class Foo:\n    def bar(self, x: int) -> int:\n        return x + 1\n",
+            &context,
+        )
         .unwrap();
     assert_eq!(
         value,
@@ -233,5 +242,35 @@ fn native_python_parser_accepts_valid_source_and_rejects_syntax_errors() {
             .unwrap_err()
             .0,
         "SYNTAX_ERROR"
+    );
+}
+
+#[test]
+fn native_go_parser_accepts_valid_source_and_rejects_syntax_errors() {
+    let registry = default_syntax_registry();
+    let context = OperationContext::default();
+    let value = registry
+        .validate("x.go", "package p\nfunc F() {}\n", &context)
+        .unwrap();
+    assert_eq!(
+        value,
+        json!({"status":"valid","language":"go","validation":"syntax_only"})
+    );
+    assert_eq!(
+        registry
+            .validate("x.go", "package p\nfunc F( {\n", &context)
+            .unwrap_err()
+            .0,
+        "SYNTAX_ERROR"
+    );
+}
+
+#[test]
+fn native_go_parser_accepts_leading_build_and_license_comments() {
+    let source = "//go:build linux\n\n// license\npackage demo\nfunc Run() {}\n";
+    assert!(
+        default_syntax_registry()
+            .validate("x.go", source, &OperationContext::default())
+            .is_ok()
     );
 }

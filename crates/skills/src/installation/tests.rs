@@ -11,7 +11,11 @@ fn owned_index_with_idle_writer_gate_can_be_uninstalled() {
     fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
     fs::write(root.path().join(".codegraph/index-write.lock"), b"").unwrap();
     fs::write(root.path().join(".codegraph/autosync.lock"), b"").unwrap();
-    fs::write(root.path().join(".codegraph/autosync.status"), b"harness-watch-status-v1\n{}").unwrap();
+    fs::write(
+        root.path().join(".codegraph/autosync.status"),
+        b"harness-watch-status-v1\n{}",
+    )
+    .unwrap();
     assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
     assert!(!root.path().join(".codegraph").exists());
 }
@@ -42,13 +46,21 @@ fn active_writer_gate_prevents_uninstall() {
         install.prepare_index().unwrap();
     }
     fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
-    let gate = fs::OpenOptions::new().read(true).write(true).create(true)
-        .truncate(false).share_mode(3)
-        .open(root.path().join(".codegraph/index-write.lock")).unwrap();
+    let gate = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(3)
+        .open(root.path().join(".codegraph/index-write.lock"))
+        .unwrap();
     gate.lock().unwrap();
     assert!(uninstall(root.path()).is_err());
     assert!(root.path().join(SKILLS[0].relative_path).exists());
-    assert_eq!(fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(), b"test index");
+    assert_eq!(
+        fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(),
+        b"test index"
+    );
     drop(gate);
     assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
 }
@@ -121,6 +133,10 @@ fn preserves_other_servers_settings_preexisting_index_and_preferences() {
     let original_preferences = fs::read(root.path().join(preferences::PATH)).unwrap();
     {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
+        assert_eq!(
+            fs::read(root.path().join(preferences::PATH)).unwrap(),
+            original_preferences
+        );
         assert!(!install.prepare_index().unwrap());
     }
     let receipt = fs::read_to_string(root.path().join(RECEIPT)).unwrap();

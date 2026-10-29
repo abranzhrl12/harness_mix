@@ -361,7 +361,7 @@ impl LiveWorkspace {
 }
 
 fn sync_skills(project: &WorkspaceProject) {
-    match harness_skills::sync_on_startup(&project.root) {
+    match harness_skills::project_support::initialize_workspace_project(&project.root) {
         Ok(Some(report)) if report.conflicts > 0 || report.errors > 0 => eprintln!(
             "harness skills auto-sync [{}]: {}",
             project.name,

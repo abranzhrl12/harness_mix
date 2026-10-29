@@ -77,11 +77,7 @@ step.
 
 In workspace mode, verify the registered project list and each root rather than
 requiring a single top-level `root`. Keep aliases with source evidence and use
-`alias:/path` to route operations. Multiproject startup and newly registered
-projects sync skills only when that project's `auto_sync` preference is enabled.
-Use `--root <project> skills sync --enable-auto` only when authorized. Missing or
-disabled preferences leave files untouched, and conflicts preserve local edits. A client
-may need to refresh skill discovery independently of reconnecting MCP.
+`alias:/path` to route operations. Multiproject startup and registration prepare skills for registered projects. An absent preference is created enabled; an existing `auto_sync: false` is respected. Conflicts preserve local edits and are reported. A client may need to refresh skill discovery independently of reconnecting MCP.
 
 ## Initial Index (Relationships Only)
 

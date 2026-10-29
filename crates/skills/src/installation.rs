@@ -121,7 +121,7 @@ impl Installation {
                 return Err("invalid harness.config.json; nothing installed".into());
             }
         }
-        preferences::read_preferences(&install.root)?;
+        let existing_preferences = preferences::read_preferences(&install.root)?;
         let client_plans = clients::plan(&install.root, &executable, &install.receipt.clients)?;
         let mut desired = Vec::new();
         for skill in SKILLS {
@@ -154,14 +154,16 @@ impl Installation {
             })
             .map_err(|e| e.to_string())?,
         ));
-        desired.push((
-            preferences::PATH.into(),
-            serde_json::to_vec_pretty(&preferences::Preferences {
-                format_version: preferences::FORMAT,
-                auto_sync: true,
-            })
-            .map_err(|e| e.to_string())?,
-        ));
+        if existing_preferences.is_none() {
+            desired.push((
+                preferences::PATH.into(),
+                serde_json::to_vec_pretty(&preferences::Preferences {
+                    format_version: preferences::FORMAT,
+                    auto_sync: true,
+                })
+                .map_err(|e| e.to_string())?,
+            ));
+        }
         if database.is_none() {
             desired.push((
                 DATABASE.into(),

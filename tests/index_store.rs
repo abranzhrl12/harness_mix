@@ -27,6 +27,57 @@ fn count(root: &Path, query: &str) -> i64 {
 }
 
 #[test]
+fn go_native_graph_publishes_declarations_imports_and_is_explorable() {
+    let root = tempfile::tempdir().unwrap();
+    fixture(root.path());
+    fs::write(root.path().join("main.go"), "package demo\nimport \"fmt\"\ntype Box struct { Name string }\nfunc (b *Box) Run() { fmt.Println(b.Name) }\n").unwrap();
+    let result = sync(root.path(), "main.go");
+    assert_eq!(result["committed"], true, "{result}");
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM files WHERE language='go'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE file_path='main.go' AND kind='struct' AND name='Box'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE file_path='main.go' AND kind='method' AND name='Run'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM nodes WHERE file_path='main.go' AND kind='import'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            root.path(),
+            "SELECT count(*) FROM edges WHERE kind='imports'"
+        ),
+        1
+    );
+    let app = agent_harness::adapters::application(root.path()).unwrap();
+    let request = serde_json::from_value(
+        serde_json::json!({"filePath":"main.go","symbol":"Run","view":"summary"}),
+    )
+    .unwrap();
+    let explored = app.execute(harness_domain::contracts::Request::Explore(request));
+    assert_eq!(explored["state"], "ok", "{explored}");
+}
+
+#[test]
 fn razor_publication_resolves_members_and_model_and_updates_atomically() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());

@@ -10,6 +10,19 @@ pub struct ProjectSupport {
     _lock: SyncLock,
 }
 
+/// Prepare a registered workspace project, preserving explicit preferences.
+pub fn initialize_workspace_project(root: &Path) -> Result<Option<crate::Report>, String> {
+    let support = ProjectSupport::lock(root)?;
+    if ProjectSupport::preferences(root)?.is_some_and(|p| !p.auto_sync) {
+        return Ok(None);
+    }
+    let report = support.sync()?;
+    if report.conflicts == 0 && report.errors == 0 {
+        support.set_auto_sync(true)?;
+    }
+    Ok(Some(report))
+}
+
 impl ProjectSupport {
     /// Resolve a project root without acquiring the synchronization lock.
     pub fn checked_root(root: &Path) -> Result<PathBuf, String> {

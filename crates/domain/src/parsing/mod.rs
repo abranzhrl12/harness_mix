@@ -13,6 +13,7 @@ use std::path::Path;
 pub enum SourceFormat {
     Rust,
     Python,
+    Go,
     JavaScript,
     JavaScriptModule,
     CommonJs,
@@ -38,6 +39,8 @@ impl SourceFormat {
             Some(Self::Rust)
         } else if extension.eq_ignore_ascii_case("py") {
             Some(Self::Python)
+        } else if extension.eq_ignore_ascii_case("go") {
+            Some(Self::Go)
         } else if extension.eq_ignore_ascii_case("js") {
             Some(Self::JavaScript)
         } else if extension.eq_ignore_ascii_case("mjs") {
@@ -78,6 +81,7 @@ impl SourceFormat {
         match self {
             Self::Rust => SourceLanguage::Rust,
             Self::Python => SourceLanguage::Python,
+            Self::Go => SourceLanguage::Go,
             Self::JavaScript | Self::JavaScriptModule | Self::CommonJs | Self::Jsx => {
                 SourceLanguage::JavaScript
             }
@@ -100,6 +104,7 @@ impl SourceFormat {
 pub enum SourceLanguage {
     Rust,
     Python,
+    Go,
     JavaScript,
     TypeScript,
     Vue,
@@ -117,6 +122,7 @@ impl SourceLanguage {
         match self {
             Self::Rust => "rust",
             Self::Python => "python",
+            Self::Go => "go",
             Self::JavaScript => "javascript",
             Self::TypeScript => "typescript",
             Self::Vue => "vue",
