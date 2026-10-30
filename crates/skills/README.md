@@ -1,7 +1,7 @@
 # harness-skills
 
-Reusable skill synchronization for Harness projects. The crate embeds seven
-Harness skills, a local workflow integration, and seven upstream workflow skills, including supporting documents and
+Reusable skill synchronization for Harness projects. The crate embeds
+Harness skills, a local workflow integration, and upstream workflow skills, including supporting documents and
 licenses. It tracks every managed file with a SHA-256 manifest, preserves local
 edits, and supports preview/check and opt-in startup synchronization.
 
@@ -36,6 +36,7 @@ plugin.
 | --- | --- |
 | [obra/superpowers](https://github.com/obra/superpowers) | systematic-debugging, test-driven-development, verification-before-completion |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | improve-codebase-architecture, codebase-design, domain-modeling, grilling |
+| [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins/tree/main/engineering/skills/documentation) | documentation (Apache-2.0); used by harness-word |
 
 The latter four form the architecture workflow: architecture review links to
 the codebase design, domain modeling, and grilling guides. The debugging route
@@ -44,7 +45,7 @@ formats, agent metadata, and MIT licenses needed by those skills are embedded
 alongside each SKILL.md, so project initialization needs no network download.
 Upstream scripts and examples are copied as data; initialization never runs them.
 
-Each upstream skill directory contains its LICENSE with the original notice.
+Each upstream skill directory contains its upstream LICENSE.
 The vendored source files live in the repository's .agents/skills directory;
 catalog.rs explicitly lists the files included in the executable. To update a
 skill, review its upstream changes and references, retain its license, update

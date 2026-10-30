@@ -5,6 +5,9 @@ use harness_skills::{
 use std::{fs, path::Path};
 
 const REQUIRED_FILES: &[&str] = &[
+    "harness-word/SKILL.md",
+    "documentation/SKILL.md",
+    "documentation/LICENSE",
     "harness-workflow/SKILL.md",
     "harness-workflow/SUPERPOWERS.md",
     "harness-workflow/references/operating-rules.md",
@@ -37,6 +40,25 @@ const REQUIRED_FILES: &[&str] = &[
     "grilling/SKILL.md",
     "grilling/LICENSE",
 ];
+
+#[test]
+fn bundled_word_guide_connects_evidence_diagrams_and_visual_review() {
+    let guide = include_str!("../../../.agents/skills/harness-word/SKILL.md");
+    for required in ["harness-read", "harness_word", "harness_word_preview", "harness_diagram", "image/png", "unknown"] {
+        assert!(guide.contains(required), "missing workflow step: {required}");
+    }
+}
+
+#[test]
+fn bundled_workflow_routes_supported_mcp_tasks_and_respects_user_preferences() {
+    let workflow = include_str!("../../../.agents/skills/harness-workflow/SKILL.md");
+    for guide in ["harness-read", "harness-edit", "harness-browser", "harness-sql", "harness-xlsx", "harness-svg", "harness-word", "harness-setup"] {
+        assert!(workflow.contains(guide), "missing MCP guide: {guide}");
+    }
+    let rules = include_str!("../../../.agents/skills/harness-workflow/references/operating-rules.md");
+    assert!(rules.contains("Explicit user instructions take precedence"));
+    assert!(rules.contains("reuse `data.session`"));
+}
 
 fn assert_workflow_bundle(root: &Path) {
     let files = &serde_json::from_slice::<serde_json::Value>(

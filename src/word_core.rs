@@ -7,7 +7,7 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use docx_rs::{
     AlignmentType, BreakType, Docx, Footer, Header, Paragraph, Pic, Run, RunFonts, Table, TableCell,
-    TableRow,
+    TableRow, PageMargin,
 };
 use harness_domain::word::{Block, WordDocument};
 
@@ -35,7 +35,11 @@ impl std::error::Error for WordRenderError {}
 pub fn render_docx(document: &WordDocument) -> Result<Vec<u8>, WordRenderError> {
     validate_document(document)?;
 
-    let mut docx = Docx::new();
+    // A4 with one-inch margins, expressed in twentieths of a point.
+    let mut docx = Docx::new().page_size(11906, 16838).page_margin(PageMargin {
+        top: 1440, bottom: 1440, left: 1440, right: 1440,
+        header: 720, footer: 720, gutter: 0,
+    });
 
     if let Some(header) = &document.header {
         docx = docx.header(Header::new().add_paragraph(plain_paragraph(header)));
@@ -223,10 +227,15 @@ fn add_block(mut docx: Docx, block: &Block) -> Result<Docx, WordRenderError> {
             docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_image(pic)));
         }
         Block::CodeImage { code, language, width_px, .. } => {
-            let bytes = crate::adapters::code_snapshot::render_code_image(code, language.as_deref())
-                .map_err(|error| WordRenderError::Render(error.to_string()))?;
-            let pic = make_picture(&bytes, *width_px)?;
-            docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_image(pic)));
+            let lines: Vec<_> = code.lines().collect();
+            for chunk in lines.chunks(25) {
+                let snippet = chunk.join("\n");
+                if snippet.trim().is_empty() { continue; }
+                let bytes = crate::adapters::code_snapshot::render_code_image(&snippet, language.as_deref())
+                    .map_err(|error| WordRenderError::Render(error.to_string()))?;
+                let pic = make_picture(&bytes, *width_px)?;
+                docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_image(pic)));
+            }
         }
         Block::PageBreak => {
             docx = docx.add_paragraph(
@@ -286,31 +295,56 @@ fn make_picture(bytes: &[u8], width_px: Option<u32>) -> Result<Pic, WordRenderEr
     let pic = catch_unwind(AssertUnwindSafe(|| Pic::new(bytes))).map_err(|_| {
         WordRenderError::UnsupportedImage("image data could not be decoded".into())
     })?;
-    let Some(width_px) = width_px else {
-        return Ok(pic);
-    };
-    if width_px == 0 {
+    if width_px == Some(0) {
         return Err(WordRenderError::InvalidDocument(
             "image width_px must be greater than zero".into(),
         ));
     }
 
     let (source_width, source_height) = pic.size;
-    if source_width == 0 {
+    if source_width == 0 || source_height == 0 {
         return Err(WordRenderError::UnsupportedImage(
             "decoded image has zero width".into(),
         ));
     }
-    let width_emu = width_px.saturating_mul(9_525);
-    let height_emu = ((u64::from(source_height) * u64::from(width_emu))
-        / u64::from(source_width))
-        .min(u64::from(u32::MAX)) as u32;
-    Ok(pic.size(width_emu, height_emu))
+    // Stay inside the A4 text area, preserving aspect ratio. The extra vertical
+    // allowance leaves room for the image paragraph and its surrounding text.
+    let max_width = 5_731_510_u64;
+    let max_height = 7_000_000_u64;
+    let natural_width = u64::from(source_width);
+    let natural_height = u64::from(source_height);
+    let requested = width_px.map(|width| u64::from(width) * 9_525).unwrap_or(natural_width);
+    let width_emu = requested.min(max_width).min(max_height * natural_width / natural_height).max(1);
+    let height_emu = (natural_height * width_emu / natural_width).max(1) as u32;
+    Ok(pic.size(width_emu as u32, height_emu))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pictures_fit_page_even_when_requested_width_is_too_large() {
+        let bytes = crate::adapters::code_snapshot::render_code_image("fn main() {}", Some("rust")).unwrap();
+        for width in [None, Some(10_000)] {
+            let pic = make_picture(&bytes, width).unwrap();
+            assert!(pic.size.0 <= 5_731_510);
+            assert!(pic.size.1 <= 7_000_000);
+        }
+    }
+
+    #[test]
+    fn generated_docx_can_be_rendered_to_a_png_without_word() {
+        let document = WordDocument {
+            title: Some("Preview".into()), author: None, cover: None, header: None, footer: None,
+            blocks: vec![Block::Paragraph { text: "Example".into(), bold: false, italic: false }],
+        };
+        let bytes = render_docx(&document).unwrap();
+        let parsed = rdocx::Document::from_bytes(&bytes).unwrap();
+        let png = parsed.render_page_to_png(0, 100.0).unwrap().unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(parsed.render_page_to_png(100, 100.0).unwrap().is_none());
+    }
 
     #[test]
     fn renders_a_valid_docx_package_with_document_content() {

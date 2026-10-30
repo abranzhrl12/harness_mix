@@ -1,4 +1,4 @@
-//! Single checked-in definition for shared schemas, availability and documentation.
+﻿//! Single checked-in definition for shared schemas, availability and documentation.
 use serde_json::{Value, json};
 use std::sync::OnceLock;
 
@@ -175,6 +175,8 @@ shared_schema!(crate::contracts::SearchArgs, "harness_search");
 shared_schema!(crate::contracts::ExploreArgs, "harness_explore");
 #[cfg(feature = "schema")]
 shared_schema!(crate::contracts::DataQueryArgs, "harness_data_query");
+#[cfg(feature = "schema")]
+shared_schema!(crate::diagram::DiagramArgs, "harness_diagram");
 
 #[cfg(test)]
 mod tests {
@@ -264,3 +266,5 @@ mod tests {
         assert_eq!(tool_names("node").len(), 26);
     }
 }
+
+

@@ -167,6 +167,11 @@ fn generated_word_tool_schema_is_typed_and_never_advertises_overwrite() {
         None,
     );
     assert!(investigate.profile_router().get("harness_word").is_none());
+    let router = investigate.profile_router();
+    let preview = router.get("harness_word_preview").expect("read-only preview in investigate profile");
+    let schema = serde_json::to_value(&preview.input_schema).unwrap();
+    assert_eq!(schema["properties"]["path"]["type"], "string");
+    assert_eq!(schema["properties"]["page"]["type"], "integer");
 }
 
 struct WaitingWorkspace {
@@ -415,4 +420,27 @@ async fn cancellation_and_handler_drop_stop_workers_and_release_session_leases()
         .await
         .expect("leaked admission");
     }
+}
+
+#[test]
+fn diagram_tool_is_exposed_only_in_full_and_edit_profiles_with_declarative_schema() {
+    let application = |profile| {
+        Application::new(
+            WaitingWorkspace {
+                started: Mutex::new(None),
+                finished: Mutex::new(None),
+            },
+            TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
+        ).with_tool_profile(profile)
+    };
+    for profile in [harness_domain::tool_contract::ToolProfile::Full, harness_domain::tool_contract::ToolProfile::Edit] {
+        let router = McpServer::new(application(profile), None).profile_router();
+        let tool = router.get("harness_diagram").expect("diagram in rendering profile");
+        let schema = serde_json::to_value(&tool.input_schema).unwrap();
+        assert_eq!(schema["properties"]["nodes"]["type"], "array");
+        assert_eq!(schema["properties"]["edges"]["type"], "array");
+        assert!(schema["properties"].get("source").is_none(), "arbitrary D2 source is never accepted");
+    }
+    let investigate = McpServer::new(application(harness_domain::tool_contract::ToolProfile::Investigate), None);
+    assert!(investigate.profile_router().get("harness_diagram").is_none());
 }

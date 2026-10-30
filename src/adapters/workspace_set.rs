@@ -846,6 +846,12 @@ impl SqlAccess for MultiNativeWorkspace {
 }
 
 impl ArtifactQueries for MultiNativeWorkspace {
+    fn word_preview(&self, a: &harness_domain::word::WordPreviewArgs, c: &OperationContext) -> Result<Value, Failure> {
+        let (i, a) = self.one(a, &["path"])?;
+        let mut v = self.projects[i].1.word_preview(&a, c)?;
+        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
+        Ok(v)
+    }
     fn xlsx_inspect(
         &self,
         a: &harness_domain::xlsx::XlsxInspectArgs,

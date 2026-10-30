@@ -31,9 +31,6 @@ name = "explore"
 path = "tests/explore.rs"
 test = true
 
-[profile.test.package.agent-harness]
-opt-level = 0
-
 [lib]
 test = true
 doctest = false
@@ -119,6 +116,7 @@ bm25 = { version = "=2.3.2", default-features = false }
 # Keep the native Tree-sitter runtime shared with codegraph-native (0.25).
 ast-grep-core = "=0.39.9"
 ast-grep-language = "=0.39.9"
+rdocx = "=0.16.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

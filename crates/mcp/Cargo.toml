@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "harness-mcp"
 version = "0.8.9"
 edition = "2024"
@@ -10,4 +10,9 @@ harness-application = { path = "../application" }
 harness-domain = { path = "../domain", features = ["schema"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util"] }
+base64 = "=0.22.1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "process"] }
+
+
+

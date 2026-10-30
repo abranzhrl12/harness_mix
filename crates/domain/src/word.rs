@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct WordPreviewArgs {
+    pub path: String,
+    pub page: u32,
+    pub session: Option<String>,
+}
+
+impl WordPreviewArgs {
+    pub fn validate(&self) -> Result<(), crate::Failure> {
+        let p = self.path.replace('\\', "/");
+        if p.is_empty() || p.len() > 4096 || p.contains([':', '\0']) || p.starts_with('/')
+            || p.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+            return Err(("PATH", "Invalid workspace-relative document path"));
+        }
+        if !p.to_ascii_lowercase().ends_with(".docx") {
+            return Err(("ARGUMENT", "Document path must end with .docx"));
+        }
+        if self.page == 0 || self.page > 1000 {
+            return Err(("ARGUMENT", "page must be between 1 and 1000"));
+        }
+        Ok(())
+    }
+}
+
 /// Structured content accepted by the Word document generator.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

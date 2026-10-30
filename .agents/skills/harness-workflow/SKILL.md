@@ -9,6 +9,21 @@ Read [shared operating rules](references/operating-rules.md) once per task that
 uses Harness. Load only the stages the task needs; keep the router available
 without rereading it when its links are followed.
 
+When a project directs agents to use Harness, select the relevant MCP tool for
+each supported task without asking the user to restate that preference. Reuse
+the verified session and follow explicit user instructions if they differ.
+
+| Task | Guide |
+| --- | --- |
+| Search, read source, or trace relationships | [harness-read](../harness-read/SKILL.md) |
+| Edit and verify code | [harness-edit](../harness-edit/SKILL.md) |
+| Diagnose a web application | [harness-browser](../harness-browser/SKILL.md) |
+| Query a supported database | [harness-sql](../harness-sql/SKILL.md) |
+| Inspect an existing workbook | [harness-xlsx](../harness-xlsx/SKILL.md) |
+| Inspect or preview an SVG | [harness-svg](../harness-svg/SKILL.md) |
+| Create and review Word documentation | [harness-word](../harness-word/SKILL.md) |
+| Install or configure Harness when requested | [harness-setup](../harness-setup/SKILL.md) |
+
 | Situation | Read |
 | --- | --- |
 | Bug, failed test, unexpected behavior, or performance issue | [systematic-debugging](../systematic-debugging/SKILL.md) before proposing a fix |

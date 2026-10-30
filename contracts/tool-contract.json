@@ -12,6 +12,7 @@
       "harness_symbols",
       "harness_search",
       "harness_read",
+      "harness_word_preview",
       "harness_detail",
       "harness_data_query",
       "harness_git",
@@ -28,6 +29,7 @@
       "harness_delete",
       "harness_proposal",
       "harness_verify",
+      "harness_diagram",
       "harness_word"
     ]
   },
@@ -597,6 +599,10 @@
       ]
     },
     {
+      "name": "harness_diagram",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_word",
       "backends": [
         "rust"
@@ -647,6 +653,10 @@
       ]
     },
     {
+      "name": "harness_word_preview",
+      "backends": ["rust"]
+    },
+    {
       "name": "harness_symbols",
       "backends": [
         "rust"
@@ -691,6 +701,14 @@
     }
   ],
   "schemas": {
+    "harness_diagram": {
+      "type": "object", "additionalProperties": false, "required": ["nodes"],
+      "properties": {
+        "nodes": {"type":"array","minItems":1,"maxItems":24,"items":{"type":"object","additionalProperties":false,"required":["id","label"],"properties":{"id":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"},"label":{"type":"string","minLength":1,"maxLength":120}}}},
+        "edges": {"type":"array","maxItems":48,"items":{"type":"object","additionalProperties":false,"required":["from","to"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"label":{"type":["string","null"],"minLength":1,"maxLength":120}}}},
+        "format": {"type":"string","enum":["png"],"default":"png"}
+      }
+    },
     "harness_read": {
       "type": "object",
       "additionalProperties": false,

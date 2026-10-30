@@ -5,6 +5,10 @@ skills add only their own tool details.
 
 ## Session and scope
 
+- When the project instructs agents to use Harness and the relevant MCP tool is
+  connected, use that tool for supported work throughout the task. Choose the
+  matching skill and live schema; do not wait for the user to repeat the tool
+  preference at each step. Explicit user instructions take precedence.
 - Use the connected tools' live names and schemas. Bootstrap only when there is
   no valid connection/session; verify the selected root or every registered
   project root, then reuse `data.session`.

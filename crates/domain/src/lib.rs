@@ -1,8 +1,9 @@
-//! Transport-independent contracts, hashes and result policy. No filesystem or MCP SDK.
+﻿//! Transport-independent contracts, hashes and result policy. No filesystem or MCP SDK.
 pub mod assistance;
 pub mod browser;
 pub mod contracts;
 pub mod diagnostics;
+pub mod diagram;
 pub mod editing;
 pub mod encoding;
 pub mod execution;
@@ -64,3 +65,5 @@ mod hash_tests {
         }
     }
 }
+
+

@@ -21,7 +21,7 @@ Harness integra la biblioteca [CodeSnap](https://github.com/codesnap-rs/codesnap
 }
 ~~~
 
-El campo `language` es opcional y selecciona la sintaxis para el resaltado. `width_px` opcional limita el ancho de la imagen dentro de la página. Aunque el modelo acepta `alt`, la versión actual de `docx-rs` no permite escribir texto alternativo en la imagen; añade un bloque `paragraph` cercano para describir su contenido. Agrega además un bloque `code` si el lector necesita copiar el fragmento.
+El campo `language` es opcional y selecciona la sintaxis para el resaltado. `width_px` opcional indica el ancho deseado; las imágenes se ajustan proporcionalmente al área de texto de una página A4 con márgenes de una pulgada. Los fragmentos largos se dividen en capturas de hasta 25 líneas. Aunque el modelo acepta `alt`, la versión actual de `docx-rs` no permite escribir texto alternativo en la imagen; añade un bloque `paragraph` cercano para describir su contenido. Agrega además un bloque `code` si el lector necesita copiar el fragmento.
 
 La operación se hace localmente a través de la biblioteca Rust de CodeSnap; no requiere instalar su CLI ni iniciar un navegador. Para guardar capturas independientes en archivos de documentación Markdown, se puede usar el CLI opcional:
 
@@ -42,6 +42,12 @@ Consulta las opciones de la versión instalada con `codesnap --help`. Mantén lo
 | [Silicon](https://github.com/Aloxaf/silicon) | CLI Rust para crear imágenes PNG con resaltado de sintaxis | Requiere instalar un ejecutable por separado; su guía documenta dependencias nativas que varían por sistema |
 
 CodeSnap es la opción integrada porque ofrece una biblioteca Rust que devuelve la imagen en memoria y se puede conectar directamente al renderizador DOCX. Silicon sigue siendo una buena alternativa para flujos editoriales locales que ya lo tengan instalado; su interfaz CLI necesitaría un proceso externo para integrarse en la generación de documentos.
+
+Para revisar visualmente un DOCX existente, llama `harness_word_preview` con
+`path`, `page` (numerada desde 1) y la sesión de bootstrap. Devuelve un PNG y
+`pageCount`; repite la llamada para inspeccionar cada página. La vista se
+genera en segundo plano con rdocx, sin abrir Word. Su paginación y sus fuentes
+pueden diferir de Microsoft Word.
 
 ## Fuentes del proyecto
 

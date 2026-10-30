@@ -55,6 +55,8 @@ pub(crate) const SKILLS: &[SkillSource] = &[
     },
     // Workflow skills and their upstream support files are embedded for offline init.
     skill_file!("harness-word", "SKILL.md"),
+    skill_file!("documentation", "SKILL.md"),
+    skill_file!("documentation", "LICENSE"),
     skill_file!("harness-workflow", "SKILL.md"),
     skill_file!("harness-workflow", "SUPERPOWERS.md"),
     skill_file!("harness-workflow", "references/operating-rules.md"),

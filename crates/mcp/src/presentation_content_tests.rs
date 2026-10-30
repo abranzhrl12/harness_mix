@@ -76,6 +76,39 @@ fn wire_of(envelope: serde_json::Value) -> serde_json::Value {
 }
 
 #[test]
+fn detail_renders_saved_batch_and_preserves_raw_payload() {
+    let raw = json!({"results":[{"tool":"harness_read","result":{"state":"ok",
+        "scope":{"tool":"harness_read"},"data":{"path":"a.rs","start":3,"end":4,"text":"first\nsecond"}}}]}).to_string();
+    let wire = wire_of(json!({"state":"ok","scope":{"tool":"harness_detail"},
+        "data":{"ref":"saved","offset":0,"text":raw,"nextOffset":null,"totalCharacters":100}}));
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("a.rs") && text.contains("first") && text.contains("second"), "{text}");
+    assert!(!text.contains("\\nsecond"), "{text}");
+    assert_eq!(wire["structuredContent"]["data"]["text"], raw);
+}
+
+#[test]
+fn detail_partial_page_keeps_fragment_and_continuation() {
+    let raw = "{\"incomplete\":";
+    let wire = wire_of(json!({"state":"ok","scope":{"tool":"harness_detail"},
+        "data":{"ref":"saved","offset":0,"text":raw,"nextOffset":12,"totalCharacters":50}}));
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains(raw) && text.contains("12") && text.contains("saved"), "{text}");
+    assert_eq!(wire["structuredContent"]["data"]["text"], raw);
+}
+
+#[test]
+fn detail_first_partial_read_decodes_source_preview() {
+    let raw = r#"{"results":[{"tool":"harness_read","result":{"data":{"path":"a.rs","text":"first\nsecond"#;
+    let wire = wire_of(json!({"state":"ok","scope":{"tool":"harness_detail"},
+        "data":{"ref":"saved","offset":0,"text":raw,"nextOffset":80,"totalCharacters":200}}));
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("a.rs") && text.contains("first\nsecond"), "{text}");
+    assert!(text.contains("partial preview") && text.contains("80"), "{text}");
+    assert_eq!(wire["structuredContent"]["data"]["text"], raw);
+}
+
+#[test]
 fn symbols_read_renders_a_lean_source_channel_and_keeps_the_canonical_envelope() {
     let wire = wire_of(json!({
         "state":"ok","requestId":"correlation","scope":{"tool":"harness_symbols","path":"a.rs"},

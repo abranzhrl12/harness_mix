@@ -102,6 +102,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Svg(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.svg(&args, context)),
+            Request::WordPreview(args) => self
+                .lease(args.session.as_deref(), &mut lease)
+                .and_then(|()| self.workspace.word_preview(&args, context)),
             Request::Handover(args) => sessions::handover(self, args, context, &mut lease),
             Request::ProcessStatus(args) => self
                 .lease(args.session.as_deref(), &mut lease)

@@ -121,6 +121,14 @@ pub(super) fn response_with_options(
             }
             response_with_context(envelope, context)
         }
+        Some("harness_detail") if envelope["state"] == "ok" => {
+            if let Some(text) = detail_channel(&envelope) {
+                let mut result = CallToolResult::structured(envelope);
+                result.content = vec![rmcp::model::ContentBlock::text(text)];
+                return result;
+            }
+            response_with_context(envelope, context)
+        }
         Some("harness_explore") => direct_json_response(envelope),
         _ => {
             if compact {
@@ -132,6 +140,75 @@ pub(super) fn response_with_options(
         }
     }
 }
+fn detail_channel(envelope: &serde_json::Value) -> Option<String> {
+    let data = &envelope["data"];
+    let raw = data["text"].as_str()?;
+    let reference = data["ref"].as_str().unwrap_or("unknown");
+    let offset = data["offset"].as_u64().unwrap_or(0);
+    let total = data["totalCharacters"].as_u64().unwrap_or(0);
+    let mut text = format!("## Detail · {reference} · offset {offset} / {total}\n\n");
+    let rendered = if offset == 0 && data["nextOffset"].is_null() {
+        serde_json::from_str::<serde_json::Value>(raw).ok().and_then(|mut saved| {
+            if let Some(children) = saved["results"].as_array_mut() {
+                for child in children {
+                    if let Some(result) = child.get("result").cloned() {
+                        *child = result;
+                    }
+                }
+                let mut batch = serde_json::json!({"state":"ok","scope":{"tool":"harness_batch"},"data":{"results":saved["results"]}});
+                super::wire::shape_for_model(&mut batch);
+                readable_batch::render(&batch)
+            } else {
+                let tool = saved["scope"]["tool"].as_str()?.to_owned();
+                super::wire::shape_for_model(&mut saved);
+                lean_channel(&tool, &saved)
+            }
+        })
+    } else if offset == 0 && raw.contains("\"harness_read\"") {
+        partial_read_preview(raw)
+    } else { None };
+    if let Some(body) = rendered {
+        text.push_str(&body);
+    } else {
+        let fence = fence_run(raw);
+        text.push_str(&format!("{fence}json\n{raw}\n{fence}\n"));
+    }
+    if let Some(next) = data["nextOffset"].as_u64() {
+        text.push_str(&format!("\n> Next offset: {next}; use data.nextCall to continue.\n"));
+    }
+    Some(text)
+}
+
+// A page may end inside a JSON string. Decode only a valid prefix for display;
+// the original page and offsets remain untouched in structuredContent.
+fn partial_read_preview(raw: &str) -> Option<String> {
+    fn field(raw: &str, key: &str, allow_partial: bool) -> Option<String> {
+        let marker = format!("\"{key}\":\"");
+        let rest = &raw[raw.find(&marker)? + marker.len()..];
+        let mut escaped = false;
+        for (i, ch) in rest.char_indices() {
+            if ch == '"' && !escaped {
+                return serde_json::from_str(&format!("\"{}\"", &rest[..i])).ok();
+            }
+            if ch == '\\' { escaped = !escaped; } else { escaped = false; }
+        }
+        if !allow_partial { return None; }
+        if let Ok(value) = serde_json::from_str(&format!("\"{rest}\"")) {
+            return Some(value);
+        }
+        for (i, _) in rest.char_indices().rev() {
+            if let Ok(value) = serde_json::from_str(&format!("\"{}\"", &rest[..i])) {
+                return Some(value);
+            }
+        }
+        None
+    }
+    let path = field(raw, "path", false)?;
+    let body = field(raw, "text", true)?;
+    let fence = fence_run(&body);
+    Some(format!("### Read {path} · partial preview\n\n{fence}{}\n{body}\n{fence}\n\n> Preview may end mid-line; recover subsequent pages with data.nextCall.\n", fence_tag(&path)))
+}
+
 // ===================== Lean readable channels =====================
 // Successful source, table and status payloads render one readable markdown
 // text channel; the structured envelope stays canonical in structuredContent.

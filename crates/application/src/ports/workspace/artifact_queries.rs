@@ -3,6 +3,9 @@ use serde_json::Value;
 
 /// Queries and transformations of structured artifacts.
 pub trait ArtifactQueries: Send + Sync {
+    fn word_preview(&self, _args: &harness_domain::word::WordPreviewArgs, _context: &OperationContext) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Word preview adapter unavailable"))
+    }
     fn xlsx_inspect(
         &self,
         _args: &harness_domain::xlsx::XlsxInspectArgs,

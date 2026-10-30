@@ -1,10 +1,12 @@
-//! MCP routing; runtime transport and application composition are supplied by callers.
+﻿//! MCP routing; runtime transport and application composition are supplied by callers.
 use harness_application::{
     Application,
     ports::{JobService, SessionRepository, Workspace},
 };
 #[path = "execution.rs"]
 mod execution;
+#[path = "diagram.rs"]
+mod diagram;
 #[path = "input.rs"]
 pub(crate) mod input;
 #[path = "jobs.rs"]
@@ -163,7 +165,7 @@ where
     S: SessionRepository + 'static,
 {
     #[tool(
-        description = "Verificación en segundo plano: start|status|list|events|observe|cancel. start requiere verify; dedupe=true reutiliza una tarea activa con la misma verificación. status, observe y cancel requieren taskId."
+        description = "VerificaciÃ³n en segundo plano: start|status|list|events|observe|cancel. start requiere verify; dedupe=true reutiliza una tarea activa con la misma verificaciÃ³n. status, observe y cancel requieren taskId."
     )]
     async fn harness_jobs(
         &self,
@@ -173,7 +175,7 @@ where
     }
 
     #[tool(
-        description = "Navegación semántica mediante servidores LSP instalados: action=definition|references, path, line y character base 0 en UTF-16. Rust: rust-analyzer; Go: gopls; TypeScript/JavaScript: typescript-language-server. Ejecuta el servidor configurado por el operador; no instala herramientas. Un resultado vacío no demuestra ausencia ni carga completa."
+        description = "NavegaciÃ³n semÃ¡ntica mediante servidores LSP instalados: action=definition|references, path, line y character base 0 en UTF-16. Rust: rust-analyzer; Go: gopls; TypeScript/JavaScript: typescript-language-server. Ejecuta el servidor configurado por el operador; no instala herramientas. Un resultado vacÃ­o no demuestra ausencia ni carga completa."
     )]
     async fn harness_lsp(
         &self,
@@ -191,7 +193,7 @@ where
     ) -> CallToolResult {
         self.call(Request::ExternalScope(args), context).await
     }
-    #[tool(description = "Lee configuración XML/JSON redactada por sección.")]
+    #[tool(description = "Lee configuraciÃ³n XML/JSON redactada por secciÃ³n.")]
     async fn harness_config(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::ConfigArgs>,
@@ -210,7 +212,7 @@ where
         self.call(Request::Browser(args), context).await
     }
     #[tool(
-        description = "Ejecuta 1–4 lecturas independientes en paralelo; admite harness_explore con syncIndex=false."
+        description = "Ejecuta 1â€“4 lecturas independientes en paralelo; admite harness_explore con syncIndex=false."
     )]
     async fn harness_batch(
         &self,
@@ -219,7 +221,7 @@ where
     ) -> CallToolResult {
         self.call(Request::Batch(args), context).await
     }
-    #[tool(description = "Diagnóstico: action=env|syntax|logs|process|health.")]
+    #[tool(description = "DiagnÃ³stico: action=env|syntax|logs|process|health.")]
     async fn harness_doctor(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::DoctorToolArgs>,
@@ -253,7 +255,7 @@ where
         result
     }
     #[tool(
-        description = "Git de solo lectura: action=status|diff. diff tomará path=. (workspace completo) si lo omites; usa path para un archivo o carpeta."
+        description = "Git de solo lectura: action=status|diff. diff tomarÃ¡ path=. (workspace completo) si lo omites; usa path para un archivo o carpeta."
     )]
     async fn harness_git(
         &self,
@@ -263,7 +265,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "harness_explore: navega relaciones desde selectores exactos; requiere índice compatible. view=summary|full|impact; syncIndex predeterminado false."
+        description = "harness_explore: navega relaciones desde selectores exactos; requiere Ã­ndice compatible. view=summary|full|impact; syncIndex predeterminado false."
     )]
     async fn harness_explore(
         &self,
@@ -272,7 +274,7 @@ where
     ) -> CallToolResult {
         self.call(Request::Explore(args), context).await
     }
-    #[tool(description = "Sesión: action=checkpoint|tasks|status|handover.")]
+    #[tool(description = "SesiÃ³n: action=checkpoint|tasks|status|handover.")]
     async fn harness_session(
         &self,
         Parameters(args): Parameters<harness_domain::contracts::SessionArgs>,
@@ -281,7 +283,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Símbolos locales con presupuesto de lectura de 16 MiB; la navegación JS/TS admite ese tamaño y otros analizadores conservan sus límites propios. Exceder el presupuesto de lectura devuelve SIZE sin análisis parcial. outline + path lista firmas; read + path + symbol devuelve fuente exacta. No requiere view ni límites. structuredContent contiene el sobre canónico; content conserva el JSON textual compatible. Conserva avisos y detalle si hay omisiones. Ejemplos: {\"action\":\"outline\",\"path\":\"src/main.rs\"}, {\"action\":\"read\",\"path\":\"src/main.rs\",\"symbol\":\"main\"}. HTML: symbol=html:#id; CSS: nombre del selector."
+        description = "SÃ­mbolos locales con presupuesto de lectura de 16 MiB; la navegaciÃ³n JS/TS admite ese tamaÃ±o y otros analizadores conservan sus lÃ­mites propios. Exceder el presupuesto de lectura devuelve SIZE sin anÃ¡lisis parcial. outline + path lista firmas; read + path + symbol devuelve fuente exacta. No requiere view ni lÃ­mites. structuredContent contiene el sobre canÃ³nico; content conserva el JSON textual compatible. Conserva avisos y detalle si hay omisiones. Ejemplos: {\"action\":\"outline\",\"path\":\"src/main.rs\"}, {\"action\":\"read\",\"path\":\"src/main.rs\",\"symbol\":\"main\"}. HTML: symbol=html:#id; CSS: nombre del selector."
     )]
     async fn harness_symbols(
         &self,
@@ -291,7 +293,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Reemplaza oldText único o por line; acepta hash=matches[].hash y oldText=matches[].context.text de harness_search cuando el contexto sea suficiente y siga vigente. hash es opcional: si se omite, se usa la lectura interna. La sustitución requiere oldText único salvo que line lo desambigüe; preview=true no publica. Acepta snake_case. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica después con harness_verify language=angular."
+        description = "Reemplaza oldText Ãºnico o por line; acepta hash=matches[].hash y oldText=matches[].context.text de harness_search cuando el contexto sea suficiente y siga vigente. hash es opcional: si se omite, se usa la lectura interna. La sustituciÃ³n requiere oldText Ãºnico salvo que line lo desambigÃ¼e; preview=true no publica. Acepta snake_case. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica despuÃ©s con harness_verify language=angular."
     )]
     async fn harness_replace(
         &self,
@@ -301,7 +303,7 @@ where
         self.call(Request::Replace(args), context).await
     }
     #[tool(
-        description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica después con harness_verify language=angular."
+        description = "Crea un archivo UTF-8; expectedHash reemplaza si coincide. HTML (.html/.htm) nativo sin allowUnvalidatedText; no valida sintaxis. Para plantillas Angular verifica despuÃ©s con harness_verify language=angular."
     )]
     async fn harness_write(
         &self,
@@ -355,8 +357,27 @@ where
         };
         self.call(Request::Word(args, bytes), context).await
     }
+    #[tool(description = "Renderiza una pÃ¡gina de un DOCX existente en PNG para revisiÃ³n visual; page empieza en 1. No abre Microsoft Word.")]
+    async fn harness_word_preview(
+        &self,
+        Parameters(args): Parameters<harness_domain::word::WordPreviewArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let mut result = self.call(Request::WordPreview(args), context).await;
+        if let Some(envelope) = result.structured_content.as_mut() {
+            if let Some(data) = envelope.get_mut("data") {
+                if let Some(image) = data.get_mut("imageBase64").and_then(|v| v.take().as_str().map(str::to_owned)) {
+                    result.content = vec![
+                        rmcp::model::ContentBlock::text("DOCX page preview. Layout may differ from Microsoft Word."),
+                        rmcp::model::ContentBlock::Image(rmcp::model::ImageContent::new(image, "image/png")),
+                    ];
+                }
+            }
+        }
+        result
+    }
     #[tool(
-        description = "Prepara una propuesta persistente: action=prepare, path y content completo. Guarda original y candidato, devuelve proposalId, hashes y diff sin modificar el archivo. expectedHash opcional; no acepta ni rechaza propuestas todavía. Escribe solo metadatos locales; requiere autorización para preparar."
+        description = "Prepara una propuesta persistente: action=prepare, path y content completo. Guarda original y candidato, devuelve proposalId, hashes y diff sin modificar el archivo. expectedHash opcional; no acepta ni rechaza propuestas todavÃ­a. Escribe solo metadatos locales; requiere autorizaciÃ³n para preparar."
     )]
     async fn harness_proposal(
         &self,
@@ -374,7 +395,7 @@ where
         self.call(Request::Move(args), context).await
     }
     #[tool(
-        description = "Elimina permanentemente un archivo regular del workspace cuando el usuario lo autoriza. path relativo; expectedHash opcional impide borrar una versión distinta. No admite directorios ni enlaces. Comprueba changed, verified e index.status antes de reintentar."
+        description = "Elimina permanentemente un archivo regular del workspace cuando el usuario lo autoriza. path relativo; expectedHash opcional impide borrar una versiÃ³n distinta. No admite directorios ni enlaces. Comprueba changed, verified e index.status antes de reintentar."
     )]
     async fn harness_delete(
         &self,
@@ -395,7 +416,7 @@ where
     }
 
     #[tool(
-        description = "SQL de solo lectura: action=map|query|status|search|describe. Campos OBLIGATORIOS por acción: describe -> {\"action\":\"describe\",\"name\":\"dbo.Objeto\"} (kind/objectType es OPCIONAL y se autodetecta; acepta alias object/table/procedure/routine para name); search -> {\"action\":\"search\",\"query\":\"texto\"} (objectType opcional); query -> {\"sql\":\"SELECT ...\"} (action opcional si pasas sql); map -> {\"action\":\"map\"}; status -> {\"action\":\"status\"}. Solo SELECT/WITH; no ejecuta DDL ni escrituras."
+        description = "SQL de solo lectura: action=map|query|status|search|describe. Campos OBLIGATORIOS por acciÃ³n: describe -> {\"action\":\"describe\",\"name\":\"dbo.Objeto\"} (kind/objectType es OPCIONAL y se autodetecta; acepta alias object/table/procedure/routine para name); search -> {\"action\":\"search\",\"query\":\"texto\"} (objectType opcional); query -> {\"sql\":\"SELECT ...\"} (action opcional si pasas sql); map -> {\"action\":\"map\"}; status -> {\"action\":\"status\"}. Solo SELECT/WITH; no ejecuta DDL ni escrituras."
     )]
     async fn harness_sql(
         &self,
@@ -405,7 +426,7 @@ where
         self.call(args.into_request(), context).await
     }
 
-    #[tool(description = "Inicia o reutiliza la sesión; compact=true reduce el catálogo.")]
+    #[tool(description = "Inicia o reutiliza la sesiÃ³n; compact=true reduce el catÃ¡logo.")]
     async fn harness_bootstrap(
         &self,
         Parameters(args): Parameters<BootstrapArgs>,
@@ -415,7 +436,7 @@ where
     }
 
     #[tool(
-        description = "harness_read: lee líneas UTF-8; path es el selector canónico. Usa end o lines, nunca ambos; start predeterminado 1."
+        description = "harness_read: lee lÃ­neas UTF-8; path es el selector canÃ³nico. Usa end o lines, nunca ambos; start predeterminado 1."
     )]
     async fn harness_read(
         &self,
@@ -425,7 +446,7 @@ where
         self.call(Request::Read(args), context).await
     }
 
-    #[tool(description = "Recupera detalle paginado por ref (máx. 16000 chars).")]
+    #[tool(description = "Recupera detalle paginado por ref (mÃ¡x. 16000 chars).")]
     async fn harness_detail(
         &self,
         Parameters(args): Parameters<DetailArgs>,
@@ -435,7 +456,7 @@ where
     }
 
     #[tool(
-        description = "harness_search: busca texto, archivos, tamaños o sintaxis. kind predeterminado text; ast es exclusivo con regex y caseSensitive. Sigue nextCall para paginar."
+        description = "harness_search: busca texto, archivos, tamaÃ±os o sintaxis. kind predeterminado text; ast es exclusivo con regex y caseSensitive. Sigue nextCall para paginar."
     )]
     async fn harness_search(
         &self,
@@ -456,7 +477,7 @@ where
         self.call(Request::Ignore(args), context).await
     }
 
-    #[tool(description = "Inspecciona o lee un libro XLSX por rango o página.")]
+    #[tool(description = "Inspecciona o lee un libro XLSX por rango o pÃ¡gina.")]
     async fn harness_xlsx(
         &self,
         Parameters(args): Parameters<harness_domain::xlsx::XlsxArgs>,
@@ -465,7 +486,7 @@ where
         self.call(args.into_request(), context).await
     }
 
-    #[tool(description = "Inspecciona o previsualiza SVG estático (≤256 KiB).")]
+    #[tool(description = "Inspecciona o previsualiza SVG estÃ¡tico (â‰¤256 KiB).")]
     async fn harness_svg(
         &self,
         Parameters(args): Parameters<harness_domain::svg::SvgArgs>,
@@ -474,6 +495,34 @@ where
         self.call(Request::Svg(args), context).await
     }
 
+    #[tool(description = "Renderiza un diagrama PNG desde nodos y relaciones declarativos. No acepta código D2, imports, URLs ni rutas de archivos; requiere D2 instalado en el host MCP.")]
+    async fn harness_diagram(
+        &self,
+        Parameters(args): Parameters<harness_domain::diagram::DiagramArgs>,
+    ) -> CallToolResult {
+        let arguments = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
+        if let Err(message) = args.to_d2() {
+            return present_response(self.application.failure("harness_diagram", &arguments, ("DIAGRAM_INPUT", message)), false, self.context_presentation);
+        }
+        match diagram::render(args).await {
+            Ok(bytes) => {
+                let image_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                let envelope = harness_domain::results::Results::default().envelope(
+                    "harness_diagram", &arguments,
+                    Ok(serde_json::json!({"format":"png","mimeType":"image/png","byteLength":bytes.len(),"imageBase64":image_base64})),
+                );
+                let mut result = present_response(envelope, false, self.context_presentation);
+                result.content = vec![rmcp::model::ContentBlock::Image(rmcp::model::ImageContent::new(image_base64, "image/png"))];
+                result
+            }
+            Err(message) => {
+                let code = if message.starts_with("D2 is unavailable") { "D2_UNAVAILABLE" }
+                    else if message.contains("time limit") { "D2_TIMEOUT" }
+                    else { "D2_RENDER" };
+                present_response(self.application.failure("harness_diagram", &arguments, (code, message)), false, self.context_presentation)
+            }
+        }
+    }
     #[tool(description = "Proyecta JSON con JMESPath (path|data|resultRef).")]
     async fn harness_data_query(
         &self,
@@ -566,3 +615,8 @@ mod presentation_tests;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+
+
+
+
