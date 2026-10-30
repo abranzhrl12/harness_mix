@@ -425,6 +425,34 @@ async fn until(mut condition: impl FnMut() -> bool) {
     .unwrap();
 }
 #[tokio::test]
+async fn duplicate_active_verification_reuses_the_existing_task() {
+    let root = workspace();
+    let started = Arc::new(AtomicUsize::new(0));
+    let count = started.clone();
+    let manager = manager_with(
+        root.path(),
+        |_, _, _| Ok(()),
+        move |context, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            while context.check().is_ok() {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Ok(ProcessOutcome {
+                reason: StopReason::Cancelled,
+                ..success()
+            })
+        },
+    );
+    let request = json!({"action":"start","dedupe":true,"verify":{"language":"rust"}});
+    let first = manager.handle(args(request.clone())).await.unwrap();
+    until(|| started.load(Ordering::SeqCst) == 1).await;
+    let second = manager.handle(args(request)).await.unwrap();
+    assert_eq!(first["taskId"], second["taskId"]);
+    assert_eq!(second["reused"], true);
+    assert_eq!(manager.inner.state.lock().unwrap().tasks.len(), 1);
+    manager.shutdown();
+}
+#[tokio::test]
 async fn scheduler_runs_two_and_keeps_third_queued() {
     let root = workspace();
     let running = Arc::new(AtomicUsize::new(0));

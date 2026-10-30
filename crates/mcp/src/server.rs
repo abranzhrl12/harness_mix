@@ -148,7 +148,7 @@ where
     S: SessionRepository + 'static,
 {
     #[tool(
-        description = "Verificación en segundo plano: action=start|status|list|events|observe|cancel. Ejemplos: {\"action\":\"start\",\"verify\":{\"language\":\"rust\",\"action\":\"test\"}}, {\"action\":\"list\"}, {\"action\":\"observe\",\"taskId\":\"<id devuelto>\"}. status, observe y cancel requieren taskId; start requiere verify."
+        description = "Verificación en segundo plano: start|status|list|events|observe|cancel. start requiere verify; dedupe=true reutiliza una tarea activa con la misma verificación. status, observe y cancel requieren taskId."
     )]
     async fn harness_jobs(
         &self,
@@ -248,7 +248,7 @@ where
         self.call(args.into_request(), context).await
     }
     #[tool(
-        description = "Navega llamadas y dependencias sin encadenar búsquedas. Usa filePath + symbol directamente si los conoces. view=summary: relaciones y firmas; full (por defecto): también cuerpos; impact: impacto entrante. No sincroniza el índice por defecto. structuredContent contiene el sobre canónico con data, frescura, límites y detalle; content conserva el JSON textual compatible. Ejemplo: {\"filePath\":\"src/main.rs\",\"symbol\":\"main\",\"view\":\"summary\"}. Requiere un índice compatible; no lo crea."
+        description = "harness_explore: navega relaciones desde selectores exactos; requiere índice compatible. view=summary|full|impact; syncIndex predeterminado false."
     )]
     async fn harness_explore(
         &self,
@@ -355,7 +355,7 @@ where
     }
 
     #[tool(
-        description = "Lee hasta 420 líneas UTF-8 de archivos de hasta 2 MiB, con hash y contexto; start/end son inclusivos, base 1. Ejemplo: {\"path\":\"src/main.rs\",\"start\":1,\"end\":80}. Alternativa: lines en lugar de end; no combinarlos. Por defecto lee desde start=1 hasta 120 líneas. compact=true omite metadatos vacíos del sobre; lineNumbers=true añade data.numberedText de visualización sin alterar data.text."
+        description = "harness_read: lee líneas UTF-8; path es el selector canónico. Usa end o lines, nunca ambos; start predeterminado 1."
     )]
     async fn harness_read(
         &self,
@@ -375,7 +375,7 @@ where
     }
 
     #[tool(
-        description = "Busca text/files/file_size/syntax con scope y globs. `limit` devuelve una página; si hay más filas, sigue el `nextCall` con `cursor` y `offset` para recorrer el snapshot guardado sin repetir el scan. Para texto literal, al agotar el presupuesto de coincidencias el cursor puede reanudar el recorrido vivo y valida el hash del archivo; otros snapshots parciales señalan `scanComplete=false`/`snapshotOnly=true` y no reanudan archivos no escaneados. El scope respeta .harnessignore salvo `overrideProjectExclusions=true`, que conserva las exclusiones permanentes. El cursor dura como la referencia detail (10 min o sesión) y conserva el conjunto de resultados capturado. Patrones de código: query=fetch($URL) con ast=javascript (o lenguaje compatible); reconoce estructuras multilinea y devuelve hash/contexto sin índice. No combinar ast con regex/caseSensitive. Texto usa el motor de ripgrep: literal por defecto; si no hay coincidencias y la consulta tiene varias palabras sin puntuación, recupera términos y ordena con BM25 automáticamente (retrieval.mode=terms). Opciones explícitas regex/caseSensitive desactivan esa recuperación. regex=true habilita regex Rust por línea, caseSensitive=false ignora mayúsculas. onlyMatching=true extrae solo el fragmento coincidente (o el grupo de captura 1 cuando regex=true tiene paréntesis de captura) y devuelve una lista deduplicada en data.extracted. En kind=text, contextLines=0..20 devuelve matches[].hash (SHA-256 del archivo) y context:{start,end,text}: rango inclusivo base 1 y fuente exacta con saltos originales. Para harness_replace usa path=matches[].file, oldText=matches[].context.text y hash=matches[].hash, sin releer si el contexto es suficiente y no está recortado; el hash detecta cambios concurrentes."
+        description = "harness_search: busca texto, archivos, tamaños o sintaxis. kind predeterminado text; ast es exclusivo con regex y caseSensitive. Sigue nextCall para paginar."
     )]
     async fn harness_search(
         &self,

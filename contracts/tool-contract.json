@@ -673,6 +673,58 @@
     }
   ],
   "schemas": {
+    "harness_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type":"string","minLength":1,"description":"Canonical workspace-relative file path."},
+        "file": {"type":"string","minLength":1,"deprecated":true,"description":"Legacy alias for path."},
+        "target_path": {"type":"string","minLength":1,"deprecated":true,"description":"Legacy alias for path."},
+        "start": {"type":"integer","minimum":1,"default":1},
+        "end": {"type":"integer","minimum":1,"description":"Inclusive end line; mutually exclusive with lines."},
+        "lines": {"type":"integer","minimum":1,"maximum":420,"description":"Line count from start; mutually exclusive with end."},
+        "compact": {"type":"boolean","default":false},
+        "lineNumbers": {"type":"boolean","default":false},
+        "externalScope": {"type":"string"},
+        "session": {"type":"string","description":"Session from harness_bootstrap."},
+        "sessionId": {"type":"string","deprecated":true,"description":"Legacy alias for session."}
+      },
+      "allOf": [
+        {"oneOf":[{"required":["path"]},{"required":["file"]},{"required":["target_path"]}]},
+        {"oneOf":[{"required":["end"],"not":{"required":["lines"]}},{"required":["lines"],"not":{"required":["end"]}},{"not":{"anyOf":[{"required":["end"]},{"required":["lines"]}]},"description":"If both end and lines are omitted, reads up to 120 lines from start."}]}
+      ]
+    },
+    "harness_search": {
+      "type":"object",
+      "additionalProperties":false,
+      "properties": {
+        "kind":{"type":"string","enum":["text","files","file_size","syntax"],"default":"text"},
+        "query":{"type":"string","description":"Search text, filename, size, or syntax pattern."},
+        "pattern":{"type":"string","deprecated":true,"description":"Legacy alias for query."},
+        "ast":{"type":"string","enum":["rust","javascript","typescript","tsx","csharp","python","go","html","css","json"]},
+        "regex":{"type":"boolean","default":false},
+        "caseSensitive":{"type":"boolean","default":true},
+        "scope":{"type":"string","description":"Workspace-relative file or directory; defaults to workspace root."},
+        "path":{"type":"string","deprecated":true,"description":"Legacy alias for scope."},
+        "globs":{"type":"array","items":{"type":"string"}},
+        "includes":{"type":"array","items":{"type":"string"},"deprecated":true},
+        "limit":{"type":"integer","minimum":1,"maximum":1000},
+        "minLines":{"type":"integer","minimum":1},
+        "contextLines":{"type":"integer","minimum":0,"maximum":20},
+        "context_lines":{"type":"integer","minimum":0,"maximum":20,"deprecated":true},
+        "onlyMatching":{"type":"boolean","default":false},
+        "only_matching":{"type":"boolean","deprecated":true},
+        "overrideProjectExclusions":{"type":"boolean","default":false},
+        "override_project_exclusions":{"type":"boolean","deprecated":true},
+        "cursor":{"type":"string"},"offset":{"type":"integer","minimum":0},
+        "externalScope":{"type":"string"},"session":{"type":"string","description":"Session from harness_bootstrap."}
+      },
+      "oneOf":[
+        {"required":["query"],"not":{"required":["cursor"]}},
+        {"required":["cursor","offset"],"not":{"anyOf":[{"required":["query"]},{"required":["kind"]},{"required":["ast"]},{"required":["regex"]},{"required":["caseSensitive"]}]}}
+      ],
+      "allOf":[{"not":{"required":["ast","regex"]}},{"not":{"required":["ast","caseSensitive"]}},{"not":{"required":["query","pattern"]}},{"not":{"required":["globs","includes"]}},{"not":{"required":["contextLines","context_lines"]}},{"not":{"required":["onlyMatching","only_matching"]}}]
+    },
     "harness_explore": {
       "type": "object",
       "additionalProperties": false,
@@ -695,6 +747,7 @@
         },
         "view": {
           "type": "string",
+          "default": "full",
           "enum": [
             "summary",
             "full",
@@ -720,6 +773,8 @@
           "description": "CodeGraph node id from candidates, not a local AST symbol id"
         },
         "direction": {
+          "type": "string",
+          "default": "both",
           "enum": [
             "inbound",
             "outbound",
@@ -728,22 +783,26 @@
         },
         "maxDepth": {
           "type": "integer",
+          "default": 1,
           "minimum": 1,
           "maximum": 4
         },
         "limit": {
           "type": "integer",
+          "default": 20,
           "minimum": 1,
           "maximum": 100,
           "description": "view=impact only: maximum displayed callers; detail retains the bounded result."
         },
         "maxFiles": {
           "type": "integer",
+          "default": 4,
           "minimum": 1,
           "maximum": 4
         },
         "maxChars": {
           "type": "integer",
+          "default": 12000,
           "minimum": 1000,
           "maximum": 16000
         },
@@ -758,8 +817,13 @@
           "minLength": 1,
           "maxLength": 128,
           "description": "Copy data.session from harness_bootstrap. Use this same session for subsequent calls; omit only to start without session context."
-        }
-      }
+        },
+        "sessionId": {"type":"string","deprecated":true,"description":"Legacy alias for session."}
+      },
+      "allOf": [{
+        "if": {"properties":{"view":{"const":"impact"}},"required":["view"]},
+        "then": {"required":["filePath"],"anyOf":[{"required":["symbol"]},{"required":["symbolId"]}]}
+      }]
     },
     "harness_data_query": {
       "type": "object",

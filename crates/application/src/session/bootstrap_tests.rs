@@ -12,6 +12,18 @@ fn initial_examples_respect_the_selected_tool_profile() {
 }
 
 #[test]
+fn background_verification_example_deduplicates_identical_work() {
+    let examples = initial_examples("example-session", super::ToolProfile::Full);
+    let job = examples
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|example| example["tool"] == "harness_jobs" && example["arguments"]["action"] == "start")
+        .unwrap();
+    assert_eq!(job["arguments"]["dedupe"], true);
+}
+
+#[test]
 fn initial_examples_deserialize_through_public_contracts() {
     for example in initial_examples("example-session", super::ToolProfile::Full).as_array().unwrap() {
         let args = example["arguments"].clone();

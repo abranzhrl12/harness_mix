@@ -500,11 +500,12 @@ impl TaskManager {
         if args.action != TaskAction::Start
             && (args.verify.is_some()
                 || args.timeout_seconds.is_some()
-                || args.max_attempts.is_some())
+                || args.max_attempts.is_some()
+                || args.dedupe)
         {
             return Err((
                 "ARGUMENT",
-                "verify, timeoutSeconds and maxAttempts require start",
+                "verify, timeoutSeconds, maxAttempts and dedupe require start",
             ));
         }
         if args.action != TaskAction::Events && args.action != TaskAction::Observe && args.after.is_some() {
@@ -613,6 +614,11 @@ impl TaskManager {
         if timeout.is_some_and(|d| d.is_zero()) {
             return Err(("ARGUMENT", "timeoutSeconds must be positive"));
         }
+        let configuration = json!({
+            "verify": &verify_args,
+            "timeoutSeconds": args.timeout_seconds,
+            "maxAttempts": attempts
+        });
         self.inner
             .executor
             .prepare(&self.inner.root, &verify_args, timeout)?;
@@ -632,6 +638,17 @@ impl TaskManager {
             self.inner.try_recover_busy(&mut state);
             if let Some(error) = state.persistence_error {
                 return Err(error);
+            }
+            if args.dedupe {
+                if let Some(task) = state
+                    .tasks
+                    .iter()
+                    .find(|task| !terminal(task.lifecycle.status()) && task.configuration == configuration)
+                {
+                    let mut response = task.value();
+                    response["reused"] = json!(true);
+                    return Ok(response);
+                }
             }
             if state.store.is_none() {
                 match Store::create(&self.inner.root, self.inner.pinner.as_ref()) {
@@ -662,7 +679,6 @@ impl TaskManager {
                     break;
                 }
             }
-            let configuration = json!({"verify":verify_args,"timeoutSeconds":args.timeout_seconds,"maxAttempts":attempts});
             let task = Task {
                 id: id.clone(),
                 lifecycle: JobLifecycle::queued(),

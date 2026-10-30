@@ -168,6 +168,10 @@ macro_rules! shared_schema {
     };
 }
 #[cfg(feature = "schema")]
+shared_schema!(crate::contracts::ReadArgs, "harness_read");
+#[cfg(feature = "schema")]
+shared_schema!(crate::contracts::SearchArgs, "harness_search");
+#[cfg(feature = "schema")]
 shared_schema!(crate::contracts::ExploreArgs, "harness_explore");
 #[cfg(feature = "schema")]
 shared_schema!(crate::contracts::DataQueryArgs, "harness_data_query");

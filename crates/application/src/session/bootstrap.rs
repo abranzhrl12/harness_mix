@@ -111,7 +111,7 @@ fn initial_examples(session: &str, profile: ToolProfile) -> Value {
         {"tool":"harness_symbols","arguments":{"action":"read","path":"src/main.rs","symbol":"main","session":session}},
         {"tool":"harness_verify","arguments":{"language":"dotnet","scope":"src/App/App.csproj","action":"build","engine":"auto","session":session},"note":"Runs project code; explicit authorization, SDK and prior restore required. Replace scope with an existing .csproj or .sln file."},
         {"tool":"harness_jobs","arguments":{"action":"list"}},
-        {"tool":"harness_jobs","arguments":{"action":"start","verify":{"language":"rust","action":"test"}},"note":"Runs tests; requires authorization."}
+        {"tool":"harness_jobs","arguments":{"action":"start","dedupe":true,"verify":{"language":"rust","action":"test"}},"note":"Runs tests; requires authorization."}
     ]);
     examples.as_array_mut().expect("example array").retain(|example| {
         example["tool"].as_str().is_some_and(|tool| profile.allows(tool))

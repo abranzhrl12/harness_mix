@@ -26,38 +26,8 @@ fn add_schema_alias(schema: &mut schemars::Schema, canonical: &str, alias: &str)
 }
 
 #[cfg(feature = "schema")]
-pub(super) fn read_alias_schema(schema: &mut schemars::Schema) {
-    // target_path predates file; one selector is required and multiple selectors are invalid.
-    add_schema_alias(schema, "path", "file");
-    add_schema_alias(schema, "path", "target_path");
-    let object = schema.as_object_mut().expect("object schema");
-    let constraints = object.get_mut("allOf").unwrap().as_array_mut().unwrap();
-    // Replace the initial two-way requirement with all three accepted names.
-    constraints.retain(|value| value.get("anyOf").is_none());
-    constraints.push(serde_json::json!({"oneOf":[{"required":["path"]},{"required":["file"]},{"required":["target_path"]}]}));
-}
-
-#[cfg(feature = "schema")]
 pub(super) fn batch_job_alias_schema(schema: &mut schemars::Schema) {
     add_schema_alias(schema, "arguments", "args");
-}
-
-#[cfg(feature = "schema")]
-pub(super) fn search_alias_schema(schema: &mut schemars::Schema) {
-    add_schema_property_alias(schema, "scope", "path");
-    add_schema_alias(schema, "globs", "includes");
-    add_schema_alias(schema, "contextLines", "context_lines");
-    add_schema_alias(schema, "onlyMatching", "only_matching");
-}
-
-#[cfg(feature = "schema")]
-fn add_schema_property_alias(schema: &mut schemars::Schema, canonical: &str, alias: &str) {
-    let object = schema.as_object_mut().expect("object schema");
-    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
-        if let Some(property) = properties.get(canonical).cloned() {
-            properties.insert(alias.to_string(), property);
-        }
-    }
 }
 
 #[cfg(feature = "schema")]

@@ -1,6 +1,4 @@
 use super::compat::strip_inocuous;
-#[cfg(feature = "schema")]
-use super::compat::{read_alias_schema, search_alias_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -57,7 +55,6 @@ fn reject_bootstrap_action<'de, D: serde::Deserializer<'de>>(
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[serde(try_from = "ReadInput")]
 pub struct ReadArgs {
@@ -75,14 +72,7 @@ pub struct ReadArgs {
 }
 
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "schema", schemars(extend("oneOf" = [
-    {"required":["end"],"not":{"required":["lines"]}},
-    {"required":["lines"],"not":{"required":["end"]}},
-    {"not":{"anyOf":[{"required":["end"]},{"required":["lines"]}]}}
-])))]
-#[cfg_attr(feature = "schema", schemars(transform = read_alias_schema))]
 struct ReadInput {
     #[serde(rename = "externalScope")]
     external_scope: Option<String>,
@@ -167,14 +157,11 @@ pub enum Kind {
 }
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "schema", schemars(transform = search_alias_schema))]
 pub struct SearchArgs {
     #[serde(rename = "externalScope")]
     pub external_scope: Option<String>,
     #[serde(default = "default_search_kind")]
-    #[cfg_attr(feature = "schema", schemars(default = "default_search_kind"))]
     pub kind: Kind,
     #[serde(default, alias = "pattern")]
     pub query: String,

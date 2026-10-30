@@ -55,6 +55,56 @@ fn server_guides_relationship_queries_when_watcher_lock_is_busy() {
 }
 
 #[test]
+fn generated_read_search_and_explore_tools_publish_typed_contracts() {
+    let application = Application::new(
+        WaitingWorkspace {
+            started: Mutex::new(None),
+            finished: Mutex::new(None),
+        },
+        TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
+    );
+    let server = McpServer::new(application, None);
+    let router = server.profile_router();
+
+    let schema_for = |name: &str| {
+        let tool = router.get(name).unwrap_or_else(|| panic!("{name} registered"));
+        serde_json::to_value(&tool.input_schema).unwrap()
+    };
+    let read = schema_for("harness_read");
+    assert!(read["allOf"][1]["oneOf"].is_array(), "read range must discriminate end vs lines: {read}");
+    assert_eq!(read["properties"]["path"]["type"], "string", "{read}");
+    assert!(read["allOf"][0]["oneOf"].as_array().unwrap().iter().any(|v| v["required"][0] == "path"), "{read}");
+    assert_eq!(read["properties"]["start"]["default"], 1, "{read}");
+    assert_eq!(read["properties"]["sessionId"]["deprecated"], true, "{read}");
+    assert!(read["allOf"][1]["oneOf"][2]["description"].as_str().unwrap().contains("120 lines"), "{read}");
+
+    let search = schema_for("harness_search");
+    assert_eq!(search["properties"]["kind"]["type"], "string", "{search}");
+    assert_eq!(search["properties"]["kind"]["default"], "text", "{search}");
+    assert!(search["properties"]["query"]["type"].is_string(), "{search}");
+    assert!(search["allOf"].as_array().unwrap().len() >= 6, "ast and legacy alias conflicts must be explicit: {search}");
+    assert!(search["allOf"].as_array().unwrap().iter().any(|rule| rule["not"]["required"] == json!(["ast", "regex"])), "{search}");
+    assert_eq!(search["properties"]["pattern"]["deprecated"], true, "{search}");
+    assert!(search["oneOf"].is_array(), "search and cursor requests are discriminated: {search}");
+
+    let explore = schema_for("harness_explore");
+    assert_eq!(explore["type"], "object", "{explore}");
+    assert_eq!(explore["properties"]["filePath"]["type"], "string", "{explore}");
+    assert_eq!(explore["properties"]["view"]["enum"].as_array().unwrap().len(), 3, "{explore}");
+    assert_eq!(explore["properties"]["view"]["default"], "full", "{explore}");
+    assert_eq!(explore["properties"]["direction"]["default"], "both", "{explore}");
+    assert_eq!(explore["properties"]["sessionId"]["deprecated"], true, "{explore}");
+    assert!(explore["anyOf"].is_array(), "explore selector alternatives must be typed: {explore}");
+    assert_eq!(explore["allOf"][0]["if"]["properties"]["view"]["const"], "impact", "{explore}");
+    assert!(explore["allOf"][0]["then"]["anyOf"].is_array(), "{explore}");
+
+    for name in ["harness_read", "harness_search", "harness_explore"] {
+        let tool = router.get(name).unwrap();
+        assert!(tool.description.as_deref().unwrap_or_default().len() <= 220, "{name} description too long");
+    }
+}
+
+#[test]
 fn generated_tool_router_registers_browser_with_object_discriminator_schema() {
     let application = Application::new(
         WaitingWorkspace {

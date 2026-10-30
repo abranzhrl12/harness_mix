@@ -45,6 +45,9 @@ pub struct TaskArgs {
     pub timeout_seconds: Option<u64>,
     /// Total attempts, including the first: defaults to one, at most three.
     pub max_attempts: Option<u8>,
+    /// Reuse an identical active verification task instead of starting another; defaults to false.
+    #[serde(default)]
+    pub dedupe: bool,
     /// Rust regex; omitted matches every retained line. Maximum 1024 bytes (for observe).
     pub filter: Option<String>,
     /// Maximum matching lines, 1..200; defaults to 20 (for observe).
