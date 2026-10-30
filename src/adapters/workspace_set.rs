@@ -556,6 +556,17 @@ impl SourceEditing for MultiNativeWorkspace {
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
+    fn write_word(
+        &self,
+        args: &harness_domain::contracts::WordArgs,
+        bytes: &[u8],
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let (i, args) = self.one(args, &["path"])?;
+        let mut value = self.projects[i].1.write_word(&args, bytes, context)?;
+        qualify_paths(&mut value, &self.projects[i].0.name, self.workspace_mode);
+        Ok(value)
+    }
     fn move_file(
         &self,
         a: &harness_domain::contracts::MoveArgs,

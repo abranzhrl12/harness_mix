@@ -1,5 +1,5 @@
 {
-  "contractVersion": "3.3.0",
+  "contractVersion": "3.4.0",
   "executionPolicy": {
     "rustVerifyProcessTimeoutMs": 900000,
     "rustVerifyMaxTimeoutMs": 3600000,
@@ -27,7 +27,8 @@
       "harness_move",
       "harness_delete",
       "harness_proposal",
-      "harness_verify"
+      "harness_verify",
+      "harness_word"
     ]
   },
   "alwaysLoadTools": [
@@ -233,6 +234,17 @@
           "action": "list"
         },
         "then": "Start with verify; retain taskId and event sequence. Follow events/status or cancel. Retry only recognized transient failures; completion notifications require client support."
+      },
+      {
+        "need": "Generate a Word document from structured content",
+        "tool": "harness_word",
+        "backends": [
+          "rust"
+        ],
+        "defaults": {
+          "createParents": false
+        },
+        "then": "Provide a workspace-relative .docx path and structured document blocks; existing destinations are never overwritten."
       },
       {
         "need": "Recent error or slow request",
@@ -580,6 +592,12 @@
     },
     {
       "name": "harness_write",
+      "backends": [
+        "rust"
+      ]
+    },
+    {
+      "name": "harness_word",
       "backends": [
         "rust"
       ]

@@ -87,15 +87,22 @@ fn malformed_razor_script_does_not_replace_previous_indexed_source() {
 }
 
 #[test]
-fn partial_javascript_is_not_published_as_a_complete_new_file() {
+fn partial_javascript_is_indexed_as_marked_incomplete_new_file() {
     let root = tempfile::tempdir().unwrap();
     index_store::initialize(root.path(), &OperationContext::default()).unwrap();
     std::fs::write(root.path().join("legacy.js"), "function broken( {\nfetch('/valid');\n").unwrap();
     let watch = IndexWatch::start(root.path()).unwrap();
-    wait(|| watch.status.lock().unwrap()["state"] == "retrying");
-    assert_eq!(count(root.path(), "SELECT count(*) FROM files WHERE path='legacy.js'"), 0);
-    assert_eq!(watch.status.lock().unwrap()["lastError"], "SYNC_PARTIAL");
-    assert_eq!(watch.status.lock().unwrap()["globalFreshnessCertified"], false);
+    wait(|| watch.status.lock().unwrap()["state"] == "degraded");
+    assert_eq!(count(root.path(), "SELECT count(*) FROM files WHERE path='legacy.js'"), 1);
+    assert!(count(root.path(), "SELECT count(*) FROM nodes WHERE name='broken'") >= 0);
+    let db = rusqlite::Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+    let errors: String = db
+        .query_row("SELECT errors FROM files WHERE path='legacy.js'", [], |row| row.get(0))
+        .unwrap();
+    assert!(errors.contains("SYNC_PARTIAL"), "{errors}");
+    let status = watch.status.lock().unwrap();
+    assert_eq!(status["lastReconciliation"]["graphStatus"], "partial");
+    assert_eq!(status["globalFreshnessCertified"], false);
 }
 
 #[test]

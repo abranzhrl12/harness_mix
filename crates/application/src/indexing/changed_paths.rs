@@ -79,10 +79,11 @@ pub fn sync_changed_paths<P: ChangedPathsPort>(
                 if failures.len() < 32 {
                     failures.push(entry);
                 }
-                if super::workspace::systemic_failure(code)
-                    || !port.file_failure_is_isolated()
-                    || context.check().is_err()
-                {
+                if super::workspace::should_stop_after_file_failure(
+                    code,
+                    port.file_failure_is_isolated(),
+                    context,
+                ) {
                     stopped_early = true;
                     break;
                 }

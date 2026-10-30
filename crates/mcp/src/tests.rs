@@ -132,6 +132,43 @@ fn generated_tool_router_registers_browser_with_object_discriminator_schema() {
     );
 }
 
+#[test]
+fn generated_word_tool_schema_is_typed_and_never_advertises_overwrite() {
+    let application = Application::new(
+        WaitingWorkspace {
+            started: Mutex::new(None),
+            finished: Mutex::new(None),
+        },
+        TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
+    )
+    .with_tool_profile(harness_domain::tool_contract::ToolProfile::Edit);
+    let server = McpServer::new(application, None)
+        .with_word_renderer(|_| Ok(vec![0x50, 0x4b]));
+    let router = server.profile_router();
+    let word = router.get("harness_word").expect("word tool in edit profile");
+    let schema = serde_json::to_value(&word.input_schema).unwrap();
+
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["properties"]["path"]["type"], "string");
+    assert!(schema["properties"]["document"].is_object(), "{schema}");
+    assert_eq!(schema["properties"]["createParents"]["type"], "boolean");
+    assert!(schema["properties"].get("overwrite").is_none());
+    assert!(schema["properties"].get("expectedHash").is_none());
+
+    let investigate = McpServer::new(
+        Application::new(
+            WaitingWorkspace {
+                started: Mutex::new(None),
+                finished: Mutex::new(None),
+            },
+            TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
+        )
+        .with_tool_profile(harness_domain::tool_contract::ToolProfile::Investigate),
+        None,
+    );
+    assert!(investigate.profile_router().get("harness_word").is_none());
+}
+
 struct WaitingWorkspace {
     started: Mutex<Option<oneshot::Sender<()>>>,
     finished: Mutex<Option<oneshot::Sender<()>>>,

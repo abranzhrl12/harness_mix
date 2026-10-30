@@ -203,6 +203,15 @@ mod tests {
         assert!(!tool_names("node").iter().any(|name| name == "harness_jobs"));
     }
     #[test]
+    fn word_document_generation_is_available_only_in_edit_and_full_profiles() {
+        assert!(ToolProfile::Full.allows("harness_word"));
+        assert!(ToolProfile::Edit.allows("harness_word"));
+        assert!(!ToolProfile::Investigate.allows("harness_word"));
+        assert!(tool_names("rust").iter().any(|name| name == "harness_word"));
+        assert!(!tool_names("node").iter().any(|name| name == "harness_word"));
+    }
+
+    #[test]
     fn routing_only_advertises_available_read_workflows() {
         for backend in ["node", "rust"] {
             let tools = tool_names(backend);
@@ -251,7 +260,7 @@ mod tests {
             text,
             include_str!("../../../docs/TOOL-CONTRACT.md").replace("\r\n", "\n")
         );
-        assert_eq!(tool_names("rust").len(), 26);
+        assert_eq!(tool_names("rust").len(), 27);
         assert_eq!(tool_names("node").len(), 26);
     }
 }

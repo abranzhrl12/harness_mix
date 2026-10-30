@@ -452,6 +452,30 @@ fn globs_alone_list_files_without_a_query() {
 }
 
 #[test]
+fn recognized_large_binary_signatures_are_skipped_but_misleading_extensions_are_incomplete() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut pe = b"MZ".to_vec();
+    pe.resize(2 * 1024 * 1024 + 1, 0x90);
+    fs::write(dir.path().join("tool.exe"), &pe).unwrap();
+    let mut woff = b"wOF2".to_vec();
+    woff.resize(2 * 1024 * 1024 + 1, 0);
+    fs::write(dir.path().join("font.woff2"), &woff).unwrap();
+    fs::write(dir.path().join("misnamed.exe"), vec![b'x'; 2 * 1024 * 1024 + 1]).unwrap();
+    fs::write(dir.path().join("small.txt"), "needle\\n").unwrap();
+
+    let project = Project::new(dir.path()).unwrap();
+    let result = search(&project, &text_args(None)).unwrap();
+
+    assert_eq!(result["matches"].as_array().unwrap().len(), 1);
+    assert_eq!(result["binarySkipped"], 2);
+    assert_eq!(result["skipped"], 1);
+    assert_eq!(result["skippedFiles"][0]["path"], "misnamed.exe");
+    assert_eq!(result["skippedFiles"][0]["reason"], "file_size_limit");
+    assert_eq!(result["complete"], false);
+    assert_eq!(result["diagnostics"][0]["code"], "SEARCH_INCOMPLETE");
+}
+
+#[test]
 fn large_files_make_results_explicitly_incomplete() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(

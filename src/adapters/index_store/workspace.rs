@@ -52,6 +52,24 @@ impl<'a> NativeWorkspace<'a> {
             writer: None,
         })
     }
+
+    #[cfg(windows)]
+    fn persist_failed_rebuild(
+        &mut self,
+        path: &str,
+        context: &OperationContext,
+    ) -> Result<bool, Failure> {
+        context.check()?;
+        let writer = self.writer.as_mut().ok_or(INDEX)?;
+        writer.recheck(context)?;
+        sync_diagnostic::stage("mark_failed_rebuild");
+        const FAILURE_MARKER: &str = r#"["SYNC_REBUILD_FAILED"]"#;
+        let updated = sql(writer.db.execute(
+            "UPDATE files SET errors=?1 WHERE path=?2",
+            [FAILURE_MARKER, path],
+        ))?;
+        Ok(updated > 0)
+    }
 }
 
 impl WorkspacePort for NativeWorkspace<'_> {
@@ -155,6 +173,14 @@ impl WorkspacePort for NativeWorkspace<'_> {
     }
     fn file_failure_is_isolated(&self) -> bool {
         !self.scope_check_failed
+    }
+    #[cfg(windows)]
+    fn mark_failed_rebuild(
+        &mut self,
+        path: &str,
+        context: &OperationContext,
+    ) -> Result<bool, Failure> {
+        self.persist_failed_rebuild(path, context)
     }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure> {
         self.scope

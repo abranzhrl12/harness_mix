@@ -86,6 +86,8 @@ pub(super) fn present(args: &SearchArgs, outcome: ScanOutcome<'_>) -> Result<Val
         "scanned": visited,
         "bytesRead": bytes,
         "skipped": skipped,
+        "binarySkipped": binary_skipped,
+        "binaryPolicy": "Known executable/font signatures and NUL-containing files are skipped as binary",
         "skippedFiles": skipped_files,
         "unvisitedFiles": bounded || timed_out || cancelled,
         "limited": bounded,

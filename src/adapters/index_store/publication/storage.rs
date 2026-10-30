@@ -114,9 +114,16 @@ pub(super) fn replace_file_graph(
             return Err(LIMIT);
         }
         let bytes = bytes.ok_or(INDEX)?;
+        // Persist partial coverage in the provider's errors column so later
+        // planning retries extraction and never treats this graph as complete.
+        let errors = if graph.coverage.is_some_and(|coverage| coverage["status"] == "partial" || coverage["complete"] == false) {
+            serde_json::json!([{"code":"SYNC_PARTIAL","coverage":graph.coverage}]).to_string()
+        } else {
+            "[]".to_owned()
+        };
         // modified_at=0 disables CodeGraph's size/mtime fast-path on the next
         // provider sync; don't invent a timestamp from extraction time.
-        sql(db.execute("INSERT INTO files(path,content_hash,language,size,modified_at,indexed_at,node_count,errors,generated) VALUES(?1,?2,?3,?4,0,?5,?6,'[]',?7) ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash,language=excluded.language,size=excluded.size,modified_at=0,indexed_at=excluded.indexed_at,node_count=excluded.node_count,errors=excluded.errors,generated=excluded.generated",params![path,hash(bytes),language,bytes.len() as i64,now,node_count as i64,generated]))?;
+        sql(db.execute("INSERT INTO files(path,content_hash,language,size,modified_at,indexed_at,node_count,errors,generated) VALUES(?1,?2,?3,?4,0,?5,?6,?7,?8) ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash,language=excluded.language,size=excluded.size,modified_at=0,indexed_at=excluded.indexed_at,node_count=excluded.node_count,errors=excluded.errors,generated=excluded.generated",params![path,hash(bytes),language,bytes.len() as i64,now,node_count as i64,errors,generated]))?;
     } else {
         sql(db.execute("DELETE FROM files WHERE path=?1", [path]))?;
     }

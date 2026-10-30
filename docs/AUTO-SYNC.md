@@ -37,9 +37,12 @@ sincronización, y no interprete el pulso como certificación global del índice
 Los procesos antiguos pueden no publicar telemetría.
 
 El watcher no migra índices ni edita archivos fuente. Vive mientras está abierto
-el servidor MCP; no instala un servicio Windows. Una extracción parcial
-se informa como `SYNC_PARTIAL` y no se publica como grafo completo; se conserva
-la última versión confirmada mientras se corrige la fuente.
+el servidor MCP; no instala un servicio Windows. Una extracción parcial de
+JavaScript se publica solo si el archivo no tenía grafo confirmado o si ya
+constaba como parcial; queda marcada (`SYNC_PARTIAL` y `graphStatus: partial`)
+para reintentarse y nunca se presenta como cobertura completa. Si existía un
+grafo completo, se conserva la última versión confirmada mientras se corrige la
+fuente.
 
 ## Trabajo incremental
 

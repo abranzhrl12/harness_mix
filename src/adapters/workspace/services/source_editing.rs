@@ -65,6 +65,18 @@ impl SourceEditing for SourceEditingService {
             .map_err(|_| ("EDIT_BUSY", "Another edit is active"))?;
         edit::write(&self.project, args, context)
     }
+    fn write_word(
+        &self,
+        args: &harness_domain::contracts::WordArgs,
+        bytes: &[u8],
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        let _lock = self
+            .edit_lock
+            .try_lock()
+            .map_err(|_| ("EDIT_BUSY", "Another file operation is active"))?;
+        crate::adapters::create_file::write_word(&self.project, args, bytes, context)
+    }
     fn move_file(
         &self,
         args: &harness_domain::contracts::MoveArgs,

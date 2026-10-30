@@ -41,6 +41,14 @@ pub trait SourceEditing: Send + Sync {
     ) -> Result<Value, Failure> {
         Err(("UNSUPPORTED", "Editing adapter unavailable"))
     }
+    fn write_word(
+        &self,
+        _args: &harness_domain::contracts::WordArgs,
+        _bytes: &[u8],
+        _context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        Err(("UNSUPPORTED", "Word document creation adapter unavailable"))
+    }
     fn move_file(
         &self,
         _args: &harness_domain::contracts::MoveArgs,

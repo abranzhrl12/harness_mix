@@ -279,6 +279,80 @@ impl Project {
     ) -> Result<Vec<u8>, Failure> {
         self.input_bytes(relative, context, limit, false)
     }
+
+    /// Read a small prefix without requiring the whole file to fit the normal
+    /// source-size budget. Used only to confirm known binary signatures.
+    pub(crate) fn prefix_bytes_with_context(
+        &self,
+        relative: &str,
+        context: &OperationContext,
+        limit: usize,
+    ) -> Result<Vec<u8>, Failure> {
+        if self.external && external_sensitive(relative) {
+            return Err(("PATH", "External configuration/credential content requires the redacted config tool"));
+        }
+        context.check()?;
+        let path = self.target(relative)?;
+        #[cfg(windows)]
+        let _pins = if self.external {
+            Some(super::edit_commit::pin_directory(
+                self,
+                path.parent().ok_or(("PATH", "Missing parent"))?,
+            )?)
+        } else {
+            None
+        };
+        let mut options = File::options();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000);
+        }
+        let file = options.open(&path).map_err(|_| ("PATH", "archivo no accesible"))?;
+        let before = file.metadata().map_err(|_| ("IO", "no se pudo leer metadata"))?;
+        if !before.is_file() {
+            return Err(("SIZE", "el destino no es un archivo regular"));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if before.file_attributes() & 0x400 != 0 {
+                return Err(("PATH", "no se admiten reparse points"));
+            }
+            if self.external {
+                use std::os::windows::io::AsRawHandle;
+                use windows::Win32::{
+                    Foundation::HANDLE,
+                    Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle},
+                };
+                let mut identity = BY_HANDLE_FILE_INFORMATION::default();
+                unsafe {
+                    GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut identity)
+                        .map_err(|_| ("PATH", "External identity unavailable"))?;
+                }
+                if identity.nNumberOfLinks != 1 {
+                    return Err(("PATH", "External hard-linked files are not accepted"));
+                }
+            }
+        }
+        let mut prefix = Vec::with_capacity(limit.min(32));
+        (&file)
+            .take(limit as u64)
+            .read_to_end(&mut prefix)
+            .map_err(|_| ("IO", "no se pudo leer el encabezado"))?;
+        context.check()?;
+        let after = file.metadata().map_err(|_| ("IO", "no se pudo leer metadata"))?;
+        if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+            return Err(("STALE", "el archivo cambió durante la lectura"));
+        }
+        Ok(prefix)
+    }
     pub(crate) fn redacted_input_bytes(
         &self,
         relative: &str,

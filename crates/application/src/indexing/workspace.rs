@@ -24,6 +24,18 @@ pub fn systemic_failure(code: &str) -> bool {
     )
 }
 
+/// A file deadline can expire while the adapter is rechecking workspace state.
+/// It is local when the owning workspace deadline is still active.
+pub fn should_stop_after_file_failure(
+    code: &str,
+    file_failure_is_isolated: bool,
+    context: &OperationContext,
+) -> bool {
+    systemic_failure(code)
+        || (code != "TIMEOUT" && !file_failure_is_isolated)
+        || context.check().is_err()
+}
+
 pub fn sync_workspace<P: WorkspacePort>(
     port: &mut P,
     context: &OperationContext,
@@ -162,6 +174,16 @@ pub fn sync_workspace<P: WorkspacePort>(
                 if let Some(diagnostic) = port.diagnostic(code, message) {
                     entry["diagnostic"] = diagnostic;
                 }
+                if rebuild && port.file_failure_is_isolated() && !systemic_failure(code) {
+                    match port.mark_failed_rebuild(path, context) {
+                        Ok(true) => entry["retryMarked"] = json!(true),
+                        Ok(false) => {}
+                        Err((mark_code, mark_message)) => {
+                            entry["retryMarkFailure"] =
+                                json!({"code":mark_code,"message":mark_message});
+                        }
+                    }
+                }
                 // Provider-dependent files (framework or synthesized graph data
                 // the native publisher cannot reproduce) are a documented
                 // limitation: they are reported and skipped.
@@ -215,10 +237,11 @@ pub fn sync_workspace<P: WorkspacePort>(
                     results.push(entry);
                 }
                 failed += 1;
-                if systemic_failure(code)
-                    || !port.file_failure_is_isolated()
-                    || context.check().is_err()
-                {
+                if should_stop_after_file_failure(
+                    code,
+                    port.file_failure_is_isolated(),
+                    context,
+                ) {
                     stopped_early = true;
                     break;
                 }

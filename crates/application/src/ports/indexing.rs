@@ -30,6 +30,15 @@ pub trait WorkspacePort {
     fn file_failure_is_isolated(&self) -> bool {
         true
     }
+    /// Mark a rolled-back forced rebuild as dirty so a later incremental plan retries it.
+    /// Returns false when the path has no prior indexed row.
+    fn mark_failed_rebuild(
+        &mut self,
+        _path: &str,
+        _context: &OperationContext,
+    ) -> Result<bool, Failure> {
+        Ok(false)
+    }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure>;
 }
 

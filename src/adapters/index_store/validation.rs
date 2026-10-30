@@ -146,5 +146,6 @@ pub(super) fn validate_schema(db: &Connection) -> Result<(), Failure> {
         );
         return Err(("SYNC_SCHEMA", "Provider full-text index is missing"));
     }
+    sync_diagnostic::schema_validated();
     Ok(())
 }

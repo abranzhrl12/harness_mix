@@ -46,6 +46,14 @@ impl SourceEditing for NativeWorkspace {
     ) -> Result<Value, Failure> {
         self.source_editing.write(args, context)
     }
+    fn write_word(
+        &self,
+        args: &harness_domain::contracts::WordArgs,
+        bytes: &[u8],
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        self.source_editing.write_word(args, bytes, context)
+    }
     fn move_file(
         &self,
         args: &harness_domain::contracts::MoveArgs,

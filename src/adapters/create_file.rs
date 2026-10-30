@@ -20,6 +20,134 @@ pub(super) fn write(
     Ok(result)
 }
 
+const MAX_WORD_DOCX_BYTES: usize = 32 * 1024 * 1024;
+
+pub(super) fn write_word(
+    project: &Project,
+    args: &harness_domain::contracts::WordArgs,
+    bytes: &[u8],
+    context: &OperationContext,
+) -> Result<Value, Failure> {
+    args.validate()?;
+    if bytes.is_empty() || bytes.len() > MAX_WORD_DOCX_BYTES {
+        return Err(("SIZE", "Rendered Word document must be between 1 byte and 32 MiB"));
+    }
+    context.check()?;
+    #[cfg(not(windows))]
+    {
+        let _ = (project, args, bytes);
+        return Err(("UNSUPPORTED", "Document creation requires Windows ancestor pinning"));
+    }
+    #[cfg(windows)]
+    {
+        use std::{fs, io::Write, path::Component};
+
+        let target = project.target_optional(&args.path)?;
+        let relative = target
+            .strip_prefix(&project.root)
+            .map_err(|_| ("PATH", "Outside workspace"))?;
+        if relative.components().count() > 33
+            || relative.components().any(|part| {
+                let name = part.as_os_str().to_string_lossy();
+                [".git", ".hg", ".svn", ".codegraph", ".agents", "agents.md"]
+                    .iter()
+                    .any(|protected| name.eq_ignore_ascii_case(protected))
+            })
+        {
+            return Err(("PATH", "Protected or excessively deep document path"));
+        }
+        let parent = target.parent().ok_or(("PATH", "Missing parent"))?;
+        let mut created = Vec::new();
+        let mut pins = edit_commit::pin_directory(project, &project.root)?;
+        let parent_relative = parent
+            .strip_prefix(&project.root)
+            .map_err(|_| ("PATH", "Outside workspace"))?;
+        let mut current = project.root.clone();
+        for part in parent_relative.components() {
+            context.check()?;
+            let Component::Normal(part) = part else {
+                return Err(("PATH", "Invalid document parent path"));
+            };
+            current.push(part);
+            project.target_optional(&args.path)?;
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+                Ok(_) => return Err(("PATH", "Parent is not a regular directory")),
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound && args.create_parents =>
+                {
+                    match fs::create_dir(&current) {
+                        Ok(()) => created.push(
+                            current
+                                .strip_prefix(&project.root)
+                                .unwrap()
+                                .to_string_lossy()
+                                .replace('\\', "/"),
+                        ),
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(_) => return Err(("IO", "Cannot create parent directory")),
+                    }
+                }
+                Err(_) => {
+                    return Err((
+                        "PATH",
+                        "Parent is inaccessible or missing; set createParents to true to create it",
+                    ));
+                }
+            }
+            pins.push(edit_commit::pin_one_directory(&current)?);
+        }
+        project.target_optional(&args.path)?;
+        if target
+            .try_exists()
+            .map_err(|_| ("PATH", "Cannot inspect destination"))?
+        {
+            return Err(("WRITE_EXISTS", "Destination already exists; choose a new .docx path"));
+        }
+        let mut stage = tempfile::Builder::new()
+            .prefix(".harness-word-")
+            .tempfile_in(parent)
+            .map_err(|_| ("IO", "Cannot stage Word document"))?;
+        stage
+            .write_all(bytes)
+            .map_err(|_| ("IO", "Cannot write Word document"))?;
+        stage
+            .as_file()
+            .sync_all()
+            .map_err(|_| ("IO", "Cannot sync Word document"))?;
+        project.target_optional(&args.path)?;
+        context.check()?;
+        stage.persist_noclobber(&target).map_err(|error| {
+            if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                ("WRITE_EXISTS", "Destination was created concurrently; choose another path")
+            } else {
+                ("IO", "Cannot publish Word document")
+            }
+        })?;
+        let expected = hash(bytes);
+        let verified = project
+            .bytes_with_context(&args.path, &OperationContext::default())
+            .is_ok_and(|written| hash(&written) == expected);
+        Ok(json!({
+            "path": args.path,
+            "status": if verified { "created" } else { "postcheck_failed" },
+            "created": true,
+            "changed": true,
+            "commitStatus": "committed",
+            "hash": expected,
+            "verified": verified,
+            "ok": verified,
+            "createdDirectories": created,
+            "filesystemChanged": true,
+            "typecheck": "not_run",
+            "diagnostics": if verified { json!([]) } else {
+                json!([{"code":"EDIT_POSTCHECK","path":args.path,
+                    "message":"Document was published but postcheck failed; inspect before retrying"}])
+            }
+        }))
+    }
+}
+
 fn write_with(
     project: &Project,
     args: &WriteArgs,
@@ -359,6 +487,54 @@ mod tests {
             "updated content"
         );
     }
+    #[test]
+    fn word_writer_creates_binary_docx_atomically_and_never_overwrites() {
+        use harness_domain::contracts::WordArgs;
+
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let context = OperationContext::default();
+        let args: WordArgs = serde_json::from_value(json!({
+            "path":"generated/guide.docx",
+            "createParents":true,
+            "document":{"blocks":[{"type":"paragraph","text":"guide"}]}
+        }))
+        .unwrap();
+        let bytes = b"PK\\x03\\x04docx-payload";
+        let created = write_word(&project, &args, bytes, &context).unwrap();
+
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["status"], "created");
+        assert_eq!(created["verified"], true);
+        assert_eq!(created["createdDirectories"], json!(["generated"]));
+        assert_eq!(std::fs::read(root.path().join("generated/guide.docx")).unwrap(), bytes);
+
+        let error = write_word(&project, &args, b"different", &context).unwrap_err();
+        assert_eq!(error.0, "WRITE_EXISTS");
+        assert_eq!(std::fs::read(root.path().join("generated/guide.docx")).unwrap(), bytes);
+    }
+
+    #[test]
+    fn word_writer_rejects_protected_paths_and_non_docx_targets() {
+        use harness_domain::contracts::WordArgs;
+
+        let root = tempfile::tempdir().unwrap();
+        let project = Project::new(root.path()).unwrap();
+        let context = OperationContext::default();
+        let document = json!({"blocks":[{"type":"paragraph","text":"guide"}]});
+        for (path, expected) in [
+            (".git/generated.docx", "PATH"),
+            (".agents/knowledge/generated.docx", "PATH"),
+            ("generated.pdf", "ARGUMENT"),
+            ("../outside.docx", "PATH"),
+        ] {
+            let args: WordArgs = serde_json::from_value(json!({"path":path,"document":document})).unwrap();
+            let error = write_word(&project, &args, b"PK", &context).unwrap_err();
+            assert_eq!(error.0, expected, "{path}");
+        }
+        assert!(!root.path().join("generated.pdf").exists());
+    }
+
 }
 
 fn validation_error(args: &WriteArgs, code: &str, message: &str) -> Value {

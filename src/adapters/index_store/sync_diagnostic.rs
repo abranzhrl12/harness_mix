@@ -98,6 +98,17 @@ pub(super) fn schema_check(check: &'static str) {
     });
 }
 
+pub(super) fn schema_validated() {
+    CURRENT.with(|slot| {
+        if let Some(state) = slot.borrow_mut().as_mut() {
+            state.schema_validation = Some(json!({
+                "check": state.schema_check,
+                "outcome": "validated"
+            }));
+        }
+    });
+}
+
 pub(super) fn schema(user_version: i64, application_id: i64, provider_schema_version: Option<i64>) {
     CURRENT.with(|slot| {
         if let Some(state) = slot.borrow_mut().as_mut() {

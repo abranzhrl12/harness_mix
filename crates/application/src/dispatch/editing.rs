@@ -88,6 +88,27 @@ pub(super) fn write<W: Workspace, S: SessionRepository>(
     )
 }
 
+pub(super) fn word<W: Workspace, S: SessionRepository>(
+    app: &Application<W, S>,
+    args: harness_domain::contracts::WordArgs,
+    bytes: Vec<u8>,
+    context: &OperationContext,
+    name: &str,
+    request_arguments: &Value,
+    lease: &mut Option<SessionLease<S>>,
+) -> Result<Value, Failure> {
+    args.validate()?;
+    recorded_session_write(
+        app,
+        args.session.as_deref(),
+        lease,
+        context,
+        name,
+        request_arguments,
+        || crate::handlers::edit::write_word(app.workspace.as_ref(), &args, &bytes, context),
+    )
+}
+
 pub(super) fn move_file<W: Workspace, S: SessionRepository>(
     app: &Application<W, S>,
     args: MoveArgs,

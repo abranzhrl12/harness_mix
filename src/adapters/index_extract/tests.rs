@@ -203,4 +203,15 @@ fn python_extraction_projects_classes_methods_functions_imports_and_calls() {
     assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "ping"));
     assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "run_helper"));
     assert!(refs.iter().any(|r| r["referenceKind"] == "calls" && r["referenceName"] == "svc.handle"));
+}#[test]
+fn malformed_javascript_recovers_valid_oxc_statements_and_functions() {
+    let source = "$(document).ready(function () {\n    var broken-name;\n    function init() {\n        fetch('/inventory');\n    }\n    broken-name = 1;\n});\n";
+    let graph = extract("legacy.js", source, &OperationContext::default()).unwrap();
+    assert!(graph["nodes"].as_array().unwrap().iter().any(|node| node["name"] == "init"));
+    assert!(graph["unresolvedReferences"].as_array().unwrap().iter().any(|reference| {
+        reference["referenceKind"] == "http_route"
+            && reference["line"] == 4
+            && reference["referenceName"].as_str().is_some_and(|name| name.contains("/inventory"))
+    }));
+    assert_eq!(graph["coverage"]["status"], "partial");
 }

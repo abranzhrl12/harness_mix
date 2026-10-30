@@ -64,6 +64,7 @@ En Windows, con perfil `full`, el mantenimiento automático está habilitado por
 | [Rendimiento](docs/PERFORMANCE.md) | Tiempos por opción, muestras y reproducción |
 | [Bases de datos](docs/SQL-QUICKSTART.md) | Conexión, TLS, permisos y caché |
 | [Arquitectura y desarrollo](docs/ARCHITECTURE.md) | Módulos, parsers, pruebas y distribución |
+| [Imágenes de código](docs/CODE-SNAPSHOTS.md) | Bloques CodeSnap en documentos Word y capturas para guías |
 | [Contrato generado](docs/TOOL-CONTRACT.md) | Disponibilidad Rust/Node; incluye herramientas exclusivas de Node |
 
 Los planes y reportes antiguos fueron consolidados; se pueden recuperar en el historial de Git. Las mediciones son observaciones de sus fixtures, no promesas de velocidad para cualquier proyecto.

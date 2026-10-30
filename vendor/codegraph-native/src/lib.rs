@@ -226,3 +226,14 @@ pub fn extract(path: &str, source: &str, language: &str) -> Result<buffers::Emit
         _ => Err("unsupported native extraction language".into()),
     })
 }
+
+#[cfg(test)]
+mod iife_regression_tests {
+    #[test]
+    fn anonymous_iife_is_not_emitted_as_a_named_call() {
+        let graph = super::extract("sample.js", "(function () { useful(); })();", "javascript").unwrap();
+        let arena = String::from_utf8_lossy(&graph.arena);
+        assert!(arena.contains("useful"));
+        assert!(!arena.contains("(function () { useful(); })"));
+    }
+}

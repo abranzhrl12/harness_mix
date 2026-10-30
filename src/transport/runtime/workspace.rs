@@ -21,6 +21,9 @@ pub async fn serve_with_workspace_config(
         .then(|| Arc::new(LiveJobs(live.clone())) as Arc<dyn JobService>);
     let started = McpServer::new(live.application(), tasks)
         .with_application_source(move || source.application())
+        .with_word_renderer(|document| {
+            crate::word_core::render_docx(document).map_err(|error| error.to_string())
+        })
         .with_eager_tools(config.eager_tools_enabled)
         .with_context_presentation(config.context_presentation)
         .with_structured_presentation(config.structured_presentation)

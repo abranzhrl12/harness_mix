@@ -3,7 +3,7 @@ use super::{
     DiagnosticsArgs, DoctorArgs, ExploreArgs, ExternalScopeAction, ExternalScopeArgs, GitDiffArgs,
     GitStatusArgs, HandoverArgs, IgnoreAction, IgnoreArgs, LogsArgs, MoveArgs, OutlineArgs,
     ProcessStatusArgs, ProposalArgs, ReadArgs, ReadSymbolArgs, ReplaceArgs, SearchArgs,
-    TasksAction, TasksArgs, VerifyArgs, VueExtractPreviewArgs, WriteArgs,
+    TasksAction, TasksArgs, VerifyArgs, VueExtractPreviewArgs, WordArgs, WriteArgs,
 };
 use crate::browser::BrowserArgs;
 use serde_json::Value;
@@ -25,6 +25,7 @@ pub enum Request {
     Verify(VerifyArgs),
     Replace(ReplaceArgs),
     Write(WriteArgs),
+    Word(WordArgs, Vec<u8>),
     Move(MoveArgs),
     Delete(DeleteArgs),
     Proposal(ProposalArgs),
@@ -72,6 +73,7 @@ impl Request {
             self,
             Self::Replace(_)
                 | Self::Write(_)
+                | Self::Word(_, _)
                 | Self::Move(_)
                 | Self::Delete(_)
                 | Self::Proposal(_)
@@ -106,6 +108,7 @@ impl Request {
             Self::Verify(_) => "harness_verify",
             Self::Replace(_) => "harness_replace",
             Self::Write(_) => "harness_write",
+            Self::Word(_, _) => "harness_word",
             Self::Move(_) => "harness_move",
             Self::Delete(_) => "harness_delete",
             Self::Proposal(_) => "harness_proposal",
@@ -146,6 +149,7 @@ impl Request {
             Self::Verify(args) => serde_json::to_value(args),
             Self::Replace(args) => serde_json::to_value(args),
             Self::Write(args) => serde_json::to_value(args),
+            Self::Word(args, _) => serde_json::to_value(args),
             Self::Move(args) => serde_json::to_value(args),
             Self::Delete(args) => serde_json::to_value(args),
             Self::Proposal(args) => serde_json::to_value(args),
@@ -222,6 +226,25 @@ mod browser_request_tests {
         });
         assert!(!read.is_mutating());
         assert!(attach.is_mutating());
+    }
+}
+
+#[cfg(test)]
+mod word_request_tests {
+    use super::*;
+
+    #[test]
+    fn word_request_is_a_mutation_and_serializes_only_public_arguments() {
+        let args: WordArgs = serde_json::from_value(serde_json::json!({
+            "path":"docs/guide.docx",
+            "document":{"blocks":[{"type":"paragraph","text":"hello"}]}
+        }))
+        .unwrap();
+        let request = Request::Word(args, vec![0x50, 0x4b]);
+        assert_eq!(request.name(), "harness_word");
+        assert!(request.is_mutating());
+        assert_eq!(request.arguments()["path"], "docs/guide.docx");
+        assert!(request.arguments().get("bytes").is_none());
     }
 }
 

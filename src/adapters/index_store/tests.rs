@@ -145,6 +145,76 @@ fn standalone_plan_keeps_the_original_sqlite_error() {
 
 #[cfg(windows)]
 #[test]
+fn malformed_new_javascript_is_indexed_partially_and_other_files_continue() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let context = OperationContext::default();
+    initialize(dir.path(), &context).unwrap();
+    std::fs::write(dir.path().join("broken.js"), "var broken-name;\nfunction useful() {}\n").unwrap();
+    std::fs::write(dir.path().join("good.js"), "function good() {}\n").unwrap();
+    let report = sync_workspace_all(dir.path(), &context).unwrap();
+    assert_eq!(report["filesAttempted"], 2);
+    assert_eq!(report["failedFiles"], 0);
+    assert_eq!(report["warningFiles"], 1);
+    assert_eq!(report["selectedScopeApplied"], false);
+    let db = Connection::open(dir.path().join(".codegraph/codegraph.db")).unwrap();
+    let errors: String = db.query_row("SELECT errors FROM files WHERE path='broken.js'", [], |row| row.get(0)).unwrap();
+    assert!(!serde_json::from_str::<Value>(&errors).unwrap().as_array().unwrap().is_empty());
+    let good: i64 = db.query_row("SELECT count(*) FROM files WHERE path='good.js'", [], |row| row.get(0)).unwrap();
+    assert_eq!(good, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn partial_javascript_graph_is_refreshed_on_later_syncs() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    let source = root.join("broken.js");
+    std::fs::write(&source, "var broken-name;\nfunction first() {}\n").unwrap();
+    let report = sync_workspace_all(root, &context).unwrap();
+    assert_eq!(report["failedFiles"], 0, "{report}");
+
+    std::fs::write(&source, "var broken-name;\nfunction second() {}\n").unwrap();
+    let report = sync_workspace_all(root, &context).unwrap();
+    assert_eq!(report["failedFiles"], 0, "{report}");
+    assert_eq!(report["warningFiles"], 1, "{report}");
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let count = |name: &str| -> i64 {
+        db.query_row("SELECT count(*) FROM nodes WHERE name=?1", [name], |row| row.get(0))
+            .unwrap()
+    };
+    assert_eq!(count("second"), 1);
+    assert_eq!(count("first"), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn partial_extraction_does_not_replace_a_complete_javascript_graph() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    let source = root.join("app.js");
+    std::fs::write(&source, "function stable() {}\n").unwrap();
+    assert_eq!(sync_workspace_all(root, &context).unwrap()["failedFiles"], 0);
+
+    std::fs::write(&source, "var broken-name;\nfunction stable() {}\n").unwrap();
+    let report = sync_workspace_all(root, &context).unwrap();
+    assert_eq!(report["failedFiles"], 1, "{report}");
+    assert_eq!(report["failures"][0]["code"], "SYNC_PARTIAL", "{report}");
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let stable: i64 = db
+        .query_row("SELECT count(*) FROM nodes WHERE name='stable'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(stable, 1);
+}
+
+#[cfg(windows)]
+#[test]
 fn workspace_reports_errors_after_the_success_report_limit() {
     use super::*;
     let dir = tempfile::tempdir().unwrap();
@@ -613,4 +683,47 @@ fn python_workspace_sync_resolves_calls_and_inheritance_edges() {
         )
         .unwrap();
     assert_eq!(extends_edges, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_rebuild_marks_unchanged_file_for_next_incremental_sync() {
+    use super::*;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::default();
+    initialize(root, &context).unwrap();
+    std::fs::write(root.join("a.rs"), "pub fn stable() {}\n").unwrap();
+    assert_eq!(sync_file(root, "a.rs", &context).unwrap()["changed"], true);
+
+    // Keep the schema valid while reserving the deterministic node ID under
+    // another path. Rebuild then fails on a normal primary-key conflict.
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let moved = db
+        .execute(
+            "UPDATE nodes SET file_path='collision.rs' WHERE file_path='a.rs'",
+            [],
+        )
+        .unwrap();
+    assert!(moved > 0);
+    drop(db);
+
+    let rebuild = rebuild_workspace(root, &context).unwrap();
+    assert_eq!(rebuild["failedFiles"], 1, "{rebuild}");
+    assert_ne!(rebuild["failure"]["code"], "SYNC_SCHEMA", "{rebuild}");
+
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let restored = db
+        .execute(
+            "UPDATE nodes SET file_path='a.rs' WHERE file_path='collision.rs'",
+            [],
+        )
+        .unwrap();
+    assert!(restored > 0);
+    drop(db);
+
+    let retry = sync_workspace_all(root, &context).unwrap();
+    assert_eq!(retry["filesAttempted"], 1, "{retry}");
+    assert_eq!(retry["files"][0]["path"], "a.rs");
+    assert_eq!(retry["changedFilesCommitted"], 1);
 }

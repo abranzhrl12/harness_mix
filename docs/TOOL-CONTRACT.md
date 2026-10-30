@@ -1,6 +1,6 @@
 # Shared harness contract
 
-Generated from `contracts/tool-contract.json`. Contract version: 3.3.0.
+Generated from `contracts/tool-contract.json`. Contract version: 3.4.0.
 
 | Tool | Backends |
 | --- | --- |
@@ -29,6 +29,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.3.0.
 | harness_regression | node |
 | harness_replace | node, rust |
 | harness_write | rust |
+| harness_word | rust |
 | harness_search | node, rust |
 | harness_sql | rust |
 | harness_sql_describe | node |

@@ -140,7 +140,19 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
             graph["coverage"]["status"] == "partial"
                 || graph["coverage"]["complete"] == false
         }) {
-            return Err(("SYNC_PARTIAL", "Partial extraction cannot be published as a complete index; previous graph preserved"));
+            // A partial graph may initialize a JavaScript file or refresh one
+            // already known to be partial, but must never replace a complete
+            // graph whose missing symbols could be lost.
+            let prior: Option<Option<String>> = sql(self.db.query_row(
+                "SELECT errors FROM files WHERE path=?1", [self.path], |row| row.get(0),
+            ).optional())?;
+            let prior_partial = prior
+                .as_ref()
+                .and_then(|errors| errors.as_deref())
+                .is_some_and(|errors| errors.contains("SYNC_PARTIAL"));
+            if self.language != "javascript" || (prior.is_some() && !prior_partial) {
+                return Err(("SYNC_PARTIAL", "Partial extraction cannot replace the previous index; previous graph preserved"));
+            }
         }
         Ok(extracted_value)
     }
@@ -535,11 +547,20 @@ impl harness_application::ports::indexing::PublicationSession for SqlitePublicat
             extraction_coverage,
         }
         .into_json();
+        if report["extractionCoverage"]["status"] == "partial"
+            || report["extractionCoverage"]["complete"] == false
+        {
+            report["graphStatus"] = json!("partial");
+            report["warningFiles"] = json!(1);
+            report["warnings"] = json!([{"path":path,"code":"SYNC_PARTIAL","message":"Only a partial graph was indexed; source coverage is incomplete","coverage":report["extractionCoverage"]}]);
+        }
         let semantic_warning_files = import_sources.semantic_warning_files();
         let semantic_warnings = import_sources.take_semantic_warnings();
         if !semantic_warnings.is_empty() {
-            report["warningFiles"] = json!(semantic_warning_files);
-            report["warnings"] = json!(semantic_warnings);
+            let mut warnings = report["warnings"].as_array().cloned().unwrap_or_default();
+            warnings.extend(semantic_warnings);
+            report["warningFiles"] = json!(semantic_warning_files.max(1));
+            report["warnings"] = json!(warnings);
             report["graphStatus"] = json!("partial");
         }
         if duplicate_nodes > 0 {

@@ -13,9 +13,25 @@ change, use [test-driven-development](../test-driven-development/SKILL.md).
 Reuse the verified project/session and preserve unrelated work. Use advertised,
 authorized tools with current source context:
 
-- `harness_replace`: use exact source text and non-overlapping chunks; search
-  results with enough context can go directly to replace. On `STALE`, fetch the
-  new source and adapt, never force an old version.
+- `harness_replace`: for one change use `oldText` and `newText`; use `line`
+  to disambiguate repeated text. For multiple independent, non-overlapping
+  changes in the same file, use `chunks` in one call. Each `oldText` must
+  identify its original location unambiguously. Do not combine `chunks` with
+  `line` or top-level `oldText`/`newText`. Different files require separate
+  calls; `harness_batch` is read-only. Use current source and its hash when
+  available. On `STALE`, fetch the new source and adapt, never force it.
+
+  ```json
+  {"path":"src/file.cs","hash":"<sha256>","chunks":[
+    {"oldText":"old one","newText":"new one"},
+    {"oldText":"old two","newText":"new two"}
+  ],"session":"<session>"}
+  ```
+
+  Fill the example with actual source and session. Current limits are 1–128
+  chunks, 64,000 combined UTF-8 bytes of old and new text, and a 2 MiB file.
+  Check the live tool schema and limits. The candidate is validated and
+  published once per file; a mismatch or overlap prevents publication.
 - `harness_write`: distinguish creation from replacement and preserve any
   required `expectedHash` precondition.
 - `harness_move`: does not rewrite imports or overwrite destinations. If the

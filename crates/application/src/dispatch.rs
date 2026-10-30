@@ -132,6 +132,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             Request::Write(args) => {
                 editing::write(self, args, context, name, &request_arguments, &mut lease)
             }
+            Request::Word(args, bytes) => {
+                editing::word(self, args, bytes, context, name, &request_arguments, &mut lease)
+            }
             Request::Move(args) => {
                 editing::move_file(self, args, context, name, &request_arguments, &mut lease)
             }

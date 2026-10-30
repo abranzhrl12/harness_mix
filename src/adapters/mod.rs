@@ -2,6 +2,7 @@
 mod index_razor_mvc;
 mod parsers;
 mod vue_extract;
+pub mod code_snapshot;
 mod workspace;
 pub mod workspace_set;
 use parsers::{

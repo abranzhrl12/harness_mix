@@ -28,6 +28,15 @@ Do not add approval, architecture-review, or delegation stages unless the task
 needs them. For setup or removal, use [harness-setup](../harness-setup/SKILL.md);
 do not run setup as a shortcut for routine reads or index maintenance.
 
+When subagents are available and delegation is authorized, use them only when
+the work benefits from it. For independent investigations that can run without
+shared state, consult `dispatching-parallel-agents` if installed. For an
+existing implementation plan with independently delegable tasks, consult
+`subagent-driven-development` if installed. Keep tightly coupled or small work
+local. Give each worker a clear scope, coordinate shared files and tests, and
+verify the combined result. Host instructions and user constraints take priority
+over either skill; their absence must not block the task.
+
 The local integration of the imported debugging and TDD methods is recorded in
 [SUPERPOWERS.md](SUPERPOWERS.md). That file is background, not another required
 skill to load for every change.

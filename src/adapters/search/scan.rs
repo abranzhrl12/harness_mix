@@ -25,6 +25,19 @@ use std::{
 // Leave room for presentation within the operation's default 30-second deadline.
 pub(super) const SCAN_TIMEOUT: Duration = Duration::from_secs(15);
 
+fn known_binary_signature(path: &str, prefix: &[u8]) -> bool {
+    let extension = path.rsplit_once('.').map(|(_, extension)| extension);
+    match extension.map(str::to_ascii_lowercase).as_deref() {
+        Some("exe" | "dll") => prefix.starts_with(b"MZ"),
+        Some("woff") => prefix.starts_with(b"wOFF"),
+        Some("woff2") => prefix.starts_with(b"wOF2"),
+        Some("ttf") => prefix.starts_with(&[0x00, 0x01, 0x00, 0x00]),
+        Some("otf") => prefix.starts_with(b"OTTO"),
+        Some("ttc") => prefix.starts_with(b"ttcf"),
+        _ => false,
+    }
+}
+
 struct FolderTiming<'a> {
     stats: &'a RefCell<BTreeMap<String, (u64, usize, usize)>>,
     folder: String,
@@ -301,6 +314,21 @@ pub(super) fn execute<'a>(
             started: Instant::now(),
             bytes: 0,
         };
+        if matches!(args.kind, Kind::Text | Kind::FileSize)
+            && normalized.rsplit_once('.').is_some_and(|(_, extension)| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "exe" | "dll" | "woff" | "woff2" | "ttf" | "otf" | "ttc"
+                )
+            })
+        {
+            if let Ok(prefix) = project.prefix_bytes_with_context(relative, context, 16) {
+                if known_binary_signature(&normalized, &prefix) {
+                    binary_skipped += 1;
+                    continue;
+                }
+            }
+        }
         match args.kind {
             Kind::Files => {
                 if args.query.is_empty() || relative.contains(&args.query) {

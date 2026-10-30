@@ -253,6 +253,18 @@ fn isolated_budget_and_source_failures_do_not_starve_other_files() {
 }
 
 #[test]
+fn local_timeout_continues_even_when_scope_recheck_was_not_isolated() {
+    let mut f = Fake::new(&["a.rs", "b.rs"]);
+    f.isolated_failure = false;
+    f.failures.insert("a.rs".into(), ("TIMEOUT", "file deadline"));
+    let r = workspace::sync_workspace(&mut f, &OperationContext::default(), 20, false).unwrap();
+    assert_eq!(f.applied, ["a.rs", "b.rs"]);
+    assert_eq!(r["failedFiles"], 1);
+    assert_eq!(r["stoppedEarly"], false);
+    assert_eq!(r["unattemptedFiles"], 0);
+}
+
+#[test]
 fn workspace_precondition_failure_stops_even_with_a_locally_recoverable_code() {
     for code in ["STALE", "SYNC_LIMIT"] {
         let mut f = Fake::new(&["a.rs", "b.rs"]);

@@ -1331,6 +1331,11 @@ impl<'t> Walker<'t> {
         let mut callee_name = String::new();
 
         if let Some(func) = func {
+            // An immediately invoked function has no named callee to resolve.
+            // Its body is still visited separately, so its real calls are retained.
+            if matches!(peel_receiver(func).kind(), "function_expression" | "arrow_function" | "generator_function") {
+                return;
+            }
             if func.kind() == "member_expression" {
                 let property = func
                     .child_by_field_name("property")

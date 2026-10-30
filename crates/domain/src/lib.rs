@@ -25,6 +25,7 @@ pub mod svg;
 pub mod tasks;
 pub mod tool_contract;
 pub mod workflow;
+pub mod word;
 pub mod xlsx;
 
 pub type Failure = (&'static str, &'static str);

@@ -61,6 +61,9 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
     };
     let extracted = codegraph_native::extract(path, &prepared, lang);
     if extracted.is_err() && lang == "javascript" {
+        if let Some(graph) = recover_javascript(path, source, context)? {
+            return Ok(graph);
+        }
         return super::http_frontend::recover_legacy(path, source, context);
     }
     let raw = extracted.map_err(|error| {
@@ -97,6 +100,89 @@ pub fn extract(path: &str, source: &str, context: &OperationContext) -> Result<V
         super::http_frontend::enrich(path, source, &mut graph, context)?;
     }
     Ok(graph)
+}
+
+/// Remove only source lines Oxc identifies as syntactically invalid, preserving
+/// line and UTF-16 column coordinates so the native extractor can index the
+/// valid remainder of a damaged legacy JavaScript file.
+fn recover_javascript(
+    path: &str,
+    source: &str,
+    context: &OperationContext,
+) -> Result<Option<Value>, Failure> {
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    let mut candidate = source.to_owned();
+    let mut recovered_lines = std::collections::BTreeSet::new();
+    let mut error_messages = Vec::new();
+    for _ in 0..64 {
+        context.check()?;
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, &candidate, SourceType::default()).parse();
+        if !parsed.diagnostics.has_errors() {
+            break;
+        }
+        let mut lines = std::collections::BTreeSet::new();
+        for diagnostic in parsed.diagnostics.errors() {
+            // Bound the report: repeated passes over a badly damaged file would
+            // otherwise accumulate one message per pass without adding value.
+            if error_messages.len() < 32 {
+                error_messages.push(diagnostic.to_string());
+            }
+            for label in &diagnostic.labels {
+                let at = (label.offset() as usize).min(candidate.len());
+                let line = candidate[..at].bytes().filter(|byte| *byte == b'\n').count();
+                lines.insert(line);
+            }
+        }
+        if lines.is_empty() {
+            return Ok(None);
+        }
+        let mut starts = vec![0usize];
+        starts.extend(candidate.match_indices('\n').map(|(at, _)| at + 1));
+        for line in lines {
+            let Some(&start) = starts.get(line) else { continue };
+            let end = starts.get(line + 1).copied().unwrap_or(candidate.len());
+            let content_end = if candidate.as_bytes().get(end.wrapping_sub(2)..end) == Some(b"\r\n") {
+                end - 2
+            } else if candidate.as_bytes().get(end.wrapping_sub(1)) == Some(&b'\n') {
+                end - 1
+            } else {
+                end
+            };
+            if candidate[start..content_end].trim().is_empty() { continue; }
+            let mut blank = String::new();
+            for ch in candidate[start..content_end].chars() {
+                blank.extend(std::iter::repeat_n(' ', ch.len_utf16()));
+            }
+            candidate.replace_range(start..content_end, &blank);
+            recovered_lines.insert(line + 1);
+        }
+    }
+    if recovered_lines.is_empty() {
+        return Ok(None);
+    }
+    context.check()?;
+    let Ok(raw) = codegraph_native::extract(path, &candidate, "javascript") else {
+        return Ok(None);
+    };
+    let mut graph = super::decode::decode(&raw, path, "javascript", context)?;
+    graph["errors"] = json!(error_messages.into_iter().map(|message| json!({"message":message})).collect::<Vec<_>>());
+    graph["coverage"] = json!({"status":"partial","reason":"oxc_line_recovery","recoveredLines":recovered_lines});
+    // The native extractor does not emit http_route references. Keep the
+    // line-based HTTP recovery so partial indexing does not lose requests that
+    // the previous fallback already reported for this file.
+    if let Ok(legacy) = super::http_frontend::recover_legacy(path, source, context) {
+        let recovered = legacy["unresolvedReferences"].as_array().cloned().unwrap_or_default();
+        if !recovered.is_empty()
+            && let Some(references) = graph["unresolvedReferences"].as_array_mut()
+        {
+            references.extend(recovered);
+        }
+    }
+    Ok(Some(graph))
 }
 
 /// Add references for statically named SqlCommand constructors. Dynamic and

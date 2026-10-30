@@ -40,6 +40,7 @@ pub struct McpServer<W, S> {
     tasks: Option<Arc<dyn JobService>>,
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
+    word_renderer: Option<Arc<dyn Fn(&harness_domain::word::WordDocument) -> Result<Vec<u8>, String> + Send + Sync>>,
     eager_tools: bool,
     context_presentation: bool,
     structured_presentation: bool,
@@ -53,6 +54,7 @@ impl<W, S> Clone for McpServer<W, S> {
             tasks: self.tasks.clone(),
             task_notifications: self.task_notifications.clone(),
             task_forwarding: self.task_forwarding.clone(),
+            word_renderer: self.word_renderer.clone(),
             eager_tools: self.eager_tools,
             context_presentation: self.context_presentation,
             structured_presentation: self.structured_presentation,
@@ -69,6 +71,7 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             tasks,
             task_notifications: Arc::new(AtomicBool::new(true)),
             task_forwarding: Arc::new(AtomicBool::new(false)),
+            word_renderer: None,
             eager_tools: true,
             context_presentation: false,
             structured_presentation: true,
@@ -81,6 +84,18 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
         source: impl Fn() -> Application<W, S> + Send + Sync + 'static,
     ) -> Self {
         self.application_source = Some(Arc::new(source));
+        self
+    }
+
+    /// Supplies the renderer used by the Word document creation tool.
+    pub fn with_word_renderer(
+        mut self,
+        renderer: impl Fn(&harness_domain::word::WordDocument) -> Result<Vec<u8>, String>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        self.word_renderer = Some(Arc::new(renderer));
         self
     }
 
@@ -294,6 +309,51 @@ where
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         self.call(Request::Write(args), context).await
+    }
+    #[tool(
+        description = "Genera un documento .docx a partir de bloques estructurados y lo crea dentro del workspace. Solo rutas relativas .docx; no sobrescribe destinos existentes."
+    )]
+    async fn harness_word(
+        &self,
+        Parameters(args): Parameters<harness_domain::contracts::WordArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let arguments = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
+        if let Err(failure) = args.validate() {
+            return present_response(
+                self.application.failure("harness_word", &arguments, failure),
+                false,
+                self.context_presentation,
+            );
+        }
+        let Some(renderer) = &self.word_renderer else {
+            return present_response(
+                self.application.failure(
+                    "harness_word",
+                    &arguments,
+                    ("UNSUPPORTED", "Word document renderer is not configured"),
+                ),
+                false,
+                self.context_presentation,
+            );
+        };
+        let renderer = Arc::clone(renderer);
+        let document = args.document.clone();
+        let bytes = match tokio::task::spawn_blocking(move || renderer(&document)).await {
+            Ok(Ok(bytes)) => bytes,
+            _ => {
+                return present_response(
+                    self.application.failure(
+                        "harness_word",
+                        &arguments,
+                        ("WORD_RENDER", "Document could not be rendered"),
+                    ),
+                    false,
+                    self.context_presentation,
+                );
+            }
+        };
+        self.call(Request::Word(args, bytes), context).await
     }
     #[tool(
         description = "Prepara una propuesta persistente: action=prepare, path y content completo. Guarda original y candidato, devuelve proposalId, hashes y diff sin modificar el archivo. expectedHash opcional; no acepta ni rechaza propuestas todavía. Escribe solo metadatos locales; requiere autorización para preparar."

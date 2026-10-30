@@ -22,6 +22,7 @@ pub(crate) struct IndexProgressReporter {
 struct Inner {
     enabled: bool,
     tty: bool,
+    columns: Option<usize>,
     started: Instant,
     state: Mutex<State>,
 }
@@ -33,6 +34,7 @@ struct State {
     phase_start_completed: usize,
     finished: bool,
     last_line_len: usize,
+    last_snapshot: Option<Snapshot>,
 }
 
 #[derive(Clone)]
@@ -52,10 +54,11 @@ impl IndexProgressReporter {
 
     fn with_terminal(tty: bool) -> Self {
         let now = Instant::now();
-        Self {
+        let reporter = Self {
             inner: Arc::new(Inner {
                 enabled: true,
                 tty,
+                columns: tty.then(terminal_columns),
                 started: now,
                 state: Mutex::new(State {
                     last_emit: None,
@@ -64,9 +67,47 @@ impl IndexProgressReporter {
                     phase_start_completed: 0,
                     finished: false,
                     last_line_len: 0,
+                    last_snapshot: None,
                 }),
             }),
+        };
+        if tty {
+            reporter.start_heartbeat();
         }
+        reporter
+    }
+
+    /// Keep the bar moving while one long file, a writer wait or the final
+    /// commit is in progress. The heartbeat is interactive-only: a pipe would
+    /// receive a duplicate line on every tick.
+    fn start_heartbeat(&self) {
+        let weak = Arc::downgrade(&self.inner);
+        let _ = std::thread::Builder::new()
+            .name("index-progress".into())
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(TTY_INTERVAL);
+                    let Some(inner) = weak.upgrade() else {
+                        return;
+                    };
+                    let now = Instant::now();
+                    let mut state = lock_recover(&inner.state);
+                    if state.finished {
+                        return;
+                    }
+                    let Some(line) = heartbeat_line(
+                        &state,
+                        inner.started,
+                        now,
+                        inner.tty,
+                        inner.columns,
+                    ) else {
+                        continue;
+                    };
+                    emit_line(&mut state, &line, inner.tty);
+                    state.last_emit = Some(now);
+                }
+            });
     }
 
     pub(crate) fn report(&self, update: ProgressUpdate<'_>) {
@@ -105,20 +146,18 @@ impl IndexProgressReporter {
             total: update.total,
             current: update.current.map(sanitize_current),
         };
-        let elapsed = now.duration_since(self.inner.started);
-        let phase_elapsed = now.duration_since(state.phase_started);
-        let eta = estimate_remaining(
-            snapshot
-                .completed
-                .saturating_sub(state.phase_start_completed),
-            phase_elapsed,
-            snapshot
-                .total
-                .map(|total| total.saturating_sub(snapshot.completed)),
+        let line = progress_line(
+            &snapshot,
+            self.inner.started,
+            state.phase_started,
+            state.phase_start_completed,
+            now,
+            self.inner.tty,
+            self.inner.columns,
         );
-        let line = format_progress(&snapshot, elapsed, eta, self.inner.tty);
         emit_line(&mut state, &line, self.inner.tty);
         state.last_emit = Some(now);
+        state.last_snapshot = Some(snapshot);
     }
 
     /// Print a terminal outcome only after the caller receives the completed
@@ -167,8 +206,9 @@ fn format_progress(
     elapsed: Duration,
     eta: Option<Duration>,
     tty: bool,
+    columns: Option<usize>,
 ) -> String {
-    let mut line = match snapshot.total {
+    let mut head = match snapshot.total {
         Some(total) if total > 0 => {
             let completed = snapshot.completed.min(total);
             let percent = (completed as u128 * 100 / total as u128) as usize;
@@ -190,17 +230,102 @@ fn format_progress(
         Some(_) => format!("Index 0/0 [{}]", snapshot.phase),
         None => format!("Index {} [{}]", snapshot.completed, snapshot.phase),
     };
-    if let Some(current) = snapshot.current.as_deref() {
-        line.push_str(" — ");
-        line.push_str(current);
-    }
-    line.push_str(" | elapsed ");
-    line.push_str(&format_duration(elapsed));
+    let mut tail = String::from(" | elapsed ");
+    tail.push_str(&format_duration(elapsed));
     if let Some(eta) = eta {
-        line.push_str(" | phase ETA ");
-        line.push_str(&format_duration(eta));
+        tail.push_str(" | phase ETA ");
+        tail.push_str(&format_duration(eta));
     }
-    line
+    if let Some(current) = snapshot.current.as_deref() {
+        head.push_str(" — ");
+        let room = columns
+            .map(|columns| {
+                columns.saturating_sub(head.chars().count() + tail.chars().count())
+            })
+            .unwrap_or(usize::MAX);
+        head.push_str(&clip(current, room));
+    }
+    head.push_str(&tail);
+    match columns {
+        Some(columns) => clip(&head, columns),
+        None => head,
+    }
+}
+
+/// Keep a redrawn line inside one terminal row. A wrapped line makes the
+/// carriage return land mid-line, which looks like frozen or interleaved
+/// progress output.
+fn clip(value: &str, room: usize) -> String {
+    let length = value.chars().count();
+    if length <= room {
+        return value.to_owned();
+    }
+    if room == 0 {
+        return String::new();
+    }
+    let mut clipped: String = value.chars().take(room - 1).collect();
+    clipped.push('…');
+    clipped
+}
+
+fn terminal_columns() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|columns| *columns >= 40)
+        .unwrap_or(80)
+}
+
+fn progress_line(
+    snapshot: &Snapshot,
+    started: Instant,
+    phase_started: Instant,
+    phase_start_completed: usize,
+    now: Instant,
+    tty: bool,
+    columns: Option<usize>,
+) -> String {
+    let elapsed = now.saturating_duration_since(started);
+    let phase_elapsed = now.saturating_duration_since(phase_started);
+    let eta = estimate_remaining(
+        snapshot.completed.saturating_sub(phase_start_completed),
+        phase_elapsed,
+        snapshot
+            .total
+            .map(|total| total.saturating_sub(snapshot.completed)),
+    );
+    format_progress(snapshot, elapsed, eta, tty, columns)
+}
+
+/// Re-render the last snapshot when no new event arrived, so elapsed time keeps
+/// advancing instead of freezing during a long file or the final commit.
+fn heartbeat_line(
+    state: &State,
+    started: Instant,
+    now: Instant,
+    tty: bool,
+    columns: Option<usize>,
+) -> Option<String> {
+    if state.finished {
+        return None;
+    }
+    let snapshot = state.last_snapshot.as_ref()?;
+    let interval = if tty { TTY_INTERVAL } else { PIPE_INTERVAL };
+    if state
+        .last_emit
+        .is_some_and(|last| now.saturating_duration_since(last) < interval)
+    {
+        return None;
+    }
+    Some(progress_line(
+        snapshot,
+        started,
+        state.phase_started,
+        state.phase_start_completed,
+        now,
+        tty,
+        columns,
+    ))
 }
 
 fn estimate_remaining(
@@ -268,6 +393,7 @@ mod tests {
             Duration::from_secs(5),
             Some(Duration::from_secs(8)),
             false,
+            None,
         );
         assert!(line.contains("4/10 (40%)"));
         assert!(line.contains("[indexing]"));
@@ -284,7 +410,7 @@ mod tests {
             total: None,
             current: None,
         };
-        let line = format_progress(&snapshot, Duration::from_secs(2), None, false);
+        let line = format_progress(&snapshot, Duration::from_secs(2), None, false, None);
         assert!(line.contains("Index 7 [inventory]"));
         assert!(!line.contains('%'));
         assert!(!line.contains("ETA"));
@@ -315,10 +441,29 @@ mod tests {
             total: Some(10),
             current: None,
         };
-        let line = format_progress(&snapshot, Duration::from_secs(2), None, true);
+        let line = format_progress(&snapshot, Duration::from_secs(2), None, true, Some(80));
         assert!(line.contains("[######..............]"));
         assert!(line.contains(" 30%"));
         assert!(!line.contains("100%"));
+    }
+
+    #[test]
+    fn tty_line_never_wraps_inside_a_terminal_row() {
+        let snapshot = Snapshot {
+            phase: "indexing",
+            completed: 2,
+            total: Some(6),
+            current: Some(format!("Content/Scripts/{}", "very-long-name".repeat(20))),
+        };
+        let line = format_progress(&snapshot, Duration::from_secs(2), None, true, Some(80));
+        assert_eq!(line.chars().count(), 80);
+        assert!(line.contains("2/6"));
+        assert!(line.ends_with("elapsed 2s"));
+        assert!(line.contains('…'));
+        // Without a known width (pipes and logs) nothing is dropped.
+        let piped = format_progress(&snapshot, Duration::from_secs(2), None, false, None);
+        assert!(piped.len() > 80);
+        assert!(piped.ends_with("elapsed 2s"));
     }
 
     #[test]
@@ -327,5 +472,58 @@ mod tests {
         assert!(!value.contains('\n'));
         assert!(!value.contains('\u{1b}'));
         assert!(value.contains("src/a"));
+    }
+
+    fn state_at(now: Instant, snapshot: Option<Snapshot>, last_emit: Option<Instant>) -> State {
+        State {
+            last_emit,
+            phase: Some("indexing"),
+            phase_started: now.checked_sub(Duration::from_secs(5)).unwrap(),
+            phase_start_completed: 0,
+            finished: false,
+            last_line_len: 0,
+            last_snapshot: snapshot,
+        }
+    }
+
+    #[test]
+    fn heartbeat_refreshes_elapsed_time_without_new_events() {
+        let now = Instant::now();
+        let started = now.checked_sub(Duration::from_secs(5)).unwrap();
+        let state = state_at(
+            now,
+            Some(Snapshot {
+                phase: "indexing",
+                completed: 2,
+                total: Some(6),
+                current: Some("src/a.rs".to_owned()),
+            }),
+            Some(now.checked_sub(Duration::from_millis(400)).unwrap()),
+        );
+        let line = heartbeat_line(&state, started, now, true, Some(80)).expect("heartbeat is due");
+        assert!(line.contains("2/6"));
+        assert!(line.contains("src/a.rs"));
+        assert!(line.contains("elapsed 5s"));
+    }
+
+    #[test]
+    fn heartbeat_waits_for_the_next_tick_and_stops_after_finish() {
+        let now = Instant::now();
+        let started = now.checked_sub(Duration::from_secs(5)).unwrap();
+        let snapshot = Some(Snapshot {
+            phase: "indexing",
+            completed: 2,
+            total: Some(6),
+            current: None,
+        });
+        assert!(heartbeat_line(&state_at(now, snapshot.clone(), Some(now)), started, now, true, Some(80)).is_none());
+        assert!(heartbeat_line(&state_at(now, None, None), started, now, true, Some(80)).is_none());
+        let mut finished = state_at(
+            now,
+            snapshot,
+            Some(now.checked_sub(Duration::from_secs(1)).unwrap()),
+        );
+        finished.finished = true;
+        assert!(heartbeat_line(&finished, started, now, true, Some(80)).is_none());
     }
 }

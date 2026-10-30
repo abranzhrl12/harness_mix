@@ -52,3 +52,16 @@ fn retains_non_sqlite_rusqlite_errors_and_validation_check() {
     );
     assert_eq!(diagnostic["sqlite"]["sqliteCode"], Value::Null);
 }
+
+#[test]
+fn successful_schema_validation_is_not_reported_as_failed() {
+    begin("src/app.js", Path::new(".codegraph/codegraph.db"));
+    stage("validate_schema");
+    schema_check("fts_definition_query");
+    schema_validated();
+
+    let diagnostic = take("SYNC_INDEX", "later indexing failure").unwrap();
+    assert_eq!(diagnostic["schemaCheck"], "fts_definition_query");
+    assert_eq!(diagnostic["schemaValidation"]["check"], "fts_definition_query");
+    assert_eq!(diagnostic["schemaValidation"]["outcome"], "validated");
+}
