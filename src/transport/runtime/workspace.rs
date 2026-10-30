@@ -23,6 +23,7 @@ pub async fn serve_with_workspace_config(
         .with_application_source(move || source.application())
         .with_eager_tools(config.eager_tools_enabled)
         .with_context_presentation(config.context_presentation)
+        .with_structured_presentation(config.structured_presentation)
         .serve((
             BoundedLines::new(tokio::io::stdin(), MAX_MESSAGE_BYTES),
             tokio::io::stdout(),

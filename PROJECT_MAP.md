@@ -82,7 +82,7 @@ Fuentes de responsabilidades:
 
 - [src/main.rs](src/main.rs): entrada `agent-harness`; llama a `cli::run`.
 - [src/cli.rs](src/cli.rs): `run` delega a `harness_cli::commands::run` con el host nativo.
-- [Cargo.toml](Cargo.toml): también declara `harnessmix` en `src/harnessmix.rs`; su flujo interno no se trazó.
+- [archive/antigravity](archive/antigravity/): conserva el lanzador y el cliente `harnessmix` fuera del workspace y de la compilación de MCP.
 - [src/transport/runtime.rs](src/transport/runtime.rs): exporta servidor de proyecto único y servidor de workspace.
 - [src/adapters/composition.rs](src/adapters/composition.rs): construye adaptadores y selecciona el backend de navegador según la feature.
 

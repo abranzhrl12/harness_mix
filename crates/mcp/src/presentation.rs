@@ -4,6 +4,51 @@ use rmcp::model::CallToolResult;
 #[path = "readable_batch.rs"]
 mod readable_batch;
 
+pub(super) fn structured_presentation(mut envelope: serde_json::Value) -> CallToolResult {
+    clean_empty_metadata(&mut envelope);
+    dedup_explore_trace(&mut envelope);
+    let tool = envelope["scope"]["tool"].as_str().unwrap_or("result");
+    let state = envelope["state"].as_str().unwrap_or("unknown");
+    let mut text = format!("## {tool} ? {state}\n\nFull result is in structuredContent.\n");
+    if tool == "harness_bootstrap" {
+        for key in ["root", "session"] {
+            if let Some(value) = envelope["data"][key].as_str() {
+                text.push_str(&format!("{key}: {value}\n"));
+            }
+        }
+    }
+    if let Some(children) = envelope["data"]["results"].as_array() {
+        for child in children {
+            let name = child["tool"].as_str().unwrap_or("result");
+            let state = child["state"].as_str().unwrap_or("unknown");
+            let summary = format!("\n- {name} ? {state}\n");
+            text.push_str(&readable_batch::with_notices(summary, child));
+        }
+    }
+    text = readable_batch::with_notices(text, &envelope);
+    let mut result = if envelope["state"] == "ok" {
+        CallToolResult::structured(envelope)
+    } else {
+        CallToolResult::structured_error(envelope)
+    };
+    result.content = vec![rmcp::model::ContentBlock::text(text)];
+    result
+}
+
+fn dedup_explore_trace(envelope: &mut serde_json::Value) {
+    let tool = envelope["tool"].as_str().or_else(|| envelope["scope"]["tool"].as_str());
+    if tool == Some("harness_explore") {
+        if let Some(data) = envelope.get_mut("data").and_then(serde_json::Value::as_object_mut) {
+            if data.get("dataTrace").is_some() && data.get("dataTrace") == data.get("crossLayerTrace") {
+                data.remove("crossLayerTrace");
+            }
+        }
+    }
+    if let Some(children) = envelope.get_mut("data").and_then(|data| data.get_mut("results")).and_then(serde_json::Value::as_array_mut) {
+        for child in children { dedup_explore_trace(child); }
+    }
+}
+
 #[cfg(test)]
 pub(super) fn response_with_compact(envelope: serde_json::Value, compact: bool) -> CallToolResult {
     response_with_options(envelope, compact, false)
@@ -608,7 +653,9 @@ fn lean_channel(tool: &str, envelope: &serde_json::Value) -> Option<String> {
                 .map(|n| n as usize)
                 .unwrap_or(files.len());
             let mut text = if total > shown {
-                format!("## Search matches · {shown} shown ({total} total across {file_count} file(s))\n")
+                format!(
+                    "## Search matches · {shown} shown ({total} total across {file_count} file(s))\n"
+                )
             } else {
                 format!("## Search matches · {shown} shown ({file_count} file(s))\n")
             };
@@ -656,7 +703,10 @@ fn lean_source(path: &str, text: &str, start: u64) -> String {
 /// Render context snippets by absolute line, merging overlapping windows.
 /// Repeated line numbers come from one search snapshot, so the first copy is
 /// authoritative and all unique context lines remain visible.
-fn search_spans_bounded(rows: &[&serde_json::Value], mut current_len: usize) -> Vec<(u64, Vec<String>)> {
+fn search_spans_bounded(
+    rows: &[&serde_json::Value],
+    mut current_len: usize,
+) -> Vec<(u64, Vec<String>)> {
     let mut lines = std::collections::BTreeMap::<u64, String>::new();
     for row in rows {
         let context = &row["context"];

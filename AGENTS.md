@@ -5,6 +5,10 @@ this project. Discover its live tool names, run `harness_bootstrap`, verify the
 workspace root, and reuse `data.session`. Follow the live tool schemas rather
 than assuming older versions.
 
+For the shared root/session, authorization, index, failure, and evidence rules,
+read [operating rules](.agents/skills/harness-workflow/references/operating-rules.md) once per
+task. Tool guides link to that source instead of repeating it.
+
 ## Load Only the Needed Guide
 
 | Task | Local Skill |
@@ -18,33 +22,22 @@ than assuming older versions.
 | Inspect or preview an SVG file | `.agents/skills/harness-svg/SKILL.md` |
 | Install, initialize, or verify the Harness CLI/server | `.agents/skills/harness-setup/SKILL.md` |
 
-Read the applicable skill in full before acting; combine skills only when the
-task requires it. Read known symbols directly with `harness_symbols` without a
-prior search, outline, or signature call. Group multiple independent reads into
-a single `harness_batch` call (`{ "jobs": [...] }`).
+Read the applicable skill before acting; combine skills only when the task
+requires it. Read known symbols directly with `harness_symbols` without a prior
+search, outline, or signature call. Group independent reads in `harness_batch`
+(`{ "jobs": [...] }`).
 
-## Invariants
+## Project-specific constraints
 
-- Preserve required source context, documentation, hashes, and notices regarding
-  omissions, truncation, and freshness. A summary does not replace full evidence.
-- Respect concurrent changes, protected paths, external scopes, and active
-  profiles. Permission to investigate does not authorize editing; having tools
-  available does not expand permissions.
-- Do not initialize, synchronize, or rebuild the code index routinely. Reading
-  and searching do not require an index; relationship queries (`harness_explore`)
-  require a compatible one. Indexing writes to `.codegraph/` and requires user
-  authorization. Never delete indexes to "repair" them. For an unindexed project
-  with user authorization, run `--root <project> --init-index` first and then
-  `--root <project> --reindex`. If an index already exists, inspect
-  compatibility and use supported maintenance commands.
-- On transport, timeout, or runtime failure, stop equivalent retries, diagnose
-  with `harness_doctor`, and report the blocker. Never bypass failures with
-  direct filesystem access or shell commands. An unsupported capability is
-  distinct from a failure: explain the limitation before using an authorized
-  alternative.
-- Valid syntax does not prove full compilation or runtime correctness. Report
-  applied edits, `validated` checks, and `pending` checks. Checkpoints are not
-  snapshots. Never commit or push unless explicitly requested.
+- Respect protected paths, external scopes, active profiles, and concurrent
+  changes. A project alias is not permission to cross into another root.
+- If a graph query is authorized in an unindexed project, create then reindex
+  with `--root <project> --init-index` followed by `--root <project> --reindex`.
+  If an index already exists, inspect compatibility and use supported
+  maintenance; never delete it to repair it.
+- Syntax validation is not a full build or runtime check. Keep `validated` and
+  `pending` evidence distinct. Checkpoints are not snapshots. Never commit or
+  push unless explicitly requested.
 
 ## If the Connection Is Missing
 

@@ -5,9 +5,10 @@ description: Diagnose and verify web applications with Harness MCP via console, 
 
 # Evidence-Based Web Diagnostics
 
-Check the current `harness_browser` schema and reuse a Harness session with a
-verified workspace root. Having the tool available does not mean a browser is
-connected. Do not edit code until the task authorizes a fix.
+Read the [shared operating rules](../harness-workflow/references/operating-rules.md)
+once per task and check the current `harness_browser` schema. Having the tool
+available does not mean a browser is connected. Do not edit code until the task
+authorizes a fix.
 
 ## Connect and Reproduce
 
@@ -79,5 +80,3 @@ limitations. Never claim the entire application is "error-free" based on a
 single tab, time window, or bounded query. Never copy credentials or personal
 data from DOM nodes, URLs, or logs into your report. Disconnect only
 connections created for this task once finished; never close the user's browser.
-On transport, timeout, or runtime failure, stop equivalent retries, diagnose
-with `harness_doctor`, and report the limitation.

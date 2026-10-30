@@ -5,9 +5,9 @@ description: Inspect or preview existing static SVG files with Harness MCP. Not 
 
 # SVG Inspection and Preview
 
-Run `harness_bootstrap` if you lack an active session and check the `harness_svg`
-schema. The advertised server supports static SVGs up to 256 KiB; never assume
-script execution or external resource loading.
+Read the [shared operating rules](../harness-workflow/references/operating-rules.md)
+once per task and check the `harness_svg` schema. The server supports static SVGs
+up to 256 KiB; it does not execute scripts or load external resources.
 
 - Use `mode=inspect` for XML structure, dimensions, and text diagnostics.
 - Use `mode=preview` directly when you need to evaluate visual appearance. Do
@@ -21,8 +21,7 @@ script execution or external resource loading.
   `harness_write`) with current source context and verify afterward.
   `harness_svg` itself is read-only and never writes files.
 - If the format, file size, or rendering features are unsupported, report the
-  limitation. On runtime or transport failure, diagnose with `harness_doctor`
-  without equivalent retries or shell bypasses.
+  limitation.
 
 Conclude with the relevant findings; avoid dumping raw XML when structural
 summary or preview is sufficient.

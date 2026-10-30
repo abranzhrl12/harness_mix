@@ -22,23 +22,25 @@ dependency.
 
 ## Bundled workflow skills
 
-`harness-workflow` connects the three local Superpowers skills to Harness
-operations. harness-read links to it for bug investigations; harness-edit links
-to it for behavioral changes. It resolves upstream `superpowers:...` names to
-local files, respects project test scopes and execution permissions, and loads
-stages as needed. The integration analysis is bundled as
-`.agents/skills/harness-workflow/SUPERPOWERS.md`. Upstream source and licenses
-remain unchanged. This is not an installation of the full Superpowers plugin.
+`harness-workflow` routes a task to the required stage without loading every
+guide. Harness task guides share
+`.agents/skills/harness-workflow/references/operating-rules.md` for session,
+authorization, failure, index, and evidence rules. The debugging and TDD
+entrypoints are local concise adaptations; their upstream-derived methods remain
+available through linked references. `harness-read` and `harness-edit` link to
+the needed stages directly rather than back to the workflow router. MIT licenses
+and notices are retained. This is not an installation of the full Superpowers
+plugin.
 
 | Source | Skills |
 | --- | --- |
 | [obra/superpowers](https://github.com/obra/superpowers) | systematic-debugging, test-driven-development, verification-before-completion |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | improve-codebase-architecture, codebase-design, domain-modeling, grilling |
 
-The latter four form the architecture workflow: architecture review references
-codebase design, domain modeling, and the grilling interview. The debugging
-workflow references test-driven development and verification before completion.
-Their local documents, examples, agent metadata, and MIT licenses are embedded
+The latter four form the architecture workflow: architecture review links to
+the codebase design, domain modeling, and grilling guides. The debugging route
+links to test-driven development and verification before completion. References,
+formats, agent metadata, and MIT licenses needed by those skills are embedded
 alongside each SKILL.md, so project initialization needs no network download.
 Upstream scripts and examples are copied as data; initialization never runs them.
 

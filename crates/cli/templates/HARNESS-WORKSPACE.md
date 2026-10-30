@@ -91,7 +91,7 @@ Para instalar o actualizar las skills sin reconstruir índices, usa
 Revisa los conflictos; conserva las instrucciones locales modificadas. La
 instalación de skills y su detección por el cliente son pasos distintos.
 
-`workspace init` prepara las skills de proyectos registrados; `workspace add` y el servidor preparan proyectos incorporados al manifiesto. Una preferencia ausente se crea con `auto_sync: true` en `.agents/harness-skills-sync.json`; cambia el valor a `false` para desactivarla. Se conservan preferencias y ediciones locales en conflicto. Los cambios de preferencia se aplican en el siguiente arranque o reingreso; no hay sincronización periódica. No uses `agent-harness init` solo para obtener skills: también configura clientes y prepara un índice.
+`workspace init` prepara las skills de proyectos registrados; si el manifiesto está vacío, agrega proyectos con `workspace add <alias> <ruta>`. El directorio del manifiesto no recibe skills como si fuera un proyecto. Una preferencia ausente se crea con `auto_sync: true` en `.agents/harness-skills-sync.json`; cambia el valor a `false` para desactivarla. Se conservan preferencias y ediciones locales en conflicto. Los cambios de preferencia se aplican al siguiente arranque o reingreso; no hay sincronización periódica. `agent-harness init` instala skills y configura clientes del proyecto, pero no crea el índice: ejecuta `agent-harness index` por separado cuando se autorice.
 
 Lee una sola vez cada guía necesaria durante la tarea, aunque sus enlaces se
 crucen. Antes de cambiar de proyecto, comprueba su alias y sus AGENTS.md; no

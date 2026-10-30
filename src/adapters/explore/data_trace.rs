@@ -146,6 +146,10 @@ pub(super) fn trace(
     graph_files: &BTreeSet<String>,
     context: &OperationContext,
 ) -> Result<Option<CrossLayerDataTrace>, Failure> {
+    let explicit_parameter = args.symbol.as_deref().unwrap_or(args.query.trim()).trim().starts_with('@');
+    if args.file_path.as_deref().is_some_and(|path| !is_traceable_path(path)) && !explicit_parameter {
+        return Ok(None);
+    }
     let Some(symbol_name) = trace_symbol_name(args, resolved_symbol, targets) else {
         return Ok(None);
     };

@@ -1,3 +1,9 @@
+# Documento histórico: integración archivada
+
+El código descrito se conserva fuera del workspace y no forma parte de la
+compilación de MCP. Los comandos siguientes son históricos y no están
+disponibles en la versión actual.
+
 # HarnessMix: chat nativo mediante ACP
 
 `harnessmix` es un cliente de terminal escrito en Rust. Se comunica por ACP con

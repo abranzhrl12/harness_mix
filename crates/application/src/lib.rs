@@ -1,8 +1,6 @@
 //! Use-case orchestration. Depends on domain and ports, never on MCP or OS adapters.
 mod admission;
-pub mod agent;
 mod batch;
-pub mod conversation;
 mod dispatch;
 pub mod handlers;
 pub mod indexing;

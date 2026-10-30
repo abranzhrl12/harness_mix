@@ -28,6 +28,7 @@ fn defaults_match_platform_and_full_profile_policy() {
     assert!(supported.index_watch_enabled);
     assert!(supported.eager_tools_enabled);
     assert!(!supported.context_presentation);
+    assert!(supported.structured_presentation);
 
     let unsupported = values(None, None, None, None, false).unwrap();
     assert!(!unsupported.index_watch_enabled);
@@ -59,7 +60,13 @@ fn eager_and_presentation_values_keep_exact_match_semantics() {
     let config = values(None, None, Some("0"), Some("context"), true).unwrap();
     assert!(!config.eager_tools_enabled);
     assert!(config.context_presentation);
+    assert!(!config.structured_presentation);
+    let structured = values(None, None, None, Some("structured"), true).unwrap();
+    assert!(structured.structured_presentation);
+    assert!(!structured.context_presentation);
 
+    let legacy = values(None, None, None, Some("legacy"), true).unwrap();
+    assert!(!legacy.structured_presentation);
     let config = values(None, None, Some("false"), Some("Context"), true).unwrap();
     assert!(config.eager_tools_enabled);
     assert!(!config.context_presentation);

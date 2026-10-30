@@ -1,0 +1,29 @@
+[package]
+name = "harness-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[features]
+default = []
+antigravity = ["dep:rustyline-async", "dep:termimad", "dep:image", "dep:windows"]
+
+[dependencies]
+harness-domain = { path = "../domain" }
+harness-application = { path = "../application" }
+harness-skills = { path = "../skills" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = { version = "0.3", features = ["io"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "process", "signal"] }
+rustyline-async = { path = "../../vendor/rustyline-async", optional = true }
+termimad = { version = "=0.35.4", optional = true }
+image = { version = "=0.25.8", default-features = false, features = ["bmp", "png"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", optional = true, features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory"] }
+
+[dev-dependencies]
+regex = "1"
+tempfile = "3"

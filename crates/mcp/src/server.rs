@@ -42,6 +42,7 @@ pub struct McpServer<W, S> {
     task_forwarding: Arc<AtomicBool>,
     eager_tools: bool,
     context_presentation: bool,
+    structured_presentation: bool,
 }
 
 impl<W, S> Clone for McpServer<W, S> {
@@ -54,6 +55,7 @@ impl<W, S> Clone for McpServer<W, S> {
             task_forwarding: self.task_forwarding.clone(),
             eager_tools: self.eager_tools,
             context_presentation: self.context_presentation,
+            structured_presentation: self.structured_presentation,
         }
     }
 }
@@ -69,6 +71,7 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             task_forwarding: Arc::new(AtomicBool::new(false)),
             eager_tools: true,
             context_presentation: false,
+            structured_presentation: true,
         }
     }
 
@@ -90,6 +93,12 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
     /// Enables context-style exploration output (default: `false`).
     pub fn with_context_presentation(mut self, context_presentation: bool) -> Self {
         self.context_presentation = context_presentation;
+        self
+    }
+
+    /// Enables compact text for structured-content clients (default: true).
+    pub fn with_structured_presentation(mut self, enabled: bool) -> Self {
+        self.structured_presentation = enabled;
         self
     }
 
@@ -126,6 +135,7 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             request,
             context.ct.cancelled(),
             self.context_presentation,
+            self.structured_presentation,
         )
         .await
     }
@@ -147,7 +157,9 @@ where
         jobs::handle(self.tasks.as_deref(), args, self.context_presentation).await
     }
 
-    #[tool(description = "Navegación semántica mediante servidores LSP instalados: action=definition|references, path, line y character base 0 en UTF-16. Rust: rust-analyzer; Go: gopls; TypeScript/JavaScript: typescript-language-server. Ejecuta el servidor configurado por el operador; no instala herramientas. Un resultado vacío no demuestra ausencia ni carga completa.")]
+    #[tool(
+        description = "Navegación semántica mediante servidores LSP instalados: action=definition|references, path, line y character base 0 en UTF-16. Rust: rust-analyzer; Go: gopls; TypeScript/JavaScript: typescript-language-server. Ejecuta el servidor configurado por el operador; no instala herramientas. Un resultado vacío no demuestra ausencia ni carga completa."
+    )]
     async fn harness_lsp(
         &self,
         Parameters(args): Parameters<harness_domain::lsp::LspArgs>,

@@ -2,6 +2,16 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn rust_file_selector_does_not_search_unrelated_javascript_for_lineage() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("app.js"), "function main() { return main; }").unwrap();
+    let project = Project::new(root.path()).unwrap();
+    let args: ExploreArgs = serde_json::from_value(json!({"filePath":"src/main.rs","symbol":"main"})).unwrap();
+    let result = trace(&project, &args, "main", &[], &BTreeSet::new(), &OperationContext::default()).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
 fn oversized_source_is_reported_as_incomplete() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("large.js"), "x".repeat(2 * 1024 * 1024 + 1)).unwrap();

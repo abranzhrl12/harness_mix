@@ -1,0 +1,5177 @@
+{
+  "recordedAt": "2026-10-30T03:07:54.997Z",
+  "executable": "E:\\harness_mix\\target\\mcp-request-latency\\agent-harness-baseline.exe",
+  "executableSha256": "1d0bb4267623a7392af6d990b969b9567d3426fa2af1e58519fbfcffcb371dd2",
+  "executableModifiedAt": "2026-10-30T03:07:36.067Z",
+  "version": "agent-harness 0.8.9",
+  "profile": "release; cargo build --locked --release --bin agent-harness",
+  "sourceRevision": "cb91667",
+  "workingTree": {
+    "dirty": true,
+    "changedPathCount": 83,
+    "statusSha256": "5c3e47af3c5f9dcb23ada6e0af403b34df193123b0dad530cbd1b64c734802d0"
+  },
+  "sourceSha256": {
+    "Cargo.toml": "ed7e902d9b5ee1165f467d946638e82d163dbacd5681565bb819e2b04800ce07",
+    "Cargo.lock": "b60221a481798145e477a052fe43fa7fdd10be32cedc3948341678c244654d12",
+    "src/main.rs": "5f9c4d3647c191e72c759c993279ebbc1b01743dd9454a17e5a2da1cd29c673c",
+    "src/cli.rs": "e0481929ccba96ec81e4d3d3153dad10acb36bc38b159d2bdee7f1b8e0fc9756",
+    "src/transport/runtime/single.rs": "218c7872ecf55495632bbd51718b80566eda808c3d084aac1f355920c7718b4d",
+    "crates/mcp/src/server.rs": "8b75c7c6c1209c8652bf7b8ed6cb864d4fadac3d1e0d1733582389bf3fa9117a",
+    "crates/mcp/src/presentation.rs": "8cb8762d746256a41614bbeb5106b27be4842f1f91305c3898971ef92c30d456",
+    "scripts/benchmark-mcp-request-latency.cjs": "f0eb7a3dac88cd9d0b50f87d52d5c02fff84844a6cd9f87faa815d7434b2e26d"
+  },
+  "runtime": {
+    "node": "v22.16.0",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "os": "win32 10.0.19045 x64",
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "logicalProcessors": 8,
+    "memoryGiB": 12
+  },
+  "protocol": "MCP stdio, newline-delimited JSON-RPC 2.0; protocol 2025-11-25; one server process stays open for all samples; bootstrap session is reused.",
+  "method": "Each latency starts immediately before JSON-RPC serialization/write and stops when the complete response line has been read and parsed. It is client-observed end-to-end request/response time, not server-only CPU time. Operations run sequentially; per-operation warmups are excluded; no cache flush or concurrency load; response size includes result/content/structuredContent JSON bytes.",
+  "environment": "One fresh temporary workspace and server process; full tool profile; HARNESS_INDEX_WATCH=0; SQL Server and PostgreSQL disabled in local fixture config; no index, user data, external DB, network, or model calls; tool output uses current default structured-content renderer.",
+  "requestsPerOperation": 100,
+  "warmupsPerOperation": 20,
+  "sequential": true,
+  "concurrency": "No concurrent client load except the three independent jobs inside each measured harness_batch call (maxConcurrent=3).",
+  "initializeMs": 35.224,
+  "initialToolsListCount": 26,
+  "initialBootstrapContentBytes": 279,
+  "initialBootstrapStructuredContentBytes": 4244,
+  "pingSupported": true,
+  "pingError": null,
+  "results": [
+    {
+      "operation": "ping (JSON-RPC protocol operation)",
+      "category": "protocol-plus-server",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 0.085,
+        "median": 0.093,
+        "p95NearestRank": 0.256,
+        "p99NearestRank": 0.835,
+        "max": 2.57
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 54,
+        "median": 54,
+        "p95NearestRank": 55,
+        "p99NearestRank": 55,
+        "max": 55
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 37,
+        "median": 37,
+        "p95NearestRank": 38,
+        "p99NearestRank": 38,
+        "max": 38
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 2,
+        "median": 2,
+        "p95NearestRank": 2,
+        "p99NearestRank": 2,
+        "max": 2
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 0,
+        "median": 0,
+        "p95NearestRank": 0,
+        "p99NearestRank": 0,
+        "max": 0
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 0,
+        "median": 0,
+        "p95NearestRank": 0,
+        "p99NearestRank": 0,
+        "max": 0
+      },
+      "observations": [
+        {
+          "latencyMs": 0.1021,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1413,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.8347,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1957,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1061,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1221,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1093,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1081,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1076,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1107,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1078,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1004,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1127,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1115,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1266,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.101,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1005,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0919,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0871,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0937,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.093,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0903,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0924,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1107,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0967,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0998,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0936,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.099,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.097,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0899,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0865,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.098,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0971,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1008,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0967,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.094,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0917,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0933,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1062,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1113,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0931,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0924,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0932,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0944,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.2952,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.184,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.3952,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 2.5696,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.5183,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.2564,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1909,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1421,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1046,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1128,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1035,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0846,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0849,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0972,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0874,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1017,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0905,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.1411,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0933,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0956,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0904,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0855,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0878,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0848,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0919,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0891,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0896,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0854,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0927,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0868,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0896,
+          "requestBytes": 54,
+          "responseBytes": 37,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0859,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0878,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0913,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0882,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0902,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0906,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0965,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0878,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0876,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0876,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0883,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0962,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.086,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.089,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0846,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0901,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0855,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0914,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0867,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0883,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0899,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0927,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0862,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0931,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.0856,
+          "requestBytes": 55,
+          "responseBytes": 38,
+          "resultBytes": 2,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        }
+      ]
+    },
+    {
+      "operation": "tools/list (warm catalogue)",
+      "category": "catalogue",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 0.994,
+        "median": 1.272,
+        "p95NearestRank": 3.1,
+        "p99NearestRank": 4.313,
+        "max": 6.462
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 61,
+        "median": 61,
+        "p95NearestRank": 61,
+        "p99NearestRank": 61,
+        "max": 61
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 51753,
+        "median": 51753,
+        "p95NearestRank": 51753,
+        "p99NearestRank": 51753,
+        "max": 51753
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 51717,
+        "median": 51717,
+        "p95NearestRank": 51717,
+        "p99NearestRank": 51717,
+        "max": 51717
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 0,
+        "median": 0,
+        "p95NearestRank": 0,
+        "p99NearestRank": 0,
+        "max": 0
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 0,
+        "median": 0,
+        "p95NearestRank": 0,
+        "p99NearestRank": 0,
+        "max": 0
+      },
+      "observations": [
+        {
+          "latencyMs": 1.245,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3134,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.5672,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.26,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2708,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.9275,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2818,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1681,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0538,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.24,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0938,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0775,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.6754,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.6092,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3517,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1978,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2727,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2098,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3399,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.9103,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4547,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.255,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2039,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1996,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1054,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.112,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1872,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.5844,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2637,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0954,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1868,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1373,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1286,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1968,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 2.7845,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4581,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2659,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3093,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2787,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4913,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4763,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 6.4618,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2635,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3393,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2674,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2194,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 4.1173,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 4.1128,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.5154,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4174,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 2.0038,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3687,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2176,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.6496,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1553,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1193,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1902,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 3.1003,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2476,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1397,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3085,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1708,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0565,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.043,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.5468,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4944,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3717,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4155,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2468,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3402,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3745,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 4.3134,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4217,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3146,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1255,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1572,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 0.9939,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1654,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.7236,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.6538,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3696,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2976,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1884,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1729,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2407,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 4.2766,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3983,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1575,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0971,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.1596,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0675,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.0893,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 2.0214,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.6729,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.3593,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2056,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.2079,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.296,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 1.4893,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        },
+        {
+          "latencyMs": 3.0169,
+          "requestBytes": 61,
+          "responseBytes": 51753,
+          "resultBytes": 51717,
+          "contentBytes": 0,
+          "structuredContentBytes": 0
+        }
+      ]
+    },
+    {
+      "operation": "harness_read (3-line TypeScript fixture)",
+      "category": "tool-end-to-end",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 0.645,
+        "median": 0.917,
+        "p95NearestRank": 2.204,
+        "p99NearestRank": 3.941,
+        "max": 6.719
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 182,
+        "median": 182,
+        "p95NearestRank": 182,
+        "p99NearestRank": 182,
+        "max": 182
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 568,
+        "median": 568,
+        "p95NearestRank": 568,
+        "p99NearestRank": 568,
+        "max": 568
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 532,
+        "median": 532,
+        "p95NearestRank": 532,
+        "p99NearestRank": 532,
+        "max": 532
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 89,
+        "median": 89,
+        "p95NearestRank": 89,
+        "p99NearestRank": 89,
+        "max": 89
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 394,
+        "median": 394,
+        "p95NearestRank": 394,
+        "p99NearestRank": 394,
+        "max": 394
+      },
+      "observations": [
+        {
+          "latencyMs": 0.9435,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9207,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9724,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9686,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9608,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9459,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9466,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.004,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9551,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9931,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 3.6019,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0546,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8484,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8689,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9575,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8575,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9164,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8424,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0035,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9218,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.813,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6745,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8382,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7137,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.6215,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 2.1173,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0243,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9241,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8725,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8429,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8575,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8186,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8909,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0399,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0124,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9218,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.4362,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 2.2035,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0298,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8057,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7814,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7235,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6987,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6751,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6973,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6718,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6518,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6664,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6677,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6642,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7089,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9298,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.742,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6716,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7478,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 2.9576,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.1302,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8091,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7899,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7373,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7145,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7157,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7552,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6651,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6558,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6683,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6867,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.6452,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8774,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.94,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8085,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.7746,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 3.9409,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.3502,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8789,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.956,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9525,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9168,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9729,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8955,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0137,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9573,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9111,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8944,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0488,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 6.7191,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0718,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0018,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.2727,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0093,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0202,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9588,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8952,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.8343,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9894,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 2.6704,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.9388,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 0.845,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.0611,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        },
+        {
+          "latencyMs": 1.1473,
+          "requestBytes": 182,
+          "responseBytes": 568,
+          "resultBytes": 532,
+          "contentBytes": 89,
+          "structuredContentBytes": 394
+        }
+      ]
+    },
+    {
+      "operation": "harness_symbols read (known TypeScript function)",
+      "category": "tool-end-to-end",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 0.723,
+        "median": 0.859,
+        "p95NearestRank": 2.637,
+        "p99NearestRank": 3.599,
+        "max": 3.686
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 201,
+        "median": 201,
+        "p95NearestRank": 201,
+        "p99NearestRank": 201,
+        "max": 201
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 724,
+        "median": 724,
+        "p95NearestRank": 724,
+        "p99NearestRank": 724,
+        "max": 724
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 688,
+        "median": 688,
+        "p95NearestRank": 688,
+        "p99NearestRank": 688,
+        "max": 688
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 92,
+        "median": 92,
+        "p95NearestRank": 92,
+        "p99NearestRank": 92,
+        "max": 92
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 547,
+        "median": 547,
+        "p95NearestRank": 547,
+        "p99NearestRank": 547,
+        "max": 547
+      },
+      "observations": [
+        {
+          "latencyMs": 0.9154,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.4644,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 3.599,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9296,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9092,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7848,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8262,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.807,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7809,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7296,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7615,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7483,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7232,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8454,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7963,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7673,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7361,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.9007,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.3172,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.0592,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9216,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.0989,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9175,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9374,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8794,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.911,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9227,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9522,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9429,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9369,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.2973,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.6701,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9769,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9495,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9003,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8332,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.738,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7491,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7307,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8222,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7539,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7983,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7236,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7545,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.856,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.884,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.2928,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.7073,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.0607,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9033,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7632,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7655,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7227,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7262,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7334,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7532,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7559,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7385,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7659,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.803,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7682,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7401,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8544,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 3.6861,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.1269,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9729,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9844,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8842,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8678,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8423,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8581,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8606,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.87,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8528,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8387,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8897,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.6373,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.4352,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9398,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7678,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7935,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7539,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7862,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8698,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8219,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7655,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7506,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7673,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7493,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7495,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.7605,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 2.25,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.5203,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9905,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 1.0062,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.8942,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9268,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9266,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9144,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        },
+        {
+          "latencyMs": 0.9406,
+          "requestBytes": 201,
+          "responseBytes": 724,
+          "resultBytes": 688,
+          "contentBytes": 92,
+          "structuredContentBytes": 547
+        }
+      ]
+    },
+    {
+      "operation": "harness_search (one fixed text match)",
+      "category": "tool-end-to-end",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 2.545,
+        "median": 3.118,
+        "p95NearestRank": 7.039,
+        "p99NearestRank": 8.128,
+        "max": 11.681
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 207,
+        "median": 207,
+        "p95NearestRank": 207,
+        "p99NearestRank": 207,
+        "max": 207
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 1380,
+        "median": 1380,
+        "p95NearestRank": 1380,
+        "p99NearestRank": 1380,
+        "max": 1380
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 1344,
+        "median": 1344,
+        "p95NearestRank": 1344,
+        "p99NearestRank": 1344,
+        "max": 1344
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 145,
+        "median": 145,
+        "p95NearestRank": 145,
+        "p99NearestRank": 145,
+        "max": 145
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 1150,
+        "median": 1150,
+        "p95NearestRank": 1150,
+        "p99NearestRank": 1150,
+        "max": 1150
+      },
+      "observations": [
+        {
+          "latencyMs": 8.128,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.2358,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9181,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 11.6814,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 4.7816,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.6019,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.602,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.7432,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.1849,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.5465,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.2413,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7717,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7425,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7891,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.0931,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.326,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.26,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.2909,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.3084,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.0336,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.2566,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7944,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.5507,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.7793,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.533,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.7002,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.9187,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.31,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7844,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7017,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.0662,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.5425,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8934,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9975,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 7.1735,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9019,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6124,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6038,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6993,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 4.7738,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.3284,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6389,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6016,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7724,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.6714,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9331,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.0911,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8242,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 7.0386,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7037,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6223,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.5451,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7801,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.5655,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.3808,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7997,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.4509,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 4.8418,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.1076,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6087,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7295,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9607,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.548,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.3693,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.899,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8369,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9065,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 7.0737,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9341,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.3664,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.048,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 7.4445,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 4.2405,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9883,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.2265,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.5177,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.1291,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7182,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8031,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.7757,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9848,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.788,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8013,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.3402,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.886,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.5986,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6457,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.7484,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.3352,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.6879,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.1803,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.2541,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 5.8139,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 3.1744,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6513,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.9215,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6027,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 6.3124,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.6157,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        },
+        {
+          "latencyMs": 2.8342,
+          "requestBytes": 207,
+          "responseBytes": 1380,
+          "resultBytes": 1344,
+          "contentBytes": 145,
+          "structuredContentBytes": 1150
+        }
+      ]
+    },
+    {
+      "operation": "harness_batch (3 independent reads, maxConcurrent=3)",
+      "category": "tool-end-to-end",
+      "samples": 100,
+      "latencyMs": {
+        "n": 100,
+        "min": 1.232,
+        "median": 1.458,
+        "p95NearestRank": 4.757,
+        "p99NearestRank": 6.426,
+        "max": 15.815
+      },
+      "requestBytes": {
+        "n": 100,
+        "min": 398,
+        "median": 398,
+        "p95NearestRank": 398,
+        "p99NearestRank": 398,
+        "max": 398
+      },
+      "responseBytes": {
+        "n": 100,
+        "min": 1720,
+        "median": 1720,
+        "p95NearestRank": 1720,
+        "p99NearestRank": 1720,
+        "max": 1720
+      },
+      "resultBytes": {
+        "n": 100,
+        "min": 1684,
+        "median": 1684,
+        "p95NearestRank": 1684,
+        "p99NearestRank": 1684,
+        "max": 1684
+      },
+      "contentBytes": {
+        "n": 100,
+        "min": 159,
+        "median": 159,
+        "p95NearestRank": 159,
+        "p99NearestRank": 159,
+        "max": 159
+      },
+      "structuredContentBytes": {
+        "n": 100,
+        "min": 1476,
+        "median": 1476,
+        "p95NearestRank": 1476,
+        "p99NearestRank": 1476,
+        "max": 1476
+      },
+      "observations": [
+        {
+          "latencyMs": 1.4803,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 3.3048,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5734,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.6072,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3833,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4611,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4196,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4256,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3696,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4544,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.7573,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5818,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3773,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3495,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2374,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3315,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2916,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3247,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2765,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.8126,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.811,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.7592,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5477,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4686,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5312,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5129,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4512,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.8787,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4814,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3085,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3307,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3575,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3621,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3449,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2963,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.311,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 3.5776,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4508,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3268,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2991,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3071,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3082,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2321,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3875,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2945,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3433,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.7899,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.6825,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4556,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5074,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4043,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4413,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4719,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4257,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 2.1993,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 6.4262,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3794,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3504,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2915,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2508,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3196,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3782,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 15.815,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.3231,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.8781,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 2.089,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 2.062,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5705,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5271,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4184,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.8781,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.6201,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5439,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4629,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5458,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4816,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4935,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4002,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.7228,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.7013,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.8026,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4912,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5202,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.358,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4483,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4622,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3495,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 4.4265,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5045,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4827,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.2844,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.3116,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.351,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4628,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4268,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.432,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 3.3695,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.7807,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.5605,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        },
+        {
+          "latencyMs": 1.4529,
+          "requestBytes": 398,
+          "responseBytes": 1720,
+          "resultBytes": 1684,
+          "contentBytes": 159,
+          "structuredContentBytes": 1476
+        }
+      ]
+    }
+  ]
+}

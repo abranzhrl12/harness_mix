@@ -11,10 +11,6 @@ autotests = true
 name = "agent-harness"
 path = "src/main.rs"
 
-[[bin]]
-name = "harnessmix"
-path = "src/harnessmix.rs"
-
 [[test]]
 name = "razor_graph_containers"
 path = "tests/razor_graph_containers.rs"
@@ -65,7 +61,7 @@ default-members = [
     "crates/jobs",
 ]
 resolver = "3"
-exclude = ["vendor/codegraph-native"]
+exclude = ["vendor/codegraph-native", "archive/antigravity"]
 
 [features]
 default = ["browser-cdp"]

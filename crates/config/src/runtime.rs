@@ -13,6 +13,7 @@ pub struct RuntimeConfig {
     pub index_watch_enabled: bool,
     pub eager_tools_enabled: bool,
     pub context_presentation: bool,
+    pub structured_presentation: bool,
 }
 
 impl RuntimeConfig {
@@ -53,7 +54,8 @@ impl RuntimeConfig {
             index_watch_setting,
             index_watch_enabled,
             eager_tools_enabled: eager_tools.as_deref() != Some(OsStr::new("0")),
-            context_presentation: matches!(presentation, Ok(Some(value)) if value == "context"),
+            context_presentation: matches!(&presentation, Ok(Some(value)) if value == "context"),
+            structured_presentation: !matches!(&presentation, Ok(Some(value)) if value == "legacy" || value == "context"),
         })
     }
 }

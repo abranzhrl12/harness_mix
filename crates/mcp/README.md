@@ -24,3 +24,7 @@ La API también publica `BoundedLines` y `MAX_MESSAGE_BYTES` para que el runtime
 ## Verificación
 
 Las pruebas de integración en `tests/architecture.rs` comprueban la API pública del servidor desde fuera del crate. Las pruebas de cancelación viven como pruebas unitarias porque cubren detalles privados del dispatcher y de `execute`.
+
+Por defecto, bootstrap, lectura, s?mbolos, b?squeda, exploraci?n y batch devuelven un resumen textual con avisos y referencias; el resultado completo queda en `structuredContent`. Para clientes que solo consumen `content`, configure `HARNESS_MCP_PRESENTATION=legacy` en el entorno del proceso MCP y reconecte. `HARNESS_MCP_PRESENTATION=context` conserva su formato contextual anterior. La reducci?n efectiva depende de c?mo cada cliente procese ambos canales.
+
+En exploraci?n, `data.dataTrace` contiene el linaje can?nico; el alias id?ntico `crossLayerTrace` se conserva en el modo `legacy`. Una selecci?n anclada a un archivo fuera de las capas compatibles no busca linaje global, salvo un par?metro expl?cito `@...`.

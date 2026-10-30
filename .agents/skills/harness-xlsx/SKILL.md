@@ -5,8 +5,9 @@ description: Inspect or read existing XLSX workbooks via Harness MCP by sheet, r
 
 # Bounded XLSX Reading
 
-Run `harness_bootstrap` if you lack an active session and follow the advertised
-`harness_xlsx` schema. Never load an entire workbook just to discover a sheet.
+Read the [shared operating rules](../harness-workflow/references/operating-rules.md)
+once per task and follow the advertised `harness_xlsx` schema. Never load an
+entire workbook just to discover a sheet.
 
 - If sheet names are unknown, call `harness_xlsx` with `path` and omit `sheet`
   to retrieve workbook metadata.
@@ -21,10 +22,8 @@ Run `harness_bootstrap` if you lack an active session and follow the advertised
   reads for the affected range rather than mixing versions.
 - Project large outputs with `harness_data_query` when supported. Never treat
   omitted cells or empty values as zeros without evidence.
-- Respect path and scope boundaries; a permission rejection does not authorize
-  reading the file through an alternative channel. This tool does not modify
-  workbooks: if creation or editing is requested, use an appropriate authorized
-  capability.
+- This tool does not modify workbooks. For creation or editing, use an
+  appropriate authorized capability.
 
 Example (replace with real values):
 

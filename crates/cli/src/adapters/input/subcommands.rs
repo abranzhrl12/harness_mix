@@ -2,36 +2,6 @@ use std::{ffi::OsString, path::PathBuf};
 
 use crate::{Command, Root};
 
-pub(super) fn parse_active_command(
-    args: &[OsString],
-    mut root: Option<PathBuf>,
-) -> Result<Command, String> {
-    let usage = "usage: agent-harness active [antigravity] [--root <workspace>]";
-    let mut provider = None;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "--root" && index + 1 < args.len() && root.is_none() {
-            root = Some(PathBuf::from(&args[index + 1]));
-            index += 2;
-        } else if args[index] == "antigravity" && provider.is_none() {
-            provider = Some("antigravity".to_owned());
-            index += 1;
-        } else {
-            return Err(usage.into());
-        }
-    }
-    if root
-        .as_ref()
-        .is_some_and(|path| path.as_os_str().is_empty())
-    {
-        return Err("active requires a non-empty --root path".into());
-    }
-    Ok(Command::Active {
-        root: root.map_or(Root::DetectOrCurrent, Root::Explicit),
-        provider,
-    })
-}
-
 pub(super) fn parse_skills_command(args: &[OsString], root: Root) -> Result<Command, String> {
     if args.first().is_none_or(|arg| arg != "sync") {
         return Err("usage: agent-harness [--root <workspace>] skills sync [--check | --dry-run | --enable-auto | --disable-auto]".into());

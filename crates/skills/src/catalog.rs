@@ -22,6 +22,7 @@ pub(crate) const SKILLS: &[SkillSource] = &[
         relative_path: ".agents/skills/harness-read/SKILL.md",
         content: include_str!("../../../.agents/skills/harness-read/SKILL.md"),
     },
+    skill_file!("harness-read", "references/search-and-results.md"),
     SkillSource {
         id: "harness-edit",
         relative_path: ".agents/skills/harness-edit/SKILL.md",
@@ -55,8 +56,13 @@ pub(crate) const SKILLS: &[SkillSource] = &[
     // Workflow skills and their upstream support files are embedded for offline init.
     skill_file!("harness-workflow", "SKILL.md"),
     skill_file!("harness-workflow", "SUPERPOWERS.md"),
+    skill_file!("harness-workflow", "references/operating-rules.md"),
     skill_file!("systematic-debugging", "SKILL.md"),
     skill_file!("systematic-debugging", "LICENSE"),
+    skill_file!(
+        "systematic-debugging",
+        "references/multi-component-investigation.md"
+    ),
     skill_file!("systematic-debugging", "root-cause-tracing.md"),
     skill_file!("systematic-debugging", "defense-in-depth.md"),
     skill_file!("systematic-debugging", "condition-based-waiting.md"),
@@ -69,6 +75,7 @@ pub(crate) const SKILLS: &[SkillSource] = &[
     skill_file!("systematic-debugging", "test-pressure-3.md"),
     skill_file!("test-driven-development", "SKILL.md"),
     skill_file!("test-driven-development", "LICENSE"),
+    skill_file!("test-driven-development", "references/red-green-example.md"),
     skill_file!("test-driven-development", "writing-good-tests.md"),
     skill_file!("verification-before-completion", "SKILL.md"),
     skill_file!("verification-before-completion", "LICENSE"),

@@ -10,8 +10,6 @@ use parsers::{
     razor::render as razor_render, razor::syntax as razor_syntax, rust::symbols as rust_symbols,
     rust::syntax as rust_syntax, vue::structure as vue_structure, vue::syntax as vue_syntax,
 };
-pub mod acp;
-pub mod agent;
 mod capabilities;
 mod composition;
 mod config;

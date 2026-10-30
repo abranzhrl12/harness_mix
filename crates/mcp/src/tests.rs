@@ -39,7 +39,10 @@ fn server_instances_keep_presentation_options_independent() {
 #[test]
 fn server_guides_relationship_queries_when_watcher_lock_is_busy() {
     let application = Application::new(
-        WaitingWorkspace { started: Mutex::new(None), finished: Mutex::new(None) },
+        WaitingWorkspace {
+            started: Mutex::new(None),
+            finished: Mutex::new(None),
+        },
         TrackingSessions(Arc::new(AtomicUsize::new(0)), Arc::default()),
     );
     let server = McpServer::new(application, None);
@@ -62,14 +65,21 @@ fn generated_tool_router_registers_browser_with_object_discriminator_schema() {
     );
     let server = McpServer::new(application, None);
     let router = server.profile_router();
-    let browser = router.get("harness_browser").expect("browser tool registered");
+    let browser = router
+        .get("harness_browser")
+        .expect("browser tool registered");
     let schema = serde_json::to_value(&browser.input_schema).unwrap();
 
     assert_eq!(schema["type"], "object", "{schema}");
     assert!(schema["oneOf"].is_array(), "{schema}");
-    assert!(schema["oneOf"].as_array().unwrap().iter().all(|variant| {
-        variant["properties"]["action"]["type"] == "string"
-    }), "{schema}");
+    assert!(
+        schema["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|variant| { variant["properties"]["action"]["type"] == "string" }),
+        "{schema}"
+    );
 }
 
 struct WaitingWorkspace {
@@ -196,9 +206,15 @@ async fn mutation_cancellation_waits_for_definitive_commit_outcome() {
         session: Some("session".into()),
     });
     let task = tokio::spawn(async move {
-        execute(&application, request, async {
-            let _ = cancel_rx.await;
-        }, false)
+        execute(
+            &application,
+            request,
+            async {
+                let _ = cancel_rx.await;
+            },
+            false,
+            false,
+        )
         .await
     });
     tokio::time::timeout(Duration::from_secs(2), started_rx)
@@ -248,9 +264,15 @@ async fn cancellation_and_handler_drop_stop_workers_and_release_session_leases()
             session: Some("session".into()),
         });
         let handler = tokio::spawn(async move {
-            execute(&application, request, async {
-                let _ = cancel_rx.await;
-            }, false)
+            execute(
+                &application,
+                request,
+                async {
+                    let _ = cancel_rx.await;
+                },
+                false,
+                false,
+            )
             .await
         });
         tokio::time::timeout(Duration::from_secs(3), started_rx)

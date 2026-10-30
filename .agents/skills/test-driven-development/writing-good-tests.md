@@ -44,12 +44,12 @@ on redesign and sleeps through bugs. Test the behavior that depends on
 the decision: not `expect(MAX_RETRIES).toBe(5)` but "a failing call is
 retried 5 times and the 6th attempt never happens."
 
-**Behavior, not text.** Asserting that a script, skill, or config
-contains an exact line proves only that the source is the source. Run
-scripts against controlled inputs and assert outputs, side effects, or
-exit codes. Documents that instruct agents are tested by the consuming
-agent's behavior (superpowers:writing-skills); prose for humans earns no
-test at all.
+**Behavior, not wording.** Grepping a script, skill, or config for an exact
+sentence proves only that the text exists. For executable artifacts, run them
+against controlled inputs and assert outputs or side effects. For agent-facing
+instructions, validate links, frontmatter, task routing, and bundled
+references; exercise the consuming workflow when a safe test harness exists.
+Human-facing prose can be reviewed without inventing a runtime test.
 
 **Your code, not the framework.** Test the contract your code makes at
 its boundaries — the route you register, the query you emit, the payload

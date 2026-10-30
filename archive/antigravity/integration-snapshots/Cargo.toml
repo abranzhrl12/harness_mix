@@ -1,0 +1,167 @@
+[package]
+name = "agent-harness"
+version = "0.8.9"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+autobins = false
+autotests = true
+
+[[bin]]
+name = "agent-harness"
+path = "src/main.rs"
+
+[[bin]]
+name = "harnessmix"
+path = "src/harnessmix.rs"
+required-features = ["antigravity"]
+
+[[test]]
+name = "razor_graph_containers"
+path = "tests/razor_graph_containers.rs"
+test = true
+
+[[test]]
+name = "razor_instance_receivers"
+path = "tests/razor_instance_receivers.rs"
+test = true
+
+[[test]]
+name = "razor_resolution_efficiency"
+path = "tests/razor_resolution_efficiency.rs"
+test = true
+
+[[test]]
+name = "explore"
+path = "tests/explore.rs"
+test = true
+
+[profile.test.package.agent-harness]
+opt-level = 0
+
+[lib]
+test = true
+doctest = false
+
+[workspace]
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/browser",
+    "crates/lsp",
+    "crates/cli",
+    "crates/mcp",
+    "crates/config",
+    "crates/skills",
+    "crates/jobs",
+]
+default-members = [
+    ".",
+    "crates/domain",
+    "crates/application",
+    "crates/cli",
+    "crates/mcp",
+    "crates/config",
+    "crates/skills",
+    "crates/jobs",
+]
+resolver = "3"
+exclude = ["vendor/codegraph-native"]
+
+[features]
+default = ["browser-cdp"]
+browser-cdp = ["dep:harness-browser"]
+antigravity = ["harness-cli/antigravity"]
+
+[dependencies]
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "=0.22.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "io-util", "io-std", "net", "process", "signal"] }
+uuid = { version = "1", features = ["v4"] }
+harness-domain = { path = "crates/domain", features = ["schema"] }
+harness-application = { path = "crates/application" }
+harness-lsp = { path = "crates/lsp" }
+harness-browser = { path = "crates/browser", optional = true }
+harness-cli = { path = "crates/cli" }
+harness-mcp = { path = "crates/mcp" }
+harness-config = { path = "crates/config" }
+harness-skills = { path = "crates/skills" }
+harness-jobs = { path = "crates/jobs" }
+tempfile = "3"
+ignore = "0.4"
+globset = "0.4"
+regex = "1"
+ra_ap_syntax = "=0.0.289"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+roxmltree = "=0.21.1"
+rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
+codegraph-native = { path = "vendor/codegraph-native" }
+oxc_allocator = "=0.155.0"
+oxc_ast = "=0.155.0"
+oxc_parser = "=0.155.0"
+oxc_semantic = "=0.155.0"
+oxc_span = "=0.155.0"
+oxc_syntax = "=0.155.0"
+oxc_resolver = "=11.24.3"
+tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"] }
+tokio-postgres = "=0.7.18"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+futures-util = "0.3"
+tokio-util = { version = "0.7.20", features = ["compat"] }
+rust_decimal = { version = "1.43.0", features = ["serde"] }
+calamine = "0.36.1"
+jmespath = { version = "0.3", features = ["sync"] }
+mimalloc = { version = "0.1.52", default-features = false }
+raffia = "=0.13.0"
+tl = "=0.7.8"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+bm25 = { version = "=2.3.2", default-features = false }
+# Keep the native Tree-sitter runtime shared with codegraph-native (0.25).
+ast-grep-core = "=0.39.9"
+ast-grep-language = "=0.39.9"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+notify = "=8.2.0"
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_Memory"] }
+
+[dev-dependencies]
+syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "visit"] }
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 16
+
+# Perfil explícito para medir el ejecutable con máxima optimización de enlace.
+# Conserva el perfil release habitual como referencia y no fija una CPU local.
+[profile.release-max]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+# Perfil para pruebas: código como release (opt-level 3) pero paralelizado,
+# sin LTO ni strip, para compilar en minutos y depurar cuelgues.
+[profile.bench-fast]
+inherits = "release"
+lto = false
+strip = false
+codegen-units = 16
+debug = "line-tables-only"
+
+# Un binario de depuración sin optimizar es órdenes de magnitud más lento en
+# parseo (syn/oxc), SQLite y hashing. Optimizamos igualmente y reducimos los PDB.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3

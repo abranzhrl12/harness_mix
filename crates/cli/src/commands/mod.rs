@@ -4,7 +4,6 @@
 //! application operations through [`Host`], which keeps this crate reusable by
 //! the binary and by tests without depending on the executable crate.
 
-mod active;
 mod plan_summary;
 mod skills_sync;
 mod workspace;
@@ -57,12 +56,6 @@ pub trait IndexHost {
     }
 }
 
-/// Agent discovery and launch capability supplied by the executable or app.
-pub trait AgentHost {
-    fn agent_executable(&self) -> Option<PathBuf>;
-    fn launch_agent(&self, root: &Path, provider: &str) -> Result<i32, String>;
-}
-
 /// Server transport capability supplied by the executable or app.
 pub trait ServerHost {
     // Callers await this locally, so the trait does not promise `Send`.
@@ -80,12 +73,9 @@ pub trait ExecutableHost {
 }
 
 /// Executable boundary composed from small capabilities.
-pub trait Host: DatabaseHost + IndexHost + AgentHost + ServerHost + ExecutableHost {}
+pub trait Host: DatabaseHost + IndexHost + ServerHost + ExecutableHost {}
 
-impl<T> Host for T where
-    T: DatabaseHost + IndexHost + AgentHost + ServerHost + ExecutableHost + ?Sized
-{
-}
+impl<T> Host for T where T: DatabaseHost + IndexHost + ServerHost + ExecutableHost + ?Sized {}
 
 fn prepare_in_directory(args: Vec<OsString>, cwd: &Path) -> Result<Command, String> {
     let automatic = args.is_empty() || (args.len() == 1 && args[0] == "--persist-logs");
@@ -119,11 +109,6 @@ pub async fn run(
         }
         Command::Help => print_help(),
         Command::Version => println!("agent-harness {package_version}"),
-        Command::Config => active::config(host.agent_executable().as_deref())?,
-        Command::Active { root, provider } => {
-            let root = resolve_root(root)?;
-            active::run(&root, provider.as_deref(), host)?;
-        }
         Command::InitConfig { root } => {
             println!("{}", host.initialize_database(&resolve_root(root)?)?);
         }
@@ -355,9 +340,6 @@ fn print_help() {
         "Workspace: workspace init | workspace add <alias> <ruta> | workspace list | workspace check [--root <carpeta>].\nSin argumentos: descubre harness-workspace.json desde la carpeta actual hacia sus padres. --root selecciona un solo proyecto."
     );
     println!(
-        "Agentes: active abre el menú; active antigravity inicia Antigravity; config (o /config) muestra proveedores.\n"
-    );
-    println!(
         "Agent Harness — MCP por stdio\n\nUso: agent-harness [--root <proyecto> | --workspace-config <manifest.json>] [opción]\n\nSin --root: detecta el proyecto desde el entorno o directorio actual.\n\nOpciones:\n  init [--root <proyecto>] Instalar skills y configuración local sin indexar\n  index [--root <proyecto>] Crear o sincronizar el índice explícitamente\n  uninstall [--root <proyecto>] Retirar la instalación registrada, preservando archivos ajenos\n  --workspace-config <archivo> Servir varios proyectos con un manifiesto JSON\n  --index <acción>       Mantenimiento unificado del índice: init, sync, rebuild, plan\n  --sync-file <ruta>     Sincronizar un archivo relativo al proyecto\n    --tsconfig <ruta>    Usar aliases de un tsconfig explícito\n  skills sync            Instalar o actualizar skills Harness en el proyecto\n    --check              Comprobar diferencias, sin escribir\n    --dry-run            Mostrar el plan, sin escribir\n    --enable-auto        Activar sync local al arrancar este proyecto\n    --disable-auto       Desactivar sync automático local\n  --persist-logs         Guardar logs del servidor\n  --version              Mostrar la versión\n  --help, -h             Mostrar esta ayuda\n\nAlias compatibles de índice: --init-index, --sync, --reindex, --sync-plan"
     );
     println!(
@@ -433,15 +415,6 @@ mod tests {
         ) -> Result<Value, Failure> {
             *self.index_call.lock().unwrap() = Some(operation);
             Ok(serde_json::json!({"selectedScopeApplied": true}))
-        }
-    }
-
-    impl AgentHost for FakeHost {
-        fn agent_executable(&self) -> Option<PathBuf> {
-            None
-        }
-        fn launch_agent(&self, _root: &Path, _provider: &str) -> Result<i32, String> {
-            Ok(0)
         }
     }
 

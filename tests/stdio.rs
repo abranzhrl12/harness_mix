@@ -13,6 +13,77 @@ struct Server {
     messages: mpsc::Receiver<String>,
 }
 
+#[test]
+fn structured_presentation_over_stdio_preserves_results_and_errors() {
+    let root = tempfile::tempdir().unwrap();
+    let source = "pub fn unique_marker() -> i32 { 42 }\n";
+    std::fs::write(root.path().join("sample.rs"), source).unwrap();
+    let mut server = Server::start_with_mode(root.path(), false, false, None, "full", true);
+    server.initialize();
+    let calls = [
+        ("harness_bootstrap", json!({"compact":true})),
+        ("harness_read", json!({"path":"sample.rs","start":1,"end":1})),
+        ("harness_symbols", json!({"action":"read","path":"sample.rs","symbol":"unique_marker"})),
+        ("harness_search", json!({"kind":"text","query":"unique_marker","scope":".","contextLines":1})),
+        ("harness_batch", json!({"jobs":[
+            {"tool":"harness_read","arguments":{"path":"sample.rs","start":1,"end":1}},
+            {"tool":"harness_read","arguments":{"path":"missing.rs","start":1,"end":1}}
+        ]})),
+    ];
+    for (i, (tool, arguments)) in calls.into_iter().enumerate() {
+        let response = server.request(i as u64 + 2, "tools/call", json!({"name":tool,"arguments":arguments}));
+        let result = &response["result"];
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let envelope = &result["structuredContent"];
+        assert_eq!(envelope["state"], if tool == "harness_batch" { "error" } else { "ok" }, "{response}");
+        assert!(text.contains(tool), "{response}");
+        assert!(!text.contains("pub fn unique_marker"), "{response}");
+        match tool {
+            "harness_bootstrap" => assert!(text.contains(envelope["data"]["session"].as_str().unwrap())),
+            "harness_read" => assert_eq!(envelope["data"]["text"], source.trim_end()),
+            "harness_symbols" => assert_eq!(envelope["data"]["text"], source.trim_end()),
+            "harness_search" => assert!(envelope["data"]["matches"][0]["context"]["text"].as_str().unwrap().contains(source.trim_end())),
+            "harness_batch" => {
+                assert_eq!(envelope["data"]["results"][0]["data"]["text"], source.trim_end());
+                assert_eq!(envelope["data"]["results"][1]["state"], "error");
+                let diagnostic = &envelope["data"]["results"][1]["diagnostics"][0];
+                assert!(text.contains(diagnostic["code"].as_str().unwrap()), "{response}");
+            }
+            _ => unreachable!(),
+        }
+    }
+    let mut legacy = Server::start_with_mode(root.path(), false, false, Some("legacy"), "full", true);
+    legacy.initialize();
+    let response = legacy.request(2, "tools/call", json!({"name":"harness_read","arguments":{"path":"sample.rs","start":1,"end":1}}));
+    assert!(response["result"]["content"][0]["text"].as_str().unwrap().contains(source.trim_end()), "{response}");
+    assert_eq!(response["result"]["structuredContent"]["data"]["text"], source.trim_end());
+}
+
+#[test]
+fn explore_stdio_default_avoids_duplicate_text_and_unrelated_lineage() {
+    let root = tempfile::tempdir().unwrap();
+    let db = graph_fixture::fixture(root.path());
+    drop(db);
+    std::fs::write(root.path().join("app.js"), "function target() { return target; }").unwrap();
+    let mut server = Server::start(root.path());
+    server.initialize();
+    for (id, view) in [(2, "summary"), (3, "full")] {
+        let response = server.request(id, "tools/call", json!({"name":"harness_explore","arguments":{
+            "filePath":"lib.rs","symbol":"target","view":view,"syncIndex":false
+        }}));
+        let result = &response["result"];
+        let data = &result["structuredContent"]["data"];
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert_eq!(result["structuredContent"]["state"], "ok", "{response}");
+        assert!(text.contains("harness_explore"));
+        assert!(!text.contains("pub fn target"));
+        assert!(data.get("dataTrace").is_none() && data.get("crossLayerTrace").is_none(), "{response}");
+        assert!(data["fileFreshness"].is_object());
+        assert!(data["definitions"].is_array());
+        assert!(result["structuredContent"]["detail"]["ref"].is_string());
+    }
+}
+
 fn direct_tool_payload(response: &Value) -> Value {
     // Successful source payloads now render a lean markdown text channel; the
     // canonical envelope lives in structuredContent. Flatten it the same way
@@ -687,6 +758,9 @@ impl Server {
         profile: &str,
         eager: bool,
     ) -> Self {
+        Self::start_with_mode(root, persist, keep_path, if context { Some("context") } else { None }, profile, eager)
+    }
+    fn start_with_mode(root: &std::path::Path, persist: bool, keep_path: bool, mode: Option<&str>, profile: &str, eager: bool) -> Self {
         let executable = std::env::var_os("HARNESS_NATIVE_BINARY")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| env!("CARGO_BIN_EXE_agent-harness").into());
@@ -699,8 +773,8 @@ impl Server {
             .env("HARNESS_TOOL_PROFILE", profile)
             .env_remove("HARNESS_INDEX_WATCH")
             .env("HARNESS_MCP_EAGER_TOOLS", if eager { "1" } else { "0" });
-        if context {
-            command.env("HARNESS_MCP_PRESENTATION", "context");
+        if let Some(mode) = mode {
+            command.env("HARNESS_MCP_PRESENTATION", mode);
         } else {
             command.env_remove("HARNESS_MCP_PRESENTATION");
         }
@@ -1056,7 +1130,7 @@ fn search_details_and_session_restore_work_without_node_or_ripgrep() {
     let search = &search["result"]["structuredContent"];
     assert_eq!(search["data"]["matches"].as_array().unwrap().len(), 1);
     assert_eq!(search["omitted"]["matches"], 1);
-    assert!(search["data"].get("complete").is_none());
+    assert!(search["data"]["complete"].is_boolean());
     let reference = search["detail"]["ref"].as_str().unwrap().to_owned();
     let full = server.request(
         5,

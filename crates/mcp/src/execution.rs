@@ -1,7 +1,5 @@
 //! Cancellation and admission ownership for blocking application operations.
-use super::presentation::{
-    clean_empty_metadata, compact_envelope_metadata, response_with_options,
-};
+use super::presentation::{clean_empty_metadata, compact_envelope_metadata, response_with_options};
 use harness_application::{
     Application,
     ports::{SessionRepository, Workspace},
@@ -21,14 +19,20 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
     request: Request,
     cancelled: impl std::future::Future<Output = ()>,
     context_presentation: bool,
+    structured_presentation: bool,
 ) -> CallToolResult {
     let compact = matches!(&request, Request::Read(args) if args.compact);
     let compact_batch_reads = match &request {
-        Request::Batch(args) => args.jobs.iter().enumerate().filter_map(|(index, job)| {
-            (job.tool.name() == "harness_read"
-                && job.arguments.get("compact") == Some(&serde_json::Value::Bool(true)))
-            .then_some(index)
-        }).collect::<Vec<_>>(),
+        Request::Batch(args) => args
+            .jobs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, job)| {
+                (job.tool.name() == "harness_read"
+                    && job.arguments.get("compact") == Some(&serde_json::Value::Bool(true)))
+                .then_some(index)
+            })
+            .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
     let name = request.name();
@@ -58,7 +62,8 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
             else { application.failure(name, &args, ("TIMEOUT", "operación superó el plazo")) }
         },
     };
-    if let Some(results) = envelope.get_mut("data")
+    if let Some(results) = envelope
+        .get_mut("data")
         .and_then(|data| data.get_mut("results"))
         .and_then(serde_json::Value::as_array_mut)
     {
@@ -66,7 +71,8 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
             clean_empty_metadata(result);
         }
     }
-    if let Some(results) = envelope.get_mut("data")
+    if let Some(results) = envelope
+        .get_mut("data")
         .and_then(|data| data.get_mut("_detail"))
         .and_then(|detail| detail.get_mut("results"))
         .and_then(serde_json::Value::as_array_mut)
@@ -78,14 +84,16 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
         }
     }
     for index in compact_batch_reads {
-        if let Some(result) = envelope.get_mut("data")
+        if let Some(result) = envelope
+            .get_mut("data")
             .and_then(|data| data.get_mut("results"))
             .and_then(serde_json::Value::as_array_mut)
             .and_then(|items| items.get_mut(index))
         {
             compact_envelope_metadata(result);
         }
-        if let Some(result) = envelope.get_mut("data")
+        if let Some(result) = envelope
+            .get_mut("data")
             .and_then(|data| data.get_mut("_detail"))
             .and_then(|detail| detail.get_mut("results"))
             .and_then(serde_json::Value::as_array_mut)
@@ -97,5 +105,19 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
     }
     // A detached worker retains its admission/session guards until it really stops.
     envelope["requestId"] = serde_json::json!(request_id);
-    response_with_options(envelope, compact, context_presentation)
+    if structured_presentation
+        && matches!(
+            name,
+            "harness_bootstrap"
+                | "harness_read"
+                | "harness_symbols"
+                | "harness_search"
+                | "harness_batch"
+                | "harness_explore"
+        )
+    {
+        super::presentation::structured_presentation(envelope)
+    } else {
+        response_with_options(envelope, compact, context_presentation)
+    }
 }

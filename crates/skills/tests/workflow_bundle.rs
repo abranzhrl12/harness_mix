@@ -7,7 +7,10 @@ use std::{fs, path::Path};
 const REQUIRED_FILES: &[&str] = &[
     "harness-workflow/SKILL.md",
     "harness-workflow/SUPERPOWERS.md",
+    "harness-workflow/references/operating-rules.md",
+    "harness-read/references/search-and-results.md",
     "systematic-debugging/SKILL.md",
+    "systematic-debugging/references/multi-component-investigation.md",
     "systematic-debugging/root-cause-tracing.md",
     "systematic-debugging/defense-in-depth.md",
     "systematic-debugging/condition-based-waiting.md",
@@ -15,6 +18,7 @@ const REQUIRED_FILES: &[&str] = &[
     "systematic-debugging/find-polluter.sh",
     "systematic-debugging/LICENSE",
     "test-driven-development/SKILL.md",
+    "test-driven-development/references/red-green-example.md",
     "test-driven-development/writing-good-tests.md",
     "test-driven-development/LICENSE",
     "verification-before-completion/SKILL.md",

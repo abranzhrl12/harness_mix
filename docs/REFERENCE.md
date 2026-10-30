@@ -12,21 +12,9 @@ agent-harness [--root "C:/proyectos/mi-app"] [opción]
 
 Sin opción, inicia un servidor persistente por stdio. Sin `--root`, intenta detectar el proyecto por variables del cliente y el directorio actual; usar una ruta explícita evita ambigüedad.
 
-### Agente local
-
-Para el chat propio en Rust mediante ACP, usa `harnessmix active` o
-`harnessmix login`. Consulta [HarnessMix](HARNESSMIX.md) para instalación,
-autenticación con Google y arquitectura. Los comandos `agent-harness` siguientes
-corresponden al lanzador de la interfaz oficial de `agy`.
-
-~~~powershell
-agent-harness active
-agent-harness active antigravity --root "C:/proyectos/mi-app"
-agent-harness config
-agent-harness /config
-~~~
-
-`active` abre un menú para elegir un proveedor implementado. Por ahora solo Antigravity está habilitado; `active antigravity` lo inicia directamente en el workspace indicado. El CLI hereda la entrada y salida de la terminal, no agrega opciones al comando `agy` e informa un error si el proveedor termina con un código distinto de cero. Dentro del menú, `/config` muestra el estado y `0` sale. `config` y `/config` también funcionan como argumentos del ejecutable: muestran los proveedores implementados, si su CLI se encuentra y la ruta resuelta. No leen ni modifican la configuración o credenciales del proveedor.
+El lanzador de Antigravity y el cliente `harnessmix` se conservan en
+[`archive/antigravity`](../archive/antigravity/), fuera del workspace y de la
+compilación de MCP.
 
 | Opción | Función y efectos |
 | --- | --- |

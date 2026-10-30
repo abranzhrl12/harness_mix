@@ -15,11 +15,6 @@ pub enum Command {
     },
     Help,
     Version,
-    Active {
-        root: Root,
-        provider: Option<String>,
-    },
-    Config,
     Serve {
         root: Root,
         workspace_config: Option<PathBuf>,

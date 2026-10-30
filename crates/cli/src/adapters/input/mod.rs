@@ -16,9 +16,7 @@ impl ArgumentParser for Parser {
         parse(args)
     }
 }
-use subcommands::{
-    parse_active_command, parse_init_command, parse_skills_command, parse_uninstall_command,
-};
+use subcommands::{parse_init_command, parse_skills_command, parse_uninstall_command};
 
 pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     if args.first().is_some_and(|arg| arg == "workspace") {
@@ -26,23 +24,6 @@ pub fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     }
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(Command::Help);
-    }
-
-    if args
-        .first()
-        .is_some_and(|arg| arg == "config" || arg == "/config")
-    {
-        return if args.len() == 1 {
-            Ok(Command::Config)
-        } else {
-            Err("usage: agent-harness config".into())
-        };
-    }
-    if args.first().is_some_and(|arg| arg == "active") {
-        return parse_active_command(&args[1..], None);
-    }
-    if args.len() >= 3 && args[0] == "--root" && args[2] == "active" {
-        return parse_active_command(&args[3..], Some(PathBuf::from(args[1].clone())));
     }
 
     if args.first().is_some_and(|arg| arg == "--workspace-config") {

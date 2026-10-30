@@ -1,6 +1,67 @@
 use super::{clean_empty_metadata, response_with_options};
 use serde_json::json;
 
+#[test]
+fn structured_explore_keeps_single_lineage_and_evidence() {
+    let trace = json!({"identifier":"field","layers":[{"source":"unique body"}]});
+    let wire = serde_json::to_value(super::structured_presentation(json!({
+        "state":"ok","scope":{"tool":"harness_explore"},"detail":{"ref":"saved"},
+        "omitted":{"lines":2},"data":{"text":"unique body","dataTrace":trace,"crossLayerTrace":trace,
+        "fileFreshness":{"status":"changed"},"truncated":true}
+    }))).unwrap();
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(!text.contains("unique body"));
+    assert!(text.contains("Partial") && text.contains("saved"));
+    assert_eq!(wire["structuredContent"]["data"]["dataTrace"]["identifier"], "field");
+    assert!(wire["structuredContent"]["data"].get("crossLayerTrace").is_none());
+    assert_eq!(wire["structuredContent"]["data"]["fileFreshness"]["status"], "changed");
+}
+
+#[test]
+fn structured_presentation_keeps_source_and_notices_without_repeating_body() {
+    let body = "unique source body";
+    let envelope = json!({"state":"ok","scope":{"tool":"harness_batch"},
+        "detail":{"ref":"saved"},"omitted":{"lines":4},
+        "data":{"results":[{"tool":"harness_read","state":"ok","data":{"path":"a.rs","text":body}},
+            {"tool":"harness_search","state":"error","diagnostics":[{"code":"PATH","message":"missing"}]}]}});
+    let result = serde_json::to_value(super::structured_presentation(envelope)).unwrap();
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(!text.contains(body));
+    for item in ["PATH", "missing", "saved", "Partial"] {
+        assert!(text.contains(item), "{text}");
+    }
+    assert_eq!(
+        result["structuredContent"]["data"]["results"][0]["data"]["text"],
+        body
+    );
+}
+
+#[test]
+fn structured_presentation_preserves_search_context_and_bootstrap_session() {
+    let result = serde_json::to_value(super::structured_presentation(json!({
+        "state":"ok","scope":{"tool":"harness_search"},
+        "data":{"matches":[{"hash":"hash","context":{"text":"source text"}}]}
+    })))
+    .unwrap();
+    assert_eq!(
+        result["structuredContent"]["data"]["matches"][0]["context"]["text"],
+        "source text"
+    );
+    assert!(
+        !result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("source text")
+    );
+    let boot = serde_json::to_value(super::structured_presentation(json!({
+        "state":"ok","scope":{"tool":"harness_bootstrap"},
+        "data":{"root":"E:/project","session":"session-id"}
+    })))
+    .unwrap();
+    let text = boot["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("E:/project") && text.contains("session-id"));
+}
+
 fn symbols_payload(envelope: serde_json::Value) -> (serde_json::Value, serde_json::Value) {
     let result = response_with_options(envelope, false, false);
     assert!(result.structured_content.is_some());
@@ -215,10 +276,12 @@ fn git_diff_wraps_the_patch_in_a_diff_fence() {
         text.contains("```diff\n@@ -1,1 +1,1 @@\n-old line\n+new line\n```"),
         "{text}"
     );
-    assert!(wire["structuredContent"]["data"]["preview"]
-        .as_str()
-        .unwrap()
-        .contains("-old line"));
+    assert!(
+        wire["structuredContent"]["data"]["preview"]
+            .as_str()
+            .unwrap()
+            .contains("-old line")
+    );
 }
 
 #[test]
@@ -492,9 +555,11 @@ fn browser_screenshot_becomes_image_content_without_duplicate_base64() {
             if image.data == "aGVsbG8=" && image.mime_type == "image/png"
     ));
     let wire = serde_json::to_value(result).unwrap();
-    assert!(wire["structuredContent"]["data"]
-        .get("dataBase64")
-        .is_none());
+    assert!(
+        wire["structuredContent"]["data"]
+            .get("dataBase64")
+            .is_none()
+    );
     assert_eq!(wire["structuredContent"]["data"]["width"], 12);
     assert_eq!(wire["structuredContent"]["data"]["height"], 8);
 }
@@ -685,9 +750,15 @@ fn batch_with_explore_impact_sql_status_and_verify_renders_inline_summaries() {
             }
         }));
         let text2 = wire2["content"][0]["text"].as_str().unwrap();
-        assert!(text2.contains("### Extracted unique matches (1)"), "{text2}");
+        assert!(
+            text2.contains("### Extracted unique matches (1)"),
+            "{text2}"
+        );
         assert!(text2.contains("- `PA_Caja_Listar`"), "{text2}");
-        assert!(text2.contains("SqlCommand(\"PA_Caja_Listar\", cn);"), "{text2}");
+        assert!(
+            text2.contains("SqlCommand(\"PA_Caja_Listar\", cn);"),
+            "{text2}"
+        );
         assert_eq!(
             wire2["structuredContent"]["data"]["contextInReadableChannel"],
             json!(true)
@@ -707,7 +778,6 @@ fn batch_with_explore_impact_sql_status_and_verify_renders_inline_summaries() {
         );
     }
 }
-
 
 #[test]
 fn normalize_text_only_error_extracts_missing_and_unknown_field_guidance() {

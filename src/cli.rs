@@ -2,18 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_harness::adapters::{
-    agent::AntigravityLauncher, database_setup, index_store, index_sync,
-};
-use harness_application::agent::{ActiveAgent, AgentConfiguration};
-use harness_cli::commands::{
-    AgentHost, DatabaseHost, ExecutableHost, IndexHost, IndexOperation, ServerHost,
-};
-use harness_domain::{
-    Failure,
-    agent::{ActiveAgentRequest, AgentProvider},
-    execution::OperationContext,
-};
+use agent_harness::adapters::{database_setup, index_store, index_sync};
+use harness_cli::commands::{DatabaseHost, ExecutableHost, IndexHost, IndexOperation, ServerHost};
+use harness_domain::{Failure, execution::OperationContext};
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,31 +47,6 @@ impl IndexHost for AgentHarnessHost {
 
     fn take_sync_diagnostic(&self, code: &str, message: &str) -> Option<Value> {
         index_store::take_sync_diagnostic(code, message)
-    }
-}
-
-impl AgentHost for AgentHarnessHost {
-    fn agent_executable(&self) -> Option<PathBuf> {
-        let statuses = AgentConfiguration::list(&AntigravityLauncher);
-        statuses
-            .iter()
-            .find(|status| status.provider == AgentProvider::Antigravity)
-            .and_then(|status| status.executable.clone())
-    }
-
-    fn launch_agent(&self, root: &Path, provider: &str) -> Result<i32, String> {
-        let provider = match provider {
-            "antigravity" => AgentProvider::Antigravity,
-            _ => return Err("proveedor no soportado".into()),
-        };
-        ActiveAgent::execute(
-            ActiveAgentRequest {
-                provider,
-                workspace: root.to_path_buf(),
-            },
-            &AntigravityLauncher,
-        )
-        .map_err(|error| error.to_string())
     }
 }
 

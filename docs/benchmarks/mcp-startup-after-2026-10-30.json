@@ -1,0 +1,398 @@
+{
+  "recordedAt": "2026-10-30T02:47:55.946Z",
+  "executable": "E:\\harness_mix\\target\\release\\agent-harness.exe",
+  "executableSha256": "ac32d786ff5b23630ebfac5929ea894f5b2ab1070da851e622c68320193b13f3",
+  "executableModifiedAt": "2026-10-30T02:47:48.706Z",
+  "profile": "release; cargo build --locked --release --bin agent-harness",
+  "version": "agent-harness 0.8.9",
+  "sourceRevision": "cb91667",
+  "workingTree": {
+    "dirty": true,
+    "changedPathCount": 66,
+    "statusSha256": "99702852f8a6a243bf617f12fd515b6e0235768dd0d8bb4ac296f8e29984c35b"
+  },
+  "sourceSha256": {
+    "Cargo.toml": "ed7e902d9b5ee1165f467d946638e82d163dbacd5681565bb819e2b04800ce07",
+    "Cargo.lock": "b60221a481798145e477a052fe43fa7fdd10be32cedc3948341678c244654d12",
+    "src/main.rs": "5f9c4d3647c191e72c759c993279ebbc1b01743dd9454a17e5a2da1cd29c673c",
+    "src/cli.rs": "e0481929ccba96ec81e4d3d3153dad10acb36bc38b159d2bdee7f1b8e0fc9756",
+    "src/transport/runtime/single.rs": "73062f88bd1c7f93b59e2e0265071acc569d4b9f4bc49e392ebb1688bdc25d60",
+    "crates/mcp/src/server.rs": "e5e520b4cc8e260e3de85e44fbb578634135a0ed1223a5e13651516582712521",
+    "scripts/benchmark-mcp-startup.cjs": "f1876701fb6cbe4c0d8358323c0abee7c891fe874a745e25c7a89f0da28ddbf2"
+  },
+  "runtime": {
+    "node": "v22.16.0",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "os": "win32 10.0.19045 x64",
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics    ",
+    "logicalProcessors": 8,
+    "memoryGiB": 12
+  },
+  "protocol": "MCP stdio, JSON-RPC 2.0 newline-delimited; initialize protocolVersion 2025-11-25; then notifications/initialized, tools/list, tools/call harness_bootstrap(compact=true)",
+  "environment": "Each server process receives only Windows launch variables (PATH/SystemRoot/WINDIR/TEMP/TMP/user paths); HARNESS_TOOL_PROFILE=full; HARNESS_INDEX_WATCH=0; temporary workspace; SQL and PostgreSQL disabled in its local harness.config.json; no external DB/network/model request.",
+  "method": "Monotonic process.hrtime.bigint wall clock; each measured observation uses a new server process and fresh temporary workspace; warm-up processes excluded; sequential phases; no OS cache flush, so results are warm-cache observations after normal system warmup, not controlled cold starts. p95 uses nearest-rank definition.",
+  "samples": 15,
+  "warmups": 3,
+  "warmupCheck": {
+    "serverInfo": {
+      "name": "rmcp",
+      "version": "3.5.1"
+    },
+    "advertisedToolCount": 26
+  },
+  "measuredServerInfo": {
+    "name": "rmcp",
+    "version": "3.5.1"
+  },
+  "advertisedToolCount": 26,
+  "bootstrapResponseBytes": 9000,
+  "summary": {
+    "Process spawn → MCP initialize response": {
+      "n": 15,
+      "minMs": 32.712,
+      "medianMs": 34.485,
+      "p95NearestRankMs": 67.512,
+      "maxMs": 67.512,
+      "samplesMs": [
+        33.115,
+        32.712,
+        34.507,
+        33.306,
+        34.485,
+        35.174,
+        33.217,
+        36.191,
+        33.704,
+        34.456,
+        34.238,
+        67.512,
+        55.38,
+        52.457,
+        44.625
+      ]
+    },
+    "notifications/initialized → tools/list response": {
+      "n": 15,
+      "minMs": 2.996,
+      "medianMs": 3.18,
+      "p95NearestRankMs": 6.671,
+      "maxMs": 6.671,
+      "samplesMs": [
+        3.087,
+        3.167,
+        3.028,
+        3.277,
+        3.067,
+        2.996,
+        3.135,
+        3.18,
+        3.276,
+        3.145,
+        3.903,
+        6.671,
+        4.841,
+        5.339,
+        4.335
+      ]
+    },
+    "tools/list response → harness_bootstrap response": {
+      "n": 15,
+      "minMs": 28.516,
+      "medianMs": 30.789,
+      "p95NearestRankMs": 43.934,
+      "maxMs": 43.934,
+      "samplesMs": [
+        28.609,
+        30.789,
+        28.669,
+        28.563,
+        31.227,
+        30.992,
+        30.421,
+        28.516,
+        30.046,
+        28.913,
+        39.95,
+        40.146,
+        36.329,
+        43.934,
+        40.726
+      ]
+    },
+    "Process spawn → tools/list response": {
+      "n": 15,
+      "minMs": 35.879,
+      "medianMs": 37.601,
+      "p95NearestRankMs": 74.182,
+      "maxMs": 74.182,
+      "samplesMs": [
+        36.201,
+        35.879,
+        37.535,
+        36.583,
+        37.552,
+        38.17,
+        36.352,
+        39.372,
+        36.98,
+        37.601,
+        38.14,
+        74.182,
+        60.221,
+        57.796,
+        48.96
+      ]
+    },
+    "Process spawn → harness_bootstrap response": {
+      "n": 15,
+      "minMs": 64.81,
+      "medianMs": 67.888,
+      "p95NearestRankMs": 114.328,
+      "maxMs": 114.328,
+      "samplesMs": [
+        64.81,
+        66.668,
+        66.204,
+        65.146,
+        68.779,
+        69.162,
+        66.773,
+        67.888,
+        67.026,
+        66.513,
+        78.09,
+        114.328,
+        96.55,
+        101.73,
+        89.685
+      ]
+    }
+  },
+  "observations": [
+    {
+      "trial": 1,
+      "spawnToInitializeNs": "33114600",
+      "initializedToToolsListNs": "3086500",
+      "toolsListToBootstrapNs": "28609100",
+      "spawnToToolsListNs": "36201100",
+      "spawnToBootstrapNs": "64810200",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 2,
+      "spawnToInitializeNs": "32712200",
+      "initializedToToolsListNs": "3167100",
+      "toolsListToBootstrapNs": "30789100",
+      "spawnToToolsListNs": "35879300",
+      "spawnToBootstrapNs": "66668400",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 3,
+      "spawnToInitializeNs": "34506900",
+      "initializedToToolsListNs": "3028200",
+      "toolsListToBootstrapNs": "28669100",
+      "spawnToToolsListNs": "37535100",
+      "spawnToBootstrapNs": "66204200",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 4,
+      "spawnToInitializeNs": "33305600",
+      "initializedToToolsListNs": "3277200",
+      "toolsListToBootstrapNs": "28563400",
+      "spawnToToolsListNs": "36582800",
+      "spawnToBootstrapNs": "65146200",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 5,
+      "spawnToInitializeNs": "34484700",
+      "initializedToToolsListNs": "3067400",
+      "toolsListToBootstrapNs": "31227300",
+      "spawnToToolsListNs": "37552100",
+      "spawnToBootstrapNs": "68779400",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 6,
+      "spawnToInitializeNs": "35174200",
+      "initializedToToolsListNs": "2995600",
+      "toolsListToBootstrapNs": "30991900",
+      "spawnToToolsListNs": "38169800",
+      "spawnToBootstrapNs": "69161700",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 7,
+      "spawnToInitializeNs": "33216900",
+      "initializedToToolsListNs": "3135300",
+      "toolsListToBootstrapNs": "30420600",
+      "spawnToToolsListNs": "36352200",
+      "spawnToBootstrapNs": "66772800",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 8,
+      "spawnToInitializeNs": "36191400",
+      "initializedToToolsListNs": "3180200",
+      "toolsListToBootstrapNs": "28515900",
+      "spawnToToolsListNs": "39371600",
+      "spawnToBootstrapNs": "67887500",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 9,
+      "spawnToInitializeNs": "33703900",
+      "initializedToToolsListNs": "3276000",
+      "toolsListToBootstrapNs": "30045800",
+      "spawnToToolsListNs": "36979900",
+      "spawnToBootstrapNs": "67025700",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 10,
+      "spawnToInitializeNs": "34456000",
+      "initializedToToolsListNs": "3144800",
+      "toolsListToBootstrapNs": "28912600",
+      "spawnToToolsListNs": "37600800",
+      "spawnToBootstrapNs": "66513400",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 11,
+      "spawnToInitializeNs": "34237500",
+      "initializedToToolsListNs": "3902800",
+      "toolsListToBootstrapNs": "39949600",
+      "spawnToToolsListNs": "38140300",
+      "spawnToBootstrapNs": "78089900",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 12,
+      "spawnToInitializeNs": "67511600",
+      "initializedToToolsListNs": "6670800",
+      "toolsListToBootstrapNs": "40145700",
+      "spawnToToolsListNs": "74182400",
+      "spawnToBootstrapNs": "114328100",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 13,
+      "spawnToInitializeNs": "55380000",
+      "initializedToToolsListNs": "4840900",
+      "toolsListToBootstrapNs": "36329000",
+      "spawnToToolsListNs": "60220900",
+      "spawnToBootstrapNs": "96549900",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 14,
+      "spawnToInitializeNs": "52457200",
+      "initializedToToolsListNs": "5338600",
+      "toolsListToBootstrapNs": "43933800",
+      "spawnToToolsListNs": "57795800",
+      "spawnToBootstrapNs": "101729600",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    },
+    {
+      "trial": 15,
+      "spawnToInitializeNs": "44624700",
+      "initializedToToolsListNs": "4334900",
+      "toolsListToBootstrapNs": "40725700",
+      "spawnToToolsListNs": "48959600",
+      "spawnToBootstrapNs": "89685300",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "rmcp",
+        "version": "3.5.1"
+      },
+      "advertisedToolCount": 26,
+      "bootstrapResponseBytes": 9000
+    }
+  ]
+}

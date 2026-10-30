@@ -1,4 +1,7 @@
 use serde_json::{Value, json};
+use std::collections::HashSet;
+#[cfg(windows)]
+use std::path::Path;
 
 /// Cached probe: recomputed only when PATH/PATHEXT change or after a short TTL.
 pub(super) fn capabilities() -> Value {
@@ -40,19 +43,9 @@ fn compute() -> Value {
     let extensions = vec![String::new()];
     // One directory enumeration per PATH entry replaces dirs x names x extensions stat calls.
     #[cfg(windows)]
-    let listings: Vec<Option<std::collections::HashSet<String>>> = paths
-        .iter()
-        .map(|dir| {
-            std::fs::read_dir(dir).ok().map(|items| {
-                items
-                    .filter_map(Result::ok)
-                    .filter_map(|e| e.file_name().to_str().map(str::to_ascii_lowercase))
-                    .collect()
-            })
-        })
-        .collect();
+    let listings: Vec<Option<HashSet<String>>> = paths.iter().map(|dir| directory_names(dir)).collect();
     #[cfg(not(windows))]
-    let listings: Vec<Option<std::collections::HashSet<String>>> =
+    let listings: Vec<Option<HashSet<String>>> =
         paths.iter().map(|_| None).collect();
     let mut available = json!({});
     for name in [
@@ -105,18 +98,48 @@ fn compute() -> Value {
     );
     record_browser_cdp_status(&mut available, cfg!(feature = "browser-cdp"));
     // Native execution never uses PATHEXT wrappers or relative PATH entries.
-    for (name, program) in [
-        ("cargo", harness_domain::process::Program::Cargo),
-        ("rustc", harness_domain::process::Program::Rustc),
-        ("git", harness_domain::process::Program::Git),
-        ("go", harness_domain::process::Program::Go),
-        ("python", harness_domain::process::Program::Python),
-        ("node", harness_domain::process::Program::Node),
-        ("dotnet", harness_domain::process::Program::Dotnet),
-    ] {
-        available[name] = json!(super::process::executable(program).is_ok());
+    for name in ["cargo", "rustc", "git", "go", "python", "node", "dotnet"] {
+        available[name] = json!(native_program_available(name, &paths, &listings));
     }
     available
+}
+
+#[cfg(windows)]
+fn directory_names(directory: &Path) -> Option<HashSet<String>> {
+    let mut names = HashSet::new();
+    for entry in std::fs::read_dir(directory).ok()? {
+        let entry = entry.ok()?;
+        if let Some(name) = entry.file_name().to_str() {
+            names.insert(name.to_ascii_lowercase());
+        }
+    }
+    Some(names)
+}
+
+fn native_program_available(
+    name: &str,
+    paths: &[std::path::PathBuf],
+    listings: &[Option<HashSet<String>>],
+) -> bool {
+    let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+    let lookup = filename.to_ascii_lowercase();
+    for (index, directory) in paths.iter().enumerate() {
+        if listings
+            .get(index)
+            .and_then(Option::as_ref)
+            .is_some_and(|names| !names.contains(&lookup))
+        {
+            continue;
+        }
+        let executable = directory.join(&filename);
+        if !executable.is_file() {
+            continue;
+        }
+        // Match the native runner: only the first regular PATH candidate is
+        // authoritative, and a path that cannot be canonicalized is unavailable.
+        return executable.canonicalize().is_ok();
+    }
+    false
 }
 
 fn record_msbuild_availability(available: &mut Value, discovered_by_vswhere: bool) {
@@ -133,6 +156,61 @@ fn record_browser_cdp_status(available: &mut Value, backend_compiled: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[test]
+    fn native_program_probe_matches_first_regular_executable_in_path() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let executable = format!("cargo{}", std::env::consts::EXE_SUFFIX);
+        fs::create_dir(first.path().join(&executable)).unwrap();
+        fs::write(second.path().join(&executable), b"executable").unwrap();
+        let paths = vec![first.path().to_path_buf(), second.path().to_path_buf()];
+        let listings = paths
+            .iter()
+            .map(|path| {
+                Some(
+                    fs::read_dir(path)
+                        .unwrap()
+                        .filter_map(Result::ok)
+                        .filter_map(|entry| entry.file_name().to_str().map(str::to_ascii_lowercase))
+                        .collect(),
+                )
+            })
+            .collect::<Vec<Option<std::collections::HashSet<String>>>>();
+
+        assert!(native_program_available("cargo", &paths, &listings));
+
+        fs::remove_file(second.path().join(&executable)).unwrap();
+        fs::write(second.path().join("cargo.cmd"), b"wrapper").unwrap();
+        let listings = paths
+            .iter()
+            .map(|path| {
+                Some(
+                    fs::read_dir(path)
+                        .unwrap()
+                        .filter_map(Result::ok)
+                        .filter_map(|entry| entry.file_name().to_str().map(str::to_ascii_lowercase))
+                        .collect(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!native_program_available("cargo", &paths, &listings));
+    }
+
+    #[test]
+    fn native_program_probe_falls_back_when_a_path_listing_is_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = format!("git{}", std::env::consts::EXE_SUFFIX);
+        fs::write(dir.path().join(executable), b"executable").unwrap();
+
+        assert!(native_program_available(
+            "git",
+            &[dir.path().to_path_buf()],
+            &[None],
+        ));
+    }
 
     #[test]
     fn msbuild_discovered_outside_path_is_reported_as_available() {
