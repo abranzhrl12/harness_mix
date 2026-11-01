@@ -6,6 +6,10 @@ mod readable_batch;
 
 pub(super) fn structured_presentation(mut envelope: serde_json::Value) -> CallToolResult {
     clean_empty_metadata(&mut envelope);
+    // Graph payloads carry text and traversal bookkeeping a model never needs.
+    if envelope["scope"]["tool"] == "harness_explore" {
+        super::wire::shape_for_model(&mut envelope);
+    }
     dedup_explore_trace(&mut envelope);
     let tool = envelope["scope"]["tool"].as_str().unwrap_or("result");
     let state = envelope["state"].as_str().unwrap_or("unknown");

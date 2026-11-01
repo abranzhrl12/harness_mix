@@ -136,7 +136,7 @@ impl Mcp {
             arguments["session"] = json!(self.session);
         }
         let response = self.rpc("tools/call", json!({"name":name,"arguments":arguments}));
-        serde_json::from_str(response["content"][0]["text"].as_str().unwrap()).unwrap()
+        response["structuredContent"].clone()
     }
     fn status(&mut self) -> Value {
         self.tool("harness_sql", json!({"action":"status","connect":false}))

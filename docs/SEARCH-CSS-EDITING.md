@@ -54,7 +54,7 @@ continuación verifica el hash del archivo de reanudación y devuelve `STALE` si
 cambió o dejó de ser elegible. El árbol restante puede cambiar entre llamadas;
 `continuationMode="live"` no representa un snapshot global. Otros límites,
 regex, búsqueda estructural y resultados clasificados siguen siendo snapshots
-parciales: `scanComplete=false` y `snapshotOnly=true`, sin reanudar el scan.
+parciales: `complete=false` y `snapshotOnly=true`, sin reanudar el scan.
 Por defecto los scopes respetan `.harnessignore`; `overrideProjectExclusions=true`
 omite esas reglas y avisa, sin omitir exclusiones permanentes.
 `complete` describe si terminó el scan; `contentTruncated` indica texto recortado

@@ -413,7 +413,6 @@ impl Results {
             "nextOffset":next_offset,
             "hasMore":has_more,
             "complete":complete,
-            "scanComplete":complete,
             "snapshotOnly":!complete && metadata.get("continuation").is_none(),
             "continuationMode":if metadata.get("continuation").is_some() { json!("live") } else { Value::Null },
             "_complete":complete,
@@ -608,7 +607,6 @@ impl Results {
                                     map.insert("offset".into(), json!(0));
                                     map.insert("nextOffset".into(), if has_more { json!(search_page_count) } else { Value::Null });
                                     map.insert("hasMore".into(), json!(has_more));
-                                    map.insert("scanComplete".into(), json!(complete));
                                     map.insert("snapshotOnly".into(), json!(!complete && value.get("_continuation").is_none()));
                                     map.insert("nextCall".into(), if has_more { json!({
                                         "tool":"harness_search",
@@ -678,6 +676,16 @@ impl Results {
         if data.get("language") == args.get("language") {
             data.as_object_mut().expect("object").remove("language");
         }
+        // scope.path already carries this value (from args.path/scope); every
+        // write/replace/read result also sets data.path, duplicating the same
+        // string twice per call for zero new information.
+        let same_path = |a: &Value, b: &Value| match (a.as_str(), b.as_str()) {
+            (Some(a), Some(b)) => a.replace('\\', "/") == b.replace('\\', "/"),
+            _ => false,
+        };
+        if data.get("path").zip(scope.get("path")).is_some_and(|(a, b)| same_path(a, b)) {
+            data.as_object_mut().expect("object").remove("path");
+        }
         json!({"state":state,"scope":scope,"diagnostics":diagnostics,"omitted":omitted,"detail":detail,"data":data})
     }
 }
@@ -739,7 +747,7 @@ mod tests {
         assert_eq!(page["matches"].as_array().unwrap().len(), 2);
         assert_eq!(page["matches"][0]["file"], "c.rs");
         assert_eq!(page["retrieval"]["ranking"], "bm25");
-        assert_eq!(page["scanComplete"], true);
+        assert_eq!(page["complete"], true);
         assert_eq!(page["hasMore"], false);
         assert!(page["nextCall"].is_null());
 
@@ -775,7 +783,7 @@ mod tests {
             .unwrap();
         assert_eq!(first["data"]["snapshotOnly"], true);
         let next = store.search_page(cursor, 1, None).unwrap();
-        assert_eq!(next["scanComplete"], false);
+        assert_eq!(next["complete"], false);
         assert_eq!(next["snapshotOnly"], true);
         assert_eq!(next["scanIncompleteReasons"][0], "time_budget");
         assert_eq!(next["nextOffset"], 2);

@@ -149,9 +149,7 @@ obligatoria. Contrato ilustrativo, todavía no implementado:
   "hash": "<sha256-calculado-por-harness>",
   "verified": true,
   "syntax": {"status": "valid", "validation": "syntax_only"},
-  "diagnostics": [],
-  "changeSummary": {"addedLines": 24, "removedLines": 0},
-  "typecheck": "not_run"
+  "diagnostics": []
 }
 ```
 

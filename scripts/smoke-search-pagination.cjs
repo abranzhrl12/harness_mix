@@ -51,7 +51,7 @@ async function main() {
     const bootstrap = await call('harness_bootstrap', {});
     const session = bootstrap.data.session;
     let page = await call('harness_search', { query: 'needle', limit: 40, session });
-    assert.equal(page.data.scanComplete, true);
+    assert.equal(page.data.complete, true);
     assert.equal(page.omitted.matches, 610);
     assert(!(page.diagnostics || []).some(item => item.code === 'SEARCH_INCOMPLETE'));
     const reference = page.detail.ref;
@@ -61,7 +61,7 @@ async function main() {
     while (page.data.hasMore) {
       assert.equal(page.data.nextCall.tool, 'harness_search');
       page = await call('harness_search', page.data.nextCall.arguments);
-      assert.equal(page.data.scanComplete, true);
+      assert.equal(page.data.complete, true);
       assert.equal(page.detail.ref, reference);
       captured.push(...page.data.matches);
     }

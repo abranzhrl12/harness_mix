@@ -38,7 +38,7 @@ fn continuation_reaches_the_first_match_in_the_next_directory() {
         ));
     }
     assert_eq!(count, 10001);
-    assert_eq!(page["data"]["scanComplete"], true);
+    assert_eq!(page["data"]["complete"], true);
 }
 
 #[test]
@@ -66,5 +66,5 @@ fn partial_text_scan_continues_past_match_budget() {
     }
     assert_eq!(lines.len(), 10001);
     assert_eq!(lines[10000], 10001);
-    assert_eq!(page["data"]["scanComplete"], true);
+    assert_eq!(page["data"]["complete"], true);
 }

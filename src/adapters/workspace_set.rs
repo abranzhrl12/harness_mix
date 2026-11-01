@@ -1244,7 +1244,7 @@ mod tests {
         .unwrap();
         let read = app.execute(Request::Read(read));
         assert_eq!(read["state"], "ok", "{read}");
-        assert_eq!(read["data"]["path"], "frontend:/lib.rs");
+        assert_eq!(read["scope"]["path"], "frontend:/lib.rs");
 
         let explore: ExploreArgs =
             serde_json::from_value(json!({"query":"target","view":"summary","session":session}))

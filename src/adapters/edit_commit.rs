@@ -242,9 +242,11 @@ fn publish_staged(
     } else {
         None
     };
-    Ok(
-        json!({"path":relative(target),"changed":true,"commitStatus":"committed","recoveryBackup":warning}),
-    )
+    let mut result = json!({"path":relative(target),"changed":true,"commitStatus":"committed"});
+    if let Some(backup) = warning {
+        result["recoveryBackup"] = json!(backup);
+    }
+    Ok(result)
 }
 
 #[cfg(not(windows))]

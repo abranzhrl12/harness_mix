@@ -23,7 +23,7 @@ result affects the question.
 ## Pagination, coverage, and details
 
 Follow `nextCall` with its cursor and offset to continue a captured result set.
-Inspect `scanComplete`, `hasMore`, `snapshotOnly`, coverage, warnings, and
+Inspect `complete`, `hasMore`, `snapshotOnly`, coverage, warnings, and
 `omitted` before drawing conclusions. Pagination can continue only through the
 captured results; a partial scan does not prove that files or matches are absent.
 Use `harness_detail` with the returned `detail.ref` for omitted content without

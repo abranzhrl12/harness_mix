@@ -55,7 +55,7 @@ test('Rust and Node share session v1, read hashes and UTF-16 detail pages', asyn
 
     const read = await client.callTool({name:'harness_read', arguments:{session:nodeSession, path:'example.txt', start:1, end:2}});
     assert.equal(read.isError, false);
-    assert.deepEqual(read.structuredContent.scope, {tool:'harness_read', path:'example.txt'});
+    assert.deepEqual(read.structuredContent.scope, {path:'example.txt'});
     assert.equal(read.structuredContent.data.hash, undefined);
     assert.equal(read.structuredContent.data.anchors, undefined);
     assert.deepEqual(read.structuredContent.data.range, [1, 2]);

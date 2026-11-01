@@ -30,7 +30,6 @@ pub(super) fn with_notices(mut text: String, envelope: &Value) -> String {
         "snapshotOnly",
     ];
     let partial = flags.iter().any(|key| data[*key] == true)
-        || data["scanComplete"] == false
         || data["complete"] == false
         || data.get("contextTruncation").is_some()
         || envelope.get("omitted").is_some_and(|value| match value {

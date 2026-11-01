@@ -139,7 +139,6 @@ pub(super) fn write_word(
             "ok": verified,
             "createdDirectories": created,
             "filesystemChanged": true,
-            "typecheck": "not_run",
             "diagnostics": if verified { json!([]) } else {
                 json!([{"code":"EDIT_POSTCHECK","path":args.path,
                     "message":"Document was published but postcheck failed; inspect before retrying"}])
@@ -276,8 +275,7 @@ fn write_with(
                             json!({"path":args.path,"status":"unchanged","created":false,
                             "changed":false,"commitStatus":"not_needed","previousHash":expected,
                             "hash":expected,"verified":true,"ok":true,"syntax":validation,
-                            "diagnostics":[],"typecheck":"not_run",
-                            "changeSummary":{"addedLines":0,"removedLines":0}}),
+                            "diagnostics":[]}),
                         );
                     }
                     let replace_args = ReplaceArgs {
@@ -298,11 +296,6 @@ fn write_with(
                     result["created"] = json!(false);
                     result["previousHash"] = json!(expected);
                     result["syntax"] = validation.clone();
-                    result["typecheck"] = json!("not_run");
-                    result["changeSummary"] = json!({
-                        "bytesBefore":bytes.len(),"bytesAfter":content.len(),
-                        "removedLines":std::str::from_utf8(&bytes).map(|t| t.lines().count()).unwrap_or(0),
-                        "addedLines":content.lines().count()});
                     if result["changed"] == true {
                         let expected_after = hash(content.as_bytes());
                         let verified = project
@@ -334,7 +327,7 @@ fn write_with(
                 return Ok(
                     json!({"path":args.path,"status":"already_present","created":false,"changed":false,
                     "commitStatus":"not_needed","hash":hash(&bytes),"verified":true,"ok":true,"syntax":validation,
-                    "diagnostics":[],"typecheck":"not_run","changeSummary":{"addedLines":0,"removedLines":0}}),
+                    "diagnostics":[]}),
                 );
             }
             if args.expected_hash.is_some() {
@@ -377,15 +370,14 @@ fn write_with(
             };
             Ok(
                 json!({"path":args.path,"status":"created","created":true,"changed":true,"commitStatus":"committed",
-                "hash":expected,"verified":verified,"ok":verified,"syntax":validation,"diagnostics":diagnostics,
-                "typecheck":"not_run","changeSummary":{"addedLines":content.lines().count(),"removedLines":0,"bytesWritten":content.len()}}),
+                "hash":expected,"verified":verified,"ok":verified,"syntax":validation,"diagnostics":diagnostics}),
             )
         })();
         let mut result = match attempt {
             Ok(value) => value,
             Err((code, message)) => {
                 json!({"path":args.path,"status":"not_created","ok":false,"created":false,
-                "changed":false,"commitStatus":"not_committed","verified":false,"typecheck":"not_run",
+                "changed":false,"commitStatus":"not_committed","verified":false,
                 "cancelled":code == "CANCELLED","timedOut":code == "TIMEOUT",
                 "diagnostics":[{"code":code,"path":args.path,"message":message}]})
             }
@@ -556,6 +548,6 @@ fn validation_error(args: &WriteArgs, code: &str, message: &str) -> Value {
     }
     json!({"path":args.path,"status":"not_created","ok":false,"changed":false,"created":false,
         "commitStatus":"not_committed","createdDirectories":[],"filesystemChanged":false,
-        "syntax":{"status":"error","validation":"syntax_only"},"typecheck":"not_run",
+        "syntax":{"status":"error","validation":"syntax_only"},
         "cancelled":code == "CANCELLED","timedOut":code == "TIMEOUT","diagnostics":[diagnostic]})
 }

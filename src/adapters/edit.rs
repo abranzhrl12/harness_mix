@@ -184,11 +184,14 @@ pub(super) fn replace(
     } else {
         "unchanged"
     });
-    result["typecheck"] = json!("not_run");
     let before = std::str::from_utf8(&bytes).map_err(|_| ("ENCODING", "File must be UTF-8"))?;
-    result["changeSummary"] = json!({"bytesBefore":bytes.len(),"bytesAfter":updated.len(),
-        "linesBefore":before.lines().count(),"linesAfter":updated.lines().count(),
-        "lineDelta":updated.lines().count() as i64 - before.lines().count() as i64});
+    if result["changed"] == true {
+        // The caller wrote the change, so the patch stays out of the response;
+        // it is recoverable on demand with harness_detail.
+        let patch = preview_diff(&args.path, before, &updated);
+        let truncated = patch.chars().count() > 12000;
+        result["_detail"] = json!({"patch":patch.chars().take(12000).collect::<String>(),"patchTruncated":truncated});
+    }
     if result["diagnostics"].is_null() {
         result["diagnostics"] = json!([]);
     }

@@ -45,7 +45,12 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
     let _cancel_on_drop = CancelOnDrop(context.clone());
     let operation = match application.prepare(request, context.clone()) {
         Ok(operation) => operation,
-        Err(envelope) => return response_with_options(envelope, compact, context_presentation),
+        Err(envelope) => {
+            return drop_echoed_tool(
+                response_with_options(envelope, compact, context_presentation),
+                structured_presentation,
+            );
+        }
     };
     let request_id = operation.request_id().to_owned();
     let mut worker = tokio::task::spawn_blocking(move || operation.run());
@@ -116,8 +121,58 @@ pub(super) async fn execute<W: Workspace + 'static, S: SessionRepository + 'stat
                 | "harness_explore"
         )
     {
-        super::presentation::structured_presentation(envelope)
+        drop_echoed_tool(super::presentation::structured_presentation(envelope), true)
     } else {
-        response_with_options(envelope, compact, context_presentation)
+        drop_echoed_tool(
+            response_with_options(envelope, compact, context_presentation),
+            structured_presentation,
+        )
     }
+}
+
+/// The caller already knows which tool it invoked; only batch children need
+/// `scope.tool` to correlate results, and they are nested, not top-level.
+fn drop_echoed_tool(
+    mut result: rmcp::model::CallToolResult,
+    structured: bool,
+) -> rmcp::model::CallToolResult {
+    let Some(envelope) = result
+        .structured_content
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return result;
+    };
+    if let Some(scope) = envelope
+        .get_mut("scope")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        if scope.get("tool").and_then(serde_json::Value::as_str) != Some("harness_batch") {
+            scope.remove("tool");
+        }
+    }
+    if envelope
+        .get("scope")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        envelope.remove("scope");
+    }
+    // A successful result already travels whole in structuredContent; in the
+    // structured presentation the text channel only points to it. Legacy mode
+    // keeps the JSON text for clients that read nothing else.
+    if structured && envelope.get("state").and_then(serde_json::Value::as_str) == Some("ok") {
+        let json_copy = result
+            .content
+            .first()
+            .and_then(|block| block.as_text())
+            .is_some_and(|text| text.text.starts_with('{'));
+        if json_copy {
+            result.content = vec![rmcp::model::ContentBlock::text(
+                "Full result is in structuredContent.
+",
+            )];
+        }
+    }
+    result
 }

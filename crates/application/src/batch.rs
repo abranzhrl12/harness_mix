@@ -451,7 +451,7 @@ fn batch_preview(tool: &str, data: &Value) -> (Value, bool) {
                 "count",
                 "total",
                 "selection",
-                "scanComplete",
+                "complete",
                 "coverage",
                 "minLines",
                 "retrieval",

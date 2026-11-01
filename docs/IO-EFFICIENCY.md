@@ -19,9 +19,9 @@ writing; different bytes conflict. Newlines are compared byte-for-byte.
 ```
 
 The result includes status, changed/created, commitStatus, hash, verified, syntax,
-changeSummary, createdDirectories, filesystemChanged, and typecheck=not_run.
-No source echo or build is needed to confirm publication. Replacement also
-returns byte/line counts and net line delta, not a claimed minimal diff.
+createdDirectories and filesystemChanged. No source echo or build is needed to
+confirm publication. Replacement stores a bounded unified diff in `_detail`
+(recover it with harness_detail); the response itself carries no patch.
 Preview remains a separate, optional pre-publication operation.
 
 `allowUnvalidatedText=true` is an explicit opt-in for formats with no parser.

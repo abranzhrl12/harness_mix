@@ -22,8 +22,8 @@ fn creates_parents_and_returns_confirmation_without_source_echo() {
         json!(["src", "src/entities"])
     );
     assert_eq!(result["data"]["verified"], true);
-    assert_eq!(result["data"]["typecheck"], "not_run");
-    assert_eq!(result["data"]["changeSummary"]["addedLines"], 1);
+    assert!(result["data"].get("typecheck").is_none());
+    assert!(result["data"].get("changeSummary").is_none());
     assert!(result["data"].get("content").is_none());
     let retry = write(&app, request);
     assert_eq!(retry["state"], "ok", "{retry}");
@@ -214,9 +214,10 @@ fn replace_returns_summary_and_confirmation_in_one_response() {
     ));
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["status"], "replaced");
-    assert_eq!(result["data"]["changeSummary"]["lineDelta"], 1);
     assert_eq!(result["data"]["verified"], true);
-    assert_eq!(result["data"]["typecheck"], "not_run");
+    assert!(result["data"].get("typecheck").is_none());
+    assert!(result["data"].get("changeSummary").is_none());
+    assert!(result["detail"]["ref"].is_string(), "{result}");
 }
 
 #[test]
