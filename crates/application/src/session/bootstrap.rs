@@ -86,6 +86,11 @@ pub(super) fn build_response(mut result: Value, input: ResponseInput) -> Value {
             "workflow",
             "available",
             "exampleCall",
+            // First-discovery help; tool schemas and skills already carry it.
+            "examples",
+            "templates",
+            "responseContract",
+            "batchExample",
         ] {
             if let Some(value) = result
                 .as_object_mut()

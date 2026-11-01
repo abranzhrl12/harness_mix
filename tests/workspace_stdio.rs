@@ -258,7 +258,7 @@ fn workspace_stdio_reuses_session_for_both_roots_and_edits_search_paths() {
             "harness_read",
             json!({"path":found["file"],"start":1,"end":1,"session":session}),
         );
-        assert_eq!(read["data"]["path"], path, "{read}");
+        assert_eq!(read["scope"]["path"], path, "{read}");
         server.call(
             "harness_replace",
             json!({

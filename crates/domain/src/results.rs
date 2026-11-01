@@ -676,16 +676,6 @@ impl Results {
         if data.get("language") == args.get("language") {
             data.as_object_mut().expect("object").remove("language");
         }
-        // scope.path already carries this value (from args.path/scope); every
-        // write/replace/read result also sets data.path, duplicating the same
-        // string twice per call for zero new information.
-        let same_path = |a: &Value, b: &Value| match (a.as_str(), b.as_str()) {
-            (Some(a), Some(b)) => a.replace('\\', "/") == b.replace('\\', "/"),
-            _ => false,
-        };
-        if data.get("path").zip(scope.get("path")).is_some_and(|(a, b)| same_path(a, b)) {
-            data.as_object_mut().expect("object").remove("path");
-        }
         json!({"state":state,"scope":scope,"diagnostics":diagnostics,"omitted":omitted,"detail":detail,"data":data})
     }
 }

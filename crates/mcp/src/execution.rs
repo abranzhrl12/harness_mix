@@ -151,6 +151,27 @@ fn drop_echoed_tool(
             scope.remove("tool");
         }
     }
+    // scope.path already carries the path that data repeats on every read,
+    // write and replace; separators may differ on Windows.
+    let scope_path = envelope
+        .get("scope")
+        .and_then(|scope| scope.get("path"))
+        .and_then(serde_json::Value::as_str)
+        .map(|path| path.replace('\\', "/"));
+    if let (Some(scope_path), Some(data)) = (
+        scope_path,
+        envelope
+            .get_mut("data")
+            .and_then(serde_json::Value::as_object_mut),
+    ) {
+        let repeated = data
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|path| path.replace('\\', "/") == scope_path);
+        if repeated {
+            data.remove("path");
+        }
+    }
     if envelope
         .get("scope")
         .and_then(serde_json::Value::as_object)
