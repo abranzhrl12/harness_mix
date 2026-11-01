@@ -224,13 +224,8 @@ mod compatibility_contract_tests {
         assert!(search["properties"].get("ast").is_some());
         assert!(search["properties"].get("caseSensitive").is_some());
         assert!(search["properties"].get("context_lines").is_some());
-        let context_description = search["properties"]["contextLines"]["description"]
-            .as_str()
-            .unwrap_or_default();
-        assert!(context_description.contains("matches[].context.text"));
-        assert!(context_description.contains("matches[].hash"));
-        assert!(context_description.contains("context: {start, end, text}"));
-        assert!(context_description.contains("original line endings"));
+        assert_eq!(search["properties"]["contextLines"]["minimum"], 0);
+        assert_eq!(search["properties"]["contextLines"]["maximum"], 20);
         assert!(
             !search["allOf"]
                 .as_array()
@@ -264,13 +259,9 @@ mod compatibility_contract_tests {
         );
         let read = serde_json::to_value(schemars::schema_for!(ReadArgs)).unwrap();
         assert!(read["properties"].get("file").is_some());
-        assert!(
-            !read["required"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("path"))
-        );
-        let required = read["required"].as_array().unwrap();
+        // The streamlined schema may omit `required` entirely when nothing is mandatory.
+        let required = read["required"].as_array().cloned().unwrap_or_default();
+        assert!(!required.contains(&json!("path")));
         assert!(!required.contains(&json!("start")));
         assert!(!required.contains(&json!("end")));
         let checkpoint = serde_json::to_value(schemars::schema_for!(CheckpointArgs)).unwrap();

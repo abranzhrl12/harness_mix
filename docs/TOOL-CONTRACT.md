@@ -29,6 +29,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.4.0.
 | harness_regression | node |
 | harness_replace | node, rust |
 | harness_write | rust |
+| harness_diagram | rust |
 | harness_word | rust |
 | harness_search | node, rust |
 | harness_sql | rust |
@@ -37,6 +38,7 @@ Generated from `contracts/tool-contract.json`. Contract version: 3.4.0.
 | harness_sql_search | node |
 | harness_sql_status | node |
 | harness_svg | node, rust |
+| harness_word_preview | rust |
 | harness_symbols | rust |
 | harness_verify | node, rust |
 | harness_web_check | node |
