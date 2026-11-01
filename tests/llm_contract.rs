@@ -293,7 +293,7 @@ fn llm_bootstrap_reports_actual_registry_and_sql_batch_support() {
     assert_eq!(result["state"], "ok", "{result}");
     assert_eq!(result["data"]["toolContract"]["backend"], "rust");
     assert!(result["data"].get("backend").is_none());
-    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.3.0");
+    assert_eq!(result["data"]["toolContract"]["contractVersion"], "3.4.0");
     assert!(result["data"].get("supportedTools").is_none());
     assert!(result["data"].get("logging").is_none());
     assert!(result["data"].get("executionPolicy").is_none());

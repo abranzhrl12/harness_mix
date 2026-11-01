@@ -1,4 +1,4 @@
-﻿//! MCP routing; runtime transport and application composition are supplied by callers.
+//! MCP routing; runtime transport and application composition are supplied by callers.
 use harness_application::{
     Application,
     ports::{JobService, SessionRepository, Workspace},
@@ -7,6 +7,7 @@ use harness_application::{
 mod execution;
 #[path = "diagram.rs"]
 mod diagram;
+pub use diagram::D2Host;
 #[path = "input.rs"]
 pub(crate) mod input;
 #[path = "jobs.rs"]
@@ -43,6 +44,7 @@ pub struct McpServer<W, S> {
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
     word_renderer: Option<Arc<dyn Fn(&harness_domain::word::WordDocument) -> Result<Vec<u8>, String> + Send + Sync>>,
+    d2_host: Arc<diagram::D2Host>,
     eager_tools: bool,
     context_presentation: bool,
     structured_presentation: bool,
@@ -57,6 +59,7 @@ impl<W, S> Clone for McpServer<W, S> {
             task_notifications: self.task_notifications.clone(),
             task_forwarding: self.task_forwarding.clone(),
             word_renderer: self.word_renderer.clone(),
+            d2_host: self.d2_host.clone(),
             eager_tools: self.eager_tools,
             context_presentation: self.context_presentation,
             structured_presentation: self.structured_presentation,
@@ -74,6 +77,7 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             task_notifications: Arc::new(AtomicBool::new(true)),
             task_forwarding: Arc::new(AtomicBool::new(false)),
             word_renderer: None,
+            d2_host: Arc::new(diagram::D2Host::default()),
             eager_tools: true,
             context_presentation: false,
             structured_presentation: true,
@@ -98,6 +102,12 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             + 'static,
     ) -> Self {
         self.word_renderer = Some(Arc::new(renderer));
+        self
+    }
+
+    /// Supplies the D2 executable and the environment its process may see.
+    pub fn with_d2_host(mut self, host: D2Host) -> Self {
+        self.d2_host = Arc::new(host);
         self
     }
 
@@ -504,7 +514,7 @@ where
         if let Err(message) = args.to_d2() {
             return present_response(self.application.failure("harness_diagram", &arguments, ("DIAGRAM_INPUT", message)), false, self.context_presentation);
         }
-        match diagram::render(args).await {
+        match diagram::render(args, &self.d2_host).await {
             Ok(bytes) => {
                 let image_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
                 let envelope = harness_domain::results::Results::default().envelope(

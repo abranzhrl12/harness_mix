@@ -131,7 +131,7 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
     let session = first["data"]["sessionId"].as_str().unwrap();
     assert_eq!(
         first["data"]["toolContract"]["contractVersion"],
-        "3.3.0"
+        "3.4.0"
     );
     let warm = app.execute(Request::Bootstrap(
         serde_json::from_value(json!({"session":session})).unwrap(),
@@ -153,7 +153,7 @@ fn reused_bootstrap_is_compact_but_catalog_remains_recoverable() {
     assert_eq!(refreshed["data"]["catalogUnchanged"], true, "{refreshed}");
     assert_eq!(
         refreshed["data"]["toolContract"]["contractVersion"],
-        "3.3.0",
+        "3.4.0",
         "{refreshed}"
     );
     assert_eq!(

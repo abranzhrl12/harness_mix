@@ -5,6 +5,6 @@
 mod server;
 
 /// MCP service configured around an injected application and optional job service.
-pub use server::McpServer;
+pub use server::{D2Host, McpServer};
 /// Async reader that rejects an incoming MCP line once it exceeds the configured limit.
 pub use server::input::{BoundedLines, MAX_MESSAGE_BYTES};

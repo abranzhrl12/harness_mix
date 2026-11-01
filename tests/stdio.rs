@@ -160,10 +160,8 @@ fn sql_defaults_describe_aliases_and_replace_base_hash_work_over_mcp() {
         .unwrap();
     let search_description = search_tool["description"].as_str().unwrap();
     for field in [
-        "matches[].file",
-        "matches[].context.text",
-        "matches[].hash",
-        "context:{start,end,text}",
+        "kind predeterminado text",
+        "nextCall",
     ] {
         assert!(
             search_description.contains(field),
@@ -580,7 +578,7 @@ fn real_project_context_presentation() {
 
 #[test]
 fn tool_profiles_filter_registry_and_enforce_direct_and_batch_calls() {
-    for (profile, count) in [("investigate", 12), ("edit", 18)] {
+    for (profile, count) in [("investigate", 13), ("edit", 21)] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("example.txt"), "old").unwrap();
         let mut server =
