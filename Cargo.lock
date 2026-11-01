@@ -1739,11 +1739,9 @@ dependencies = [
 name = "harness-cli"
 version = "0.1.0"
 dependencies = [
- "futures-util",
  "harness-application",
  "harness-domain",
  "harness-skills",
- "regex",
  "serde",
  "serde_json",
  "tempfile",
