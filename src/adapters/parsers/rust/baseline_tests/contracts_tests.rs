@@ -65,3 +65,17 @@ fn rust_ra_validation_keeps_size_depth_and_cancellation_guards() {
         );
     }
 }
+
+#[test]
+fn rust_validation_accepts_the_same_source_with_crlf_line_endings() {
+    // Windows checkouts (core.autocrlf) store every line as CRLF; the parser
+    // must judge the code, not the line endings.
+    let lf = include_str!("crlf_fixture.rs.txt").replace("\r\n", "\n");
+    let crlf = lf.replace('\n', "\r\n");
+    let context = OperationContext::default();
+    assert!(super::super::syntax::validate(&lf, &context).is_ok());
+    assert!(
+        super::super::syntax::validate(&crlf, &context).is_ok(),
+        "CRLF variant of valid Rust was rejected"
+    );
+}

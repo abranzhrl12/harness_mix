@@ -104,7 +104,7 @@ fn validate_syntax_single(path: &str, source: &str, context: &OperationContext) 
         .to_ascii_lowercase()
         .as_str()
     {
-        "rs" => match super::rust_syntax::with_ast(source, context, |_, _| Ok(())) {
+        "rs" => match super::rust_syntax::validate(source, context) {
             Ok(()) => (
                 json!({
                     "status": "checked",

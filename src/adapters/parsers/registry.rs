@@ -51,7 +51,7 @@ impl SyntaxParser for RustParser {
         source: &str,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        rust::syntax::with_ast(source, context, |_, _| Ok(()))?;
+        rust::syntax::validate(source, context)?;
         Ok(json!({"status":"valid","language":"rust","validation":"syntax_only"}))
     }
 }

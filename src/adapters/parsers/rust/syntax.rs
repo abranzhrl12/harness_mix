@@ -4,6 +4,20 @@ use harness_domain::{Failure, execution::OperationContext};
 use ra_ap_syntax::{Edition, SourceFile};
 use crate::adapters::index_profile;
 
+/// Syntax-only check. Line endings are normalised first: the RA parser reports
+/// errors for some valid constructs when every line ends in CRLF, as in Windows
+/// checkouts, and validation never needs byte offsets into the original text.
+pub(in crate::adapters) fn validate(
+    source: &str,
+    context: &OperationContext,
+) -> Result<(), Failure> {
+    if source.contains("\r\n") {
+        with_ast(&source.replace("\r\n", "\n"), context, |_, _| Ok(()))
+    } else {
+        with_ast(source, context, |_, _| Ok(()))
+    }
+}
+
 /// Callers return owned data; parsing remains strict even though RA can recover.
 pub(in crate::adapters) fn with_ast<T>(
     source: &str,
