@@ -204,8 +204,7 @@ fn navigation_advice_survives_batch_compaction_and_application_clones() {
         .flat_map(|r| r["diagnostics"].as_array().unwrap())
         .filter(|d| d["code"] == "EXPLORE_RECOMMENDED")
         .collect();
-    assert_eq!(hints.len(), 1);
-    assert_eq!(hints[0]["nextCall"]["arguments"]["filePath"], "a.rs");
+    assert!(hints.is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 

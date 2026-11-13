@@ -42,7 +42,7 @@ pub(super) fn replace_file_graph(
         }
         batches::insert(
             db,
-            "INSERT INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,visibility,is_exported,is_async,is_static,is_abstract,decorators,type_parameters,return_type,updated_at) VALUES ",
+            "INSERT OR IGNORE INTO nodes(id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,visibility,is_exported,is_async,is_static,is_abstract,decorators,type_parameters,return_type,updated_at) VALUES ",
             21,
             &graph.nodes,
             context,
@@ -128,4 +128,72 @@ pub(super) fn replace_file_graph(
         sql(db.execute("DELETE FROM files WHERE path=?1", [path]))?;
     }
     Ok(GraphWriteOutcome { node_count, refs })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::index_store::initialize;
+    use crate::adapters::index_store::publication::model::NodeRow;
+    use rusqlite::Connection;
+
+    #[test]
+    fn replace_file_graph_ignores_duplicate_node_ids_without_constraint_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = OperationContext::without_deadline();
+        initialize(dir.path(), &context).unwrap();
+        let mut db = Connection::open(dir.path().join(".agents/codegraph/codegraph.db")).unwrap();
+        let tx = db.transaction().unwrap();
+        let node = NodeRow {
+            id: "tsx:Pagination:component",
+            kind: "component",
+            name: "Pagination",
+            qualified_name: "Pagination.tsx::Pagination",
+            start_line: Some(165),
+            end_line: Some(165),
+            start_column: Some(0),
+            end_column: Some(54),
+            docstring: None,
+            signature: None,
+            visibility: Some("public"),
+            is_exported: true,
+            is_async: false,
+            is_static: false,
+            is_abstract: false,
+            decorators: None,
+            type_parameters: None,
+            return_type: None,
+        };
+        let graph = ExtractedGraph {
+            nodes: vec![node, node],
+            duplicate_nodes: 1,
+            edges: Vec::new(),
+            unresolved_references: Vec::new(),
+            coverage: None,
+        };
+        let outcome = replace_file_graph(
+            &tx,
+            FilePublication {
+                graph: Some(&graph),
+                path: "src/Pagination.tsx",
+                language: "typescript",
+                bytes: Some(b"export const Pagination = memo(PaginationComponent);\n"),
+                generated: 0,
+                now: 1,
+                provider_nodes: 0,
+            },
+            &context,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(outcome.node_count, 2);
+        let stored: i64 = db
+            .query_row(
+                "SELECT count(*) FROM nodes WHERE id = 'tsx:Pagination:component'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, 1);
+    }
 }
