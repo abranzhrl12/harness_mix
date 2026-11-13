@@ -142,6 +142,26 @@ impl Project {
         })
     }
 
+    /// Index directory relative to the root: `.agents/codegraph`, or the legacy
+    /// `.codegraph` while that is the only one present. Never migrated.
+    pub(crate) fn index_dir(&self) -> &'static str {
+        use harness_domain::layout;
+        let present = |relative: &str| fs::symlink_metadata(self.root.join(relative)).is_ok();
+        layout::index_dir(present(layout::LEGACY_INDEX_DIR), present(layout::INDEX_DIR))
+    }
+
+    /// Project-relative path of a file inside the index directory.
+    pub(crate) fn index_rel(&self, name: &str) -> String {
+        format!("{}/{name}", self.index_dir())
+    }
+
+    /// Project-relative scope configuration (`codegraph.json`).
+    pub(crate) fn config_rel(&self) -> &'static str {
+        use harness_domain::layout;
+        let present = |relative: &str| fs::symlink_metadata(self.root.join(relative)).is_ok();
+        layout::config_file(present(layout::LEGACY_INDEX_DIR), present(layout::INDEX_DIR))
+    }
+
     pub(crate) fn target(&self, relative: &str) -> Result<PathBuf, Failure> {
         self.resolve_target(relative, false)
     }

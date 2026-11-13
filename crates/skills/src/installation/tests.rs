@@ -8,16 +8,16 @@ fn owned_index_with_idle_writer_gate_can_be_uninstalled() {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         install.prepare_index().unwrap();
     }
-    fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
-    fs::write(root.path().join(".codegraph/index-write.lock"), b"").unwrap();
-    fs::write(root.path().join(".codegraph/autosync.lock"), b"").unwrap();
+    fs::write(root.path().join(".agents/codegraph/codegraph.db"), b"test index").unwrap();
+    fs::write(root.path().join(".agents/codegraph/index-write.lock"), b"").unwrap();
+    fs::write(root.path().join(".agents/codegraph/autosync.lock"), b"").unwrap();
     fs::write(
-        root.path().join(".codegraph/autosync.status"),
+        root.path().join(".agents/codegraph/autosync.status"),
         b"harness-watch-status-v1\n{}",
     )
     .unwrap();
     assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
-    assert!(!root.path().join(".codegraph").exists());
+    assert!(!root.path().join(".agents/codegraph").exists());
 }
 
 #[test]
@@ -28,8 +28,8 @@ fn uninstall_preserves_unrecognized_watcher_status() {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         install.prepare_index().unwrap();
     }
-    fs::write(root.path().join(".codegraph/codegraph.db"), b"index").unwrap();
-    let path = root.path().join(".codegraph/autosync.status");
+    fs::write(root.path().join(".agents/codegraph/codegraph.db"), b"index").unwrap();
+    let path = root.path().join(".agents/codegraph/autosync.status");
     fs::write(&path, b"foreign").unwrap();
     assert!(uninstall(root.path()).is_err());
     assert_eq!(fs::read(path).unwrap(), b"foreign");
@@ -45,20 +45,20 @@ fn active_writer_gate_prevents_uninstall() {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         install.prepare_index().unwrap();
     }
-    fs::write(root.path().join(".codegraph/codegraph.db"), b"test index").unwrap();
+    fs::write(root.path().join(".agents/codegraph/codegraph.db"), b"test index").unwrap();
     let gate = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .share_mode(3)
-        .open(root.path().join(".codegraph/index-write.lock"))
+        .open(root.path().join(".agents/codegraph/index-write.lock"))
         .unwrap();
     gate.lock().unwrap();
     assert!(uninstall(root.path()).is_err());
     assert!(root.path().join(SKILLS[0].relative_path).exists());
     assert_eq!(
-        fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(),
+        fs::read(root.path().join(".agents/codegraph/codegraph.db")).unwrap(),
         b"test index"
     );
     drop(gate);
@@ -75,16 +75,153 @@ fn executable(root: &Path) -> PathBuf {
 fn init_creates_scope_configs_and_uninstall_removes_unchanged_owned_files() {
     let root = tempfile::tempdir().unwrap();
     let exe = executable(root.path());
-    drop(Installation::begin(root.path(), &exe).unwrap());
-    let config: Value =
-        serde_json::from_slice(&fs::read(root.path().join("codegraph.json")).unwrap()).unwrap();
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        // The config lives inside the index directory, so it waits for the claim.
+        assert!(!root.path().join(".agents/codegraph").exists());
+        assert!(!root.path().join("codegraph.json").exists());
+        assert!(install.prepare_index().unwrap());
+        install.finish_index().unwrap();
+    }
+    let config: Value = serde_json::from_slice(
+        &fs::read(root.path().join(".agents/codegraph/config/codegraph.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(config["include"], json!([]));
     assert_eq!(config["exclude"], json!([]));
+    assert!(!root.path().join("codegraph.json").exists());
     assert!(root.path().join(".harnessignore").is_file());
     drop(Installation::begin(root.path(), &exe).unwrap());
     assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
-    assert!(!root.path().join("codegraph.json").exists());
+    assert!(!root.path().join(".agents").exists());
     assert!(!root.path().join(".harnessignore").exists());
+}
+
+#[test]
+fn finishing_the_index_twice_keeps_the_first_config() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    let mut install = Installation::begin(root.path(), &exe).unwrap();
+    install.prepare_index().unwrap();
+    install.finish_index().unwrap();
+    let path = root.path().join(".agents/codegraph/config/codegraph.json");
+    fs::write(&path, br#"{"exclude":["edited/"]}"#).unwrap();
+    install.finish_index().unwrap();
+    assert_eq!(fs::read(&path).unwrap(), br#"{"exclude":["edited/"]}"#);
+}
+
+#[test]
+fn a_user_edited_config_is_preserved_by_uninstall() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+        install.finish_index().unwrap();
+    }
+    let path = root.path().join(".agents/codegraph/config/codegraph.json");
+    fs::write(&path, br#"{"exclude":["mine/"]}"#).unwrap();
+    let _ = uninstall(root.path());
+    assert_eq!(fs::read(&path).unwrap(), br#"{"exclude":["mine/"]}"#);
+}
+
+#[test]
+fn unknown_files_inside_the_config_folder_prevent_destructive_uninstall() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+        install.finish_index().unwrap();
+    }
+    let note = root.path().join(".agents/codegraph/config/notes.txt");
+    fs::write(&note, b"keep me").unwrap();
+    assert!(uninstall(root.path()).is_err());
+    assert_eq!(fs::read(note).unwrap(), b"keep me");
+}
+
+#[test]
+fn init_ignores_only_the_generated_index_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    let ignore = fs::read_to_string(root.path().join(".gitignore")).unwrap();
+    assert_eq!(ignore, ".agents/codegraph/\n");
+    assert!(!ignore.lines().any(|line| matches!(line.trim(), ".agents" | ".agents/")));
+}
+
+#[test]
+fn init_appends_to_an_existing_gitignore_and_is_idempotent() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    fs::write(root.path().join(".gitignore"), "target/\n").unwrap();
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    assert_eq!(
+        fs::read_to_string(root.path().join(".gitignore")).unwrap(),
+        "target/\n.agents/codegraph/\n"
+    );
+}
+
+#[test]
+fn init_leaves_a_gitignore_that_already_ignores_the_index_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    fs::write(root.path().join(".gitignore"), "/.agents/codegraph\n").unwrap();
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    assert_eq!(
+        fs::read_to_string(root.path().join(".gitignore")).unwrap(),
+        "/.agents/codegraph\n"
+    );
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+    assert_eq!(
+        fs::read_to_string(root.path().join(".gitignore")).unwrap(),
+        "/.agents/codegraph\n"
+    );
+}
+
+#[test]
+fn uninstall_removes_a_gitignore_it_created() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+    assert!(!root.path().join(".gitignore").exists());
+}
+
+#[test]
+fn uninstall_takes_back_only_its_line_from_an_edited_gitignore() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    fs::write(root.path().join(".gitignore"), "target/\n").unwrap();
+    drop(Installation::begin(root.path(), &exe).unwrap());
+    let mut edited = fs::read_to_string(root.path().join(".gitignore")).unwrap();
+    edited.push_str("dist/\n");
+    fs::write(root.path().join(".gitignore"), edited).unwrap();
+    let report = uninstall(root.path()).unwrap();
+    assert_eq!(report["complete"], true, "{report}");
+    assert_eq!(
+        fs::read_to_string(root.path().join(".gitignore")).unwrap(),
+        "target/\ndist/\n"
+    );
+}
+
+#[test]
+fn a_legacy_index_is_used_in_place_and_never_duplicated() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = executable(root.path());
+    fs::create_dir(root.path().join(".codegraph")).unwrap();
+    fs::write(root.path().join(".codegraph/codegraph.db"), b"legacy").unwrap();
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        assert!(!install.prepare_index().unwrap());
+        install.finish_index().unwrap();
+    }
+    assert!(!root.path().join(".agents/codegraph").exists());
+    assert_eq!(fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(), b"legacy");
+    assert!(root.path().join("codegraph.json").is_file());
+    assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
+    assert_eq!(fs::read(root.path().join(".codegraph/codegraph.db")).unwrap(), b"legacy");
 }
 
 #[test]
@@ -92,7 +229,13 @@ fn init_preserves_existing_and_modified_scope_configs() {
     let root = tempfile::tempdir().unwrap();
     let exe = executable(root.path());
     fs::write(root.path().join("codegraph.json"), b"user config").unwrap();
-    drop(Installation::begin(root.path(), &exe).unwrap());
+    {
+        let mut install = Installation::begin(root.path(), &exe).unwrap();
+        install.prepare_index().unwrap();
+        install.finish_index().unwrap();
+    }
+    // A pre-existing root config wins: no second config is created beside it.
+    assert!(!root.path().join(".agents/codegraph/config").exists());
     fs::write(root.path().join(".harnessignore"), b"user-pattern/\n").unwrap();
     drop(Installation::begin(root.path(), &exe).unwrap());
     let report = uninstall(root.path()).unwrap();
@@ -121,8 +264,9 @@ fn init_is_complete_idempotent_and_uninstall_removes_only_owned_content() {
     {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         assert!(install.prepare_index().unwrap());
+        install.finish_index().unwrap();
         fs::write(
-            root.path().join(".codegraph/codegraph.db"),
+            root.path().join(".agents/codegraph/codegraph.db"),
             b"disposable test index",
         )
         .unwrap();
@@ -142,7 +286,7 @@ fn init_is_complete_idempotent_and_uninstall_removes_only_owned_content() {
     assert_eq!(report["complete"], true, "{report}");
     assert_eq!(fs::read(root.path().join("user.rs")).unwrap(), b"keep me");
     assert!(exe.is_file());
-    assert!(!root.path().join(".codegraph").exists());
+    assert!(!root.path().join(".agents/codegraph").exists());
     assert!(!root.path().join(".agents").exists());
     assert!(!root.path().join(".codex").exists());
     assert_eq!(uninstall(root.path()).unwrap()["complete"], true);
@@ -284,11 +428,11 @@ fn unknown_index_files_prevent_destructive_uninstall() {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         install.prepare_index().unwrap();
     }
-    fs::write(root.path().join(".codegraph/user-notes.txt"), b"keep me").unwrap();
+    fs::write(root.path().join(".agents/codegraph/user-notes.txt"), b"keep me").unwrap();
     assert!(uninstall(root.path()).is_err());
     assert!(root.path().join(SKILLS[0].relative_path).exists());
     assert_eq!(
-        fs::read(root.path().join(".codegraph/user-notes.txt")).unwrap(),
+        fs::read(root.path().join(".agents/codegraph/user-notes.txt")).unwrap(),
         b"keep me"
     );
 }
@@ -336,7 +480,7 @@ fn live_index_prevents_uninstall_before_removing_project_files() {
         let mut install = Installation::begin(root.path(), &exe).unwrap();
         install.prepare_index().unwrap();
     }
-    let db = root.path().join(".codegraph/codegraph.db");
+    let db = root.path().join(".agents/codegraph/codegraph.db");
     fs::write(&db, b"index").unwrap();
     let _pin = fs::OpenOptions::new()
         .read(true)

@@ -5,9 +5,6 @@ use harness_application::{
 };
 #[path = "execution.rs"]
 mod execution;
-#[path = "diagram.rs"]
-mod diagram;
-pub use diagram::D2Host;
 #[path = "input.rs"]
 pub(crate) mod input;
 #[path = "jobs.rs"]
@@ -43,8 +40,6 @@ pub struct McpServer<W, S> {
     tasks: Option<Arc<dyn JobService>>,
     task_notifications: Arc<AtomicBool>,
     task_forwarding: Arc<AtomicBool>,
-    word_renderer: Option<Arc<dyn Fn(&harness_domain::word::WordDocument) -> Result<Vec<u8>, String> + Send + Sync>>,
-    d2_host: Arc<diagram::D2Host>,
     eager_tools: bool,
     context_presentation: bool,
     structured_presentation: bool,
@@ -58,8 +53,6 @@ impl<W, S> Clone for McpServer<W, S> {
             tasks: self.tasks.clone(),
             task_notifications: self.task_notifications.clone(),
             task_forwarding: self.task_forwarding.clone(),
-            word_renderer: self.word_renderer.clone(),
-            d2_host: self.d2_host.clone(),
             eager_tools: self.eager_tools,
             context_presentation: self.context_presentation,
             structured_presentation: self.structured_presentation,
@@ -76,11 +69,9 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
             tasks,
             task_notifications: Arc::new(AtomicBool::new(true)),
             task_forwarding: Arc::new(AtomicBool::new(false)),
-            word_renderer: None,
-            d2_host: Arc::new(diagram::D2Host::default()),
             eager_tools: true,
             context_presentation: false,
-            structured_presentation: true,
+            structured_presentation: false,
         }
     }
 
@@ -90,24 +81,6 @@ impl<W: Workspace + 'static, S: SessionRepository + 'static> McpServer<W, S> {
         source: impl Fn() -> Application<W, S> + Send + Sync + 'static,
     ) -> Self {
         self.application_source = Some(Arc::new(source));
-        self
-    }
-
-    /// Supplies the renderer used by the Word document creation tool.
-    pub fn with_word_renderer(
-        mut self,
-        renderer: impl Fn(&harness_domain::word::WordDocument) -> Result<Vec<u8>, String>
-            + Send
-            + Sync
-            + 'static,
-    ) -> Self {
-        self.word_renderer = Some(Arc::new(renderer));
-        self
-    }
-
-    /// Supplies the D2 executable and the environment its process may see.
-    pub fn with_d2_host(mut self, host: D2Host) -> Self {
-        self.d2_host = Arc::new(host);
         self
     }
 
@@ -323,70 +296,6 @@ where
         self.call(Request::Write(args), context).await
     }
     #[tool(
-        description = "Genera un documento .docx a partir de bloques estructurados y lo crea dentro del workspace. Solo rutas relativas .docx; no sobrescribe destinos existentes."
-    )]
-    async fn harness_word(
-        &self,
-        Parameters(args): Parameters<harness_domain::contracts::WordArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        let arguments = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
-        if let Err(failure) = args.validate() {
-            return present_response(
-                self.application.failure("harness_word", &arguments, failure),
-                false,
-                self.context_presentation,
-            );
-        }
-        let Some(renderer) = &self.word_renderer else {
-            return present_response(
-                self.application.failure(
-                    "harness_word",
-                    &arguments,
-                    ("UNSUPPORTED", "Word document renderer is not configured"),
-                ),
-                false,
-                self.context_presentation,
-            );
-        };
-        let renderer = Arc::clone(renderer);
-        let document = args.document.clone();
-        let bytes = match tokio::task::spawn_blocking(move || renderer(&document)).await {
-            Ok(Ok(bytes)) => bytes,
-            _ => {
-                return present_response(
-                    self.application.failure(
-                        "harness_word",
-                        &arguments,
-                        ("WORD_RENDER", "Document could not be rendered"),
-                    ),
-                    false,
-                    self.context_presentation,
-                );
-            }
-        };
-        self.call(Request::Word(args, bytes), context).await
-    }
-    #[tool(description = "Renderiza una pÃ¡gina de un DOCX existente en PNG para revisiÃ³n visual; page empieza en 1. No abre Microsoft Word.")]
-    async fn harness_word_preview(
-        &self,
-        Parameters(args): Parameters<harness_domain::word::WordPreviewArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        let mut result = self.call(Request::WordPreview(args), context).await;
-        if let Some(envelope) = result.structured_content.as_mut() {
-            if let Some(data) = envelope.get_mut("data") {
-                if let Some(image) = data.get_mut("imageBase64").and_then(|v| v.take().as_str().map(str::to_owned)) {
-                    result.content = vec![
-                        rmcp::model::ContentBlock::text("DOCX page preview. Layout may differ from Microsoft Word."),
-                        rmcp::model::ContentBlock::Image(rmcp::model::ImageContent::new(image, "image/png")),
-                    ];
-                }
-            }
-        }
-        result
-    }
-    #[tool(
         description = "Prepara una propuesta persistente: action=prepare, path y content completo. Guarda original y candidato, devuelve proposalId, hashes y diff sin modificar el archivo. expectedHash opcional; no acepta ni rechaza propuestas todavÃ­a. Escribe solo metadatos locales; requiere autorizaciÃ³n para preparar."
     )]
     async fn harness_proposal(
@@ -487,15 +396,6 @@ where
         self.call(Request::Ignore(args), context).await
     }
 
-    #[tool(description = "Inspecciona o lee un libro XLSX por rango o pÃ¡gina.")]
-    async fn harness_xlsx(
-        &self,
-        Parameters(args): Parameters<harness_domain::xlsx::XlsxArgs>,
-        context: RequestContext<RoleServer>,
-    ) -> CallToolResult {
-        self.call(args.into_request(), context).await
-    }
-
     #[tool(description = "Inspecciona o previsualiza SVG estÃ¡tico (â‰¤256 KiB).")]
     async fn harness_svg(
         &self,
@@ -505,34 +405,6 @@ where
         self.call(Request::Svg(args), context).await
     }
 
-    #[tool(description = "Renderiza un diagrama PNG desde nodos y relaciones declarativos. No acepta código D2, imports, URLs ni rutas de archivos; requiere D2 instalado en el host MCP.")]
-    async fn harness_diagram(
-        &self,
-        Parameters(args): Parameters<harness_domain::diagram::DiagramArgs>,
-    ) -> CallToolResult {
-        let arguments = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
-        if let Err(message) = args.to_d2() {
-            return present_response(self.application.failure("harness_diagram", &arguments, ("DIAGRAM_INPUT", message)), false, self.context_presentation);
-        }
-        match diagram::render(args, &self.d2_host).await {
-            Ok(bytes) => {
-                let image_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-                let envelope = harness_domain::results::Results::default().envelope(
-                    "harness_diagram", &arguments,
-                    Ok(serde_json::json!({"format":"png","mimeType":"image/png","byteLength":bytes.len(),"imageBase64":image_base64})),
-                );
-                let mut result = present_response(envelope, false, self.context_presentation);
-                result.content = vec![rmcp::model::ContentBlock::Image(rmcp::model::ImageContent::new(image_base64, "image/png"))];
-                result
-            }
-            Err(message) => {
-                let code = if message.starts_with("D2 is unavailable") { "D2_UNAVAILABLE" }
-                    else if message.contains("time limit") { "D2_TIMEOUT" }
-                    else { "D2_RENDER" };
-                present_response(self.application.failure("harness_diagram", &arguments, (code, message)), false, self.context_presentation)
-            }
-        }
-    }
     #[tool(description = "Proyecta JSON con JMESPath (path|data|resultRef).")]
     async fn harness_data_query(
         &self,

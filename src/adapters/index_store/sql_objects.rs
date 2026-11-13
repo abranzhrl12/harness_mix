@@ -137,7 +137,7 @@ fn inventory(
     let mut builder = ignore::WalkBuilder::new(&project.root);
     builder.follow_links(false).filter_entry(|entry| {
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        !matches!(
+        !super::super::index_inventory::is_index_dir(entry.path()) && !matches!(
             name.as_str(),
             ".git" | ".codegraph" | "target" | "node_modules" | "bin" | "obj"
         ) && !name.starts_with(".env")

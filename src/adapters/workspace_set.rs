@@ -556,17 +556,6 @@ impl SourceEditing for MultiNativeWorkspace {
         qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
         Ok(v)
     }
-    fn write_word(
-        &self,
-        args: &harness_domain::contracts::WordArgs,
-        bytes: &[u8],
-        context: &OperationContext,
-    ) -> Result<Value, Failure> {
-        let (i, args) = self.one(args, &["path"])?;
-        let mut value = self.projects[i].1.write_word(&args, bytes, context)?;
-        qualify_paths(&mut value, &self.projects[i].0.name, self.workspace_mode);
-        Ok(value)
-    }
     fn move_file(
         &self,
         a: &harness_domain::contracts::MoveArgs,
@@ -846,32 +835,6 @@ impl SqlAccess for MultiNativeWorkspace {
 }
 
 impl ArtifactQueries for MultiNativeWorkspace {
-    fn word_preview(&self, a: &harness_domain::word::WordPreviewArgs, c: &OperationContext) -> Result<Value, Failure> {
-        let (i, a) = self.one(a, &["path"])?;
-        let mut v = self.projects[i].1.word_preview(&a, c)?;
-        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
-        Ok(v)
-    }
-    fn xlsx_inspect(
-        &self,
-        a: &harness_domain::xlsx::XlsxInspectArgs,
-        c: &OperationContext,
-    ) -> Result<Value, Failure> {
-        let (i, a) = self.one(a, &["path"])?;
-        let mut v = self.projects[i].1.xlsx_inspect(&a, c)?;
-        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
-        Ok(v)
-    }
-    fn xlsx_read(
-        &self,
-        a: &harness_domain::xlsx::XlsxReadArgs,
-        c: &OperationContext,
-    ) -> Result<Value, Failure> {
-        let (i, a) = self.one(a, &["path"])?;
-        let mut v = self.projects[i].1.xlsx_read(&a, c)?;
-        qualify_paths(&mut v, &self.projects[i].0.name, self.workspace_mode);
-        Ok(v)
-    }
     fn svg(
         &self,
         a: &harness_domain::svg::SvgArgs,

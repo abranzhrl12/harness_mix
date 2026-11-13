@@ -79,9 +79,9 @@ struct ReadInput {
     /// File path; file and target_path are accepted aliases. Supply only one.
     #[serde(alias = "target_path", alias = "file")]
     path: String,
-    #[serde(default = "default_read_start")]
+    #[serde(default = "default_read_start", alias = "startLine", alias = "start_line")]
     start: usize,
-    #[serde(default)]
+    #[serde(default, alias = "endLine", alias = "end_line")]
     end: Option<usize>,
     /// Number of lines starting at start; mutually exclusive with end.
     #[serde(default)]

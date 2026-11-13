@@ -1,83 +1,98 @@
-//! Executable host adapters for the reusable CLI crate.
+//! Minimal CLI entrypoint for the MCP server binary.
 
-use std::path::{Path, PathBuf};
-
-use agent_harness::adapters::{database_setup, index_store, index_sync};
-use harness_cli::commands::{DatabaseHost, ExecutableHost, IndexHost, IndexOperation, ServerHost};
-use harness_domain::{Failure, execution::OperationContext};
-use serde_json::Value;
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct AgentHarnessHost;
-
-impl DatabaseHost for AgentHarnessHost {
-    fn initialize_database(&self, root: &Path) -> Result<Value, String> {
-        database_setup::initialize(root).map_err(|(code, message)| format!("{code}: {message}"))
-    }
-}
-
-impl IndexHost for AgentHarnessHost {
-    fn index(
-        &self,
-        root: &Path,
-        operation: IndexOperation,
-        context: &OperationContext,
-    ) -> Result<Value, Failure> {
-        match operation {
-            IndexOperation::Initialize => index_store::initialize(root, context),
-            IndexOperation::InitializeOwned { owner } => {
-                index_store::initialize_owned(root, &owner, context)
-            }
-            IndexOperation::SyncWorkspace => index_store::sync_workspace_all(root, context),
-            IndexOperation::Rebuild => index_store::rebuild_workspace(root, context),
-            IndexOperation::Plan => index_sync::plan_workspace(root, context),
-            IndexOperation::SyncFile {
-                relative,
-                tsconfig,
-                force,
-            } => match tsconfig {
-                Some(config) => {
-                    index_store::sync_file_with_tsconfig(root, &relative, &config, context)
-                }
-                None if force => index_store::sync_file_forced(root, &relative, context),
-                None => index_store::sync_file(root, &relative, context),
-            },
-        }
-    }
-
-    fn take_sync_diagnostic(&self, code: &str, message: &str) -> Option<Value> {
-        index_store::take_sync_diagnostic(code, message)
-    }
-}
-
-impl ExecutableHost for AgentHarnessHost {
-    fn current_executable(&self) -> Result<PathBuf, String> {
-        std::env::current_exe().map_err(|error| error.to_string())
-    }
-}
-
-impl ServerHost for AgentHarnessHost {
-    async fn serve(
-        &self,
-        root: Option<&Path>,
-        workspace_config: Option<&Path>,
-        persist_logs: bool,
-    ) -> Result<(), String> {
-        match (root, workspace_config) {
-            (Some(root), None) => {
-                agent_harness::transport::serve_with_logging(root, persist_logs).await
-            }
-            (None, Some(config)) => {
-                agent_harness::transport::serve_with_workspace_config(config, persist_logs).await
-            }
-            _ => Err("exactly one serving configuration must be provided".into()),
-        }
-        .map_err(|error| error.to_string())
-    }
-}
+use std::path::PathBuf;
 
 pub async fn run(
     args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    harness_cli::commands::run(args, &AgentHarnessHost, env!("CARGO_PKG_VERSION")).await
+    let mut iter = args.into_iter();
+    let mut root: Option<PathBuf> = None;
+    let mut workspace_config: Option<PathBuf> = None;
+    let mut persist_logs = false;
+    let mut reindex = false;
+
+    while let Some(arg) = iter.next() {
+        let s = arg.to_string_lossy();
+        match s.as_ref() {
+            "--version" | "-V" => {
+                println!("agent-harness {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "serve" | "--stdio" | "--mcp" => {}
+            "--root" => {
+                let val = iter.next().ok_or("--root requires a path")?;
+                root = Some(PathBuf::from(val));
+            }
+            "--workspace-config" | "--config" | "--workspace" => {
+                let val = iter.next().ok_or("--workspace-config requires a path")?;
+                let path = PathBuf::from(val);
+                if path.is_dir() {
+                    root = Some(path);
+                } else {
+                    workspace_config = Some(path);
+                }
+            }
+            "--persist-logs" => {
+                persist_logs = true;
+            }
+            "--reindex" => {
+                reindex = true;
+            }
+            other if other.starts_with("--root=") => {
+                root = Some(PathBuf::from(&other["--root=".len()..]));
+            }
+            other if other.starts_with("--workspace-config=") => {
+                workspace_config = Some(PathBuf::from(&other["--workspace-config=".len()..]));
+            }
+            other if other.starts_with("--workspace=") => {
+                let path = PathBuf::from(&other["--workspace=".len()..]);
+                if path.is_dir() {
+                    root = Some(path);
+                } else {
+                    workspace_config = Some(path);
+                }
+            }
+            other => {
+                return Err(format!("unknown argument: {other}").into());
+            }
+        }
+    }
+
+    if reindex {
+        let target_root = match (root, workspace_config) {
+            (Some(r), None) => r,
+            (None, None) => std::env::current_dir()?,
+            (Some(_), Some(_)) => {
+                return Err("cannot specify both --root and --workspace-config".into());
+            }
+            (None, Some(_)) => {
+                return Err("--reindex requires --root (or current directory)".into());
+            }
+        };
+        let report = agent_harness::adapters::index_store::rebuild_workspace(
+            &target_root,
+            &harness_domain::execution::OperationContext::without_deadline(),
+        )
+        .map_err(|(code, message)| format!("{code}: {message}"))?;
+        println!("{report}");
+        return Ok(());
+    }
+
+    match (root, workspace_config) {
+        (Some(root), None) => {
+            agent_harness::transport::serve_with_logging(&root, persist_logs).await?;
+        }
+        (None, Some(config)) => {
+            agent_harness::transport::serve_with_workspace_config(&config, persist_logs).await?;
+        }
+        (None, None) => {
+            let cwd = std::env::current_dir()?;
+            agent_harness::transport::serve_with_logging(&cwd, persist_logs).await?;
+        }
+        (Some(_), Some(_)) => {
+            return Err("cannot specify both --root and --workspace-config".into());
+        }
+    }
+
+    Ok(())
 }

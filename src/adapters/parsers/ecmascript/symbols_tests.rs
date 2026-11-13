@@ -32,3 +32,20 @@ fn default_symbol_collection_retains_512_kib_limit() {
     assert_eq!(error.0, "PARSER_LIMIT");
     assert!(error.1.contains("512 KiB"));
 }
+
+#[test]
+fn export_default_call_and_arrow_are_collected_for_ts_config() {
+    let source = "export default defineNuxtConfig({\n  devtools: { enabled: true },\n});\n";
+    let symbols = collect("nuxt.config.ts", source, "digest", &OperationContext::default()).unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "default");
+    assert_eq!(symbols[0].kind, "export_default");
+    assert!(symbols[0].signature.starts_with("export default defineNuxtConfig("));
+    assert!(source[symbols[0].bytes.clone()].contains("devtools"));
+
+    let arrow_source = "export default () => ({ ok: true });\n";
+    let arrow_symbols = collect("config.ts", arrow_source, "digest", &OperationContext::default()).unwrap();
+    assert_eq!(arrow_symbols.len(), 1);
+    assert_eq!(arrow_symbols[0].name, "default");
+    assert_eq!(arrow_symbols[0].kind, "function_definition");
+}

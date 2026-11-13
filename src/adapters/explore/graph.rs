@@ -143,9 +143,11 @@ pub(super) fn traverse(
             let destination: String = row.get(2).map_err(failed)?;
             let kind: String = row.get(3).map_err(failed)?;
             let mut related = super::node(row, 4).map_err(failed)?;
-            super::validate_node(project, &mut related)?;
             if source.len() > 1024 || destination.len() > 1024 {
                 return Err(super::CONTRACT);
+            }
+            if !super::validate_neighbor_node(project, &mut related)? {
+                continue;
             }
             if !edge_ids.contains(&id) && edges.len() >= 160 {
                 truncated = true;

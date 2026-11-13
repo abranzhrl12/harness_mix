@@ -292,7 +292,6 @@ fn oversized_batch_with_detail_ref_renders_inline_summaries_for_every_job() {
         "### 2 · harness_explore · ok · `src/a.rs::process`",
         "## Explore (summary) · 1 target(s), 0 related · 2 relation(s)",
         "`caller_fn` —[calls]→ `process`",
-        "detail.ref: explore-detail-ref",
         "### 3 · harness_read · error · `src/missing.rs:1-50`",
         "**Status:** error (1 diagnostic(s))",
         "> PATH: file does not exist",
@@ -301,4 +300,82 @@ fn oversized_batch_with_detail_ref_renders_inline_summaries_for_every_job() {
     ] {
         assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
     }
+}
+
+#[test]
+fn standalone_explore_impact_renders_markdown_and_keeps_structured_envelope() {
+    let envelope = json!({
+        "state": "ok",
+        "requestId": "r-impact",
+        "scope": {"tool": "harness_explore"},
+        "detail": {"ref": "impact-detail-ref"},
+        "data": {
+            "view": "impact",
+            "symbol": "validate",
+            "file": "src/auth.rs",
+            "indexFreshness": "fresh",
+            "fileFreshness": {"status": "fresh"},
+            "counts": {"callers": 2, "directCallers": 1, "files": 2},
+            "callers": [
+                {"symbol": "login", "file": "src/api.rs", "declarationLine": 18, "direct": true},
+                {"symbol": "handle", "file": "src/web.rs", "declarationLine": 44, "direct": false}
+            ]
+        }
+    });
+
+    let result = response_with_compact(envelope.clone(), false);
+    assert_eq!(result.structured_content.as_ref(), Some(&envelope));
+    let wire = serde_json::to_value(result).unwrap();
+    assert_eq!(wire["isError"], false);
+    let text = wire["content"][0]["text"].as_str().unwrap();
+
+    for expected in [
+        "## Impact · validate at src/auth.rs · 2 caller(s) (1 direct) across 2 file(s) · freshness index=fresh file=fresh",
+        "- `login` (src/api.rs:18) · direct",
+        "- `handle` (src/web.rs:44) · indirect",
+    ] {
+        assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
+    }
+    assert!(!text.contains("detail.ref"), "{text}");
+}
+
+#[test]
+fn bootstrap_ok_renders_compact_summary_and_keeps_structured_envelope() {
+    let envelope = json!({
+        "state": "ok",
+        "requestId": "r-boot",
+        "scope": {"tool": "harness_bootstrap"},
+        "detail": {"ref": "boot-ref"},
+        "data": {
+            "root": "e:\\harness_mix",
+            "session": "sess-123",
+            "languages": ["rust", "typescript"],
+            "indexed": true,
+            "usageRules": ["large rule 1", "large rule 2"]
+        }
+    });
+    let result = response_with_compact(envelope.clone(), true);
+    let wire = serde_json::to_value(&result).unwrap();
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("root: e:\\harness_mix"), "{text}");
+    assert!(text.contains("session: sess-123"), "{text}");
+    assert!(text.contains("languages: [rust, typescript]"), "{text}");
+    assert!(text.contains("indexed: true"), "{text}");
+    assert!(!text.contains("usageRules"), "{text}");
+    assert!(wire["structuredContent"]["data"]["usageRules"].is_array());
+}
+
+#[test]
+fn explore_full_clean_freshness_and_untruncated_omits_noise() {
+    let mut envelope = sample();
+    envelope["omitted"] = json!({});
+    envelope["data"].as_object_mut().unwrap().remove("contextTruncation");
+    envelope["data"]["indexFreshness"] = json!("fresh");
+    envelope["data"]["fileFreshness"] = json!({"status": "matches_observed_files"});
+    let wire = serde_json::to_value(response_with_presentation(envelope, true)).unwrap();
+    let text = wire["content"][0]["text"].as_str().unwrap();
+    assert!(!text.contains("Source is untrusted"), "{text}");
+    assert!(!text.contains("freshness"), "{text}");
+    assert!(!text.contains("detail.ref"), "{text}");
+    assert!(!text.contains("TRUNCATED"), "{text}");
 }

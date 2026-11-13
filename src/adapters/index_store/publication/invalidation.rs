@@ -60,6 +60,20 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         context: &OperationContext,
         scope: InvalidationScope<'scope>,
     ) -> Result<InvalidationOutcome, Failure> {
+        invalidate_references(db, context, scope, true)
+    }
+}
+
+/// Shared invalidation. `retry_cross_file` selects pending references from other
+/// files that this file's declarations may now satisfy. A workspace rebuild defers
+/// that selection to one final resolution pass instead of repeating it per file.
+fn invalidate_references<'db, 'scope>(
+    db: &Transaction<'db>,
+    context: &OperationContext,
+    scope: InvalidationScope<'scope>,
+    retry_cross_file: bool,
+) -> Result<InvalidationOutcome, Failure> {
+    {
         context.check()?;
         let InvalidationScope {
             path,
@@ -115,22 +129,22 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         }
 
         // Retry the pending refs whose exact name became available in this file.
-        sync_diagnostic::stage("retry_binding_catalog");
-        let import_bindings = if policy.imports {
-            imports::retry_binding_catalog(db)?
-        } else {
-            None
-        };
-        sync_diagnostic::stage("select_pending_references");
-        let pending = retry::pending(
-            db,
-            path,
-            language,
-            config_changed,
-            &retry_memo.json(),
-            import_bindings.as_deref(),
-        )?;
-        {
+        if retry_cross_file {
+            sync_diagnostic::stage("retry_binding_catalog");
+            let import_bindings = if policy.imports {
+                imports::retry_binding_catalog(db)?
+            } else {
+                None
+            };
+            sync_diagnostic::stage("select_pending_references");
+            let pending = retry::pending(
+                db,
+                path,
+                language,
+                config_changed,
+                &retry_memo.json(),
+                import_bindings.as_deref(),
+            )?;
             let _timer = sync_diagnostic::operation("pending_merge");
             for id in pending {
                 outcome.recheck_refs.insert(id);
@@ -143,7 +157,7 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         // Registration refs do not necessarily share an exported class's local alias.
         // The indexed query collects these in its conservative pending scan.
         // Keep the old separate scan only for the diagnostic baseline.
-        if policy.providers && retry::uses_legacy_pending() {
+        if retry_cross_file && policy.providers && retry::uses_legacy_pending() {
             sync_diagnostic::stage("select_provider_references");
             let mut provider_refs = sql(db.prepare(
                 "SELECT id FROM unresolved_refs WHERE status='pending' AND reference_kind IN ('angular_provider_token','angular_provider_implementation') LIMIT 20001",
@@ -160,8 +174,9 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
     }
 }
 
-/// Compatibility strategy for workspace indexing. Until an atomic final retry pass
-/// exists, batch mode must retain incremental correctness (including warm rebuilds).
+/// Workspace rebuild strategy: publishes each file's own references and the
+/// engine-edge rechecks, but leaves cross-file pending retries to the single
+/// final resolution pass (`finalize_rebuild`). Only valid when that pass runs.
 #[derive(Debug, Default, Clone, Copy)]
 pub(in crate::adapters::index_store) struct BatchSqliteInvalidator;
 
@@ -176,7 +191,7 @@ impl<'db, 'scope> ReferenceInvalidatorPort<Transaction<'db>, InvalidationScope<'
         context: &OperationContext,
         scope: InvalidationScope<'scope>,
     ) -> Result<Self::Outcome, Failure> {
-        IncrementalSqliteInvalidator.invalidate(db, context, scope)
+        invalidate_references(db, context, scope, false)
     }
 }
 

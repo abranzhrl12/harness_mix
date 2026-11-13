@@ -39,6 +39,15 @@ pub trait WorkspacePort {
     ) -> Result<bool, Failure> {
         Ok(false)
     }
+    /// Run once after a forced rebuild publishes every file. Adapters that defer
+    /// cross-file reference retries to this pass resolve them here and return a
+    /// report; `None` means nothing was deferred. Failure leaves refs pending.
+    fn finalize_rebuild(
+        &mut self,
+        _context: &OperationContext,
+    ) -> Result<Option<serde_json::Value>, Failure> {
+        Ok(None)
+    }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure>;
 }
 

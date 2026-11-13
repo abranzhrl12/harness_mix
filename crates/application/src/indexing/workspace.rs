@@ -251,6 +251,19 @@ pub fn sync_workspace<P: WorkspacePort>(
     }
     context.report_progress("finalizing", processed, Some(total), None);
     let finalization_started = std::time::Instant::now();
+    // Cross-file retries deferred during the rebuild run once, only if every
+    // selected file published; otherwise refs stay pending for a later sync.
+    let mut final_resolution = None;
+    if rebuild && !stopped_early && failed == 0 {
+        match port.finalize_rebuild(context) {
+            Ok(report) => final_resolution = report,
+            Err((code, message)) => {
+                final_resolution = Some(json!({"code":code,"message":message,"committed":false}));
+                warnings.push(json!({"path":"codegraph.db","code":"FINAL_RESOLUTION_INCOMPLETE","message":message,"severity":"warning"}));
+                warning_files += 1;
+            }
+        }
+    }
     let mut final_scope_failure = false;
     if !stopped_early
         && let Err((code, message)) = port.recheck(context).and_then(|()| context.check())
@@ -286,6 +299,9 @@ pub fn sync_workspace<P: WorkspacePort>(
     report["unattemptedFiles"] =
         json!(total.saturating_sub(processed + failed + provider_dependent));
     report["stoppedEarly"] = json!(stopped_early);
+    if let Some(final_resolution) = final_resolution {
+        report["finalResolution"] = final_resolution;
+    }
     report["failureReportLimit"] = json!(32);
     report["failureReportsOmitted"] = json!(
         (failed + usize::from(final_scope_failure))

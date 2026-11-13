@@ -223,7 +223,65 @@ impl<'a> TsCollector<'a> {
                     ExportDefaultDeclarationKind::TSInterfaceDeclaration(iface) => {
                         self.visit_interface(iface, container)?;
                     }
-                    _ => {}
+                    other => {
+                        if let Some(expr) = other.as_expression() {
+                            match expr {
+                                oxc_ast::ast::Expression::ArrowFunctionExpression(arrow) => {
+                                    self.record(
+                                        "default",
+                                        container,
+                                        "function_definition",
+                                        export_default.span,
+                                        Some(arrow.body.span().start),
+                                    )?;
+                                }
+                                oxc_ast::ast::Expression::FunctionExpression(func) => {
+                                    let name = func
+                                        .id
+                                        .as_ref()
+                                        .map(|i| i.name.as_str())
+                                        .unwrap_or("default");
+                                    let body_start = func.body.as_ref().map(|b| b.span.start);
+                                    self.record(
+                                        name,
+                                        container,
+                                        "function_definition",
+                                        export_default.span,
+                                        body_start,
+                                    )?;
+                                }
+                                oxc_ast::ast::Expression::CallExpression(call) => {
+                                    let body_start =
+                                        call.arguments.first().map(|arg| arg.span().start);
+                                    self.record(
+                                        "default",
+                                        container,
+                                        "export_default",
+                                        export_default.span,
+                                        body_start,
+                                    )?;
+                                }
+                                oxc_ast::ast::Expression::ObjectExpression(obj) => {
+                                    self.record(
+                                        "default",
+                                        container,
+                                        "export_default",
+                                        export_default.span,
+                                        Some(obj.span.start),
+                                    )?;
+                                }
+                                _ => {
+                                    self.record(
+                                        "default",
+                                        container,
+                                        "export_default",
+                                        export_default.span,
+                                        None,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Statement::TSInterfaceDeclaration(iface) => {

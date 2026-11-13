@@ -21,8 +21,6 @@ pub enum BatchTool {
     Git,
     #[serde(rename = "harness_sql")]
     Sql,
-    #[serde(rename = "harness_xlsx")]
-    Xlsx,
     #[serde(rename = "harness_svg")]
     Svg,
     #[serde(rename = "harness_explore")]
@@ -64,7 +62,6 @@ impl BatchTool {
             Self::Detail => "harness_detail",
             Self::Git => "harness_git",
             Self::Sql => "harness_sql",
-            Self::Xlsx => "harness_xlsx",
             Self::Svg => "harness_svg",
             Self::Explore => "harness_explore",
         }
@@ -97,8 +94,6 @@ impl BatchJob {
             BatchTool::Git => serde_json::from_value::<GitArgs>(value).map(GitArgs::into_request),
             BatchTool::Sql => serde_json::from_value::<crate::sql::SqlArgs>(value)
                 .map(crate::sql::SqlArgs::into_request),
-            BatchTool::Xlsx => serde_json::from_value::<crate::xlsx::XlsxArgs>(value)
-                .map(crate::xlsx::XlsxArgs::into_request),
             BatchTool::Svg => serde_json::from_value(value).map(Request::Svg),
             BatchTool::Explore => {
                 serde_json::from_value::<ExploreArgs>(value).map(Request::Explore)

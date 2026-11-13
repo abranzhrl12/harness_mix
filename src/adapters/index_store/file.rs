@@ -46,7 +46,7 @@ impl<F: FnOnce()> FileIndexPort for NativeFile<'_, F> {
         let project = self.project.as_ref().ok_or(INDEX)?;
         sync_diagnostic::begin(
             &self.relative,
-            &project.root.join(".codegraph/codegraph.db"),
+            &project.root.join(project.index_rel("codegraph.db")),
         );
         sync_diagnostic::stage("load_file_scope");
         self.scope = Some(scope::Snapshot::load(project, context)?);

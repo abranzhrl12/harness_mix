@@ -753,7 +753,6 @@ fn batch_with_explore_impact_sql_status_and_verify_renders_inline_summaries() {
         "### 3 · harness_verify · ok · `rust (crates/mcp)`",
         "## Verify (test) · failed · 1 error(s), 0 warning(s)",
         "src/lib.rs:42 E0308: mismatched types",
-        "> detail.ref: batch-ref",
     ] {
         assert!(text.contains(expected), "missing `{expected}` in:\n{text}");
         let mut matches = Vec::new();

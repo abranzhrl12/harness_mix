@@ -37,22 +37,24 @@ pub(super) fn with_notices(mut text: String, envelope: &Value) -> String {
             Value::Number(number) => number.as_u64().is_some_and(|n| n > 0),
             _ => false,
         });
+    let batch_truncated = envelope["scope"]["tool"] == "harness_batch"
+        && (data["truncated"] == true || envelope["omitted"]["truncated"] == true);
     if data["previewTruncated"] == true {
         text.push_str("\n> Batch preview shortened to fit the response budget; full child results are recoverable from the batch detail.\n");
-    } else if envelope["scope"]["tool"] == "harness_batch"
-        && (data["truncated"] == true || envelope["omitted"]["truncated"] == true)
-    {
+    } else if batch_truncated {
         text.push_str("\n> Child previews were shortened to fit the response budget; full results are recoverable from the batch detail.\n");
-    } else if partial {
+    } else if partial && !text.contains("> Partial context:") {
         text.push_str(
             "\n> Partial output; check structuredContent for limits, omissions and continuation.\n",
         );
     }
-    if let Some(reference) = envelope["detail"]["ref"].as_str() {
-        text.push_str(&format!(
-            "\n> detail.ref: {}\n",
-            super::clip(reference, 100)
-        ));
+    if partial || data["truncated"] == true || data["previewTruncated"] == true || batch_truncated {
+        if let Some(reference) = envelope["detail"]["ref"].as_str() {
+            text.push_str(&format!(
+                "\n> detail.ref: {}\n",
+                super::clip(reference, 100)
+            ));
+        }
     }
     text
 }
@@ -114,7 +116,11 @@ fn render_inner(envelope: &Value, depth: usize) -> Option<String> {
             text.push_str(&format!("{fence}json\n{body}\n{fence}\n"));
         }
     }
-    Some(with_notices(text, envelope))
+    let batch_notices = with_notices(String::new(), envelope);
+    if !batch_notices.trim().is_empty() {
+        text.push_str(&format!("\n---\n{}", batch_notices.trim_start_matches('\n')));
+    }
+    Some(text)
 }
 
 fn child_target(tool: &str, child: &Value) -> Option<String> {
@@ -239,7 +245,7 @@ fn render_child_summary(tool: &str, child: &Value) -> Option<String> {
     }
 }
 
-fn render_explore_child(child: &Value) -> Option<String> {
+pub(super) fn render_explore_child(child: &Value) -> Option<String> {
     let data = &child["data"];
     let view = data["view"].as_str().unwrap_or("full");
     let index_freshness = data["indexFreshness"].as_str().unwrap_or("unknown");
@@ -263,8 +269,14 @@ fn render_explore_child(child: &Value) -> Option<String> {
             .as_u64()
             .or_else(|| data["files"].as_array().map(|a| a.len() as u64))
             .unwrap_or(0);
+        let freshness_suffix =
+            if index_freshness == "stale" || file_freshness != "matches_observed_files" {
+                format!(" · freshness index={index_freshness} file={file_freshness}")
+            } else {
+                String::new()
+            };
         let mut text = format!(
-            "## Impact · {} {} · {} caller(s) ({} direct) across {} file(s) · freshness index={index_freshness} file={file_freshness}\n",
+            "## Impact · {} {} · {} caller(s) ({} direct) across {} file(s){freshness_suffix}\n",
             super::clip(symbol, 80),
             if file.is_empty() {
                 String::new()
@@ -330,8 +342,14 @@ fn render_explore_child(child: &Value) -> Option<String> {
         .unwrap_or(edges);
     let unresolved = data["unresolved"].as_array().map(Vec::len).unwrap_or(0);
 
+    let freshness_suffix =
+        if index_freshness == "stale" || file_freshness != "matches_observed_files" {
+            format!(" · freshness index={index_freshness} file={file_freshness}")
+        } else {
+            String::new()
+        };
     let mut text = format!(
-        "## Explore ({view}) · {targets} target(s), {related} related · {relations_count} relation(s) ({nodes} nodes, {edges} edges) · unresolved: {unresolved} · freshness index={index_freshness} file={file_freshness}\n"
+        "## Explore ({view}) · {targets} target(s), {related} related · {relations_count} relation(s) ({nodes} nodes, {edges} edges) · unresolved: {unresolved}{freshness_suffix}\n"
     );
 
     if let Some(body) = data["text"].as_str().filter(|s| !s.is_empty()) {

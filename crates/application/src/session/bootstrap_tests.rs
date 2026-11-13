@@ -1,5 +1,5 @@
 use super::initial_examples;
-use harness_domain::{contracts::{ReadArgs, SearchArgs, SymbolsArgs, VerifyArgs, WordArgs}, tasks::TaskArgs};
+use harness_domain::{contracts::{ReadArgs, SearchArgs, SymbolsArgs, VerifyArgs}, tasks::TaskArgs};
 
 #[test]
 fn initial_examples_respect_the_selected_tool_profile() {
@@ -45,7 +45,6 @@ fn initial_examples_deserialize_through_public_contracts() {
             "harness_search" => { serde_json::from_value::<SearchArgs>(args).unwrap(); }
             "harness_symbols" => { serde_json::from_value::<SymbolsArgs>(args).unwrap(); }
             "harness_verify" => { serde_json::from_value::<VerifyArgs>(args).unwrap(); }
-            "harness_word" => { serde_json::from_value::<WordArgs>(args).unwrap(); }
             "harness_jobs" => { serde_json::from_value::<TaskArgs>(args).unwrap(); }
             other => panic!("example without a contract check: {other}"),
         }

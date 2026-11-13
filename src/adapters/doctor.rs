@@ -171,7 +171,7 @@ pub(super) fn doctor(
     ));
     let mut index = path_check(
         project,
-        ".codegraph",
+        project.index_dir(),
         "index",
         "Index directory exists, but its contents/freshness are not validated",
     );
@@ -185,7 +185,7 @@ pub(super) fn doctor(
         "Index probe not requested or index absent",
     );
     connection["requested"] = json!(args.connection.unwrap_or(false));
-    if args.connection == Some(true) && project.root.join(".codegraph").is_dir() {
+    if args.connection == Some(true) && project.root.join(project.index_dir()).is_dir() {
         let probe = serde_json::from_value(json!({"query":"__harness_doctor_probe__","syncIndex":false,"maxFiles":1,"maxDepth":1,"maxChars":1000}))
             .map_err(|_| ("INTERNAL", "Invalid index diagnostic request"))?;
         connection = match super::explore::explore(project, &probe, context) {

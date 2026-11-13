@@ -41,7 +41,6 @@ members = [
     "crates/application",
     "crates/browser",
     "crates/lsp",
-    "crates/cli",
     "crates/mcp",
     "crates/config",
     "crates/skills",
@@ -51,7 +50,6 @@ default-members = [
     ".",
     "crates/domain",
     "crates/application",
-    "crates/cli",
     "crates/mcp",
     "crates/config",
     "crates/skills",
@@ -61,13 +59,12 @@ resolver = "3"
 exclude = ["vendor/codegraph-native", "archive/antigravity"]
 
 [features]
-default = ["browser-cdp"]
+default = []
 browser-cdp = ["dep:harness-browser"]
+sql-tools = ["dep:tiberius", "dep:tokio-postgres", "dep:postgres-native-tls", "dep:native-tls", "dep:rust_decimal"]
 
 [dependencies]
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
-docx-rs = "=0.4.22"
-codesnap = "=0.13.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "=0.22.1"
@@ -77,7 +74,6 @@ harness-domain = { path = "crates/domain", features = ["schema"] }
 harness-application = { path = "crates/application" }
 harness-lsp = { path = "crates/lsp" }
 harness-browser = { path = "crates/browser", optional = true }
-harness-cli = { path = "crates/cli" }
 harness-mcp = { path = "crates/mcp" }
 harness-config = { path = "crates/config" }
 harness-skills = { path = "crates/skills" }
@@ -98,14 +94,13 @@ oxc_semantic = "=0.155.0"
 oxc_span = "=0.155.0"
 oxc_syntax = "=0.155.0"
 oxc_resolver = "=11.24.3"
-tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"] }
-tokio-postgres = "=0.7.18"
-postgres-native-tls = "0.5"
-native-tls = "0.2"
+tiberius = { version = "0.13.0", features = ["chrono", "rust_decimal"], optional = true }
+tokio-postgres = { version = "=0.7.18", optional = true }
+postgres-native-tls = { version = "0.5", optional = true }
+native-tls = { version = "0.2", optional = true }
 futures-util = "0.3"
 tokio-util = { version = "0.7.20", features = ["compat"] }
-rust_decimal = { version = "1.43.0", features = ["serde"] }
-calamine = "0.36.1"
+rust_decimal = { version = "1.43.0", features = ["serde"], optional = true }
 jmespath = { version = "0.3", features = ["sync"] }
 mimalloc = { version = "0.1.52", default-features = false }
 raffia = "=0.13.0"
@@ -116,7 +111,6 @@ bm25 = { version = "=2.3.2", default-features = false }
 # Keep the native Tree-sitter runtime shared with codegraph-native (0.25).
 ast-grep-core = "=0.39.9"
 ast-grep-language = "=0.39.9"
-rdocx = "=0.16.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

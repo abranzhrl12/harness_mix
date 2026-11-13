@@ -98,7 +98,7 @@ impl WorkspaceMetadata for NativeWorkspace {
         {
             languages.push("dotnet");
         }
-        json!({"root":root,"languages":languages,"manifestScope":"raíz del proyecto","indexed":self.project.root.join(".codegraph").is_dir()})
+        json!({"root":root,"languages":languages,"manifestScope":"raíz del proyecto","indexed":self.project.root.join(self.project.index_dir()).is_dir()})
     }
     fn rules(&self, _context: &OperationContext) -> Result<String, Failure> {
         // Legacy port kept for compatibility; bootstrap uses skills, not rule files.

@@ -48,7 +48,7 @@ fn node(row: &Row<'_>, offset: usize) -> rusqlite::Result<Node> {
     })
 }
 
-fn validate_node(project: &Project, item: &mut Node) -> Result<(), Failure> {
+fn validate_node_fields(item: &mut Node) -> Result<(), Failure> {
     if [&item.id, &item.name, &item.kind]
         .iter()
         .any(|s| s.is_empty() || s.len() > 1024 || s.chars().any(char::is_control))
@@ -60,10 +60,7 @@ fn validate_node(project: &Project, item: &mut Node) -> Result<(), Failure> {
         return Err(CONTRACT);
     }
     item.file_path = item.file_path.replace('\\', "/");
-    // Also reject metadata/credential paths and validate existing ancestors for
-    // stale/deleted indexed files. Never echo an unchecked path from the index.
-    if super::project::external_restricted(&item.file_path)
-        || super::project::external_sensitive(&item.file_path)
+    if item.file_path.contains([':', '\0'])
         || item
             .file_path
             .split('/')
@@ -71,10 +68,33 @@ fn validate_node(project: &Project, item: &mut Node) -> Result<(), Failure> {
     {
         return Err(CONTRACT);
     }
+    Ok(())
+}
+
+fn validate_node(project: &Project, item: &mut Node) -> Result<(), Failure> {
+    validate_node_fields(item)?;
+    // Also reject metadata/credential paths and validate existing ancestors for
+    // stale/deleted indexed files. Never echo an unchecked path from the index.
+    if super::project::external_restricted(&item.file_path)
+        || super::project::external_sensitive(&item.file_path)
+    {
+        return Err(CONTRACT);
+    }
     project
         .target_optional(&item.file_path)
         .map_err(|_| CONTRACT)?;
     Ok(())
+}
+
+fn validate_neighbor_node(project: &Project, item: &mut Node) -> Result<bool, Failure> {
+    validate_node_fields(item)?;
+    if super::project::external_restricted(&item.file_path)
+        || super::project::external_sensitive(&item.file_path)
+        || project.target_optional(&item.file_path).is_err()
+    {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn identifier(text: &str) -> bool {
@@ -224,7 +244,7 @@ pub(super) fn explore(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     let diagnostic = std::cell::RefCell::new(json!({
-        "databasePath": project.root.join(".codegraph/codegraph.db"),
+        "databasePath": project.root.join(project.index_rel("codegraph.db")),
         "stage": "filesystem", "expectedSchemaVersion": {"min":1,"max":11},
         "globalFreshnessCertified": false
     }));
@@ -420,4 +440,159 @@ fn explore_inner(
     )?;
     super::index_store::quarantine::annotate(&mut result, &archive, true);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::{Connection, params};
+    use std::path::Path;
+
+    fn setup_db(root: &Path) -> Connection {
+        std::fs::create_dir_all(root.join(".codegraph")).unwrap();
+        let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE schema_versions(version INTEGER PRIMARY KEY); INSERT INTO schema_versions VALUES(11);
+            CREATE TABLE nodes(id TEXT PRIMARY KEY,name TEXT,kind TEXT,file_path TEXT,start_line INTEGER);
+            CREATE INDEX idx_nodes_name ON nodes(name);
+            CREATE TABLE edges(id INTEGER PRIMARY KEY,source TEXT,target TEXT,kind TEXT);
+            CREATE INDEX idx_edges_source ON edges(source); CREATE INDEX idx_edges_target ON edges(target);
+            CREATE TABLE files(path TEXT PRIMARY KEY,content_hash TEXT,errors TEXT);",
+        )
+        .unwrap();
+        db
+    }
+
+    #[test]
+    fn skips_restricted_and_sensitive_neighbor_nodes_without_aborting() {
+        let root = tempfile::tempdir().unwrap();
+        let db = setup_db(root.path());
+        std::fs::write(
+            root.path().join("lib.rs"),
+            "pub fn target() {}\npub fn caller() { target(); }\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("tailwind.config.ts"), "export default {};\n").unwrap();
+        std::fs::write(root.path().join(".env"), "SECRET=1\n").unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes VALUES('t','target','function','lib.rs',1);
+             INSERT INTO nodes VALUES('c','caller','function','lib.rs',2);
+             INSERT INTO nodes VALUES('cfg','config','variable','tailwind.config.ts',1);
+             INSERT INTO nodes VALUES('env','env_var','variable','.env',1);
+             INSERT INTO nodes VALUES('sec','secret_fn','function','secrets/helper.rs',1);
+             INSERT INTO edges VALUES(1,'c','t','calls');
+             INSERT INTO edges VALUES(2,'cfg','t','references');
+             INSERT INTO edges VALUES(3,'t','env','references');
+             INSERT INTO edges VALUES(4,'sec','t','calls');",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO files VALUES('lib.rs',?1,NULL)",
+            [harness_domain::hash(
+                &std::fs::read(root.path().join("lib.rs")).unwrap(),
+            )],
+        )
+        .unwrap();
+
+        let project = Project::new(root.path()).unwrap();
+        let args: ExploreArgs = serde_json::from_value(json!({"query": "target"})).unwrap();
+        let result = explore(&project, &args, &OperationContext::default()).unwrap();
+
+        let node_ids: Vec<_> = result["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n["id"].as_str())
+            .collect();
+        assert!(node_ids.contains(&"t"));
+        assert!(node_ids.contains(&"c"));
+        assert!(!node_ids.contains(&"cfg"));
+        assert!(!node_ids.contains(&"env"));
+        assert!(!node_ids.contains(&"sec"));
+
+        // Corrupt path traversal neighbor still aborts with GRAPH_CONTRACT.
+        db.execute_batch(
+            "INSERT INTO nodes VALUES('bad','hidden','function','../private-edge.rs',1);
+             INSERT INTO edges VALUES(5,'bad','t','calls');",
+        )
+        .unwrap();
+        let err = explore(&project, &args, &OperationContext::default()).unwrap_err();
+        assert_eq!(err, CONTRACT);
+    }
+
+    #[test]
+    fn qualifies_and_deduplicates_homonymous_targets_in_call_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let db = setup_db(root.path());
+        std::fs::create_dir_all(root.path().join("src/a")).unwrap();
+        std::fs::create_dir_all(root.path().join("src/b")).unwrap();
+        std::fs::write(
+            root.path().join("src/a/AuthLayout.tsx"),
+            "export interface AuthLayout {}\nexport function AuthLayout() {}\nexport function app() { AuthLayout(); }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("src/b/AuthLayout.tsx"),
+            "export function AuthLayout() {}\n",
+        )
+        .unwrap();
+
+        for (id, name, kind, path, line) in [
+            ("a_type", "AuthLayout", "interface", "src/a/AuthLayout.tsx", 1),
+            ("a_fn", "AuthLayout", "function", "src/a/AuthLayout.tsx", 2),
+            ("app", "app", "function", "src/a/AuthLayout.tsx", 3),
+            ("b_fn1", "AuthLayout", "function", "src/b/AuthLayout.tsx", 1),
+            ("b_fn2", "AuthLayout", "function", "src/b/AuthLayout.tsx", 1),
+        ] {
+            db.execute(
+                "INSERT INTO nodes VALUES(?1,?2,?3,?4,?5)",
+                params![id, name, kind, path, line],
+            )
+            .unwrap();
+        }
+        db.execute(
+            "INSERT INTO edges VALUES(1,'app','a_fn','calls')",
+            [],
+        )
+        .unwrap();
+        for path in ["src/a/AuthLayout.tsx", "src/b/AuthLayout.tsx"] {
+            db.execute(
+                "INSERT INTO files VALUES(?1,?2,NULL)",
+                params![
+                    path,
+                    harness_domain::hash(&std::fs::read(root.path().join(path)).unwrap())
+                ],
+            )
+            .unwrap();
+        }
+
+        let project = Project::new(root.path()).unwrap();
+        let args: ExploreArgs = serde_json::from_value(json!({"query": "AuthLayout"})).unwrap();
+        let result = explore(&project, &args, &OperationContext::default()).unwrap();
+        let text = result["_detail"]["text"].as_str().unwrap();
+
+        assert!(
+            text.contains("- AuthLayout (function at src/a/AuthLayout.tsx:2): 1 unique direct callers"),
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("- AuthLayout (function at src/b/AuthLayout.tsx:1): 0 unique direct callers")
+                .count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            !text.contains("AuthLayout (interface at src/a/AuthLayout.tsx:1)"),
+            "{text}"
+        );
+
+        // Single-target formatting remains unqualified.
+        let single_args: ExploreArgs = serde_json::from_value(json!({"query": "app"})).unwrap();
+        let single_result = explore(&project, &single_args, &OperationContext::default()).unwrap();
+        let single_text = single_result["_detail"]["text"].as_str().unwrap();
+        assert!(
+            single_text.contains("- app: 0 unique direct callers"),
+            "{single_text}"
+        );
+    }
 }

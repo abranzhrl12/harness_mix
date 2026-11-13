@@ -28,15 +28,15 @@ impl WriteGuard {
         context: &OperationContext,
     ) -> Result<Self, Failure> {
         let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
-        sync_diagnostic::begin("<writer-coordinator>", &project.root.join(".codegraph/codegraph.db"));
+        sync_diagnostic::begin("<writer-coordinator>", &project.root.join(project.index_rel("codegraph.db")));
         sync_diagnostic::stage("wait_writer_coordinator");
         context.check()?;
         // Existing indexes only. Pin ancestors and refuse substitutions exactly as
         // the SQLite writer does; all aliases of a directory open the same lock.
-        project.target(".codegraph/codegraph.db")?;
-        let directory = project.target(".codegraph")?;
+        project.target(&project.index_rel("codegraph.db"))?;
+        let directory = project.target(project.index_dir())?;
         let directories = super::super::edit_commit::pin_directory(&project, &directory)?;
-        let path = project.target_optional(".codegraph/index-write.lock")?;
+        let path = project.target_optional(&project.index_rel("index-write.lock"))?;
         let file = File::options()
             .read(true).write(true).create(true).truncate(false)
             .share_mode(3).custom_flags(0x0020_0000)

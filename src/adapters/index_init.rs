@@ -54,16 +54,16 @@ fn initialize_windows(
     let project = Project::new(root).map_err(|_| ("PATH", "Workspace unavailable"))?;
     sync_diagnostic::begin(
         "<initialize>",
-        &project.root.join(".codegraph/codegraph.db"),
+        &project.root.join(project.index_rel("codegraph.db")),
     );
     sync_diagnostic::stage("initialize_database");
     let _root_pins = super::super::edit_commit::pin_directory(&project, &project.root)?;
-    let directory = project.target_optional(".codegraph")?;
+    let directory = project.target_optional(project.index_dir())?;
     // create_dir (not create_dir_all) is our exclusive claim. Refuse even an
     // empty existing directory, dangling link, old index, or interrupted init.
     if let Some(owner) = owner {
         let _pins = super::super::edit_commit::pin_directory(&project, &directory)?;
-        let marker = project.bytes_with_limit(".codegraph/.harness-owner", context, 128)?;
+        let marker = project.bytes_with_limit(&project.index_rel(".harness-owner"), context, 128)?;
         if marker != owner.as_bytes() {
             return Err((
                 "INIT_OWNER",
@@ -79,6 +79,10 @@ fn initialize_windows(
             ));
         }
     } else {
+        // `.agents` may not exist yet; only the index directory is the exclusive claim.
+        if let Some(parent) = directory.parent().filter(|parent| !parent.exists()) {
+            std::fs::create_dir_all(parent).map_err(|_| ("INIT_IO", "Cannot create index directory"))?;
+        }
         std::fs::create_dir(&directory).map_err(|error| {
             if error.kind() == std::io::ErrorKind::AlreadyExists {
                 (
@@ -92,10 +96,10 @@ fn initialize_windows(
     }
     let initialize = || {
         let _pins = super::super::edit_commit::pin_directory(&project, &directory)?;
-        let path = project.target_optional(".codegraph/codegraph.db")?;
+        let path = project.target_optional(&project.index_rel("codegraph.db"))?;
         let mut guards = Vec::new();
         for suffix in ["", "-wal", "-shm", "-journal"] {
-            let candidate = project.target_optional(&format!(".codegraph/codegraph.db{suffix}"))?;
+            let candidate = project.target_optional(&project.index_rel(&format!("codegraph.db{suffix}")))?;
             guards.push(
                 File::options()
                     .read(true)
@@ -142,7 +146,7 @@ fn initialize_windows(
         guards[0].sync_all().map_err(|_| INDEX)?;
         Ok(
             json!({"initialized":true,"schemaVersion":11,"journalMode":"wal",
-            "indexPath":".codegraph/codegraph.db","filesIndexed":0,
+            "indexPath":project.index_rel("codegraph.db"),"filesIndexed":0,
             "synchronized":false,"globalFreshnessCertified":false,
             "nextStep":"Run --sync; initialization creates an empty index only"}),
         )
@@ -150,6 +154,6 @@ fn initialize_windows(
     initialize().map_err(|failure| {
         sync_diagnostic::schema_issue(json!({"causeCode":failure.0,"causeMessage":failure.1}));
         ("INIT_INCOMPLETE",
-        "Initialization did not complete; retained .codegraph for inspection; no existing index was overwritten")
+        "Initialization did not complete; retained the index directory for inspection; no existing index was overwritten")
     })
 }

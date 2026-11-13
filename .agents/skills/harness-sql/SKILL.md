@@ -5,8 +5,8 @@ description: Query SQL Server or PostgreSQL databases via Harness MCP, discover 
 
 # SQL with Minimal Sufficient Context
 
-Read the [shared operating rules](../harness-workflow/references/operating-rules.md)
-once per task. Check the live `harness_sql` schema. The database connection is strictly
+Run `harness_bootstrap` if you lack an active session; verify the workspace root
+and check the live `harness_sql` schema. The database connection is strictly
 read-only (`SELECT` / `WITH` only); Harness never executes `CREATE`, `ALTER`,
 `DROP`, or write statements — schema migration scripts must be applied externally
 (e.g., via SSMS or release pipelines). Never assume database engines,
@@ -38,7 +38,8 @@ policy; do not assume `public`.
 - For large stored results, use `harness_data_query` with JMESPath projections;
   fetch omitted details via `harness_detail` only when they affect the answer.
 - Distinguish between zero matching rows, insufficient permissions, truncation,
-  and runtime errors. Never improvise an alternative direct connection.
+  and runtime errors. On connection or runtime failure, diagnose and report the
+  issue; never improvise alternative direct connections.
 
 Conclude with the query result, applied filters, and relevant bounds; never dump
 unnecessary sensitive data.

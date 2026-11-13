@@ -46,11 +46,10 @@ fn batch_retains_failed_child_diagnostics_and_recovery() {
         "harness_read · error",
         "PATH",
         "missing file",
-        "child-saved",
-        "batch-saved",
     ] {
         assert!(text.contains(expected), "{text}");
     }
+    assert!(!text.contains("detail.ref"), "{text}");
     assert_eq!(
         wire["structuredContent"]["data"]["results"][0]["state"],
         "error"
@@ -103,5 +102,41 @@ fn repeated_notices_are_deduplicated_and_batch_previews_explain_recovery() {
     assert!(
         child_text.contains("full child results are recoverable"),
         "{child_text}"
+    );
+}
+
+#[test]
+fn batch_notices_are_separated_and_partial_context_suppresses_partial_output() {
+    let explore_body = "## Explore (summary)\n\n> Partial context: bounded\n".to_owned();
+    let explore_envelope = json!({
+        "detail": {"ref": "explore-ref"},
+        "omitted": {"nodes": 3},
+        "data": {"truncated": true}
+    });
+    let explore_text = with_notices(explore_body, &explore_envelope);
+    assert!(explore_text.contains("> Partial context: bounded"), "{explore_text}");
+    assert!(!explore_text.contains("Partial output"), "{explore_text}");
+    assert!(explore_text.contains("> detail.ref: explore-ref"), "{explore_text}");
+
+    let batch_wire = wire(json!({
+        "state": "ok",
+        "scope": {"tool": "harness_batch"},
+        "detail": {"ref": "batch-ref"},
+        "omitted": {"truncated": true},
+        "data": {
+            "results": [
+                {
+                    "index": 0,
+                    "tool": "harness_read",
+                    "state": "ok",
+                    "data": {"path": "a.rs", "start": 1, "end": 1, "text": "let x = 1;"}
+                }
+            ]
+        }
+    }));
+    let batch_text = batch_wire["content"][0]["text"].as_str().unwrap();
+    assert!(
+        batch_text.contains("\n---\n> Child previews were shortened to fit the response budget; full results are recoverable from the batch detail.\n\n> detail.ref: batch-ref\n"),
+        "{batch_text}"
     );
 }

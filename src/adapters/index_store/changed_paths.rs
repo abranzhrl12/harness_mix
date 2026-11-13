@@ -67,7 +67,7 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
         if self.project.root.join(".git").is_file() {
             for path in paths {
                 let tracked = self.tracked(path)?;
-                if !tracked && path.split('/').any(index_inventory::excluded) {
+                if !tracked && index_inventory::excluded_relative(path) {
                     continue;
                 }
                 if !tracked {
@@ -102,7 +102,7 @@ impl ChangedPathsPort for NativeChangedPaths<'_> {
             return Ok(None);
         }
         let tracked = self.tracked(path)?;
-        if !tracked && path.split('/').any(index_inventory::excluded) {
+        if !tracked && index_inventory::excluded_relative(path) {
             return Ok(None);
         }
         // New exclusions are skips; indexed files still need graph cleanup.

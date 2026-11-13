@@ -2,7 +2,7 @@ use harness_domain::{
     Failure,
     contracts::{
         DeleteArgs, IgnoreArgs, MoveArgs, ProposalArgs, ReplaceArgs, VueExtractPreviewArgs,
-        WordArgs, WriteArgs,
+        WriteArgs,
     },
     execution::OperationContext,
 };
@@ -32,16 +32,6 @@ pub fn write<S: SourceEditing + ?Sized>(
     context: &OperationContext,
 ) -> Result<Value, Failure> {
     service.write(args, context)
-}
-
-pub fn write_word<S: SourceEditing + ?Sized>(
-    service: &S,
-    args: &WordArgs,
-    bytes: &[u8],
-    context: &OperationContext,
-) -> Result<Value, Failure> {
-    args.validate()?;
-    service.write_word(args, bytes, context)
 }
 
 pub fn move_file<S: SourceEditing + ?Sized>(

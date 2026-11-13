@@ -36,6 +36,7 @@ fn composition_without_browser_feature_reports_backend_unavailable() {
         .browser(
             &harness_domain::browser::BrowserArgs::Connect {
                 endpoint: "ws://127.0.0.1:9222/devtools/browser/test".into(),
+                tab: None,
                 session: Some("test".into()),
             },
             &OperationContext::default(),

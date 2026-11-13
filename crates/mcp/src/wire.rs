@@ -182,6 +182,9 @@ fn shape_search_matches(data: &mut Map<String, Value>) {
     data.remove("limited");
     data.remove("limits");
     data.remove("contextLines");
+    data.remove("timings");
+    data.remove("exclusionPolicy");
+    data.remove("_searchSnapshot");
     if data.get("complete") == Some(&Value::Bool(true)) {
         data.remove("complete");
     }

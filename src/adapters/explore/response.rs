@@ -78,7 +78,7 @@ pub(super) fn respond(
     text.push_str(if summary {
         "\nRelaciones indexadas: ver graph.relations; grafo completo en detail.ref.\n"
     } else {
-        "\n**Call paths / blast radius — indexed relationships**\n\nNot execution traces or exhaustive impact; current-source validity is reported in fileFreshness.\n"
+        "\n**Call paths / blast radius — indexed relationships**\n"
     });
     let mut relation_keys = BTreeSet::new();
     let mut visible_edges: Vec<_> = edges
@@ -99,12 +99,39 @@ pub(super) fn respond(
         )
     });
     if !summary {
+        let mut target_callers = Vec::with_capacity(targets.len());
+        let mut files_with_callers = BTreeSet::new();
         for selected in &targets {
             let callers: BTreeSet<_> = visible_edges
                 .iter()
                 .filter(|e| e["kind"] == "calls" && e["target"] == selected.id)
                 .filter_map(|e| e["source"].as_str())
                 .collect();
+            if !callers.is_empty() {
+                files_with_callers.insert((selected.name.as_str(), selected.file_path.as_str()));
+            }
+            target_callers.push((selected, callers));
+        }
+        let qualify = targets.len() > 1;
+        let mut seen_entries = BTreeSet::new();
+        for (selected, callers) in target_callers {
+            if qualify
+                && callers.is_empty()
+                && files_with_callers
+                    .contains(&(selected.name.as_str(), selected.file_path.as_str()))
+            {
+                continue;
+            }
+            if qualify
+                && !seen_entries.insert((
+                    selected.name.as_str(),
+                    selected.kind.as_str(),
+                    selected.file_path.as_str(),
+                    selected.start_line,
+                ))
+            {
+                continue;
+            }
             let tests: BTreeSet<_> = callers
                 .iter()
                 .filter_map(|id| nodes.get(*id))
@@ -116,9 +143,17 @@ pub(super) fn respond(
                 })
                 .map(|n| n.file_path.as_str())
                 .collect();
+            let label = if qualify {
+                format!(
+                    "{} ({} at {}:{})",
+                    selected.name, selected.kind, selected.file_path, selected.start_line
+                )
+            } else {
+                selected.name.clone()
+            };
             text.push_str(&format!(
                 "- {}: {} unique direct callers in returned graph; test files: {}.\n",
-                selected.name,
+                label,
                 callers.len(),
                 if tests.is_empty() {
                     "none identified (not proof of absence)".to_owned()

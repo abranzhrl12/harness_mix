@@ -268,7 +268,8 @@ fn discover_workspace_files(
         .sort_by_file_path(|a, b| a.cmp(b))
         .filter_entry(|entry| {
             entry.depth() == 0
-                || !super::super::index_inventory::excluded(&entry.file_name().to_string_lossy())
+                || !(super::super::index_inventory::excluded(&entry.file_name().to_string_lossy())
+                    || super::super::index_inventory::is_index_dir(entry.path()))
         });
     let ignore_path = project.root.join(".harnessignore");
     if ignore_path.exists() {

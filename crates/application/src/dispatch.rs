@@ -93,18 +93,9 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
                 &mut lease,
                 |workspace, context| workspace.sql_query(&args, context),
             ),
-            Request::XlsxInspect(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.xlsx_inspect(&args, context)),
-            Request::XlsxRead(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.xlsx_read(&args, context)),
             Request::Svg(args) => self
                 .lease(args.session.as_deref(), &mut lease)
                 .and_then(|()| self.workspace.svg(&args, context)),
-            Request::WordPreview(args) => self
-                .lease(args.session.as_deref(), &mut lease)
-                .and_then(|()| self.workspace.word_preview(&args, context)),
             Request::Handover(args) => sessions::handover(self, args, context, &mut lease),
             Request::ProcessStatus(args) => self
                 .lease(args.session.as_deref(), &mut lease)
@@ -134,9 +125,6 @@ impl<W: Workspace, S: SessionRepository> Application<W, S> {
             }
             Request::Write(args) => {
                 editing::write(self, args, context, name, &request_arguments, &mut lease)
-            }
-            Request::Word(args, bytes) => {
-                editing::word(self, args, bytes, context, name, &request_arguments, &mut lease)
             }
             Request::Move(args) => {
                 editing::move_file(self, args, context, name, &request_arguments, &mut lease)

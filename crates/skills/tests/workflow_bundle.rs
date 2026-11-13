@@ -44,7 +44,7 @@ const REQUIRED_FILES: &[&str] = &[
 #[test]
 fn bundled_word_guide_connects_evidence_diagrams_and_visual_review() {
     let guide = include_str!("../../../.agents/skills/harness-word/SKILL.md");
-    for required in ["harness-read", "harness_word", "harness_word_preview", "harness_diagram", "image/png", "unknown"] {
+    for required in ["harness-read", "image/png", "unknown"] {
         assert!(guide.contains(required), "missing workflow step: {required}");
     }
 }

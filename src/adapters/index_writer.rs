@@ -54,10 +54,10 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert!(root.path().join(".codegraph/codegraph.db-wal").exists());
+        assert!(root.path().join(".agents/codegraph/codegraph.db-wal").exists());
         drop(writer);
-        assert!(!root.path().join(".codegraph/codegraph.db-wal").exists());
-        assert!(!root.path().join(".codegraph/codegraph.db-shm").exists());
+        assert!(!root.path().join(".agents/codegraph/codegraph.db-wal").exists());
+        assert!(!root.path().join(".agents/codegraph/codegraph.db-shm").exists());
     }
 
     #[test]
@@ -67,7 +67,7 @@ mod tests {
         super::super::initialize(root.path(), &context).unwrap();
         let project = Project::new(root.path()).unwrap();
         let writer = Writer::open(&project, &context).unwrap();
-        let blocker = Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+        let blocker = Connection::open(root.path().join(".agents/codegraph/codegraph.db")).unwrap();
         blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
 
         let release = std::thread::spawn(move || {
@@ -94,11 +94,11 @@ impl Writer {
     pub(super) fn open(project: &Project, context: &OperationContext) -> Result<Self, Failure> {
         context.check()?;
         let path = project
-            .target(".codegraph/codegraph.db")
+            .target(&project.index_rel("codegraph.db"))
             .map_err(|_| INDEX)?;
         for suffix in ["-wal", "-shm", "-journal"] {
             project
-                .target_optional(&format!(".codegraph/codegraph.db{suffix}"))
+                .target_optional(&project.index_rel(&format!("codegraph.db{suffix}")))
                 .map_err(|_| INDEX)?;
         }
         let _pins = super::super::edit_commit::pin_directory(project, path.parent().ok_or(INDEX)?)?;
@@ -131,7 +131,7 @@ impl Writer {
         // after closing; this is a valid SQLite WAL layout, not source modification.
         let mut sidecar_pins = Vec::new();
         for suffix in ["-wal", "-shm", "-journal"] {
-            let sidecar = project.target_optional(&format!(".codegraph/codegraph.db{suffix}")).map_err(|_| INDEX)?;
+            let sidecar = project.target_optional(&project.index_rel(&format!("codegraph.db{suffix}"))).map_err(|_| INDEX)?;
             let options = || {
                 let mut options = File::options();
                 options

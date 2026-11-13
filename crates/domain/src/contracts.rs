@@ -14,7 +14,6 @@ mod source;
 mod symbols;
 mod verification;
 mod workspace;
-mod word;
 
 pub use batch::*;
 pub use diagnostics::*;
@@ -27,4 +26,3 @@ pub use source::*;
 pub use symbols::*;
 pub use verification::*;
 pub use workspace::*;
-pub use word::*;

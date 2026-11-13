@@ -3,7 +3,6 @@ pub mod assistance;
 pub mod browser;
 pub mod contracts;
 pub mod diagnostics;
-pub mod diagram;
 pub mod editing;
 pub mod encoding;
 pub mod execution;
@@ -13,6 +12,7 @@ pub mod handover;
 pub mod hashing;
 pub mod indexing;
 pub mod jobs;
+pub mod layout;
 pub mod log_archive;
 pub mod lsp;
 pub mod navigation;
@@ -26,8 +26,6 @@ pub mod svg;
 pub mod tasks;
 pub mod tool_contract;
 pub mod workflow;
-pub mod word;
-pub mod xlsx;
 
 pub type Failure = (&'static str, &'static str);
 

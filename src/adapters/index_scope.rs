@@ -29,15 +29,13 @@ mod tests {
         super::super::initialize(root.path(), &context).unwrap();
         std::fs::write(root.path().join("a.rs"), "pub fn sample() {}\n").unwrap();
         let failure = super::super::sync_file_with(root.path(), "a.rs", &context, || {
-            std::fs::write(
-                root.path().join("codegraph.json"),
-                r#"{"exclude":["a.rs"]}"#,
-            )
-            .unwrap();
+            let config = root.path().join(".agents/codegraph/config/codegraph.json");
+            std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+            std::fs::write(config, r#"{"exclude":["a.rs"]}"#).unwrap();
         })
         .unwrap_err();
         assert_eq!(failure.0, "STALE");
-        let db = rusqlite::Connection::open(root.path().join(".codegraph/codegraph.db")).unwrap();
+        let db = rusqlite::Connection::open(root.path().join(".agents/codegraph/codegraph.db")).unwrap();
         assert_eq!(
             db.query_row("SELECT count(*) FROM files", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
@@ -55,7 +53,7 @@ pub(crate) struct Snapshot {
 
 fn bytes(project: &Project, context: &OperationContext) -> Result<Option<Vec<u8>>, Failure> {
     context.check()?;
-    let path = project.target_optional("codegraph.json")?;
+    let path = project.target_optional(project.config_rel())?;
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err(CONFIG),
@@ -63,7 +61,7 @@ fn bytes(project: &Project, context: &OperationContext) -> Result<Option<Vec<u8>
             let mut guarded = project.clone();
             guarded.external = true;
             guarded
-                .bytes_with_limit("codegraph.json", context, 128 * 1024)
+                .bytes_with_limit(project.config_rel(), context, 128 * 1024)
                 .map(Some)
         }
     }

@@ -175,8 +175,6 @@ shared_schema!(crate::contracts::SearchArgs, "harness_search");
 shared_schema!(crate::contracts::ExploreArgs, "harness_explore");
 #[cfg(feature = "schema")]
 shared_schema!(crate::contracts::DataQueryArgs, "harness_data_query");
-#[cfg(feature = "schema")]
-shared_schema!(crate::diagram::DiagramArgs, "harness_diagram");
 
 #[cfg(test)]
 mod tests {
@@ -203,14 +201,6 @@ mod tests {
             );
         }
         assert!(!tool_names("node").iter().any(|name| name == "harness_jobs"));
-    }
-    #[test]
-    fn word_document_generation_is_available_only_in_edit_and_full_profiles() {
-        assert!(ToolProfile::Full.allows("harness_word"));
-        assert!(ToolProfile::Edit.allows("harness_word"));
-        assert!(!ToolProfile::Investigate.allows("harness_word"));
-        assert!(tool_names("rust").iter().any(|name| name == "harness_word"));
-        assert!(!tool_names("node").iter().any(|name| name == "harness_word"));
     }
 
     #[test]

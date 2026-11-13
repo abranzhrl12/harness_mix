@@ -28,6 +28,26 @@ fn read_lines_is_a_count_and_canonical_output_uses_end() {
 }
 
 #[test]
+fn read_accepts_line_aliases_and_preserves_unknown_field_rejection() {
+    let camel: ReadArgs =
+        serde_json::from_value(json!({"path":"a.rs","startLine":1,"endLine":10})).unwrap();
+    assert_eq!(camel.path, "a.rs");
+    assert_eq!((camel.start, camel.end), (1, 10));
+
+    let snake: ReadArgs =
+        serde_json::from_value(json!({"path":"a.rs","start_line":2,"end_line":12})).unwrap();
+    assert_eq!((snake.start, snake.end), (2, 12));
+
+    for invalid in [
+        json!({"path":"a.rs","start":1,"startLine":2,"end":10}),
+        json!({"path":"a.rs","start":1,"end":10,"endLine":12}),
+        json!({"path":"a.rs","startLine":1,"endLine":10,"unknown":true}),
+    ] {
+        assert!(serde_json::from_value::<ReadArgs>(invalid).is_err());
+    }
+}
+
+#[test]
 fn aliases_preserve_validation_and_canonical_names() {
     let search: SearchArgs =
         serde_json::from_value(json!({"kind":"files","pattern":"creator"})).unwrap();

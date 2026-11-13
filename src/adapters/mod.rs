@@ -2,7 +2,6 @@
 mod index_razor_mvc;
 mod parsers;
 mod vue_extract;
-pub mod code_snapshot;
 mod workspace;
 pub mod workspace_set;
 use parsers::{
@@ -89,7 +88,6 @@ pub mod tasks;
 mod task_execution;
 mod task_pinning;
 mod verify;
-pub mod xlsx;
 
 use harness_application::Application;
 use harness_domain::{Failure, execution::OperationContext};

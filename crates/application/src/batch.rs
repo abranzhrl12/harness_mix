@@ -299,8 +299,6 @@ fn batch_job_target(_tool: &str, request: &Request) -> Option<String> {
             short_text(&args.reference, 24).0,
             args.offset.unwrap_or(0)
         ),
-        Request::XlsxInspect(args) => args.path.clone(),
-        Request::XlsxRead(args) => format!("{}#{}", args.path, args.sheet),
         Request::Svg(args) => args.path.clone(),
         Request::Verify(args) => match args.scope.as_deref() {
             Some(scope) if !scope.is_empty() => format!("{} ({scope})", args.language),

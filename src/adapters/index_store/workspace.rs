@@ -70,6 +70,77 @@ impl<'a> NativeWorkspace<'a> {
         ))?;
         Ok(updated > 0)
     }
+
+    /// One transaction retries every still-pending reference against the final
+    /// graph. A failure rolls back and leaves the refs pending for a later sync.
+    #[cfg(windows)]
+    fn resolve_deferred_references(
+        &mut self,
+        context: &OperationContext,
+    ) -> Result<Value, Failure> {
+        context.check()?;
+        let started = std::time::Instant::now();
+        let writer = self.writer.as_mut().ok_or(INDEX)?;
+        writer.recheck(context)?;
+        let cancel = context.clone();
+        sync_diagnostic::stage("final_resolution");
+        sql(writer
+            .db
+            .progress_handler(1000, Some(move || cancel.check().is_err())))?;
+        sql(writer.db.execute_batch("PRAGMA trusted_schema=OFF;"))?;
+        let tx = sql(writer
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate))?;
+        validate_schema(&tx)?;
+        sql(tx.execute_batch("PRAGMA trusted_schema=ON"))?;
+        let (configuration, _) = tsconfig::Snapshot::select(&tx, &self.project, None, context)?;
+        let ids: Vec<i64> = {
+            let mut statement = sql(tx.prepare(
+                "SELECT id FROM unresolved_refs WHERE status='pending' ORDER BY id",
+            ))?;
+            let rows = sql(statement.query_map([], |row| row.get(0)))?;
+            sql(rows.collect())?
+        };
+        let mut sources =
+            imports::Sources::with_rust_cache(configuration, writer.rust_analysis_cache.clone());
+        let mut candidate_snapshot = candidates::Snapshot::default();
+        let mut mvc_snapshot = crate::adapters::index_razor_mvc::Snapshot::default();
+        let mut framework_snapshot = repository::framework::Snapshot::default();
+        let mut resolved = 0usize;
+        for id in &ids {
+            context.check()?;
+            resolved += usize::from(resolution::resolve_exact(
+                &tx,
+                *id,
+                &self.project,
+                context,
+                &mut sources,
+                &mut candidate_snapshot,
+                &mut mvc_snapshot,
+                &mut framework_snapshot,
+            )?);
+        }
+        framework_snapshot.recheck(&self.project, context)?;
+        self.scope
+            .as_ref()
+            .ok_or(INDEX)?
+            .recheck(&self.project, context)?;
+        sql(tx.progress_handler(0, None::<fn() -> bool>))?;
+        tx.commit().map_err(|_| {
+            (
+                "SYNC_COMMIT_UNCERTAIN",
+                "Final resolution commit could not be confirmed; inspect the index before retrying",
+            )
+        })?;
+        Ok(json!({"committed":true,"referencesAttempted":ids.len(),
+            "referencesResolved":resolved,"durationMs":started.elapsed().as_millis()}))
+    }
+}
+
+/// Rebuilds publish files without per-file cross-file retries and resolve them
+/// once at the end. `HARNESS_INDEX_BATCH_INVALIDATION=0` restores per-file retries.
+fn batch_rebuild_enabled() -> bool {
+    std::env::var("HARNESS_INDEX_BATCH_INVALIDATION").as_deref() != Ok("0")
 }
 
 impl WorkspacePort for NativeWorkspace<'_> {
@@ -78,7 +149,7 @@ impl WorkspacePort for NativeWorkspace<'_> {
     fn load_scope(&mut self, context: &OperationContext) -> Result<Value, Failure> {
         sync_diagnostic::begin(
             "<workspace-plan>",
-            &self.project.root.join(".codegraph/codegraph.db"),
+            &self.project.root.join(self.project.index_rel("codegraph.db")),
         );
         sync_diagnostic::stage("load_workspace_scope");
         let scope = scope::Snapshot::load(&self.project, context)?;
@@ -135,7 +206,7 @@ impl WorkspacePort for NativeWorkspace<'_> {
         force: bool,
         context: &OperationContext,
     ) -> Result<Value, Failure> {
-        sync_diagnostic::begin(path, &self.project.root.join(".codegraph/codegraph.db"));
+        sync_diagnostic::begin(path, &self.project.root.join(self.project.index_rel("codegraph.db")));
         sync_diagnostic::stage("recheck_workspace_scope");
         self.scope_check_failed = false;
         if let Err(error) = self.recheck(context) {
@@ -145,7 +216,7 @@ impl WorkspacePort for NativeWorkspace<'_> {
         #[cfg(windows)]
         {
             let invalidator: &publication::ReferenceInvalidator =
-                if std::env::var("HARNESS_INDEX_BATCH_INVALIDATION").as_deref() == Ok("1") {
+                if force && batch_rebuild_enabled() {
                     &publication::BatchSqliteInvalidator
                 } else {
                     &publication::IncrementalSqliteInvalidator
@@ -181,6 +252,20 @@ impl WorkspacePort for NativeWorkspace<'_> {
         context: &OperationContext,
     ) -> Result<bool, Failure> {
         self.persist_failed_rebuild(path, context)
+    }
+    fn finalize_rebuild(&mut self, context: &OperationContext) -> Result<Option<Value>, Failure> {
+        #[cfg(windows)]
+        {
+            if !batch_rebuild_enabled() {
+                return Ok(None);
+            }
+            self.resolve_deferred_references(context).map(Some)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            Ok(None)
+        }
     }
     fn recheck(&mut self, context: &OperationContext) -> Result<(), Failure> {
         self.scope

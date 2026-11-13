@@ -43,13 +43,13 @@ fn plan_workspace_inner(
     context.report_progress("planning", 0, None, None);
     let project = super::project::Project::new(root)
         .map_err(|_| ("PATH", "Workspace is not an accessible directory"))?;
-    super::index_store::begin_plan_diagnostic(&project.root.join(".codegraph/codegraph.db"));
+    super::index_store::begin_plan_diagnostic(&project.root.join(project.index_rel("codegraph.db")));
     let index_error = (
         "INDEX",
         "CodeGraph index unavailable, unsupported, busy or invalid",
     );
     let path = project
-        .target(".codegraph/codegraph.db")
+        .target(&project.index_rel("codegraph.db"))
         .map_err(|_| index_error)?;
     let metadata = std::fs::metadata(&path).map_err(|_| index_error)?;
     if !metadata.is_file() || metadata.len() > 512 * 1024 * 1024 {
@@ -57,7 +57,7 @@ fn plan_workspace_inner(
     }
     for suffix in ["-wal", "-shm", "-journal"] {
         project
-            .target_optional(&format!(".codegraph/codegraph.db{suffix}"))
+            .target_optional(&project.index_rel(&format!("codegraph.db{suffix}")))
             .map_err(|_| index_error)?;
     }
     #[cfg(windows)]

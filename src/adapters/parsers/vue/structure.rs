@@ -309,7 +309,7 @@ pub(in crate::adapters) fn parse(
             format!("style#{}", r.block),
             "vue_style_rule",
             r.range.clone(),
-            format!("{} {{ â€¦ }}", r.selector),
+            format!("{} {{ \u{2026} }}", r.selector),
         ));
     }
     if doc.symbols.len() > MAX_ITEMS {

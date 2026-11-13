@@ -273,7 +273,7 @@ mod tests {
 #[cfg(windows)]
 pub(super) fn update_index(project: &Project, changed: &[&str]) -> Value {
     use serde_json::json;
-    let path = match project.target_optional(".codegraph/codegraph.db") {
+    let path = match project.target_optional(&project.index_rel("codegraph.db")) {
         Ok(path) => path,
         Err((code, _)) => return json!({"status":"needs_sync","code":code}),
     };

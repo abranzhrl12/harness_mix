@@ -38,7 +38,7 @@ pub(in crate::adapters) fn discover(
         return Ok(None);
     }
     context.check()?;
-    let path = match project.target_optional(".codegraph/codegraph.db") {
+    let path = match project.target_optional(&project.index_rel("codegraph.db")) {
         Ok(path) => path,
         Err(_) => return Ok(None),
     };

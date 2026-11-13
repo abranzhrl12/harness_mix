@@ -48,6 +48,36 @@ pub fn impact(args: &ExploreArgs, result: Value) -> Value {
             entry["recursive"] = json!(true);
         }
     }
+    if callers.is_empty() {
+        for edge in graph["edges"].as_array().into_iter().flatten() {
+            let Some(kind) = edge["kind"].as_str() else {
+                continue;
+            };
+            if kind == "calls" || kind == "contains" || kind == "defines" {
+                continue;
+            }
+            let Some(id) = edge["source"].as_str() else {
+                continue;
+            };
+            if targets.contains(id) {
+                continue;
+            }
+            let Some(node) = nodes.get(id) else { continue };
+            let direct = edge["target"]
+                .as_str()
+                .is_some_and(|id| targets.contains(id));
+            let entry = callers.entry(id).or_insert_with(|| {
+                json!({
+                    "symbolId":id,"symbol":node["name"],"file":node["filePath"],
+                    "declarationLine":node["startLine"],"direct":false,"recursive":false,
+                    "relationship":kind
+                })
+            });
+            if direct {
+                entry["direct"] = json!(true);
+            }
+        }
+    }
     let mut all: Vec<_> = callers.into_values().collect();
     all.sort_by_key(|n| {
         (
@@ -93,4 +123,49 @@ pub struct ObserveArgs {
     pub cursor: Option<u64>,
     /// UTF-8 byte ceiling, 256..16000; defaults to 6000.
     pub max_chars: Option<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::ExploreView;
+
+    #[test]
+    fn impact_falls_back_to_inbound_imports_when_calls_are_empty() {
+        let args = ExploreArgs {
+            file_path: Some("src/LoginUseCase.ts".into()),
+            symbol: Some("LoginUseCase".into()),
+            symbol_id: None,
+            query: String::new(),
+            container: None,
+            direction: None,
+            view: Some(ExploreView::Impact),
+            max_depth: None,
+            max_files: None,
+            max_chars: None,
+            limit: None,
+            sync_index: None,
+            require_matching_files: None,
+            session: None,
+        };
+        let result = json!({
+            "focus": { "symbol": "LoginUseCase" },
+            "graph": { "targetIds": ["n_target"] },
+            "_detail": {
+                "graph": {
+                    "nodes": [
+                        { "id": "n_target", "name": "LoginUseCase", "filePath": "src/LoginUseCase.ts", "startLine": 1 },
+                        { "id": "n_caller", "name": "bindings", "filePath": "src/di/bindings.ts", "startLine": 12 }
+                    ],
+                    "edges": [
+                        { "source": "n_caller", "target": "n_target", "kind": "imports" }
+                    ]
+                }
+            }
+        });
+        let out = impact(&args, result);
+        assert_eq!(out["counts"]["callers"], 1);
+        assert_eq!(out["callers"][0]["file"], "src/di/bindings.ts");
+        assert_eq!(out["callers"][0]["relationship"], "imports");
+    }
 }

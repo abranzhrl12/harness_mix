@@ -25,7 +25,8 @@ pub(super) fn build(
             if !path.starts_with(&selected) && !selected.starts_with(path) {
                 return false;
             }
-            !entry.file_name().to_str().is_none_or(|name| {
+            !super::super::super::index_inventory::is_index_dir(path)
+                && !entry.file_name().to_str().is_none_or(|name| {
                 excluded(name)
                     || (exclude_minified
                         && (["vendor", "dist", "build", "coverage"]

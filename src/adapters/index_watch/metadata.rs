@@ -13,7 +13,7 @@ const LIMIT: u64 = 8192;
 
 fn open(root: &Path, write: bool) -> Result<File, ()> {
     let project = Project::new(root).map_err(|_| ())?;
-    let path = project.target_optional(".codegraph/autosync.status").map_err(|_| ())?;
+    let path = project.target_optional(&project.index_rel("autosync.status")).map_err(|_| ())?;
     let file = File::options().read(true).write(write).create(write)
         .truncate(false).share_mode(3).custom_flags(0x0020_0000)
         .open(path).map_err(|_| ())?;

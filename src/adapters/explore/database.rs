@@ -19,7 +19,7 @@ pub(super) fn index_path(
     diagnostic: &RefCell<Value>,
 ) -> Result<PathBuf, Failure> {
     let path = project
-        .target_optional(".codegraph/codegraph.db")
+        .target_optional(&project.index_rel("codegraph.db"))
         .map_err(|_| {
             diagnostic.borrow_mut()["cause"] = json!("database_path_rejected");
             INDEX
@@ -38,7 +38,7 @@ pub(super) fn index_path(
     }
     for suffix in ["-wal", "-shm", "-journal"] {
         project
-            .target_optional(&format!(".codegraph/codegraph.db{suffix}"))
+            .target_optional(&project.index_rel(&format!("codegraph.db{suffix}")))
             .map_err(|_| INDEX)?;
     }
     Ok(path)

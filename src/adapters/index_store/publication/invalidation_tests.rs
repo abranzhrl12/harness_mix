@@ -112,5 +112,35 @@ fn batch_and_incremental_preserve_cross_file_retries_and_deletion() {
         (resolved, calls())
     }
     assert_eq!(run(&IncrementalSqliteInvalidator), (1, 0));
-    assert_eq!(run(&BatchSqliteInvalidator), (1, 0));
+    // Batch defers cross-file retries to the final rebuild pass.
+    assert_eq!(run(&BatchSqliteInvalidator), (0, 0));
+}
+
+#[test]
+fn rebuild_final_pass_resolves_cross_file_references_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let context = OperationContext::without_deadline();
+    initialize(root, &context).unwrap();
+    std::fs::write(
+        root.join("caller.js"),
+        "export function caller() { target(); }\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("target.js"), "export function target() {}\n").unwrap();
+    let report = crate::adapters::index_store::rebuild_workspace(root, &context).unwrap();
+    assert_eq!(report["failedFiles"], 0, "{report}");
+    let final_pass = &report["finalResolution"];
+    assert_eq!(final_pass["committed"], true, "{report}");
+    assert!(
+        final_pass["referencesResolved"].as_u64().unwrap() >= 1,
+        "{report}"
+    );
+    let db = Connection::open(root.join(".codegraph/codegraph.db")).unwrap();
+    let calls: i64 = db
+        .query_row("SELECT count(*) FROM edges WHERE kind='calls'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(calls, 1, "{report}");
 }

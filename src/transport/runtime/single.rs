@@ -77,24 +77,21 @@ pub async fn serve_with_logging(
         }
     };
 
-    let started = McpServer::new(
+    let server = McpServer::new(
         application,
         tasks
             .clone()
             .map(|manager| Arc::new(manager) as Arc<dyn JobService>),
-    )
-    .with_word_renderer(|document| {
-        crate::word_core::render_docx(document).map_err(|error| error.to_string())
-    })
-    .with_d2_host(super::d2_host())
-    .with_eager_tools(config.eager_tools_enabled)
-    .with_context_presentation(config.context_presentation)
-    .with_structured_presentation(config.structured_presentation)
-    .serve((
-        BoundedLines::new(tokio::io::stdin(), MAX_MESSAGE_BYTES),
-        tokio::io::stdout(),
-    ))
-    .await;
+    );
+    let started = server
+        .with_eager_tools(config.eager_tools_enabled)
+        .with_context_presentation(config.context_presentation)
+        .with_structured_presentation(false)
+        .serve((
+            BoundedLines::new(tokio::io::stdin(), MAX_MESSAGE_BYTES),
+            tokio::io::stdout(),
+        ))
+        .await;
 
     coordinator::run_server(
         started,

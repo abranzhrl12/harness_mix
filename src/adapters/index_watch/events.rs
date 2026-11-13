@@ -22,7 +22,9 @@ pub(super) fn relevant(root: &Path, event: Event, pending: &mut Pending) {
             continue;
         };
         let relative = relative.replace('\\', "/");
-        if relative.eq_ignore_ascii_case(".agents/harness.config.json") {
+        if relative.eq_ignore_ascii_case(".agents/harness.config.json")
+            || relative.eq_ignore_ascii_case(harness_domain::layout::CONFIG_FILE)
+        {
             pending.reconcile();
             continue;
         }

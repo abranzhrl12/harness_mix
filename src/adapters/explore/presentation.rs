@@ -6,13 +6,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn header(symbol: &str) -> String {
     format!(
-        "**Exploration: {}**\n\nIndexed relationships; freshness is not certified.\n\n**Source Code**\n",
+        "**Exploration: {}**\n\n**Source Code**\n",
         symbol.replace(['\r', '\n'], " ")
     )
 }
 
 pub(super) fn render_data_trace(trace: &CrossLayerDataTrace, summary: bool) -> String {
-    if trace.matched_layer_count == 0 {
+    let has_dotnet_or_sql = trace.layers.iter().any(|layer| {
+        layer.matched
+            && (matches!(layer.layer.id(), "csharpModel" | "spParameter" | "sqlColumn")
+                || (layer.layer.id() == "form"
+                    && layer
+                        .matches
+                        .iter()
+                        .any(|m| m.file_path.to_ascii_lowercase().ends_with(".cshtml"))))
+    });
+    if trace.matched_layer_count == 0 || !has_dotnet_or_sql {
         return String::new();
     }
     let mut out = String::new();

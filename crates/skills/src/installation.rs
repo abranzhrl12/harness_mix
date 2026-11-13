@@ -14,7 +14,9 @@ mod clients;
 mod index;
 const RECEIPT: &str = ".agents/harness-installation.json";
 const DATABASE: &str = ".agents/harness.config.json";
-const CODEGRAPH: &str = "codegraph.json";
+const CODEGRAPH: &str = harness_domain::layout::CONFIG_FILE;
+const LEGACY_CODEGRAPH: &str = harness_domain::layout::LEGACY_CONFIG_FILE;
+const GITIGNORE: &str = ".gitignore";
 const IGNORE: &str = ".harnessignore";
 
 #[derive(Default, Serialize, Deserialize)]
@@ -48,7 +50,7 @@ pub struct Installation {
 fn allowed(path: &str) -> bool {
     matches!(
         path,
-        DATABASE | CODEGRAPH | IGNORE | manifest::PATH | preferences::PATH
+        DATABASE | CODEGRAPH | LEGACY_CODEGRAPH | GITIGNORE | IGNORE | manifest::PATH | preferences::PATH
     ) || SKILLS.iter().any(|skill| skill.relative_path == path)
 }
 
@@ -73,7 +75,10 @@ fn read_receipt(root: &Path) -> Result<Option<Receipt>, String> {
         clients::validate_key(key)?;
     }
     for dir in &receipt.created_dirs {
-        if !matches!(dir.as_str(), ".agents" | ".agents/skills" | ".codex")
+        if !matches!(
+            dir.as_str(),
+            ".agents" | ".agents/skills" | ".codex" | harness_domain::layout::CONFIG_DIR
+        )
             && !SKILLS
                 .iter()
                 .any(|s| Path::new(s.relative_path).parent() == Some(Path::new(dir)))
@@ -191,26 +196,24 @@ impl Installation {
                 serde_json::to_vec_pretty(&json!({"database":{"autoDetect":true}})).unwrap(),
             ));
         }
-        for (path, bytes) in [
-            (
-                CODEGRAPH,
-                b"{\n  \"include\": [],\n  \"exclude\": []\n}\n".as_slice(),
-            ),
-            (
-                IGNORE,
-                b"# Add project-specific ignore patterns here.\n".as_slice(),
-            ),
-        ] {
-            if storage::read_safe_file(&install.root, Path::new(path))?.is_none() {
-                desired.push((path.into(), bytes.to_vec()));
-            }
+        // The scope config lives inside the index directory, which `index` claims
+        // exclusively, so it is written afterwards by `finish_index`.
+        if storage::read_safe_file(&install.root, Path::new(IGNORE))?.is_none() {
+            desired.push((
+                IGNORE.into(),
+                b"# Add project-specific ignore patterns here.\n".to_vec(),
+            ));
+        }
+        let gitignore = storage::read_safe_file(&install.root, Path::new(GITIGNORE))?;
+        if let Some(updated) = harness_domain::layout::with_git_ignore_entry(gitignore.as_deref()) {
+            desired.push((GITIGNORE.into(), updated));
         }
         // Record ownership/intended hashes before any file changes. A failed
         // installation can be resumed or uninstalled without guessing ownership.
         let mut expected_files = BTreeMap::new();
         for (path, bytes) in &desired {
             let current = storage::read_safe_file(&install.root, Path::new(path))?;
-            if matches!(path.as_str(), CODEGRAPH | IGNORE) && current.is_some() {
+            if path == IGNORE && current.is_some() {
                 return Err(format!(
                     "configuration appeared during installation: {path}"
                 ));
@@ -300,9 +303,11 @@ impl Installation {
     }
 
     /// Claim an absent index before asking the host to initialize it. Never adopt
-    /// a pre-existing .codegraph directory, even when it happens to be empty.
+    /// a pre-existing index directory, even when it happens to be empty. A legacy
+    /// `.codegraph` that is the only index present keeps being used in place.
     pub fn prepare_index(&mut self) -> Result<bool, String> {
-        if storage::safe_metadata(&self.root, Path::new(".codegraph"))?.is_none() {
+        let directory = self.index_directory()?;
+        if storage::safe_metadata(&self.root, Path::new(directory))?.is_none() {
             self.receipt.index_owned = true;
             self.save()?;
             index::claim(&self.root, &self.receipt.id)?;
@@ -311,7 +316,48 @@ impl Installation {
         if self.receipt.index_owned {
             index::verify_owner(&self.root, &self.receipt.id)?;
         }
-        Ok(storage::safe_metadata(&self.root, Path::new(".codegraph/codegraph.db"))?.is_none())
+        let database = format!("{directory}/codegraph.db");
+        Ok(storage::safe_metadata(&self.root, Path::new(&database))?.is_none())
+    }
+
+    fn index_directory(&self) -> Result<&'static str, String> {
+        use harness_domain::layout;
+        let present = |relative: &str| storage::safe_metadata(&self.root, Path::new(relative));
+        Ok(layout::index_dir(
+            present(layout::LEGACY_INDEX_DIR)?.is_some(),
+            present(layout::INDEX_DIR)?.is_some(),
+        ))
+    }
+
+    /// Write the scope config once the index directory exists. Existing configs,
+    /// including a legacy root `codegraph.json`, are never replaced.
+    pub fn finish_index(&mut self) -> Result<(), String> {
+        use harness_domain::layout;
+        let path = match self.index_directory()? {
+            layout::LEGACY_INDEX_DIR => layout::LEGACY_CONFIG_FILE,
+            _ => layout::CONFIG_FILE,
+        };
+        if [layout::CONFIG_FILE, layout::LEGACY_CONFIG_FILE]
+            .iter()
+            .try_fold(false, |found, existing| {
+                storage::safe_metadata(&self.root, Path::new(existing)).map(|m| found || m.is_some())
+            })?
+        {
+            return Ok(());
+        }
+        let bytes = b"{\n  \"include\": [],\n  \"exclude\": []\n}\n".to_vec();
+        if path == layout::CONFIG_FILE
+            && storage::safe_metadata(&self.root, Path::new(layout::CONFIG_DIR))?.is_none()
+            && !self.receipt.created_dirs.iter().any(|dir| dir == layout::CONFIG_DIR)
+        {
+            self.receipt.created_dirs.push(layout::CONFIG_DIR.into());
+        }
+        self.receipt.files.insert(
+            path.into(),
+            FileRecord { before: None, installed_hash: hash(&bytes) },
+        );
+        self.save()?;
+        storage::write_safe_file(&self.root, Path::new(path), &bytes, None)
     }
 
     pub fn report(&self) -> Value {
@@ -345,6 +391,19 @@ pub fn uninstall(root: &Path) -> Result<Value, String> {
             continue;
         }
         let Some(bytes) = current else { continue };
+        if path == GITIGNORE {
+            // A user-edited file: take back only the line `init` added.
+            if let Some(updated) = harness_domain::layout::without_git_ignore_entry(&bytes) {
+                let current_hash = hash(&bytes);
+                if updated.is_empty() && record.before.is_none() {
+                    storage::remove_safe_file(&root, Path::new(path), &current_hash)?;
+                } else {
+                    storage::write_safe_file(&root, Path::new(path), &updated, Some(&current_hash))?;
+                }
+                removed.push(path.clone());
+            }
+            continue;
+        }
         // Startup sync may have legitimately upgraded an owned skill. Accept
         // only exact bundled content, never arbitrary edits matching a manifest.
         let current_hash = hash(&bytes);
@@ -370,7 +429,7 @@ pub fn uninstall(root: &Path) -> Result<Value, String> {
     }
     if receipt.index_owned {
         index::remove(&root, &receipt.id)?;
-        removed.push(".codegraph".into());
+        removed.push(harness_domain::layout::INDEX_DIR.into());
         receipt.index_owned = false;
     }
     receipt.files.retain(|path, _| conflicts.contains(path));

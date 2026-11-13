@@ -15,7 +15,7 @@ use harness_domain::{
 };
 use matches::Evaluation;
 use results::MatchResults;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -141,8 +141,15 @@ pub(super) fn execute<'a>(
     let mut match_results = MatchResults::default();
     let resume_path = resume.and_then(|value| value["path"].as_str());
     let resume_hash = resume.and_then(|value| value["hash"].as_str());
-    let resume_ordinal = resume.and_then(|value| value["ordinal"].as_u64()).unwrap_or(0) as usize;
-    if resume.is_some() && (resume_path.is_none() || resume_hash.is_none() || resume.and_then(|value| value["ordinal"].as_u64()).is_none() || resume.and_then(|value| value["version"].as_u64()) != Some(1)) {
+    let resume_ordinal = resume
+        .and_then(|value| value["ordinal"].as_u64())
+        .unwrap_or(0) as usize;
+    if resume.is_some()
+        && (resume_path.is_none()
+            || resume_hash.is_none()
+            || resume.and_then(|value| value["ordinal"].as_u64()).is_none()
+            || resume.and_then(|value| value["version"].as_u64()) != Some(1))
+    {
         return Err(("DETAIL", "invalid search continuation"));
     }
     let mut seeking = resume_path.is_some();
@@ -171,33 +178,59 @@ pub(super) fn execute<'a>(
         match symbol_graph::discover(project, canonical, name, scope, limit, context) {
             Ok(Some(mut candidates)) => {
                 // Apply the same traversal policy before certifying indexed files.
-                let mut wanted: BTreeSet<String> = candidates.iter().map(|candidate| candidate.file_path.replace('\\', "/")).collect();
+                let mut wanted: BTreeSet<String> = candidates
+                    .iter()
+                    .map(|candidate| candidate.file_path.replace('\\', "/"))
+                    .collect();
                 let mut allowed = BTreeSet::new();
                 // Missing indexed files remain candidates so freshness can report them.
                 for path in wanted.clone() {
-                    if project.target_optional(&path).is_ok_and(|target| !target.exists()) {
+                    if project
+                        .target_optional(&path)
+                        .is_ok_and(|target| !target.exists())
+                    {
                         allowed.insert(path.clone());
                         wanted.remove(&path);
                     }
                 }
                 if !wanted.is_empty() {
-                    let policy_walk = walk::build(&project.root, &root, exclude_minified, explicit_scope)?;
+                    let policy_walk =
+                        walk::build(&project.root, &root, exclude_minified, explicit_scope)?;
                     let mut count = 0usize;
                     for entry in policy_walk.build() {
                         context.check()?;
-                        let entry = entry.map_err(|_| ("SEARCH_INCOMPLETE", "Unable to apply exclusion policy to indexed candidates"))?;
-                        if entry.error().is_some() { return Err(("SEARCH_INCOMPLETE", "Unable to read exclusion policy")); }
-                        if !entry.file_type().is_some_and(|kind| kind.is_file()) { continue; }
+                        let entry = entry.map_err(|_| {
+                            (
+                                "SEARCH_INCOMPLETE",
+                                "Unable to apply exclusion policy to indexed candidates",
+                            )
+                        })?;
+                        if entry.error().is_some() {
+                            return Err(("SEARCH_INCOMPLETE", "Unable to read exclusion policy"));
+                        }
+                        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                            continue;
+                        }
                         count += 1;
-                        if count > 10000 { return Err(("SEARCH_INCOMPLETE", "Exclusion policy scan reached its file budget")); }
+                        if count > 10000 {
+                            return Err((
+                                "SEARCH_INCOMPLETE",
+                                "Exclusion policy scan reached its file budget",
+                            ));
+                        }
                         if let Ok(relative) = entry.path().strip_prefix(&project.root) {
                             let path = relative.to_string_lossy().replace('\\', "/");
-                            if wanted.remove(&path) { allowed.insert(path); }
-                            if wanted.is_empty() { break; }
+                            if wanted.remove(&path) {
+                                allowed.insert(path);
+                            }
+                            if wanted.is_empty() {
+                                break;
+                            }
                         }
                     }
                 }
-                candidates.retain(|candidate| allowed.contains(&candidate.file_path.replace('\\', "/")));
+                candidates
+                    .retain(|candidate| allowed.contains(&candidate.file_path.replace('\\', "/")));
                 let verdicts = symbol_graph::certify(project, &candidates, context);
                 graph_outcome = Some(graph::graph_rows(
                     project,
@@ -314,7 +347,54 @@ pub(super) fn execute<'a>(
             started: Instant::now(),
             bytes: 0,
         };
-        if matches!(args.kind, Kind::Text | Kind::FileSize)
+        if matches!(args.kind, Kind::Text)
+            && normalized.rsplit_once('.').is_some_and(|(_, extension)| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "png"
+                        | "jpg"
+                        | "jpeg"
+                        | "gif"
+                        | "webp"
+                        | "ico"
+                        | "bmp"
+                        | "tiff"
+                        | "avif"
+                        | "woff"
+                        | "woff2"
+                        | "ttf"
+                        | "otf"
+                        | "eot"
+                        | "ttc"
+                        | "mp4"
+                        | "webm"
+                        | "mp3"
+                        | "wav"
+                        | "ogg"
+                        | "pdf"
+                        | "zip"
+                        | "tar"
+                        | "gz"
+                        | "7z"
+                        | "rar"
+                        | "exe"
+                        | "dll"
+                        | "so"
+                        | "dylib"
+                        | "pdb"
+                        | "lib"
+                        | "obj"
+                        | "wasm"
+                        | "bin"
+                        | "dat"
+                        | "lockb"
+                )
+            })
+        {
+            binary_skipped += 1;
+            continue;
+        }
+        if matches!(args.kind, Kind::FileSize)
             && normalized.rsplit_once('.').is_some_and(|(_, extension)| {
                 matches!(
                     extension.to_ascii_lowercase().as_str(),
@@ -334,7 +414,8 @@ pub(super) fn execute<'a>(
                 if args.query.is_empty() || relative.contains(&args.query) {
                     if match_results.rows.len() >= 10000 {
                         bounded = true;
-                        skipped_files.push(json!({"path":pending_path,"reason":"match_count_budget"}));
+                        skipped_files
+                            .push(json!({"path":pending_path,"reason":"match_count_budget"}));
                         break 'scan;
                     }
                     match_results.rows.push(json!(relative));
@@ -391,7 +472,9 @@ pub(super) fn execute<'a>(
                         continue;
                     }
                 };
-                if resume_path == Some(normalized.as_str()) && resume_hash != Some(harness_domain::hash(&file).as_str()) {
+                if resume_path == Some(normalized.as_str())
+                    && resume_hash != Some(harness_domain::hash(&file).as_str())
+                {
                     return Err(("STALE", "search continuation file changed"));
                 }
                 bytes += file.len();
@@ -541,8 +624,14 @@ pub(super) fn execute<'a>(
                     )?
                 };
                 if evaluation == Evaluation::Stop {
-                    if matches!(args.kind, Kind::Text) && args.ast.is_none() && args.regex != Some(true) && args.only_matching != Some(true)
-                        && skipped_files.last().is_some_and(|row| row["reason"] == "match_count_budget") {
+                    if matches!(args.kind, Kind::Text)
+                        && args.ast.is_none()
+                        && args.regex != Some(true)
+                        && args.only_matching != Some(true)
+                        && skipped_files
+                            .last()
+                            .is_some_and(|row| row["reason"] == "match_count_budget")
+                    {
                         last_read = Some((normalized.clone(), harness_domain::hash(&file)));
                     }
                     break 'scan;
@@ -553,18 +642,29 @@ pub(super) fn execute<'a>(
     if seeking && !timed_out && !cancelled {
         return Err(("STALE", "search continuation file is no longer available"));
     }
-    if resume.is_some() && !seeking && match_results.skip_remaining != 0 && !timed_out && !cancelled {
-        return Err(("STALE", "search continuation position is no longer available"));
+    if resume.is_some() && !seeking && match_results.skip_remaining != 0 && !timed_out && !cancelled
+    {
+        return Err((
+            "STALE",
+            "search continuation position is no longer available",
+        ));
     }
-    let continuation = if bounded && skipped == 0 && !timed_out && !cancelled
-        && skipped_files.last().is_some_and(|row| row["reason"] == "match_count_budget")
+    let continuation = if bounded
+        && skipped == 0
+        && !timed_out
+        && !cancelled
+        && skipped_files
+            .last()
+            .is_some_and(|row| row["reason"] == "match_count_budget")
     {
         last_read.as_ref().and_then(|(path, hash)| {
             let count = match_results.rows.iter().rev().take_while(|row| row["file"].as_str().is_some_and(|file| file.replace('\\', "/") == *path)).count();
             Some(json!({"version":1,"path":path,"hash":hash,
                 "ordinal":count + if resume_path == Some(path.as_str()) { resume_ordinal } else { 0 }}))
         })
-    } else { None };
+    } else {
+        None
+    };
     Ok(ScanOutcome {
         file_size,
         syntax,

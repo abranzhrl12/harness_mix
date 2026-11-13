@@ -24,6 +24,19 @@ pub(super) fn excluded(name: &str) -> bool {
     )
 }
 
+/// Generated index directory (`.agents/codegraph`), which no component name can express.
+pub(super) fn is_index_dir(path: &Path) -> bool {
+    path.ends_with(harness_domain::layout::INDEX_DIR)
+}
+
+/// `excluded` for a project-relative path: any excluded component or the index directory.
+pub(super) fn excluded_relative(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    path.split('/').any(excluded)
+        || path == harness_domain::layout::INDEX_DIR
+        || path.starts_with(concat!(".agents/codegraph", "/"))
+}
+
 pub(super) fn restricted(path: &str) -> bool {
     restricted_reason(path).is_some()
 }
@@ -125,7 +138,8 @@ impl InventoryPort for NativeInventory<'_> {
             .ignore(false)
             .sort_by_file_path(|a, b| a.cmp(b))
             .filter_entry(|entry| {
-                entry.depth() == 0 || !excluded(&entry.file_name().to_string_lossy())
+                entry.depth() == 0
+                    || !(excluded(&entry.file_name().to_string_lossy()) || is_index_dir(entry.path()))
             });
         Box::new(builder.build().map(move |entry| {
             match entry {
